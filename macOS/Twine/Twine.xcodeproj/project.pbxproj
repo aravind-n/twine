@@ -1,0 +1,537 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 110;
+	objects = {
+
+/* Begin PBXContainerItemProxy section */
+		F266A3F53068BD6100C1232B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F266A3DF3068BD6000C1232B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F266A3E63068BD6000C1232B;
+			remoteInfo = Twine;
+		};
+		F266A3FF3068BD6100C1232B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F266A3DF3068BD6000C1232B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F266A3E63068BD6000C1232B;
+			remoteInfo = Twine;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		F266A3E73068BD6000C1232B /* Twine.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Twine.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F266A3F43068BD6100C1232B /* TwineTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TwineTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F266A3FE3068BD6100C1232B /* TwineUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TwineUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		F266A3E93068BD6000C1232B /* Twine */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Twine;
+			sourceTree = "<group>";
+		};
+		F266A3F73068BD6100C1232B /* TwineTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TwineTests;
+			sourceTree = "<group>";
+		};
+		F266A4013068BD6100C1232B /* TwineUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TwineUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F266A3E43068BD6000C1232B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		F266A3F13068BD6100C1232B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		F266A3FB3068BD6100C1232B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		F266A3DE3068BD6000C1232B = {
+			isa = PBXGroup;
+			children = (
+				F266A3E93068BD6000C1232B /* Twine */,
+				F266A3F73068BD6100C1232B /* TwineTests */,
+				F266A4013068BD6100C1232B /* TwineUITests */,
+				F266A3E83068BD6000C1232B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F266A3E83068BD6000C1232B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F266A3E73068BD6000C1232B /* Twine.app */,
+				F266A3F43068BD6100C1232B /* TwineTests.xctest */,
+				F266A3FE3068BD6100C1232B /* TwineUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F266A3E63068BD6000C1232B /* Twine */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F266A4063068BD6100C1232B /* Build configuration list for PBXNativeTarget "Twine" */;
+			buildPhases = (
+				F266A3E33068BD6000C1232B /* Sources */,
+				F266A3E43068BD6000C1232B /* Frameworks */,
+				F266A3E53068BD6000C1232B /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				F266A3E93068BD6000C1232B /* Twine */,
+			);
+			name = Twine;
+			productName = Twine;
+			productReference = F266A3E73068BD6000C1232B /* Twine.app */;
+			productType = "com.apple.product-type.application";
+		};
+		F266A3F33068BD6100C1232B /* TwineTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F266A4093068BD6100C1232B /* Build configuration list for PBXNativeTarget "TwineTests" */;
+			buildPhases = (
+				F266A3F03068BD6100C1232B /* Sources */,
+				F266A3F13068BD6100C1232B /* Frameworks */,
+				F266A3F23068BD6100C1232B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F266A3F63068BD6100C1232B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F266A3F73068BD6100C1232B /* TwineTests */,
+			);
+			name = TwineTests;
+			productName = TwineTests;
+			productReference = F266A3F43068BD6100C1232B /* TwineTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		F266A3FD3068BD6100C1232B /* TwineUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F266A40C3068BD6100C1232B /* Build configuration list for PBXNativeTarget "TwineUITests" */;
+			buildPhases = (
+				F266A3FA3068BD6100C1232B /* Sources */,
+				F266A3FB3068BD6100C1232B /* Frameworks */,
+				F266A3FC3068BD6100C1232B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F266A4003068BD6100C1232B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F266A4013068BD6100C1232B /* TwineUITests */,
+			);
+			name = TwineUITests;
+			productName = TwineUITests;
+			productReference = F266A3FE3068BD6100C1232B /* TwineUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F266A3DF3068BD6000C1232B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					F266A3E63068BD6000C1232B = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					F266A3F33068BD6100C1232B = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = F266A3E63068BD6000C1232B;
+					};
+					F266A3FD3068BD6100C1232B = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = F266A3E63068BD6000C1232B;
+					};
+				};
+			};
+			buildConfigurationList = F266A3E23068BD6000C1232B /* Build configuration list for PBXProject "Twine" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = F266A3DE3068BD6000C1232B;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = F266A3E83068BD6000C1232B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F266A3E63068BD6000C1232B /* Twine */,
+				F266A3F33068BD6100C1232B /* TwineTests */,
+				F266A3FD3068BD6100C1232B /* TwineUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		F266A3E53068BD6000C1232B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		F266A3F23068BD6100C1232B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		F266A3FC3068BD6100C1232B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		F266A3E33068BD6000C1232B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		F266A3F03068BD6100C1232B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		F266A3FA3068BD6100C1232B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F266A3F63068BD6100C1232B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F266A3E63068BD6000C1232B /* Twine */;
+			targetProxy = F266A3F53068BD6100C1232B /* PBXContainerItemProxy */;
+		};
+		F266A4003068BD6100C1232B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F266A3E63068BD6000C1232B /* Twine */;
+			targetProxy = F266A3FF3068BD6100C1232B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		F266A4043068BD6100C1232B /* Debug configuration for PBXProject "Twine" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		F266A4053068BD6100C1232B /* Release configuration for PBXProject "Twine" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		F266A4073068BD6100C1232B /* Debug configuration for PBXNativeTarget "Twine" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.twineproject.Twine;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		F266A4083068BD6100C1232B /* Release configuration for PBXNativeTarget "Twine" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.twineproject.Twine;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		F266A40A3068BD6100C1232B /* Debug configuration for PBXNativeTarget "TwineTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.twineproject.TwineTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Twine.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Twine";
+			};
+			name = Debug;
+		};
+		F266A40B3068BD6100C1232B /* Release configuration for PBXNativeTarget "TwineTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.twineproject.TwineTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Twine.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Twine";
+			};
+			name = Release;
+		};
+		F266A40D3068BD6100C1232B /* Debug configuration for PBXNativeTarget "TwineUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.twineproject.TwineUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Twine;
+			};
+			name = Debug;
+		};
+		F266A40E3068BD6100C1232B /* Release configuration for PBXNativeTarget "TwineUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.twineproject.TwineUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Twine;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F266A3E23068BD6000C1232B /* Build configuration list for PBXProject "Twine" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F266A4043068BD6100C1232B /* Debug configuration for PBXProject "Twine" */,
+				F266A4053068BD6100C1232B /* Release configuration for PBXProject "Twine" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		F266A4063068BD6100C1232B /* Build configuration list for PBXNativeTarget "Twine" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F266A4073068BD6100C1232B /* Debug configuration for PBXNativeTarget "Twine" */,
+				F266A4083068BD6100C1232B /* Release configuration for PBXNativeTarget "Twine" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		F266A4093068BD6100C1232B /* Build configuration list for PBXNativeTarget "TwineTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F266A40A3068BD6100C1232B /* Debug configuration for PBXNativeTarget "TwineTests" */,
+				F266A40B3068BD6100C1232B /* Release configuration for PBXNativeTarget "TwineTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		F266A40C3068BD6100C1232B /* Build configuration list for PBXNativeTarget "TwineUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F266A40D3068BD6100C1232B /* Debug configuration for PBXNativeTarget "TwineUITests" */,
+				F266A40E3068BD6100C1232B /* Release configuration for PBXNativeTarget "TwineUITests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F266A3DF3068BD6000C1232B /* Project object */;
+	validationLevel = 1;
+}
