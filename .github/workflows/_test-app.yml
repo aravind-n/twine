@@ -1,0 +1,60 @@
+name: Test App
+
+on:
+  workflow_call:
+    inputs:
+      ui-tests:
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require Xcode 27.0
+        run: |
+          if [[ ! -d "$DEVELOPER_DIR" ]]; then
+            echo "::error::Xcode 27.0 is missing at $DEVELOPER_DIR"
+            exit 1
+          fi
+          version="$(xcodebuild -version | head -n 1)"
+          if [[ "$version" != 'Xcode 27.0' ]]; then
+            echo "::error::Expected Xcode 27.0, found $version"
+            exit 1
+          fi
+      - name: Install latest stable Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add aarch64-apple-darwin
+          rustc --version
+      - name: Install Metal Toolchain if missing
+        run: |
+          if ! xcrun metal -v >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+      - name: Check Swift formatting
+        run: swift format lint --strict --recursive macOS/
+      - name: Build app and run SwiftLint
+        run: >-
+          xcodebuild -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -destination 'platform=macOS' -skipPackagePluginValidation
+          CODE_SIGNING_ALLOWED=NO build
+      - name: Run app unit tests
+        run: >-
+          xcodebuild -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -destination 'platform=macOS' -skipPackagePluginValidation
+          CODE_SIGNING_ALLOWED=NO test -only-testing:TwineTests
+      - name: Run app UI tests
+        if: inputs.ui-tests
+        run: >-
+          xcodebuild -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -destination 'platform=macOS' -skipPackagePluginValidation
+          CODE_SIGNING_ALLOWED=NO test -only-testing:TwineUITests

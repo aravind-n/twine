@@ -1,0 +1,69 @@
+name: Build App
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      BUILD_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require Xcode 27.0
+        run: |
+          if [[ ! -d "$DEVELOPER_DIR" ]]; then
+            echo "::error::Xcode 27.0 is missing at $DEVELOPER_DIR"
+            exit 1
+          fi
+          version="$(xcodebuild -version | head -n 1)"
+          if [[ "$version" != 'Xcode 27.0' ]]; then
+            echo "::error::Expected Xcode 27.0, found $version"
+            exit 1
+          fi
+      - name: Install latest stable Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc --version
+      - name: Install Metal Toolchain if missing
+        run: |
+          if ! xcrun metal -v >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+      - name: Build unsigned universal Release app
+        run: >-
+          xcodebuild -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -configuration Release -destination 'generic/platform=macOS'
+          -derivedDataPath "$RUNNER_TEMP/TwineDerivedData"
+          -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build
+      - name: Stamp and package app
+        run: |
+          if [[ ! "$BUILD_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Invalid artifact version: $BUILD_VERSION"
+            exit 1
+          fi
+          app="$RUNNER_TEMP/TwineDerivedData/Build/Products/Release/Twine.app"
+          test -d "$app"
+          archs="$(xcrun lipo -archs "$app/Contents/MacOS/Twine")"
+          if [[ " $archs " != *' arm64 '* || " $archs " != *' x86_64 '* ]]; then
+            echo "::error::Expected a universal app, found architectures: $archs"
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c "Add :TwineBuildVersion string $BUILD_VERSION" "$app/Contents/Info.plist"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Twine-$BUILD_VERSION.zip"
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Twine-${{ inputs.version }}
+          path: ${{ runner.temp }}/Twine-${{ inputs.version }}.zip
+          if-no-files-found: error

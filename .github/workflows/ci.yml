@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      libraries: ${{ steps.all.outputs.libraries || steps.filter.outputs.libraries }}
+      app: ${{ steps.all.outputs.app || steps.filter.outputs.app }}
+      workflows: ${{ steps.all.outputs.workflows || steps.filter.outputs.workflows }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Detect pull request changes
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            libraries:
+              - 'twine-core/**'
+              - 'twine-bridge/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            app:
+              - 'macOS/**'
+              - 'twine-core/**'
+              - 'twine-bridge/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            workflows:
+              - '.github/**'
+      - name: Select every check on main
+        if: github.event_name == 'push'
+        id: all
+        run: |
+          {
+            echo 'libraries=true'
+            echo 'app=true'
+            echo 'workflows=true'
+          } >> "$GITHUB_OUTPUT"
+      - name: Set artifact version
+        id: version
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            echo "version=pr-$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=ci-${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+          fi
+
+  test-rust:
+    needs: changes
+    if: needs.changes.outputs.libraries == 'true'
+    uses: ./.github/workflows/_test-rust.yml
+
+  test-app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    uses: ./.github/workflows/_test-app.yml
+    with:
+      ui-tests: ${{ github.event_name == 'push' }}
+
+  build-app:
+    needs: [changes, test-rust, test-app]
+    if: >-
+      ${{
+        always() &&
+        needs.changes.result == 'success' &&
+        needs.changes.outputs.app == 'true' &&
+        needs.test-app.result == 'success' &&
+        ((needs.changes.outputs.libraries == 'true' && needs.test-rust.result == 'success') ||
+         (needs.changes.outputs.libraries != 'true' && needs.test-rust.result == 'skipped'))
+      }}
+    uses: ./.github/workflows/_build-app.yml
+    with:
+      version: ${{ needs.changes.outputs.version }}
+
+  actionlint:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint workflows
+        run: |
+          docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.12 \
+            -color -ignore 'label "xcode-27" is unknown'
+
+  ci-gate:
+    needs: [changes, test-rust, test-app, build-app, actionlint]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      LIBRARIES_SELECTED: ${{ needs.changes.outputs.libraries }}
+      APP_SELECTED: ${{ needs.changes.outputs.app }}
+      WORKFLOWS_SELECTED: ${{ needs.changes.outputs.workflows }}
+      TEST_RUST_RESULT: ${{ needs.test-rust.result }}
+      TEST_APP_RESULT: ${{ needs.test-app.result }}
+      BUILD_APP_RESULT: ${{ needs.build-app.result }}
+      ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
+    steps:
+      - name: Check selected jobs
+        run: |
+          failed=0
+          if [[ "$CHANGES_RESULT" != success ]]; then
+            echo "::error::changes was $CHANGES_RESULT (expected success)"
+            failed=1
+          fi
+          check_job() {
+            local name="$1" selected="$2" result="$3" expected=skipped
+            if [[ "$selected" == true ]]; then expected=success; fi
+            if [[ "$result" != "$expected" ]]; then
+              echo "::error::$name was $result (expected $expected)"
+              failed=1
+            else
+              echo "$name: $result"
+            fi
+          }
+          check_job test-rust "$LIBRARIES_SELECTED" "$TEST_RUST_RESULT"
+          check_job test-app "$APP_SELECTED" "$TEST_APP_RESULT"
+          check_job build-app "$APP_SELECTED" "$BUILD_APP_RESULT"
+          check_job actionlint "$WORKFLOWS_SELECTED" "$ACTIONLINT_RESULT"
+          exit "$failed"
