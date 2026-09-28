@@ -6,6 +6,8 @@ Use SwiftTerm in an AppKit view for the primary terminal surface, with its Metal
 
 Get backend state and send commands only through the Swift bridge client; build the Rust side of a feature alongside its UI rather than mocking it.
 
+Follow the visual direction in [DESIGN.md](DESIGN.md) for all UI work.
+
 ## Swift conventions
 
 - **Language:** Swift 6 language mode with complete data-race checking and `MainActor` as the default isolation. Fix concurrency diagnostics with correct isolation or `Sendable` types, not with `@unchecked Sendable`, `nonisolated(unsafe)`, or `@preconcurrency`.
