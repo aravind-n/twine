@@ -106,7 +106,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				F2DDC75F306A85810066E501 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				F266A3E93068BD6000C1232B /* Twine */,
@@ -130,7 +129,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				F2DDC761306A859F0066E501 /* PBXTargetDependency */,
 				F266A3F63068BD6100C1232B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
@@ -152,7 +150,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				F2DDC763306A85A50066E501 /* PBXTargetDependency */,
 				F266A4003068BD6100C1232B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
@@ -277,18 +274,6 @@
 			isa = PBXTargetDependency;
 			target = F266A3E63068BD6000C1232B /* Twine */;
 			targetProxy = F266A3FF3068BD6100C1232B /* PBXContainerItemProxy */;
-		};
-		F2DDC75F306A85810066E501 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			productRef = F2DDC75E306A85810066E501 /* SwiftLintBuildToolPlugin */;
-		};
-		F2DDC761306A859F0066E501 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			productRef = F2DDC760306A859F0066E501 /* SwiftLintBuildToolPlugin */;
-		};
-		F2DDC763306A85A50066E501 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			productRef = F2DDC762306A85A50066E501 /* SwiftLintBuildToolPlugin */;
 		};
 /* End PBXTargetDependency section */
 
@@ -616,21 +601,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		F2DDC75E306A85810066E501 /* SwiftLintBuildToolPlugin */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F2DDC75D306A855C0066E501 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */;
-			productName = "plugin:SwiftLintBuildToolPlugin";
-		};
-		F2DDC760306A859F0066E501 /* SwiftLintBuildToolPlugin */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F2DDC75D306A855C0066E501 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */;
-			productName = "plugin:SwiftLintBuildToolPlugin";
-		};
-		F2DDC762306A85A50066E501 /* SwiftLintBuildToolPlugin */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F2DDC75D306A855C0066E501 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */;
-			productName = "plugin:SwiftLintBuildToolPlugin";
-		};
 		F2DDC767306A85810066E501 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F2DDC766306A85810066E501 /* XCRemoteSwiftPackageReference "SwiftTerm" */;

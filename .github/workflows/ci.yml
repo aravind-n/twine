@@ -1,5 +1,8 @@
 name: CI
 
+# Pull requests run every check their changes select, and ci-gate is the one required check.
+# Main only accepts up-to-date pull requests, so pushes to main skip those checks and run
+# only the work pull requests don't: UI tests and the release build.
 on:
   pull_request:
   push:
@@ -10,86 +13,92 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
     outputs:
-      libraries: ${{ steps.all.outputs.libraries || steps.filter.outputs.libraries }}
-      app: ${{ steps.all.outputs.app || steps.filter.outputs.app }}
-      workflows: ${{ steps.all.outputs.workflows || steps.filter.outputs.workflows }}
-      version: ${{ steps.version.outputs.version }}
+      libraries: ${{ steps.filter.outputs.libraries }}
+      lockfile: ${{ steps.filter.outputs.lockfile }}
+      app: ${{ steps.filter.outputs.app }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
-      - name: Detect pull request changes
-        if: github.event_name == 'pull_request'
+      - name: Detect changed areas
         id: filter
         uses: dorny/paths-filter@v4
         with:
+          # Workflow changes select every check, because main doesn't re-run them after merging.
           filters: |
             libraries:
               - 'twine-core/**'
               - 'twine-bridge/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.github/**'
+            lockfile:
+              - 'Cargo.lock'
+              - '.github/**'
             app:
-              - 'macOS/**'
+              - 'macOS/**/!(*.md)'
               - 'twine-core/**'
               - 'twine-bridge/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.github/**'
             workflows:
               - '.github/**'
-      - name: Select every check on main
-        if: github.event_name == 'push'
-        id: all
-        run: |
-          {
-            echo 'libraries=true'
-            echo 'app=true'
-            echo 'workflows=true'
-          } >> "$GITHUB_OUTPUT"
-      - name: Set artifact version
-        id: version
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            echo "version=pr-$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=ci-${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
-          fi
 
-  test-rust:
+  library-checks:
     needs: changes
     if: needs.changes.outputs.libraries == 'true'
-    uses: ./.github/workflows/_test-rust.yml
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-macos
+        with:
+          rust-components: rustfmt clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Run Rust tests
+        run: cargo test --workspace --locked
 
-  test-app:
+  dependency-audit:
+    needs: changes
+    if: needs.changes.outputs.lockfile == 'true'
+    uses: ./.github/workflows/_dependency-audit.yml
+
+  app-checks:
     needs: changes
     if: needs.changes.outputs.app == 'true'
-    uses: ./.github/workflows/_test-app.yml
-    with:
-      ui-tests: ${{ github.event_name == 'push' }}
-
-  build-app:
-    needs: [changes, test-rust, test-app]
-    if: >-
-      ${{
-        always() &&
-        needs.changes.result == 'success' &&
-        needs.changes.outputs.app == 'true' &&
-        needs.test-app.result == 'success' &&
-        ((needs.changes.outputs.libraries == 'true' && needs.test-rust.result == 'success') ||
-         (needs.changes.outputs.libraries != 'true' && needs.test-rust.result == 'skipped'))
-      }}
-    uses: ./.github/workflows/_build-app.yml
-    with:
-      version: ${{ needs.changes.outputs.version }}
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-macos
+        with:
+          metal: 'true'
+      - name: Check Swift formatting
+        run: swift format lint --strict --recursive macOS/
+      - name: Run SwiftLint
+        run: macOS/Twine/Scripts/swiftlint.sh
+      - name: Build app for testing (Debug)
+        run: >-
+          xcodebuild build-for-testing -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
+      - name: Run unit tests
+        run: >-
+          xcodebuild test-without-building -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          -only-testing:TwineTests
 
   actionlint:
     needs: changes
@@ -103,21 +112,22 @@ jobs:
             -color -ignore 'label "xcode-27" is unknown'
 
   ci-gate:
-    needs: [changes, test-rust, test-app, build-app, actionlint]
-    if: ${{ always() }}
+    needs: [changes, library-checks, dependency-audit, app-checks, actionlint]
+    if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions: {}
     env:
       CHANGES_RESULT: ${{ needs.changes.result }}
       LIBRARIES_SELECTED: ${{ needs.changes.outputs.libraries }}
+      LOCKFILE_SELECTED: ${{ needs.changes.outputs.lockfile }}
       APP_SELECTED: ${{ needs.changes.outputs.app }}
       WORKFLOWS_SELECTED: ${{ needs.changes.outputs.workflows }}
-      TEST_RUST_RESULT: ${{ needs.test-rust.result }}
-      TEST_APP_RESULT: ${{ needs.test-app.result }}
-      BUILD_APP_RESULT: ${{ needs.build-app.result }}
+      LIBRARY_CHECKS_RESULT: ${{ needs.library-checks.result }}
+      DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+      APP_CHECKS_RESULT: ${{ needs.app-checks.result }}
       ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
     steps:
-      - name: Check selected jobs
+      - name: Require selected jobs to pass
         run: |
           failed=0
           if [[ "$CHANGES_RESULT" != success ]]; then
@@ -134,8 +144,33 @@ jobs:
               echo "$name: $result"
             fi
           }
-          check_job test-rust "$LIBRARIES_SELECTED" "$TEST_RUST_RESULT"
-          check_job test-app "$APP_SELECTED" "$TEST_APP_RESULT"
-          check_job build-app "$APP_SELECTED" "$BUILD_APP_RESULT"
+          check_job library-checks "$LIBRARIES_SELECTED" "$LIBRARY_CHECKS_RESULT"
+          check_job dependency-audit "$LOCKFILE_SELECTED" "$DEPENDENCY_AUDIT_RESULT"
+          check_job app-checks "$APP_SELECTED" "$APP_CHECKS_RESULT"
           check_job actionlint "$WORKFLOWS_SELECTED" "$ACTIONLINT_RESULT"
           exit "$failed"
+
+  ui-tests:
+    if: github.event_name == 'push'
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-macos
+        with:
+          metal: 'true'
+      - name: Build app for testing (Debug)
+        run: >-
+          xcodebuild build-for-testing -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
+      - name: Run UI tests
+        run: >-
+          xcodebuild test-without-building -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          -only-testing:TwineUITests
+
+  release-build:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/_release-build.yml
+    with:
+      version: ci-${{ github.sha }}

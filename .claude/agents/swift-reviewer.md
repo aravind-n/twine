@@ -69,10 +69,11 @@ Check whether tests cover the changed behavior, its important failure paths and 
 
 Run, and report the outcome of each:
 - `swift format lint --strict --recursive macOS/`
-- `xcodebuild -project macOS/Twine/Twine.xcodeproj -scheme Twine -destination 'platform=macOS' build` (this also runs SwiftLint; report its violations)
+- `macOS/Twine/Scripts/swiftlint.sh`
+- `xcodebuild -project macOS/Twine/Twine.xcodeproj -scheme Twine -destination 'platform=macOS' build`
 - `xcodebuild -project macOS/Twine/Twine.xcodeproj -scheme Twine -destination 'platform=macOS' test -only-testing:TwineTests`
 
-If `xcodebuild` says the active developer directory is the Command Line Tools, prefix the commands with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`, and note in the review that SwiftLint in Xcode needs `xcode-select` pointed at Xcode. Report compiler warnings in changed files, especially concurrency warnings. Don't run UI tests unless the caller asks, because they take over the screen. Say which checks you couldn't run and why.
+If `xcodebuild` says the active developer directory is the Command Line Tools, prefix the commands with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`, and note in the review that SwiftLint needs `xcode-select` pointed at Xcode. Report compiler warnings in changed files, especially concurrency warnings. Don't run UI tests unless the caller asks, because they take over the screen. Say which checks you couldn't run and why.
 
 ### 5. Swift engineering
 - **Crashes:** Flag force unwraps, `try!`, `as!`, `fatalError`, and `precondition` in production paths when the condition can actually happen (user input, bridge data, file system, timing). They're fine in tests and for invariants that are obviously guaranteed.

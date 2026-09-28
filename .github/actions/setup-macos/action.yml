@@ -1,0 +1,54 @@
+name: Set up macOS build tools
+description: Select Xcode 27.0, install the latest stable Rust, and optionally the Metal toolchain.
+
+inputs:
+  rust-targets:
+    description: Space-separated Rust targets to install.
+    required: false
+    default: aarch64-apple-darwin
+  rust-components:
+    description: Space-separated rustup components to install.
+    required: false
+    default: ''
+  metal:
+    description: Install the Metal toolchain if it is missing.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Require Xcode 27.0
+      shell: bash
+      run: |
+        developer_dir=/Applications/Xcode_27.0.app/Contents/Developer
+        if [[ ! -d "$developer_dir" ]]; then
+          echo "::error::Xcode 27.0 is missing at $developer_dir"
+          exit 1
+        fi
+        echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+        version="$(DEVELOPER_DIR="$developer_dir" xcodebuild -version | head -n 1)"
+        if [[ "$version" != 'Xcode 27.0' ]]; then
+          echo "::error::Expected Xcode 27.0, found $version"
+          exit 1
+        fi
+    - name: Install latest stable Rust
+      shell: bash
+      env:
+        RUST_TARGETS: ${{ inputs.rust-targets }}
+        RUST_COMPONENTS: ${{ inputs.rust-components }}
+      run: |
+        rustup update stable
+        rustup default stable
+        read -ra targets <<< "$RUST_TARGETS"
+        read -ra components <<< "$RUST_COMPONENTS"
+        if (( ${#targets[@]} )); then rustup target add "${targets[@]}"; fi
+        if (( ${#components[@]} )); then rustup component add "${components[@]}"; fi
+        rustc --version
+    - name: Install Metal toolchain if missing
+      if: inputs.metal == 'true'
+      shell: bash
+      run: |
+        if ! xcrun metal -v >/dev/null 2>&1; then
+          xcodebuild -downloadComponent MetalToolchain
+        fi
