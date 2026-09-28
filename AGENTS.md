@@ -24,11 +24,12 @@ Use the terms defined in [CONTEXT.md](CONTEXT.md) when naming folder, session, w
 
 ## Code style guidelines
 
+- **Branches:** `main` accepts changes only through pull requests, and force pushes are blocked. Work on a branch, push it, and open a pull request.
 - **Commits:** Use Linux kernel style (`scope: imperative command`). Write the subject as an
   instruction to edit the repository. A complete subject names both the codebase artifact and the
   edit applied to it, using a repository-edit verb such as `add`, `move`, `split`, `extract`,
-  `replace`, `remove`, or `rename`. Keep the message concise: a short subject plus at most one or
-  two body lines.
+  `replace`, `remove`, or `rename`. Keep the message as a short subject line. You can add at most one or
+  two body lines if absolutely necessary.
   - **Examples of good commit messages:**
     - `api: add pagination middleware to collection endpoints`
     - `database: split customer addresses into normalized tables`
