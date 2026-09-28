@@ -24,7 +24,7 @@ Use the terms defined in [CONTEXT.md](CONTEXT.md) when naming folder, session, w
 
 ## Code style guidelines
 
-- **Branches:** `main` accepts changes only through pull requests, and force pushes are blocked. Work on a branch, push it, and open a pull request.
+- **Branches:** `main` accepts changes only through pull requests, and force pushes are blocked. Do your work on a local branch. Never push, open a pull request, or merge without the user's explicit approval.
 - **Commits:** Use Linux kernel style (`scope: imperative command`). Write the subject as an
   instruction to edit the repository. A complete subject names both the codebase artifact and the
   edit applied to it, using a repository-edit verb such as `add`, `move`, `split`, `extract`,
