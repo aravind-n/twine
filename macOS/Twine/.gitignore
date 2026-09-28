@@ -5,6 +5,11 @@
 ## User settings
 xcuserdata/
 
+## Build output (xcodebuild -derivedDataPath / -resultBundlePath)
+/build/
+/DerivedData/
+*.xcresult
+
 ## Obj-C/Swift specific
 *.hmap
 
