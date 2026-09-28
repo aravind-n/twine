@@ -13,7 +13,7 @@ Get backend state and send commands only through the Swift bridge client; build 
 - **State:** Use Observation: `@Observable` models with `@State`, `@Bindable`, and `@Environment`. Don't use `ObservableObject`, `@Published`, or Combine for app state.
 - **Concurrency:** Use async/await and structured concurrency. Don't use GCD or Combine for new asynchronous work.
 - **Tests:** Write unit tests with Swift Testing (`@Test`, `#expect`). Use XCTest only for UI tests.
-- **Formatting and linting:** Format with `swift format --in-place --recursive macOS/` before committing; `swift format lint --strict --recursive macOS/` must pass. SwiftLint runs as part of every Xcode build, and its violations fail the build. The configs are `macOS/Twine/.swift-format` and `macOS/Twine/.swiftlint.yml`.
+- **Formatting and linting:** Format with `swift format --in-place --recursive macOS/` before committing; `swift format lint --strict --recursive macOS/` must pass. Run `macOS/Twine/Scripts/swiftlint.sh`; it must pass with no violations. The configs are `macOS/Twine/.swift-format` and `macOS/Twine/.swiftlint.yml`.
 - **Logging:** Emit diagnostics with `Logger` from `os`, using the app's bundle identifier (`com.twineproject.Twine`) as the subsystem and one category per feature. Never use `print`. Never log secrets, file contents, or terminal output.
 
 ## Review

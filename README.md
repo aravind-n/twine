@@ -4,10 +4,10 @@ Twine is an agent workspace for coordinating your agents
 
 ## Development setup
 
-- Install Xcode 27.0 and point the developer tools at it: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. The app's Swift package plugins require Xcode rather than the Command Line Tools.
+- Install Xcode 27.0 and point the developer tools at it: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. The SwiftTerm build plugin and SwiftLint both require Xcode rather than the Command Line Tools.
 - Install the latest stable Rust with `rustup`, then install both macOS targets: `rustup target add aarch64-apple-darwin x86_64-apple-darwin`. A universal Release build needs both targets.
 - Install Xcode's Metal Toolchain if it is missing: `xcodebuild -downloadComponent MetalToolchain`.
-- Open `macOS/Twine/Twine.xcodeproj`, select the `Twine` scheme, and build. Trust the SwiftLint and SwiftTerm build plugins when Xcode prompts. The build compiles and links the Rust library automatically.
+- Open `macOS/Twine/Twine.xcodeproj`, select the `Twine` scheme, and build. Trust the SwiftTerm build plugin when Xcode prompts. The build compiles and links the Rust library automatically.
 
 From the repository root, the same build works from the command line:
 
@@ -19,3 +19,9 @@ xcodebuild -project macOS/Twine/Twine.xcodeproj -scheme Twine -configuration Deb
 ```
 
 Use `-configuration Release -destination 'generic/platform=macOS'` for a universal Release build. No manual copying of the Rust library or C header is needed.
+
+Lint the Swift code with the SwiftLint version pinned in `Package.resolved`:
+
+```sh
+macOS/Twine/Scripts/swiftlint.sh
+```
