@@ -5,10 +5,13 @@ use serde_json::Value;
 use twine_core::{
     ApplicationState, Command, CommandDisposition, CommandReceipt, CommandResult, Event, EventKind,
     FolderState, RequestId, Snapshot, StateEvent, TerminalId, TerminalSize, TerminalState,
-    TerminalStatus, UnavailableReason,
+    TerminalStatus, UnavailableReason, WorkflowId, WorkflowKind,
 };
 
 use crate::error::BridgeError;
+
+mod workflows;
+use workflows::{WireSession, WireWorkflow, WireWorkflowState};
 
 #[derive(Debug)]
 pub(crate) struct CommandEnvelope {
@@ -34,6 +37,34 @@ struct RawCommandEnvelope {
 struct RawStartTerminal {
     working_directory: String,
     size: RawTerminalSize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawCreateWorkflow {
+    folder: PathBuf,
+    kind: RawWorkflowKind,
+    size: RawTerminalSize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum RawWorkflowKind {
+    Draft,
+    Terminal,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawWorkflowId {
+    workflow_id: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawDraftName {
+    workflow_id: u64,
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -81,12 +112,14 @@ struct WireSnapshot<'a> {
     config: &'a twine_core::config::Config,
     folders: WireFolderState<'a>,
     terminals: Vec<WireTerminalState>,
+    workflows: WireWorkflowState<'a>,
 }
 
 /// Paths serialize as strings; serde rejects a path that isn't valid UTF-8.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WireFolderState<'a> {
+    current_branch: Option<&'a str>,
     open_folder: Option<&'a Path>,
     recent_folders: Vec<WireRecentFolder<'a>>,
     unavailable_folder: Option<WireUnavailableFolder<'a>>,
@@ -116,6 +149,7 @@ enum WireUnavailableReason {
 impl<'a> From<&'a FolderState> for WireFolderState<'a> {
     fn from(folders: &'a FolderState) -> Self {
         Self {
+            current_branch: folders.current_branch.as_deref(),
             open_folder: folders.open_folder.as_deref(),
             recent_folders: folders
                 .recent_folders
@@ -189,7 +223,16 @@ struct WireEvent<'a> {
     rename_all_fields = "camelCase"
 )]
 enum WireEventKind<'a> {
+    SessionChanged {
+        session: WireSession<'a>,
+    },
+    WorkflowChanged {
+        workflow: WireWorkflow<'a>,
+    },
     ApplicationReady,
+    TerminalClosed {
+        terminal_id: u64,
+    },
     TerminalExited {
         terminal_id: u64,
         exit_code: u32,
@@ -215,6 +258,9 @@ enum WireEventKind<'a> {
     rename_all_fields = "camelCase"
 )]
 enum WireCommandResult {
+    WorkflowCreated { workflow_id: u64 },
+    WorkflowActivated { workflow_id: u64 },
+    WorkflowClosed { workflow_id: u64 },
     Pong,
     TerminalStarted { terminal_id: u64 },
     TerminalClosed { terminal_id: u64 },
@@ -235,9 +281,61 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
             path: decode_path(&raw.command)?,
         }),
         "closeFolder" => DecodedCommand::Known(Command::CloseFolder),
+        "closeFolderIfOpen" => DecodedCommand::Known(Command::CloseFolderIfOpen {
+            path: decode_path(&raw.command)?,
+        }),
         "removeRecentFolder" => DecodedCommand::Known(Command::RemoveRecentFolder {
             path: decode_path(&raw.command)?,
         }),
+        "refreshGitBranch" => {
+            let folder = raw
+                .command
+                .get("folder")
+                .and_then(Value::as_str)
+                .ok_or(BridgeError::MalformedCommand)?;
+            DecodedCommand::Known(Command::RefreshGitBranch {
+                folder: PathBuf::from(folder),
+            })
+        }
+        "createWorkflow" => {
+            let command: RawCreateWorkflow =
+                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
+            DecodedCommand::Known(Command::CreateWorkflow {
+                folder: command.folder,
+                kind: match command.kind {
+                    RawWorkflowKind::Draft => WorkflowKind::Draft,
+                    RawWorkflowKind::Terminal => WorkflowKind::Terminal,
+                },
+                size: TerminalSize {
+                    rows: command.size.rows,
+                    columns: command.size.columns,
+                    pixel_width: command.size.pixel_width,
+                    pixel_height: command.size.pixel_height,
+                },
+            })
+        }
+        "activateWorkflow" => {
+            let command: RawWorkflowId =
+                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
+            DecodedCommand::Known(Command::ActivateWorkflow {
+                workflow_id: WorkflowId(command.workflow_id),
+            })
+        }
+        "nameDraftWorkflow" => {
+            let command: RawDraftName =
+                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
+            DecodedCommand::Known(Command::NameDraftWorkflow {
+                workflow_id: WorkflowId(command.workflow_id),
+                name: command.name,
+            })
+        }
+        "closeWorkflow" => {
+            let command: RawWorkflowId =
+                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
+            DecodedCommand::Known(Command::CloseWorkflow {
+                workflow_id: WorkflowId(command.workflow_id),
+            })
+        }
         "startTerminal" => {
             let command: RawStartTerminal =
                 serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
@@ -307,6 +405,7 @@ pub(crate) fn encode_snapshot(snapshot: &Snapshot) -> Result<Vec<u8>, serde_json
         config: &snapshot.config,
         folders: (&snapshot.folders).into(),
         terminals: snapshot.terminals.iter().map(wire_terminal_state).collect(),
+        workflows: (&snapshot.workflows).into(),
     })
 }
 
@@ -333,10 +432,52 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
         .map(|event| WireEvent {
             sequence: event.sequence,
             event: match &event.kind {
+                EventKind::State(StateEvent::SessionChanged(session)) => {
+                    WireEventKind::SessionChanged {
+                        session: session.into(),
+                    }
+                }
+                EventKind::State(StateEvent::WorkflowChanged(workflow)) => {
+                    WireEventKind::WorkflowChanged {
+                        workflow: workflow.into(),
+                    }
+                }
+                EventKind::CommandCompleted {
+                    request_id,
+                    result: CommandResult::WorkflowCreated { workflow_id },
+                } => WireEventKind::CommandCompleted {
+                    request_id: request_id.0,
+                    result: WireCommandResult::WorkflowCreated {
+                        workflow_id: workflow_id.0,
+                    },
+                },
+                EventKind::CommandCompleted {
+                    request_id,
+                    result: CommandResult::WorkflowActivated { workflow_id },
+                } => WireEventKind::CommandCompleted {
+                    request_id: request_id.0,
+                    result: WireCommandResult::WorkflowActivated {
+                        workflow_id: workflow_id.0,
+                    },
+                },
+                EventKind::CommandCompleted {
+                    request_id,
+                    result: CommandResult::WorkflowClosed { workflow_id },
+                } => WireEventKind::CommandCompleted {
+                    request_id: request_id.0,
+                    result: WireCommandResult::WorkflowClosed {
+                        workflow_id: workflow_id.0,
+                    },
+                },
                 EventKind::State(StateEvent::ApplicationReady) => WireEventKind::ApplicationReady,
                 EventKind::State(StateEvent::FoldersChanged(folders)) => {
                     WireEventKind::FoldersChanged {
                         folders: folders.into(),
+                    }
+                }
+                EventKind::State(StateEvent::TerminalClosed { terminal_id }) => {
+                    WireEventKind::TerminalClosed {
+                        terminal_id: terminal_id.value(),
                     }
                 }
                 EventKind::State(StateEvent::TerminalExited { terminal_id, exit }) => {
@@ -410,8 +551,9 @@ mod tests {
                 "sequence": 1,
                 "state": { "status": "ready" },
                 "config": { "appearance": { "color_scheme": "dark" } },
-                "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null },
-                "terminals": []
+                "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null, "currentBranch": null },
+                "terminals": [],
+                "workflows": { "session": null, "workflows": [] }
             })
         );
     }
@@ -423,6 +565,7 @@ mod tests {
             state: ApplicationState::Ready,
             config: Config::default(),
             folders: FolderState {
+                current_branch: None,
                 open_folder: None,
                 recent_folders: vec![
                     RecentFolder {
@@ -440,11 +583,13 @@ mod tests {
                 }),
             },
             terminals: Vec::new(),
+            workflows: twine_core::WorkflowState::default(),
         };
         let json: Value = serde_json::from_slice(&encode_snapshot(&snapshot).unwrap()).unwrap();
         assert_eq!(
             json["folders"],
             serde_json::json!({
+                "currentBranch": null,
                 "openFolder": null,
                 "recentFolders": [
                     { "path": "/projects/locked", "isMissing": false },

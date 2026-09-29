@@ -14,6 +14,8 @@ const MAX_RECENT_FOLDERS: i64 = 10;
 /// The open folder and the recent folders the start page lists.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FolderState {
+    /// The open folder's current branch, refreshed on demand and never persisted.
+    pub current_branch: Option<String>,
     /// The folder the window shows, or `None` while it shows the start page.
     pub open_folder: Option<PathBuf>,
     /// Recently opened folders, most recent first.
@@ -54,6 +56,15 @@ pub(crate) struct Folders {
 }
 
 impl Folders {
+    pub(crate) fn update_git_branch(&mut self, folder: &Path, branch: Option<String>) -> bool {
+        if self.state.open_folder.as_deref() != Some(folder) || self.state.current_branch == branch
+        {
+            return false;
+        }
+        self.state.current_branch = branch;
+        true
+    }
+
     /// Loads the recent folders and reopens the folder that was open when Twine last quit. If it
     /// can't be opened, the start page shows and says why. It stays the last open folder, so a
     /// later launch reopens it once it's back, for example when its drive is reconnected.
@@ -109,6 +120,7 @@ impl Folders {
             .store
             .record_folder_opened(&path, unix_millis(), MAX_RECENT_FOLDERS)?;
         self.state = FolderState {
+            current_branch: None,
             open_folder: Some(PathBuf::from(path)),
             recent_folders: check_recent_folders(stored),
             unavailable_folder: None,
@@ -120,6 +132,7 @@ impl Folders {
     pub(crate) fn close(&mut self) -> Result<(), FolderError> {
         let stored = self.store.record_folder_closed()?;
         self.state = FolderState {
+            current_branch: None,
             open_folder: None,
             recent_folders: check_recent_folders(stored),
             unavailable_folder: None,
@@ -279,6 +292,7 @@ mod tests {
         assert_eq!(
             *fixture.launch().state(),
             FolderState {
+                current_branch: None,
                 open_folder: Some(second.clone()),
                 recent_folders: vec![present(&second), present(&first)],
                 unavailable_folder: None,
@@ -299,6 +313,7 @@ mod tests {
         assert_eq!(
             *fixture.launch().state(),
             FolderState {
+                current_branch: None,
                 open_folder: None,
                 recent_folders: vec![present(&folder)],
                 unavailable_folder: None,
@@ -318,6 +333,7 @@ mod tests {
         assert_eq!(
             *fixture.launch().state(),
             FolderState {
+                current_branch: None,
                 open_folder: None,
                 recent_folders: vec![missing(&folder)],
                 unavailable_folder: Some(unavailable(&folder, UnavailableReason::Missing)),
@@ -328,6 +344,7 @@ mod tests {
         assert_eq!(
             *fixture.launch().state(),
             FolderState {
+                current_branch: None,
                 open_folder: Some(folder.clone()),
                 recent_folders: vec![present(&folder)],
                 unavailable_folder: None,
@@ -366,6 +383,7 @@ mod tests {
         assert_eq!(
             *folders.state(),
             FolderState {
+                current_branch: None,
                 open_folder: None,
                 recent_folders: vec![present(&folder)],
                 unavailable_folder: Some(unavailable(&folder, UnavailableReason::Inaccessible)),
@@ -393,6 +411,7 @@ mod tests {
         assert_eq!(
             *folders.state(),
             FolderState {
+                current_branch: None,
                 open_folder: None,
                 recent_folders: vec![present(&kept), missing(&deleted)],
                 unavailable_folder: Some(unavailable(&deleted, UnavailableReason::Missing)),
@@ -405,6 +424,7 @@ mod tests {
         assert_eq!(
             *folders.state(),
             FolderState {
+                current_branch: None,
                 open_folder: None,
                 recent_folders: vec![present(&kept)],
                 unavailable_folder: None,

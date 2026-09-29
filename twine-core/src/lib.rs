@@ -4,8 +4,10 @@ mod application;
 pub mod config;
 mod event;
 mod folder;
+mod git;
 mod store;
 mod terminal;
+mod workflow;
 
 pub use application::{
     Application, ApplicationError, ApplicationState, Command, CommandDisposition, CommandReceipt,
@@ -17,4 +19,9 @@ pub use store::StoreError;
 pub use terminal::{
     TerminalChunk, TerminalError, TerminalExit, TerminalId, TerminalSize, TerminalState,
     TerminalStatus,
+};
+
+pub use workflow::{
+    Session, SessionId, SessionStatus, Workflow, WorkflowId, WorkflowKind, WorkflowState,
+    WorkflowStatus,
 };

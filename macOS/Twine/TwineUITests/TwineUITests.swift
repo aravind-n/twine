@@ -77,12 +77,96 @@ final class TwineUITests: XCTestCase {
         XCTAssertTrue(explanation.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(recentFolder(missing.lastPathComponent, in: app).exists, app.debugDescription)
 
+        recentFolder(missing.lastPathComponent, in: app).hover()
         app.buttons["Remove from Recent Folders"].firstMatch.click()
         XCTAssertTrue(
             app.staticTexts["Folders you open appear here."].waitForExistence(timeout: 10),
             app.debugDescription
         )
         XCTAssertFalse(explanation.exists, app.debugDescription)
+    }
+
+    @MainActor
+    func testDraftChoicesAndTypingKeepThePromptUsable() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "TwineUITests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let app = try makeApp(lastOpenFolder: folder)
+        app.launch()
+        XCTAssertTrue(app.buttons["newWorkflow"].waitForExistence(timeout: 10), app.debugDescription)
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
+        let terminalChoice = app.buttons["workflowChoice-Terminal"]
+        XCTAssertTrue(terminalChoice.waitForExistence(timeout: 10), app.debugDescription)
+        let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        screenshot.name = "New workflow choices"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        terminalChoice.click()
+        app.typeText("printf '%s' chosen > chosen.txt\r")
+        let chosen = expectation(
+            for: NSPredicate { _, _ in
+                (try? String(contentsOf: folder.appending(path: "chosen.txt"), encoding: .utf8)) == "chosen"
+            }, evaluatedWith: nil
+        )
+        wait(for: [chosen], timeout: 10)
+
+        app.buttons["newWorkflow"].click()
+        let coordinatorChoice = app.buttons["workflowChoice-Coordinator"]
+        XCTAssertTrue(coordinatorChoice.waitForExistence(timeout: 10), app.debugDescription)
+        coordinatorChoice.click()
+        XCTAssertTrue(app.staticTexts["Coming soon"].waitForExistence(timeout: 10), app.debugDescription)
+        app.typeText("printf '%s' typed > typed.txt\r")
+        let typed = expectation(
+            for: NSPredicate { _, _ in
+                (try? String(contentsOf: folder.appending(path: "typed.txt"), encoding: .utf8)) == "typed"
+            }, evaluatedWith: nil
+        )
+        wait(for: [typed], timeout: 10)
+        XCTAssertTrue(coordinatorChoice.waitForNonExistence(timeout: 10), app.debugDescription)
+
+        app.typeKey("t", modifierFlags: .command)
+        XCTAssertTrue(terminalChoice.waitForExistence(timeout: 10), app.debugDescription)
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(terminalChoice.waitForNonExistence(timeout: 10), app.debugDescription)
+        app.terminate()
+    }
+
+    @MainActor
+    func testFooterTracksBranchSelectionAndFrozenExitTime() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "TwineUITests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: folder.appending(path: ".git/objects"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: folder.appending(path: ".git/refs/heads"), withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let head = folder.appending(path: ".git/HEAD")
+        try "ref: refs/heads/footer-initial\n".write(to: head, atomically: true, encoding: .utf8)
+        let app = try makeApp(lastOpenFolder: folder)
+        app.launch()
+        XCTAssertTrue(app.buttons["newWorkflow"].waitForExistence(timeout: 10), app.debugDescription)
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
+        XCTAssertTrue(app.staticTexts["footer-initial"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Draft"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["workflowChoice-Terminal"].click()
+        XCTAssertTrue(app.staticTexts["Running"].waitForExistence(timeout: 10), app.debugDescription)
+        app.typeText("exit\r")
+        XCTAssertTrue(app.staticTexts["Exited"].waitForExistence(timeout: 10), app.debugDescription)
+        let elapsed = app.staticTexts["workflowElapsed"]
+        let frozen = elapsed.value as? String
+        XCTAssertNotNil(frozen)
+        app.buttons["newWorkflow"].click()
+        XCTAssertTrue(app.staticTexts["Draft"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["workflowTab-1"].click()
+        XCTAssertTrue(app.staticTexts["Exited"].waitForExistence(timeout: 10), app.debugDescription)
+        try "ref: refs/heads/footer-updated\n".write(to: head, atomically: true, encoding: .utf8)
+        XCTAssertTrue(app.staticTexts["footer-updated"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(elapsed.value as? String, frozen)
+        let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        screenshot.name = "Status footer"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.terminate()
     }
 
     @MainActor
@@ -133,7 +217,7 @@ final class TwineUITests: XCTestCase {
     /// test starts clean and never touches the real data directory. `lastOpenFolder` seeds the data
     /// as if that folder was open when Twine last quit.
     @MainActor
-    private func makeApp(lastOpenFolder: URL? = nil) throws -> XCUIApplication {
+    func makeApp(lastOpenFolder: URL? = nil) throws -> XCUIApplication {
         let dataDirectory = FileManager.default.temporaryDirectory.appending(path: "TwineUITests-\(UUID().uuidString)")
         addTeardownBlock {
             try? FileManager.default.removeItem(at: dataDirectory)

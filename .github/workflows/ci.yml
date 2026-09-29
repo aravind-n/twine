@@ -141,15 +141,24 @@ jobs:
           -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
           -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
       - name: Run unit tests
+        id: unit-tests
         run: >-
           xcodebuild test-without-building -project macOS/Twine/Twine.xcodeproj -scheme Twine
           -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
           -only-testing:TwineTests
       - name: Run UI tests
+        id: ui-tests
         run: >-
           xcodebuild test-without-building -project macOS/Twine/Twine.xcodeproj -scheme Twine
           -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
           -only-testing:TwineUITests
+      - name: Upload failed test results
+        if: failure() && (steps.unit-tests.outcome == 'failure' || steps.ui-tests.outcome == 'failure')
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-test-results-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/DerivedData/Logs/Test/*.xcresult
+          retention-days: 7
 
   actionlint:
     needs: changes

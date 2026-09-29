@@ -18,6 +18,17 @@ struct TwineApp: App {
         // The core has one open folder, so a new window tab could only mirror it. SwiftUI has no
         // scene modifier for this.
         NSWindow.allowsAutomaticWindowTabbing = false
+        #if DEBUG
+            // UI tests exercise both appearances without changing the desktop's appearance.
+            switch ProcessInfo.processInfo.environment["TWINE_TEST_APPEARANCE"] {
+            case "Light":
+                NSApplication.shared.appearance = NSAppearance(named: .aqua)
+            case "Dark":
+                NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+            default:
+                break
+            }
+        #endif
     }
 
     var body: some Scene {

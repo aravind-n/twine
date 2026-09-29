@@ -26,7 +26,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 
 | Component | Radius |
 |---|---|
-| Terminal panel (bottom corners; the top joins the tab row) | 17 |
+| Terminal panel (all corners) | 17 |
 | Traces panel | 17 |
 | Start page app icon tile | 16 |
 | New-tab choices card | 14 |
@@ -76,7 +76,7 @@ All ease-in-out, all tied to a user action.
 | Scroll to the selected tab | 0.18s | scroll |
 | Traces collapse and expand | 0.18s | height change |
 | Trace detail panel | 0.22s | slide in from the trailing edge with a fade |
-| Typing in a new tab turns it into a Terminal | 0.32s | choices card fades and scales (to 12%) toward the `+` button |
+| Typing in a new tab turns it into a Terminal | 0.32s | choices card fades out in place |
 | New-tab choices card appears | default | fade in from 96% scale |
 
 ## Screens
@@ -103,19 +103,20 @@ All ease-in-out, all tied to a user action.
 
 ### Terminal panel and agent subtabs
 
-- The terminal panel has straight top corners where it meets the tab row, 17pt rounded bottom corners, and a hairline outline and shadow.
+- The terminal panel has a 17pt radius on all four corners, with a hairline outline and shadow. The tab row sits directly above it.
 - Workflows with more than one agent get a 43pt subtab strip at the top of the panel, with 18pt horizontal padding and the workflow tint. It starts with a "TERMINAL" label (13pt after it), then subtabs 5pt apart: the role's colored symbol and name, 10pt horizontal padding, 29pt tall. The selected subtab is semibold on a 9pt-radius glass capsule. A secondary terminal symbol sits at the trailing edge.
 - Terminal content has about 24pt padding.
 
 ### New-tab surface
 
 - A draft tab shows the terminal prompt, and a choices card centered over the terminal.
-- Card: 740pt max width, 16pt padding, 14pt radius, a subtle fill a step off the terminal background, and a hairline outline. Title as a headline, one caption secondary line below it.
-- Choice tiles in an adaptive grid (160pt minimum width, 8pt spacing): 42pt minimum height, 10pt padding, 9pt radius, the same subtle fill and outline. Each has a 16pt-wide symbol, a caption semibold title, and a caption2 secondary description. Choices that open a menu, such as picking a harness, show a small chevron.
+- Card: 740pt max width, 16pt padding, 14pt radius, and a hairline outline. Use the named `WorkflowChoicesBackground` color: a dark blue-gray fill (RGB 35, 40, 43), with a light variant. Title is 14pt bold, with a caption medium secondary line 10pt below it; leave 14pt before the grid.
+- Choice tiles in an adaptive grid (160pt minimum width, 8pt spacing): 64pt minimum height, 10pt padding, 9pt radius, and a hairline outline. Use the named `WorkflowChoiceBackground` color: a lighter dark fill (RGB 50, 55, 58), with a light variant. Each has a 16pt symbol aligned with its caption semibold title, and a caption medium secondary description capped at two lines. Choices that open a menu, such as picking a harness, show a small chevron.
 
 ### Traces panel
 
 - A separate rounded panel below the terminal: 48pt collapsed, about 272pt expanded.
+- The panel shows the window background through its border; it has no terminal-colored fill.
 - Header, 21pt horizontal padding: "Traces" (16pt semibold) with the subtitle "Agent activity over time" when expanded, then a caption2 secondary count of spans and agents, then a 26×26 glass chevron button (11pt semibold). Clicking anywhere on the header toggles the panel.
 - Time axis: 18pt tall, with evenly spaced monospaced tick labels.
 - Lanes: 36pt tall, one per agent, labeled with the role's colored symbol and name in a 126pt column (104pt when the detail panel is open). Faint vertical grid lines (primary at 6%) mark the ticks. Dividers between lanes.
@@ -134,7 +135,7 @@ All ease-in-out, all tied to a user action.
 ### Status footer
 
 - A 22pt plain-text row below the Traces panel, with 4pt horizontal padding and 8pt spacing, in caption2 secondary text; not a card.
-- Contents: a 5pt status dot (secondary at 50%) with the core's state, the Git branch with a branch symbol, and the selected workflow's status and elapsed time, separated by 10pt-tall dividers.
+- Contents: the Git branch with a branch symbol, and the selected workflow's status and elapsed time, separated by a 10pt-tall divider when both are present.
 
 ### Empty states
 

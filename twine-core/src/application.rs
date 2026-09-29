@@ -14,7 +14,11 @@ use crate::terminal::{
     TerminalStream,
 };
 
+use crate::workflow::{WorkflowId, WorkflowKind, WorkflowState};
+
+mod git;
 mod terminals;
+mod workflows;
 
 const DATABASE_FILE_NAME: &str = "twine.db";
 const DEFAULT_EVENT_CAPACITY: usize = 4_096;
@@ -33,8 +37,30 @@ pub enum Command {
     },
     /// Closes the open folder, so the window shows the start page.
     CloseFolder,
+    /// Used by a departing window; an old folder must not close its replacement.
+    CloseFolderIfOpen {
+        path: PathBuf,
+    },
     RemoveRecentFolder {
         path: PathBuf,
+    },
+    RefreshGitBranch {
+        folder: PathBuf,
+    },
+    CreateWorkflow {
+        folder: PathBuf,
+        kind: WorkflowKind,
+        size: TerminalSize,
+    },
+    ActivateWorkflow {
+        workflow_id: WorkflowId,
+    },
+    NameDraftWorkflow {
+        workflow_id: WorkflowId,
+        name: String,
+    },
+    CloseWorkflow {
+        workflow_id: WorkflowId,
     },
     StartTerminal {
         working_directory: PathBuf,
@@ -69,6 +95,7 @@ pub struct Snapshot {
     pub config: Config,
     pub folders: FolderState,
     pub terminals: Vec<TerminalState>,
+    pub workflows: WorkflowState,
 }
 
 #[derive(Debug)]
@@ -77,9 +104,14 @@ struct Inner {
     folders: Folders,
     events: EventJournal,
     terminals: HashMap<TerminalId, TerminalStatus>,
+    workflows: WorkflowState,
+    next_session_id: u64,
+    next_workflow_id: u64,
 }
 
 pub struct Application {
+    // Serialize lifetime commands without holding state while joining terminal supervisors.
+    commands: Mutex<()>,
     inner: Arc<Mutex<Inner>>,
     terminal_output: Arc<TerminalStream>,
     terminals: TerminalManager,
@@ -114,7 +146,12 @@ impl Application {
     /// injectable event limit for deterministic tests.
     #[cfg(test)]
     pub(crate) fn with_event_capacity(event_capacity: usize) -> Result<Self, ApplicationError> {
-        Self::with_store(Store::open_in_memory()?, Config::default(), event_capacity)
+        let mut application =
+            Self::with_store(Store::open_in_memory()?, Config::default(), event_capacity)?;
+        application
+            .terminals
+            .set_test_shell(PathBuf::from("/bin/sh"));
+        Ok(application)
     }
 
     fn with_store(
@@ -131,12 +168,16 @@ impl Application {
             DEFAULT_TERMINAL_CAPACITY_CHUNKS,
         )?);
         let application = Self {
+            commands: Mutex::new(()),
             config,
             inner: Arc::new(Mutex::new(Inner {
                 state: ApplicationState::Ready,
                 folders,
                 events,
                 terminals: HashMap::new(),
+                workflows: WorkflowState::default(),
+                next_session_id: 1,
+                next_workflow_id: 1,
             })),
             terminal_output: Arc::clone(&terminal_output),
             terminals: TerminalManager::new(terminal_output),
@@ -157,6 +198,10 @@ impl Application {
         request_id: RequestId,
         command: Command,
     ) -> Result<CommandReceipt, ApplicationError> {
+        let _command_guard = self
+            .commands
+            .lock()
+            .map_err(|_| ApplicationError::Poisoned)?;
         let disposition = match command {
             Command::Ping => {
                 let mut inner = self.lock_inner()?;
@@ -166,13 +211,33 @@ impl Application {
                 })?;
                 CommandDisposition::Accepted
             }
-            Command::OpenFolder { path } => self
-                .lock_inner()?
-                .update_folders(|folders| folders.open(&path))?,
-            Command::CloseFolder => self.lock_inner()?.update_folders(Folders::close)?,
+            Command::OpenFolder { path } => self.change_folder(Some(&path))?,
+            Command::CloseFolder => self.change_folder(None)?,
+            Command::CloseFolderIfOpen { path } => {
+                let matches = self.lock_inner()?.folders.state().open_folder.as_deref()
+                    == Some(path.as_path());
+                if matches {
+                    self.change_folder(None)?
+                } else {
+                    CommandDisposition::Accepted
+                }
+            }
             Command::RemoveRecentFolder { path } => self
                 .lock_inner()?
                 .update_folders(|folders| folders.remove_recent(&path))?,
+            Command::RefreshGitBranch { folder } => self.refresh_git_branch(&folder)?,
+            Command::CreateWorkflow { folder, kind, size } => {
+                self.create_workflow(request_id, &folder, kind, size)?
+            }
+            Command::ActivateWorkflow { workflow_id } => {
+                self.activate_workflow(request_id, workflow_id)?
+            }
+            Command::NameDraftWorkflow { workflow_id, name } => {
+                self.name_draft_workflow(workflow_id, &name)?
+            }
+            Command::CloseWorkflow { workflow_id } => {
+                self.close_workflow(request_id, workflow_id)?
+            }
             Command::StartTerminal {
                 working_directory,
                 size,
@@ -215,6 +280,7 @@ impl Application {
             config: self.config.clone(),
             folders: inner.folders.state().clone(),
             terminals,
+            workflows: inner.workflows.clone(),
         })
     }
 
@@ -281,6 +347,8 @@ fn rejection(code: &str, error: &dyn std::error::Error) -> CommandDisposition {
 pub enum ApplicationError {
     #[error(transparent)]
     Event(#[from] EventError),
+    #[error("session or workflow identifiers exhausted")]
+    IdExhausted,
     #[error("application state lock is poisoned")]
     Poisoned,
     #[error(transparent)]
@@ -390,6 +458,7 @@ mod tests {
                 config: Config::default(),
                 folders: folders.clone(),
                 terminals: Vec::new(),
+                workflows: WorkflowState::default(),
             }
         );
     }

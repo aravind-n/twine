@@ -6,6 +6,7 @@ import Foundation
 /// completes Close Terminal at once, and records the input and resizes it receives.
 actor DelayedStartTransport {
     private(set) var input = Data()
+    private(set) var closedTerminalIDs: Set<UInt64> = []
     private(set) var lastResize: BridgeTerminalSize?
     private var startRequestID: UInt64?
     private var nextRequestID: UInt64 = 1
@@ -34,8 +35,10 @@ actor DelayedStartTransport {
         case .startTerminal:
             startRequestID = requestID
         case .closeTerminal(let terminalID):
+            closedTerminalIDs.insert(terminalID)
             deliver(.commandCompleted(requestID: requestID, result: .terminalClosed(terminalID: terminalID)))
-        case .ping, .openFolder, .closeFolder, .removeRecentFolder:
+        case .ping, .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .createWorkflow,
+            .activateWorkflow, .closeWorkflow, .nameDraftWorkflow, .refreshGitBranch:
             break
         }
         return BridgeCommandReceipt(requestID: requestID, status: .accepted, error: nil)

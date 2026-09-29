@@ -5,7 +5,13 @@ nonisolated enum BridgeCommand: Sendable {
     case openFolder(path: String)
     /// Closes the open folder, so the window shows the start page.
     case closeFolder
+    case closeFolderIfOpen(path: String)
     case removeRecentFolder(path: String)
+    case refreshGitBranch(folder: String)
+    case createWorkflow(folder: String, kind: BridgeWorkflow.Kind, size: BridgeTerminalSize)
+    case activateWorkflow(workflowID: UInt64)
+    case nameDraftWorkflow(workflowID: UInt64, name: String)
+    case closeWorkflow(workflowID: UInt64)
     case startTerminal(workingDirectory: String, size: BridgeTerminalSize)
     case closeTerminal(terminalID: UInt64)
 }
@@ -45,6 +51,7 @@ nonisolated struct BridgeSnapshot: Decodable, Equatable, Sendable {
     let config: BridgeConfig
     var folders: BridgeFolderState
     var terminals: [BridgeTerminalState] = []
+    var workflows = BridgeWorkflowState()
 }
 
 nonisolated struct BridgeConfig: Decodable, Equatable, Sendable {
@@ -75,6 +82,7 @@ nonisolated struct BridgeApplicationState: Decodable, Equatable, Sendable {
 
 /// The open folder and the recent folders the start page lists.
 nonisolated struct BridgeFolderState: Decodable, Equatable, Sendable {
+    var currentBranch: String?
     /// The folder the window shows, or `nil` while it shows the start page.
     var openFolder: String?
     /// Recently opened folders, most recent first.
@@ -114,8 +122,11 @@ nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
 
     enum Kind: Equatable, Sendable {
         case applicationReady
+        case sessionChanged(BridgeSession)
+        case workflowChanged(BridgeWorkflow)
         case commandCompleted(requestID: UInt64, result: BridgeCommandResult)
         case foldersChanged(BridgeFolderState)
+        case terminalClosed(terminalID: UInt64)
         case terminalExited(terminalID: UInt64, exit: BridgeTerminalExit)
         case terminalFailed(terminalID: UInt64, message: String)
     }
@@ -138,6 +149,9 @@ nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
 }
 
 nonisolated enum BridgeCommandResult: Equatable, Sendable {
+    case workflowCreated(workflowID: UInt64)
+    case workflowActivated(workflowID: UInt64)
+    case workflowClosed(workflowID: UInt64)
     case pong
     case terminalStarted(terminalID: UInt64)
     case terminalClosed(terminalID: UInt64)
@@ -212,6 +226,8 @@ nonisolated private struct EventPayload: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case folders
+        case session
+        case workflow
         case exitCode
         case message
         case requestID = "requestId"
@@ -225,6 +241,9 @@ nonisolated private struct EventPayload: Decodable {
         case applicationReady
         case commandCompleted
         case foldersChanged
+        case sessionChanged
+        case workflowChanged
+        case terminalClosed
         case terminalExited
         case terminalFailed
     }
@@ -239,8 +258,14 @@ nonisolated private struct EventPayload: Decodable {
                 requestID: try container.decode(UInt64.self, forKey: .requestID),
                 result: try container.decode(CommandResultPayload.self, forKey: .result).result
             )
+        case .sessionChanged:
+            kind = .sessionChanged(try container.decode(BridgeSession.self, forKey: .session))
+        case .workflowChanged:
+            kind = .workflowChanged(try container.decode(BridgeWorkflow.self, forKey: .workflow))
         case .foldersChanged:
             kind = .foldersChanged(try container.decode(BridgeFolderState.self, forKey: .folders))
+        case .terminalClosed:
+            kind = .terminalClosed(terminalID: try container.decode(UInt64.self, forKey: .terminalID))
         case .terminalExited:
             kind = .terminalExited(
                 terminalID: try container.decode(UInt64.self, forKey: .terminalID),
@@ -262,12 +287,16 @@ nonisolated private struct CommandResultPayload: Decodable {
     let result: BridgeCommandResult
 
     private enum CodingKeys: String, CodingKey {
+        case workflowID = "workflowId"
         case terminalID = "terminalId"
         case type
     }
 
     private enum ResultType: String, Decodable {
         case pong
+        case workflowCreated
+        case workflowActivated
+        case workflowClosed
         case terminalStarted
         case terminalClosed
     }
@@ -275,6 +304,12 @@ nonisolated private struct CommandResultPayload: Decodable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(ResultType.self, forKey: .type) {
+        case .workflowCreated:
+            result = .workflowCreated(workflowID: try container.decode(UInt64.self, forKey: .workflowID))
+        case .workflowActivated:
+            result = .workflowActivated(workflowID: try container.decode(UInt64.self, forKey: .workflowID))
+        case .workflowClosed:
+            result = .workflowClosed(workflowID: try container.decode(UInt64.self, forKey: .workflowID))
         case .pong:
             result = .pong
         case .terminalStarted:
@@ -285,80 +320,6 @@ nonisolated private struct CommandResultPayload: Decodable {
             result = .terminalClosed(
                 terminalID: try container.decode(UInt64.self, forKey: .terminalID)
             )
-        }
-    }
-}
-
-/// A command as the core's JSON protocol expects it, tagged with the request ID its completion event
-/// carries.
-nonisolated struct CommandEnvelope: Encodable {
-    private let requestID: UInt64
-    private let command: CommandPayload
-
-    private enum CodingKeys: String, CodingKey {
-        case command
-        case requestID = "requestId"
-    }
-
-    init(requestID: UInt64, command: BridgeCommand) {
-        self.requestID = requestID
-        self.command = CommandPayload(command)
-    }
-}
-
-nonisolated private struct CommandPayload: Encodable {
-    let type: String
-    let path: String?
-    let workingDirectory: String?
-    let size: BridgeTerminalSize?
-    let terminalID: UInt64?
-
-    private enum CodingKeys: String, CodingKey {
-        case path
-        case size
-        case terminalID = "terminalId"
-        case type
-        case workingDirectory
-    }
-
-    init(_ command: BridgeCommand) {
-        switch command {
-        case .ping:
-            type = "ping"
-            path = nil
-            workingDirectory = nil
-            size = nil
-            terminalID = nil
-        case .openFolder(let path):
-            type = "openFolder"
-            self.path = path
-            workingDirectory = nil
-            size = nil
-            terminalID = nil
-        case .closeFolder:
-            type = "closeFolder"
-            path = nil
-            workingDirectory = nil
-            size = nil
-            terminalID = nil
-        case .removeRecentFolder(let path):
-            type = "removeRecentFolder"
-            self.path = path
-            workingDirectory = nil
-            size = nil
-            terminalID = nil
-        case .startTerminal(let workingDirectory, let terminalSize):
-            type = "startTerminal"
-            path = nil
-            self.workingDirectory = workingDirectory
-            size = terminalSize
-            terminalID = nil
-        case .closeTerminal(let terminalID):
-            type = "closeTerminal"
-            path = nil
-            workingDirectory = nil
-            size = nil
-            self.terminalID = terminalID
         }
     }
 }

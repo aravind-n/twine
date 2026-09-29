@@ -52,6 +52,39 @@ struct TerminalPalette {
 }
 
 final class MetalTerminalView: TerminalView {
+    private(set) var isSendingTerminalResponse = false
+
+    override func send(source: Terminal, data: ArraySlice<UInt8>) {
+        isSendingTerminalResponse = true
+        defer { isSendingTerminalResponse = false }
+        super.send(source: source, data: data)
+    }
+
+    private var focusTask: Task<Void, Never>?
+    var focusRequest = 0 {
+        didSet {
+            if focusRequest != oldValue, isSelected { requestKeyboardFocus() }
+        }
+    }
+    var isSelected = true {
+        didSet {
+            guard isSelected != oldValue else { return }
+            focusTask?.cancel()
+            if isSelected { requestKeyboardFocus() }
+        }
+    }
+
+    private func requestKeyboardFocus() {
+        focusTask?.cancel()
+        focusTask = Task { [weak self] in
+            // SwiftUI changes the terminal's visibility and its host's focus in the same update.
+            // Request focus after that update has returned, once the selected view is visible.
+            await Task.yield()
+            guard !Task.isCancelled, let self, isSelected, !isHiddenOrHasHiddenAncestor, let window else { return }
+            window.makeFirstResponder(self)
+        }
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         font = .terminal
@@ -68,9 +101,12 @@ final class MetalTerminalView: TerminalView {
         super.viewDidMoveToWindow()
         applyTwinePalette()
 
-        guard let window else { return }
-        // The terminal is the folder's primary surface, so it takes keyboard input without a click.
-        window.makeFirstResponder(self)
+        guard window != nil else {
+            focusTask?.cancel()
+            return
+        }
+        // The selected terminal takes keyboard input without an additional click.
+        if isSelected { requestKeyboardFocus() }
 
         guard !isUsingMetalRenderer else { return }
 
