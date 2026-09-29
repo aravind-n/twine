@@ -3,10 +3,13 @@ use std::collections::VecDeque;
 use thiserror::Error;
 
 use crate::application::RequestId;
+use crate::folder::FolderState;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateEvent {
     ApplicationReady,
+    /// The open folder or the recent folders changed. Carries the complete new folder state.
+    FoldersChanged(FolderState),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,7 +17,7 @@ pub enum CommandResult {
     Pong,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EventKind {
     State(StateEvent),
     CommandCompleted {
@@ -23,7 +26,7 @@ pub enum EventKind {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Event {
     pub sequence: u64,
     pub kind: EventKind,
@@ -49,20 +52,19 @@ impl EventJournal {
         })
     }
 
-    pub(crate) fn append(&mut self, kind: EventKind) -> Result<Event, EventError> {
+    pub(crate) fn append(&mut self, kind: EventKind) -> Result<(), EventError> {
         let sequence = self
             .latest_sequence
             .checked_add(1)
             .ok_or(EventError::SequenceOverflow)?;
-        let event = Event { sequence, kind };
-        self.events.push_back(event);
+        self.events.push_back(Event { sequence, kind });
         self.latest_sequence = sequence;
 
         if self.events.len() > self.capacity {
             self.events.pop_front();
         }
 
-        Ok(event)
+        Ok(())
     }
 
     pub(crate) const fn latest_sequence(&self) -> u64 {
@@ -89,7 +91,7 @@ impl EventJournal {
             .iter()
             .filter(|event| event.sequence > sequence)
             .take(limit)
-            .copied()
+            .cloned()
             .collect())
     }
 }

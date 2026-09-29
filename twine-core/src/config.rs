@@ -406,7 +406,8 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.toml");
         fs::write(&path, "[appearance]\ncolor_scheme = 'dark'\n").unwrap();
-        let application = crate::Application::with_config(Config::load(&path).config).unwrap();
+        let application =
+            crate::Application::with_config(directory.path(), Config::load(&path).config).unwrap();
         assert_eq!(
             application
                 .snapshot()

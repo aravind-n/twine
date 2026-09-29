@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use thiserror::Error;
@@ -5,8 +6,11 @@ use tracing::{debug, info};
 
 use crate::config::Config;
 use crate::event::{CommandResult, Event, EventError, EventJournal, EventKind, StateEvent};
+use crate::folder::{FolderError, FolderState, Folders};
+use crate::store::{Store, StoreError};
 use crate::terminal::{TerminalChunk, TerminalError, TerminalId, TerminalStream};
 
+const DATABASE_FILE_NAME: &str = "twine.db";
 const DEFAULT_EVENT_CAPACITY: usize = 4_096;
 const DEFAULT_TERMINAL_CAPACITY_BYTES: usize = 1024 * 1024;
 const DEFAULT_TERMINAL_CAPACITY_CHUNKS: usize = 4_096;
@@ -14,9 +18,18 @@ const DEFAULT_TERMINAL_CAPACITY_CHUNKS: usize = 4_096;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct RequestId(pub u64);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     Ping,
+    /// Opens the folder at an absolute path and records it as the most recent folder.
+    OpenFolder {
+        path: PathBuf,
+    },
+    /// Closes the open folder, so the window shows the start page.
+    CloseFolder,
+    RemoveRecentFolder {
+        path: PathBuf,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41,11 +54,13 @@ pub struct Snapshot {
     pub sequence: u64,
     pub state: ApplicationState,
     pub config: Config,
+    pub folders: FolderState,
 }
 
 #[derive(Debug)]
 struct Inner {
     state: ApplicationState,
+    folders: Folders,
     events: EventJournal,
 }
 
@@ -57,43 +72,64 @@ pub struct Application {
 }
 
 impl Application {
-    /// Creates the application with production queue limits.
+    /// Creates the application with production queue limits and the user's config file, keeping
+    /// its database in `data_directory`, and reopens the folder that was open when Twine last quit.
     ///
     /// # Errors
     ///
-    /// Returns an error if the initial ready event cannot be recorded.
-    pub fn new() -> Result<Self, ApplicationError> {
-        Self::with_config(Config::load_user())
+    /// Returns an error if the database cannot be opened or migrated, or the initial ready event
+    /// cannot be recorded.
+    pub fn new(data_directory: &Path) -> Result<Self, ApplicationError> {
+        Self::with_config(data_directory, Config::load_user())
     }
 
-    /// Creates an application with already validated configuration, without filesystem I/O.
+    /// Creates the application like [`Application::new`], but with already validated
+    /// configuration instead of the user's config file.
     ///
     /// # Errors
     ///
-    /// Returns an error if the initial ready event cannot be recorded.
-    pub fn with_config(config: Config) -> Result<Self, ApplicationError> {
-        let mut application =
-            Self::with_capacities(DEFAULT_EVENT_CAPACITY, DEFAULT_TERMINAL_CAPACITY_BYTES)?;
-        application.config = config;
-        Ok(application)
+    /// Returns an error if the database cannot be opened or migrated, or the initial ready event
+    /// cannot be recorded.
+    pub fn with_config(data_directory: &Path, config: Config) -> Result<Self, ApplicationError> {
+        let store = Store::open(&data_directory.join(DATABASE_FILE_NAME))?;
+        Self::with_store(
+            store,
+            config,
+            DEFAULT_EVENT_CAPACITY,
+            DEFAULT_TERMINAL_CAPACITY_BYTES,
+        )
     }
 
-    /// Creates the application with injectable limits for deterministic tests.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when either capacity is zero or the initial event cannot be recorded.
+    /// Creates the application with an in-memory database, default configuration, and injectable
+    /// limits for deterministic tests.
+    #[cfg(test)]
     pub(crate) fn with_capacities(
         event_capacity: usize,
         terminal_capacity_bytes: usize,
     ) -> Result<Self, ApplicationError> {
+        Self::with_store(
+            Store::open_in_memory()?,
+            Config::default(),
+            event_capacity,
+            terminal_capacity_bytes,
+        )
+    }
+
+    fn with_store(
+        store: Store,
+        config: Config,
+        event_capacity: usize,
+        terminal_capacity_bytes: usize,
+    ) -> Result<Self, ApplicationError> {
+        let folders = Folders::restore(store)?;
         let mut events = EventJournal::new(event_capacity)?;
         events.append(EventKind::State(StateEvent::ApplicationReady))?;
 
         let application = Self {
-            config: Config::default(),
+            config,
             inner: Mutex::new(Inner {
                 state: ApplicationState::Ready,
+                folders,
                 events,
             }),
             terminal: TerminalStream::new(
@@ -117,20 +153,31 @@ impl Application {
         request_id: RequestId,
         command: Command,
     ) -> Result<CommandReceipt, ApplicationError> {
-        match command {
+        let mut inner = self.lock_inner()?;
+        let disposition = match command {
             Command::Ping => {
-                let mut inner = self.lock_inner()?;
                 inner.events.append(EventKind::CommandCompleted {
                     request_id,
                     result: CommandResult::Pong,
                 })?;
-                debug!(request_id = request_id.0, "command accepted");
-                Ok(CommandReceipt {
-                    request_id,
-                    disposition: CommandDisposition::Accepted,
-                })
+                CommandDisposition::Accepted
+            }
+            Command::OpenFolder { path } => inner.update_folders(|folders| folders.open(&path))?,
+            Command::CloseFolder => inner.update_folders(Folders::close)?,
+            Command::RemoveRecentFolder { path } => {
+                inner.update_folders(|folders| folders.remove_recent(&path))?
+            }
+        };
+        match &disposition {
+            CommandDisposition::Accepted => debug!(request_id = request_id.0, "command accepted"),
+            CommandDisposition::Rejected { code, .. } => {
+                debug!(request_id = request_id.0, code, "command rejected");
             }
         }
+        Ok(CommandReceipt {
+            request_id,
+            disposition,
+        })
     }
 
     /// Returns an atomic snapshot of application state and the latest event sequence.
@@ -144,6 +191,7 @@ impl Application {
             sequence: inner.events.latest_sequence(),
             state: inner.state,
             config: self.config.clone(),
+            folders: inner.folders.state().clone(),
         })
     }
 
@@ -209,12 +257,44 @@ impl Application {
     }
 }
 
+impl Inner {
+    /// Applies a folder change and records the new folder state as an event if it changed. Invalid
+    /// paths and folders that can't be opened reject the command; store failures are errors.
+    fn update_folders(
+        &mut self,
+        change: impl FnOnce(&mut Folders) -> Result<(), FolderError>,
+    ) -> Result<CommandDisposition, ApplicationError> {
+        let previous = self.folders.state().clone();
+        let result = change(&mut self.folders);
+        if *self.folders.state() != previous {
+            self.events
+                .append(EventKind::State(StateEvent::FoldersChanged(
+                    self.folders.state().clone(),
+                )))?;
+        }
+
+        let (code, error) = match result {
+            Ok(()) => return Ok(CommandDisposition::Accepted),
+            Err(FolderError::Store(error)) => return Err(error.into()),
+            Err(error @ FolderError::InvalidPath) => ("invalidPath", error),
+            Err(error @ FolderError::Missing) => ("folderNotFound", error),
+            Err(error @ FolderError::Inaccessible) => ("folderInaccessible", error),
+        };
+        Ok(CommandDisposition::Rejected {
+            code: code.to_owned(),
+            message: error.to_string(),
+        })
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ApplicationError {
     #[error(transparent)]
     Event(#[from] EventError),
     #[error("application state lock is poisoned")]
     Poisoned,
+    #[error(transparent)]
+    Store(#[from] StoreError),
     #[error(transparent)]
     Terminal(#[from] TerminalError),
 }
@@ -224,11 +304,13 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::folder::{UnavailableFolder, UnavailableReason};
 
     #[test]
     fn snapshot_then_events_has_no_gap_or_repeat() {
-        let application =
-            Application::with_config(Config::default()).expect("application should initialize");
+        let data = tempfile::tempdir().expect("a data directory should be available");
+        let application = Application::with_config(data.path(), Config::default())
+            .expect("application should initialize");
         let snapshot = application.snapshot().expect("snapshot should succeed");
 
         let receipt = application
@@ -347,6 +429,131 @@ mod tests {
                 .publish_terminal_output(next_terminal_id, vec![6])
                 .expect("fresh terminal should start at zero"),
             0
+        );
+    }
+
+    #[test]
+    fn folder_commands_publish_folder_state_after_the_snapshot() {
+        let folder = tempfile::tempdir().expect("a folder should be available");
+        let application =
+            Application::with_capacities(16, 64).expect("application should initialize");
+        let snapshot = application.snapshot().expect("snapshot should succeed");
+        assert_eq!(snapshot.folders, FolderState::default());
+
+        let receipt = application
+            .handle_command(
+                RequestId(1),
+                Command::OpenFolder {
+                    path: folder.path().to_owned(),
+                },
+            )
+            .expect("command should succeed");
+        assert_eq!(receipt.disposition, CommandDisposition::Accepted);
+        let events = application
+            .events_after(snapshot.sequence, 16)
+            .expect("events should be available");
+        let [event] = events.as_slice() else {
+            panic!("expected one event, got {events:?}");
+        };
+        assert_eq!(event.sequence, snapshot.sequence + 1);
+        let EventKind::State(StateEvent::FoldersChanged(folders)) = &event.kind else {
+            panic!("expected a folder event, got {event:?}");
+        };
+        assert_eq!(folders.open_folder.as_deref(), Some(folder.path()));
+        assert_eq!(
+            application.snapshot().expect("snapshot should succeed"),
+            Snapshot {
+                sequence: event.sequence,
+                state: ApplicationState::Ready,
+                config: Config::default(),
+                folders: folders.clone(),
+            }
+        );
+    }
+
+    #[test]
+    fn rejected_folder_commands_explain_themselves() {
+        let application =
+            Application::with_capacities(16, 64).expect("application should initialize");
+        let missing = {
+            let folder = tempfile::tempdir().expect("a folder should be available");
+            folder.path().to_owned()
+        }; // Dropping `folder` deletes it.
+        let sequence = application
+            .snapshot()
+            .expect("snapshot should succeed")
+            .sequence;
+
+        let receipt = application
+            .handle_command(
+                RequestId(1),
+                Command::OpenFolder {
+                    path: missing.clone(),
+                },
+            )
+            .expect("command should succeed");
+        assert!(matches!(
+            receipt.disposition,
+            CommandDisposition::Rejected { ref code, .. } if code == "folderNotFound"
+        ));
+        let snapshot = application.snapshot().expect("snapshot should succeed");
+        assert_eq!(snapshot.sequence, sequence + 1);
+        assert_eq!(
+            snapshot.folders.unavailable_folder,
+            Some(UnavailableFolder {
+                path: missing,
+                reason: UnavailableReason::Missing,
+            })
+        );
+
+        let receipt = application
+            .handle_command(
+                RequestId(2),
+                Command::RemoveRecentFolder {
+                    path: PathBuf::from("relative"),
+                },
+            )
+            .expect("command should succeed");
+        assert!(matches!(
+            receipt.disposition,
+            CommandDisposition::Rejected { ref code, .. } if code == "invalidPath"
+        ));
+        assert_eq!(
+            application
+                .snapshot()
+                .expect("snapshot should succeed")
+                .sequence,
+            snapshot.sequence,
+            "a command that changes nothing publishes no event"
+        );
+    }
+
+    #[test]
+    fn a_new_application_reopens_the_last_folder_from_its_data_directory() {
+        let data = tempfile::tempdir().expect("a data directory should be available");
+        let folder = tempfile::tempdir().expect("a folder should be available");
+        let application = Application::with_config(data.path(), Config::default())
+            .expect("application should initialize");
+        application
+            .handle_command(
+                RequestId(1),
+                Command::OpenFolder {
+                    path: folder.path().to_owned(),
+                },
+            )
+            .expect("command should succeed");
+        drop(application);
+
+        let relaunched = Application::with_config(data.path(), Config::default())
+            .expect("application should initialize");
+        assert_eq!(
+            relaunched
+                .snapshot()
+                .expect("snapshot should succeed")
+                .folders
+                .open_folder
+                .as_deref(),
+            Some(folder.path())
         );
     }
 

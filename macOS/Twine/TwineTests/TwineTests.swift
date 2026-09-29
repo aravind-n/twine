@@ -17,14 +17,16 @@ struct TwineTests {
     func configSnapshotDecodes(colorScheme: BridgeConfig.ColorScheme) throws {
         let json = """
             {"sequence":1,"state":{"status":"ready"},
-             "config":{"appearance":{"color_scheme":"\(colorScheme.rawValue)"}}}
+             "config":{"appearance":{"color_scheme":"\(colorScheme.rawValue)"}},
+             "folders":{"openFolder":null,"recentFolders":[],"unavailableFolder":null}}
             """
         let snapshot = try JSONDecoder().decode(BridgeSnapshot.self, from: Data(json.utf8))
         #expect(snapshot.config.appearance.colorScheme == colorScheme)
     }
 
     @Test func bridgeRoundTrip() async throws {
-        let worker = BridgeWorker()
+        let dataDirectory = TemporaryPath()
+        let worker = BridgeWorker(dataDirectory: dataDirectory.url)
         let snapshot = try await worker.open()
         let receipt = try await worker.send(.ping)
         let events = try await worker.events(after: snapshot.sequence, limit: 16)
@@ -64,7 +66,8 @@ struct TwineTests {
     }
 
     @Test @MainActor func heavyBridgeTrafficYieldsMainActor() async throws {
-        let client = BridgeClient()
+        let dataDirectory = TemporaryPath()
+        let client = BridgeClient(transport: BridgeWorker(dataDirectory: dataDirectory.url))
         client.start()
         var heartbeat = 0
         var heartbeatTask: Task<Void, Never>?
@@ -180,7 +183,8 @@ private actor SuspendedOpenBridgeTransport: BridgeTransport {
         BridgeSnapshot(
             sequence: 1,
             state: BridgeApplicationState(status: .ready),
-            config: BridgeConfig(appearance: .init(colorScheme: .system))
+            config: BridgeConfig(appearance: .init(colorScheme: .system)),
+            folders: BridgeFolderState(openFolder: nil, recentFolders: [], unavailableFolder: nil)
         )
     }
 

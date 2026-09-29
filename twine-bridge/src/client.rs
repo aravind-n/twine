@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use thiserror::Error;
 use tracing::warn;
 use twine_core::{Application, ApplicationError, EventError, TerminalChunk};
@@ -14,12 +16,13 @@ pub struct TwineClient {
 }
 
 impl TwineClient {
-    pub(crate) fn new() -> Result<Self, BridgeError> {
+    pub(crate) fn new(data_directory: &Path) -> Result<Self, BridgeError> {
         #[cfg(not(test))]
-        let application = Application::new()?;
+        let application = Application::new(data_directory)?;
         // Bridge unit tests must not read or create the developer's config file.
         #[cfg(test)]
-        let application = Application::with_config(twine_core::config::Config::default())?;
+        let application =
+            Application::with_config(data_directory, twine_core::config::Config::default())?;
 
         Ok(Self {
             bridge: BridgeClient { application },
@@ -67,8 +70,8 @@ impl TwineClient {
 pub(crate) enum BridgeError {
     #[error(transparent)]
     Application(#[from] ApplicationError),
-    #[error("command input exceeds the maximum size")]
-    CommandTooLarge,
+    #[error("input exceeds the maximum size")]
+    InputTooLarge,
     #[error("no value is available")]
     Empty,
     #[error("invalid bridge argument")]

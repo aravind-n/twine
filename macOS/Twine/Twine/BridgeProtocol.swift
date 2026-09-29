@@ -2,6 +2,10 @@ import Foundation
 
 nonisolated enum BridgeCommand: Sendable {
     case ping
+    case openFolder(path: String)
+    /// Closes the open folder, so the window shows the start page.
+    case closeFolder
+    case removeRecentFolder(path: String)
 }
 
 nonisolated struct BridgeCommandReceipt: Decodable, Equatable, Sendable {
@@ -30,6 +34,7 @@ nonisolated struct BridgeSnapshot: Decodable, Equatable, Sendable {
     var sequence: UInt64
     var state: BridgeApplicationState
     let config: BridgeConfig
+    var folders: BridgeFolderState
 }
 
 nonisolated struct BridgeConfig: Decodable, Equatable, Sendable {
@@ -58,6 +63,37 @@ nonisolated struct BridgeApplicationState: Decodable, Equatable, Sendable {
     }
 }
 
+/// The open folder and the recent folders the start page lists.
+nonisolated struct BridgeFolderState: Decodable, Equatable, Sendable {
+    /// The folder the window shows, or `nil` while it shows the start page.
+    var openFolder: String?
+    /// Recently opened folders, most recent first.
+    var recentFolders: [BridgeRecentFolder]
+    /// A folder that just failed to open, so the start page can say why it's showing.
+    var unavailableFolder: BridgeUnavailableFolder?
+}
+
+nonisolated struct BridgeRecentFolder: Decodable, Equatable, Identifiable, Sendable {
+    let path: String
+    /// Whether nothing, or something other than a folder, is at `path` now. Missing folders stay
+    /// listed until removed.
+    let isMissing: Bool
+
+    var id: String { path }
+}
+
+nonisolated struct BridgeUnavailableFolder: Decodable, Equatable, Sendable {
+    let path: String
+    let reason: Reason
+
+    enum Reason: String, Decodable, Sendable {
+        /// Nothing is at the path, or something other than a folder is.
+        case missing
+        /// The folder can't be read, for example because Twine doesn't have permission.
+        case inaccessible
+    }
+}
+
 nonisolated struct BridgeEventBatch: Decodable, Sendable {
     let events: [BridgeEvent]
 }
@@ -69,6 +105,7 @@ nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case applicationReady
         case commandCompleted(requestID: UInt64, result: BridgeCommandResult)
+        case foldersChanged(BridgeFolderState)
     }
 
     private enum CodingKeys: CodingKey {
@@ -154,6 +191,7 @@ nonisolated private struct EventPayload: Decodable {
     let kind: BridgeEvent.Kind
 
     private enum CodingKeys: String, CodingKey {
+        case folders
         case requestID = "requestId"
         case result
         case type
@@ -162,6 +200,7 @@ nonisolated private struct EventPayload: Decodable {
     private enum EventType: String, Decodable {
         case applicationReady
         case commandCompleted
+        case foldersChanged
     }
 
     init(from decoder: any Decoder) throws {
@@ -174,6 +213,8 @@ nonisolated private struct EventPayload: Decodable {
                 requestID: try container.decode(UInt64.self, forKey: .requestID),
                 result: try container.decode(CommandResultPayload.self, forKey: .result).result
             )
+        case .foldersChanged:
+            kind = .foldersChanged(try container.decode(BridgeFolderState.self, forKey: .folders))
         }
     }
 }

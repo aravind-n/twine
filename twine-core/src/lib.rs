@@ -3,6 +3,8 @@
 mod application;
 pub mod config;
 mod event;
+mod folder;
+mod store;
 mod terminal;
 
 pub use application::{
@@ -10,4 +12,6 @@ pub use application::{
     RequestId, Snapshot,
 };
 pub use event::{CommandResult, Event, EventError, EventKind, StateEvent};
+pub use folder::{FolderState, RecentFolder, UnavailableFolder, UnavailableReason};
+pub use store::StoreError;
 pub use terminal::{TerminalChunk, TerminalError, TerminalId};
