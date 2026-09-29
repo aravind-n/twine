@@ -21,7 +21,9 @@ final class BridgeClient {
 
     private let transport: any BridgeTransport
     private var eventTask: Task<Void, Never>?
+    private var stopTask: Task<Void, Never>?
     private var isStopping = false
+    private var isTerminating = false
     private var commandResults: [UInt64: BridgeCommandResult] = [:]
     private var ignoredCommandResults: Set<UInt64> = []
     private var commandWaiters: [UInt64: CheckedContinuation<BridgeCommandResult, any Error>] = [:]
@@ -33,7 +35,7 @@ final class BridgeClient {
     }
 
     func start() {
-        guard eventTask == nil, !isStopping else { return }
+        guard eventTask == nil, !isStopping, !isTerminating else { return }
 
         connectionState = .starting
         eventTask = Task { [weak self] in
@@ -41,26 +43,8 @@ final class BridgeClient {
         }
     }
 
-    func stop() async {
-        guard !isStopping else { return }
-
-        isStopping = true
-        let task = eventTask
-        task?.cancel()
-        await task?.value
-        await transport.close()
-        eventTask = nil
-        snapshot = nil
-        lastCommandCompletion = nil
-        commandResults.removeAll()
-        ignoredCommandResults.removeAll()
-        terminalChunkRouter.removeAll()
-        failCommandWaiters(with: BridgeFailure.notConnected)
-        connectionState = .idle
-        isStopping = false
-    }
-
     func send(_ command: BridgeCommand) async throws -> BridgeCommandReceipt {
+        guard !isStopping, !isTerminating else { throw BridgeFailure.notConnected }
         let receipt = try await transport.send(command)
         if receipt.status == .accepted {
             switch command {
@@ -112,7 +96,9 @@ final class BridgeClient {
     }
 
     private func sendAndAwaitCompletion(_ command: BridgeCommand) async throws -> BridgeCommandResult {
-        guard connectionState == .running else { throw BridgeFailure.notConnected }
+        guard connectionState == .running, !isStopping, !isTerminating else {
+            throw BridgeFailure.notConnected
+        }
         let receipt = try await transport.send(command)
         guard connectionState == .running else { throw BridgeFailure.notConnected }
         guard receipt.status == .accepted else {
@@ -283,6 +269,44 @@ final class BridgeClient {
         }
     }
 
+}
+
+extension BridgeClient {
+    func stop() async {
+        if let stopTask {
+            await stopTask.value
+            return
+        }
+        isStopping = true
+        let stopTask = Task { [self] in
+            await performStop()
+            isStopping = false
+            self.stopTask = nil
+        }
+        self.stopTask = stopTask
+        await stopTask.value
+    }
+
+    /// Permanently closes the app's bridge connection before AppKit finishes quitting.
+    func stopForQuit() async {
+        isTerminating = true
+        await stop()
+    }
+
+    private func performStop() async {
+        let task = eventTask
+        task?.cancel()
+        await task?.value
+        await transport.close()
+        eventTask = nil
+        snapshot = nil
+        lastCommandCompletion = nil
+        commandResults.removeAll()
+        ignoredCommandResults.removeAll()
+        terminalChunkRouter.removeAll()
+        failCommandWaiters(with: BridgeFailure.notConnected)
+        connectionState = .idle
+    }
 }
 
 extension BridgeClient {

@@ -11,6 +11,7 @@ import SwiftUI
 
 @main
 struct TwineApp: App {
+    @NSApplicationDelegateAdaptor(AppTerminationDelegate.self) private var terminationDelegate
     @State private var bridgeClient = BridgeClient(transport: BridgeWorker(dataDirectory: Self.dataDirectory))
 
     init() {
@@ -24,6 +25,7 @@ struct TwineApp: App {
             ContentView()
                 .environment(bridgeClient)
                 .task {
+                    terminationDelegate.connect(to: bridgeClient)
                     bridgeClient.start()
                 }
         }
@@ -40,5 +42,31 @@ struct TwineApp: App {
             return URL(filePath: path, directoryHint: .isDirectory)
         }
         return .applicationSupportDirectory.appending(path: "Twine", directoryHint: .isDirectory)
+    }
+}
+
+@MainActor
+final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
+    private var bridgeClient: BridgeClient?
+    private var isTerminating = false
+
+    func connect(to bridgeClient: BridgeClient) {
+        self.bridgeClient = bridgeClient
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        beginTermination { sender.reply(toApplicationShouldTerminate: $0) }
+    }
+
+    /// The reply closure also lets tests verify that AppKit is released only after shutdown.
+    func beginTermination(reply: @escaping @MainActor (Bool) -> Void) -> NSApplication.TerminateReply {
+        guard let bridgeClient else { return .terminateNow }
+        guard !isTerminating else { return .terminateLater }
+        isTerminating = true
+        Task {
+            await bridgeClient.stopForQuit()
+            reply(true)
+        }
+        return .terminateLater
     }
 }
