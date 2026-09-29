@@ -77,13 +77,6 @@ pub struct TerminalChunk {
 
 #[derive(Debug, Error)]
 pub enum TerminalError {
-    #[error(
-        "terminal output buffer is full: requested {requested_bytes} bytes, {available_bytes} available"
-    )]
-    BufferFull {
-        requested_bytes: usize,
-        available_bytes: usize,
-    },
     #[error("terminal output chunk has {chunk_bytes} bytes, exceeding capacity {capacity_bytes}")]
     ChunkTooLarge {
         chunk_bytes: usize,
@@ -97,8 +90,6 @@ pub enum TerminalError {
     OffsetOverflow,
     #[error("terminal {terminal_id:?} is not open")]
     NotOpen { terminal_id: TerminalId },
-    #[error("terminal {terminal_id:?} still has queued output")]
-    PendingOutput { terminal_id: TerminalId },
     #[error("failed to {operation}: {message}")]
     Pty {
         operation: &'static str,
@@ -106,8 +97,6 @@ pub enum TerminalError {
     },
     #[error("terminal state lock is poisoned")]
     Poisoned,
-    #[error("terminal output queue reached its {capacity_chunks}-chunk capacity")]
-    QueueFull { capacity_chunks: usize },
     #[error("terminal ID counter overflowed")]
     TerminalIdOverflow,
     #[error("failed to {operation}: {message}")]
