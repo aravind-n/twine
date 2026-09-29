@@ -4,6 +4,8 @@ mod client;
 mod ffi;
 mod logging;
 mod protocol;
+#[cfg(test)]
+mod test_support;
 
 use std::path::Path;
 
@@ -277,18 +279,15 @@ pub unsafe extern "C" fn twine_buffer_release(buffer: *mut TwineBuffer) -> Twine
 #[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
-    use std::sync::Mutex;
     use std::time::{Duration, Instant};
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     use tempfile::TempDir;
-    use tracing_subscriber::{Layer, prelude::*};
 
     use super::*;
-
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    use crate::test_support::TEST_LOCK;
 
     struct EnvironmentOverride {
         key: &'static str,
@@ -963,41 +962,5 @@ mod tests {
         let relaunched = create_client_in(data.path());
         assert_eq!(snapshot(relaunched)["folders"]["openFolder"], path);
         destroy(relaunched);
-    }
-
-    #[test]
-    fn panic_guard_returns_status_instead_of_unwinding() {
-        let _guard = TEST_LOCK.lock().expect("test lock should be available");
-        let status = ffi::catch_status(|| -> Result<(), BridgeError> {
-            panic!("test panic");
-        });
-        assert_eq!(status, TwineStatus::Panic);
-    }
-
-    #[test]
-    fn panic_guard_contains_diagnostic_subscriber_panics() {
-        struct PanickingLayer;
-
-        impl<S> Layer<S> for PanickingLayer
-        where
-            S: tracing::Subscriber,
-        {
-            fn on_event(
-                &self,
-                _event: &tracing::Event<'_>,
-                _context: tracing_subscriber::layer::Context<'_, S>,
-            ) {
-                panic!("test subscriber panic");
-            }
-        }
-
-        // Tests that log from other threads can register the logging callsite concurrently and
-        // cache it as disabled before this scoped subscriber exists.
-        let _guard = TEST_LOCK.lock().expect("test lock should be available");
-        let subscriber = tracing_subscriber::registry().with(PanickingLayer);
-        tracing::subscriber::with_default(subscriber, || {
-            let status = ffi::catch_status(|| Err(BridgeError::InvalidArgument));
-            assert_eq!(status, TwineStatus::Panic);
-        });
     }
 }

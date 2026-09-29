@@ -476,6 +476,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::config::{ColorScheme, Config};
     use crate::folder::{UnavailableFolder, UnavailableReason};
 
     #[test]
@@ -793,5 +794,23 @@ mod tests {
                 snapshot.sequence + u64::try_from(index).expect("test index should fit") + 1
             );
         }
+    }
+
+    #[test]
+    fn snapshot_contains_loaded_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        std::fs::write(&path, "[appearance]\ncolor_scheme = 'dark'\n").unwrap();
+        let application =
+            Application::with_config(directory.path(), Config::load(&path).config).unwrap();
+        assert_eq!(
+            application
+                .snapshot()
+                .unwrap()
+                .config
+                .appearance
+                .color_scheme,
+            ColorScheme::Dark
+        );
     }
 }
