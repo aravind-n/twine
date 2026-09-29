@@ -279,6 +279,7 @@ pub unsafe extern "C" fn twine_buffer_release(buffer: *mut TwineBuffer) -> Twine
 #[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
+    use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
     #[cfg(unix)]
@@ -417,6 +418,57 @@ mod tests {
             TwineStatus::Ok
         );
         serde_json::from_slice(&take_buffer(response)).expect("command response should be JSON")
+    }
+
+    /// Writes a shell script that `SHELL` can point at, so a test controls what the terminal runs.
+    fn write_test_shell(name: &str, script: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("twine-bridge-{name}-{}", std::process::id()));
+        std::fs::write(&path, script).expect("test shell should be written");
+        #[cfg(unix)]
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+            .expect("test shell should be executable");
+        path
+    }
+
+    /// Starts a terminal in the current directory through the command ABI and returns its ID.
+    fn start_terminal(client: *mut TwineClient, request_id: u64) -> u64 {
+        let working_directory = std::env::current_dir().expect("current directory should exist");
+        let response = send_json_command(
+            client,
+            &serde_json::json!({
+                "requestId": request_id,
+                "command": {
+                    "type": "startTerminal",
+                    "workingDirectory": working_directory,
+                    "size": {
+                        "rows": 24,
+                        "columns": 80,
+                        "pixelWidth": 800,
+                        "pixelHeight": 480
+                    }
+                }
+            }),
+        );
+        assert_eq!(response["status"], "accepted");
+
+        let mut events = TwineBuffer::empty();
+        assert_eq!(
+            // SAFETY: The test client is live and the output storage is empty and writable.
+            unsafe { twine_client_events_after(client, 0, 16, &raw mut events) },
+            TwineStatus::Ok
+        );
+        let events: serde_json::Value =
+            serde_json::from_slice(&take_buffer(events)).expect("terminal events should be JSON");
+        events["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find_map(|event| {
+                (event["event"]["requestId"] == request_id)
+                    .then(|| event["event"]["result"]["terminalId"].as_u64())
+                    .flatten()
+            })
+            .expect("start event should include the terminal ID")
     }
 
     #[test]
@@ -682,81 +734,96 @@ mod tests {
     #[test]
     fn terminal_stream_preserves_binary_bytes_and_absolute_offset() {
         let _guard = TEST_LOCK.lock().expect("test lock should be available");
-        let (_data, client) = create_client();
-        // SAFETY: The client is alive and actor-style exclusive access is maintained in this test.
-        let client_ref = unsafe { &*client };
-        let terminal_id = client_ref
-            .application()
-            .open_terminal()
-            .expect("terminal should open");
-        client_ref
-            .application()
-            .publish_terminal_output(terminal_id, vec![0, 0xff, b'a'])
-            .expect("terminal output should fit");
-
-        let mut chunk = TwineTerminalChunk::empty();
-        assert_eq!(
-            // SAFETY: The test client is live and the output storage is empty and writable.
-            unsafe { twine_client_next_terminal_chunk(client, &raw mut chunk) },
-            TwineStatus::Ok
+        let shell_path = write_test_shell(
+            "binary-shell",
+            "#!/bin/sh\nprintf '\\000\\377a'\nexec cat\n",
         );
-        assert_eq!(chunk.terminal_id, terminal_id.value());
-        assert_eq!(chunk.offset, 0);
-        assert_eq!(take_buffer(chunk.bytes), vec![0, 0xff, b'a']);
+        let _shell_override = EnvironmentOverride::set("SHELL", shell_path.as_os_str());
+        let (_data, client) = create_client();
+        let terminal_id = start_terminal(client, 60);
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut first_offset = None;
+        let mut output = Vec::new();
+        while output.len() < 3 {
+            let mut chunk = TwineTerminalChunk::empty();
+            match
+                // SAFETY: The test client is live and the output storage is empty and writable.
+                unsafe { twine_client_next_terminal_chunk(client, &raw mut chunk) }
+            {
+                TwineStatus::Ok => {
+                    assert_eq!(chunk.terminal_id, terminal_id);
+                    first_offset.get_or_insert(chunk.offset);
+                    output.extend(take_buffer(chunk.bytes));
+                }
+                TwineStatus::Empty => std::thread::sleep(Duration::from_millis(5)),
+                status => panic!("terminal output failed with {status:?}"),
+            }
+            assert!(Instant::now() < deadline, "terminal output did not arrive");
+        }
+        assert_eq!(first_offset, Some(0));
+        assert_eq!(&output[..3], &[0, 0xff, b'a']);
 
         // SAFETY: The live test client is destroyed exactly once after all operations finish.
         assert_eq!(unsafe { twine_client_destroy(client) }, TwineStatus::Ok);
+        std::fs::remove_file(shell_path).expect("test shell should be removed");
+    }
+
+    #[test]
+    fn immediately_exiting_shell_reports_its_start_before_its_exit() {
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let shell_path = write_test_shell("exiting-shell", "#!/bin/sh\nexit 3\n");
+        let _shell_override = EnvironmentOverride::set("SHELL", shell_path.as_os_str());
+        let (_data, client) = create_client();
+        let terminal_id = start_terminal(client, 80);
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let events = loop {
+            let mut buffer = TwineBuffer::empty();
+            assert_eq!(
+                // SAFETY: The test client is live and the output storage is empty and writable.
+                unsafe { twine_client_events_after(client, 0, 16, &raw mut buffer) },
+                TwineStatus::Ok
+            );
+            let batch: serde_json::Value =
+                serde_json::from_slice(&take_buffer(buffer)).expect("events should be JSON");
+            let events = batch["events"]
+                .as_array()
+                .expect("events should be an array")
+                .clone();
+            if events
+                .iter()
+                .any(|event| event["event"]["type"] == "terminalExited")
+            {
+                break events;
+            }
+            assert!(Instant::now() < deadline, "shell exit was not reported");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let position = |predicate: &dyn Fn(&serde_json::Value) -> bool| {
+            events
+                .iter()
+                .position(|event| predicate(&event["event"]))
+                .expect("event should be present")
+        };
+        let started = position(&|event| event["requestId"] == 80);
+        let exited = position(&|event| event["type"] == "terminalExited");
+        assert!(started < exited);
+        assert_eq!(events[exited]["event"]["terminalId"], terminal_id);
+        assert_eq!(events[exited]["event"]["exitCode"], 3);
+
+        // SAFETY: The live test client is destroyed exactly once after all operations finish.
+        assert_eq!(unsafe { twine_client_destroy(client) }, TwineStatus::Ok);
+        std::fs::remove_file(shell_path).expect("test shell should be removed");
     }
 
     #[test]
     fn resize_abi_updates_a_live_terminal() {
         let _guard = TEST_LOCK.lock().expect("test lock should be available");
-        let shell_path =
-            std::env::temp_dir().join(format!("twine-bridge-test-shell-{}", std::process::id()));
-        std::fs::write(&shell_path, "#!/bin/sh\nexec /bin/sh\n")
-            .expect("test shell wrapper should be written");
-        #[cfg(unix)]
-        std::fs::set_permissions(&shell_path, std::fs::Permissions::from_mode(0o700))
-            .expect("test shell wrapper should be executable");
+        let shell_path = write_test_shell("test-shell", "#!/bin/sh\nexec /bin/sh\n");
         let _shell_override = EnvironmentOverride::set("SHELL", shell_path.as_os_str());
         let (_data, client) = create_client();
-        let working_directory = std::env::current_dir().expect("current directory should exist");
-        let response = send_json_command(
-            client,
-            &serde_json::json!({
-                "requestId": 70,
-                "command": {
-                    "type": "startTerminal",
-                    "workingDirectory": working_directory,
-                    "size": {
-                        "rows": 24,
-                        "columns": 80,
-                        "pixelWidth": 800,
-                        "pixelHeight": 480
-                    }
-                }
-            }),
-        );
-        assert_eq!(response["status"], "accepted");
-
-        let mut events = TwineBuffer::empty();
-        assert_eq!(
-            // SAFETY: The test client is live and the output storage is empty and writable.
-            unsafe { twine_client_events_after(client, 0, 16, &raw mut events) },
-            TwineStatus::Ok
-        );
-        let events: serde_json::Value =
-            serde_json::from_slice(&take_buffer(events)).expect("terminal events should be JSON");
-        let terminal_id = events["events"]
-            .as_array()
-            .expect("events should be an array")
-            .iter()
-            .find_map(|event| {
-                (event["event"]["requestId"] == 70)
-                    .then(|| event["event"]["result"]["terminalId"].as_u64())
-                    .flatten()
-            })
-            .expect("start event should include the terminal ID");
+        let terminal_id = start_terminal(client, 70);
 
         assert_eq!(
             // SAFETY: The client and terminal are live and exclusively accessed by this test.
@@ -805,7 +872,7 @@ mod tests {
 
         // SAFETY: The live test client is destroyed exactly once after all operations finish.
         assert_eq!(unsafe { twine_client_destroy(client) }, TwineStatus::Ok);
-        std::fs::remove_file(shell_path).expect("test shell wrapper should be removed");
+        std::fs::remove_file(shell_path).expect("test shell should be removed");
     }
 
     #[test]

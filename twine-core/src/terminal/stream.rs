@@ -70,11 +70,8 @@ impl TerminalStream {
         Ok(terminal_id)
     }
 
-    pub(crate) fn publish(
-        &self,
-        terminal_id: TerminalId,
-        bytes: Vec<u8>,
-    ) -> Result<u64, TerminalError> {
+    #[cfg(test)]
+    fn publish(&self, terminal_id: TerminalId, bytes: Vec<u8>) -> Result<u64, TerminalError> {
         self.publish_inner(terminal_id, bytes, false)
     }
 
@@ -198,7 +195,8 @@ impl TerminalStream {
         Ok(())
     }
 
-    pub(crate) fn close(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
+    #[cfg(test)]
+    fn close(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
         let mut inner = self.lock_inner()?;
         if !inner.entries.contains_key(&terminal_id) {
             return Err(TerminalError::NotOpen { terminal_id });
@@ -357,6 +355,66 @@ mod tests {
                 .expect("second terminal output should remain")
                 .terminal_id,
             second
+        );
+    }
+
+    #[test]
+    fn output_has_absolute_offsets_and_byte_backpressure() {
+        let stream = TerminalStream::new(5, 16).expect("stream should initialize");
+        let terminal_id = stream.open().expect("terminal should open");
+
+        assert_eq!(
+            stream
+                .publish(terminal_id, vec![0, 1, 2])
+                .expect("first chunk should fit"),
+            0
+        );
+        assert_eq!(
+            stream
+                .publish(terminal_id, vec![3, 4])
+                .expect("second chunk should fit"),
+            3
+        );
+        assert!(matches!(
+            stream.publish(terminal_id, vec![5]),
+            Err(TerminalError::BufferFull { .. })
+        ));
+
+        let first = stream
+            .next_chunk()
+            .expect("read should succeed")
+            .expect("chunk should exist");
+        assert_eq!(first.terminal_id, terminal_id);
+        assert_eq!(first.offset, 0);
+        assert_eq!(first.bytes, vec![0, 1, 2]);
+
+        assert_eq!(
+            stream
+                .publish(terminal_id, vec![5])
+                .expect("space should be reusable"),
+            5
+        );
+
+        assert!(matches!(
+            stream.close(terminal_id),
+            Err(TerminalError::PendingOutput { .. })
+        ));
+        while stream.next_chunk().expect("read should succeed").is_some() {}
+        stream
+            .close(terminal_id)
+            .expect("drained terminal should close");
+        assert!(matches!(
+            stream.publish(terminal_id, vec![6]),
+            Err(TerminalError::NotOpen { .. })
+        ));
+
+        let next_terminal_id = stream.open().expect("next terminal should open");
+        assert_ne!(next_terminal_id, terminal_id);
+        assert_eq!(
+            stream
+                .publish(next_terminal_id, vec![6])
+                .expect("fresh terminal should start at zero"),
+            0
         );
     }
 }
