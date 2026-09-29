@@ -8,3 +8,5 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+thiserror = "2.0"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
