@@ -1,4 +1,4 @@
-name: Dependency Audit
+name: Cargo Audit
 
 on:
   workflow_call:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  dependency-audit:
+  cargo-audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

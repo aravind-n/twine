@@ -33,7 +33,8 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v4
         with:
-          # Workflow changes select every check, because main doesn't re-run them after merging.
+          # Workflow changes select the build and test checks, because main doesn't re-run them
+          # after merging. The audit runs only when its result can change.
           filters: |
             libraries:
               - 'twine-core/**'
@@ -45,7 +46,7 @@ jobs:
               - '.github/**'
             lockfile:
               - 'Cargo.lock'
-              - '.github/**'
+              - '.github/workflows/_cargo-audit.yml'
             app:
               - 'macOS/**/!(*.md)'
               - 'twine-core/**'
@@ -107,10 +108,10 @@ jobs:
         if: steps.bridge-cache.outputs.cache-hit != 'true'
         run: scripts/build-bridge.sh "${{ matrix.profile }}"
 
-  dependency-audit:
+  cargo-audit:
     needs: changes
     if: needs.changes.outputs.lockfile == 'true'
-    uses: ./.github/workflows/_dependency-audit.yml
+    uses: ./.github/workflows/_cargo-audit.yml
 
   app-checks:
     needs: [changes, library-build]
@@ -162,7 +163,7 @@ jobs:
             -color -ignore 'label "xcode-27" is unknown'
 
   ci-gate:
-    needs: [changes, library-checks, library-build, dependency-audit, app-checks, actionlint]
+    needs: [changes, library-checks, library-build, cargo-audit, app-checks, actionlint]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions: {}
@@ -174,7 +175,7 @@ jobs:
       WORKFLOWS_SELECTED: ${{ needs.changes.outputs.workflows }}
       LIBRARY_CHECKS_RESULT: ${{ needs.library-checks.result }}
       LIBRARY_BUILD_RESULT: ${{ needs.library-build.result }}
-      DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+      CARGO_AUDIT_RESULT: ${{ needs.cargo-audit.result }}
       APP_CHECKS_RESULT: ${{ needs.app-checks.result }}
       ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
     steps:
@@ -197,7 +198,7 @@ jobs:
           }
           check_job library-checks "$LIBRARIES_SELECTED" "$LIBRARY_CHECKS_RESULT"
           check_job library-build "$APP_SELECTED" "$LIBRARY_BUILD_RESULT"
-          check_job dependency-audit "$LOCKFILE_SELECTED" "$DEPENDENCY_AUDIT_RESULT"
+          check_job cargo-audit "$LOCKFILE_SELECTED" "$CARGO_AUDIT_RESULT"
           check_job app-checks "$APP_SELECTED" "$APP_CHECKS_RESULT"
           check_job actionlint "$WORKFLOWS_SELECTED" "$ACTIONLINT_RESULT"
           exit "$failed"
