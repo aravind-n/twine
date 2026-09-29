@@ -4,21 +4,17 @@ import SwiftUI
 
 struct TerminalSurface: View {
     @Environment(BridgeClient.self) private var bridgeClient
-    @State private var terminalID: UInt64?
     @State private var failureMessage: String?
 
-    private let workingDirectory: URL
-
-    init(workingDirectory: URL) {
-        self.workingDirectory = workingDirectory
-    }
+    let workflow: BridgeWorkflow
+    let isSelected: Bool
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             TerminalViewRepresentable(
                 bridgeClient: bridgeClient,
-                workingDirectory: workingDirectory,
-                terminalID: $terminalID,
+                terminalID: workflow.terminalID,
+                isSelected: isSelected,
                 failureMessage: $failureMessage
             )
 
@@ -34,17 +30,11 @@ struct TerminalSurface: View {
         }
         .padding(Spacing.terminalContent)
         .background(.terminalBackground)
-        .clipShape(panelShape)
-        .overlay(panelShape.stroke(.hairline, lineWidth: Surface.hairlineWidth))
-        .terminalPanelShadow()
     }
 
     private var statusMessage: String? {
-        if let failureMessage {
-            return failureMessage
-        }
-        guard let terminalID else { return nil }
-        switch bridgeClient.terminalStatus(for: terminalID) {
+        if let failureMessage { return failureMessage }
+        switch bridgeClient.terminalStatus(for: workflow.terminalID) {
         case .exited(let exit):
             if let signal = exit.signal {
                 return "Shell exited with code \(exit.exitCode) (\(signal))"
@@ -56,35 +46,30 @@ struct TerminalSurface: View {
             return nil
         }
     }
-
-    private var panelShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: CornerRadius.panel)
-    }
 }
 
 struct TerminalViewRepresentable: NSViewRepresentable {
     let bridgeClient: BridgeClient
-    let workingDirectory: URL
-    @Binding var terminalID: UInt64?
+    let terminalID: UInt64
+    let isSelected: Bool
     @Binding var failureMessage: String?
 
     func makeCoordinator() -> TerminalController {
-        TerminalController(
-            bridgeClient: bridgeClient,
-            workingDirectory: workingDirectory,
-            terminalID: $terminalID,
-            failureMessage: $failureMessage
-        )
+        TerminalController(bridgeClient: bridgeClient, terminalID: terminalID, failureMessage: $failureMessage)
     }
 
     func makeNSView(context: Context) -> MetalTerminalView {
         let view = MetalTerminalView(frame: .zero)
+        view.isSelected = isSelected
+        view.isHidden = !isSelected
         view.terminalDelegate = context.coordinator
         context.coordinator.start(view: view)
         return view
     }
 
     func updateNSView(_ nsView: MetalTerminalView, context: Context) {
+        nsView.isHidden = !isSelected
+        nsView.isSelected = isSelected
         nsView.applyTwinePalette()
     }
 

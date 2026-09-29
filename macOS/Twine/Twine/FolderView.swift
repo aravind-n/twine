@@ -3,6 +3,7 @@ import SwiftUI
 
 /// The window content while a folder is open.
 struct FolderView: View {
+    @Environment(BridgeClient.self) private var bridgeClient
     let path: String
     let closeFolder: () -> Void
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .detailOnly
@@ -18,12 +19,13 @@ struct FolderView: View {
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             VStack(spacing: Spacing.windowSections) {
-                TerminalSurface(workingDirectory: URL(filePath: path, directoryHint: .isDirectory))
+                WorkflowWorkspace(folder: path)
                 TracesHeader()
             }
             .padding(Spacing.windowMargins)
             .background(.windowBackground)
         }
+        .background { FolderWindowLifetime(bridgeClient: bridgeClient, folder: path).frame(width: 0, height: 0) }
         .navigationSplitViewStyle(.balanced)
         .navigationTitle(URL(filePath: path).lastPathComponent)
         .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)

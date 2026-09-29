@@ -31,6 +31,8 @@ struct TerminalSession {
 
 pub(crate) struct TerminalManager {
     output: Arc<TerminalStream>,
+    #[cfg(test)]
+    test_shell: Option<PathBuf>,
     sessions: Mutex<HashMap<TerminalId, TerminalSession>>,
 }
 
@@ -38,8 +40,15 @@ impl TerminalManager {
     pub(crate) fn new(output: Arc<TerminalStream>) -> Self {
         Self {
             output,
+            #[cfg(test)]
+            test_shell: None,
             sessions: Mutex::new(HashMap::new()),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_shell(&mut self, shell: PathBuf) {
+        self.test_shell = Some(shell);
     }
 
     pub(crate) fn start_default_shell(
@@ -50,6 +59,14 @@ impl TerminalManager {
     ) -> Result<TerminalId, TerminalError> {
         let working_directory = canonical_working_directory(working_directory)?;
         let command = default_shell_command(&working_directory);
+        #[cfg(test)]
+        let command = if let Some(shell) = &self.test_shell {
+            let mut command = super::launcher::shell_launcher_command(&working_directory, shell);
+            command.env("TERM", "xterm-256color");
+            command
+        } else {
+            command
+        };
         self.start_command(command, size, Some(working_directory), on_exit)
     }
 

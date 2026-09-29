@@ -5,6 +5,27 @@ import Testing
 @testable import Twine
 
 struct TerminalControllerTests {
+    @Test @MainActor func stopDuringStartupClosesTheLateShell() async throws {
+        let transport = DelayedStartTransport()
+        let client = BridgeClient(transport: transport)
+        client.start()
+        let controller = TerminalController(
+            bridgeClient: client, workingDirectory: URL(filePath: "/"),
+            terminalID: .constant(nil), failureMessage: .constant(nil)
+        )
+        let view = MetalTerminalView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        controller.start(view: view)
+        try await waitUntil { await transport.hasStartRequest }
+        controller.stop()
+        await transport.completeStart(terminalID: 41)
+        try await waitUntil {
+            let closed = await transport.closedTerminalIDs.contains(41)
+            return closed && client.snapshot?.terminals.isEmpty == true
+        }
+        #expect(client.snapshot?.terminals.isEmpty == true)
+        await client.stop()
+    }
+
     @Test @MainActor func inputTypedBeforeTheShellStartsIsSentOnceItHas() async throws {
         let transport = DelayedStartTransport()
         let client = BridgeClient(transport: transport)

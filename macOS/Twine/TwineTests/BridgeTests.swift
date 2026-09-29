@@ -11,7 +11,7 @@ struct BridgeTests {
             {"sequence":1,"state":{"status":"ready"},
              "config":{"appearance":{"color_scheme":"\(colorScheme.rawValue)"}},
              "folders":{"openFolder":null,"recentFolders":[],"unavailableFolder":null},
-             "terminals":[]}
+             "terminals":[],"workflows":{"session":null,"workflows":[]}}
             """
         let snapshot = try JSONDecoder().decode(BridgeSnapshot.self, from: Data(json.utf8))
         #expect(snapshot.config.appearance.colorScheme == colorScheme)

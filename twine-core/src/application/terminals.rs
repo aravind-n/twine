@@ -46,11 +46,25 @@ impl Application {
         request_id: RequestId,
         terminal_id: TerminalId,
     ) -> Result<CommandDisposition, ApplicationError> {
+        {
+            let mut inner = self.lock_inner()?;
+            if inner
+                .workflows
+                .workflows
+                .iter()
+                .any(|workflow| workflow.terminal_id == terminal_id)
+            {
+                return Ok(CommandDisposition::Rejected {
+                    code: "terminalOwnedByWorkflow".to_owned(),
+                    message: "Close the workflow to close its terminal.".to_owned(),
+                });
+            }
+            inner.terminals.remove(&terminal_id);
+        }
         if let Err(error) = self.terminals.close(terminal_id) {
             return Ok(rejection("terminalCloseFailed", &error));
         }
         let mut inner = self.lock_inner()?;
-        inner.terminals.remove(&terminal_id);
         inner.events.append(EventKind::CommandCompleted {
             request_id,
             result: CommandResult::TerminalClosed { terminal_id },
@@ -98,7 +112,7 @@ impl Application {
         Ok(self.terminals.resize(terminal_id, size)?)
     }
 
-    fn start_terminal(
+    pub(super) fn start_terminal(
         &self,
         working_directory: &Path,
         size: TerminalSize,
@@ -124,11 +138,14 @@ impl Application {
 
 impl Inner {
     /// Records how a shell ended, in the terminal's status and as an event.
-    fn record_terminal_exit(
+    pub(super) fn record_terminal_exit(
         &mut self,
         terminal_id: TerminalId,
         result: Result<TerminalExit, String>,
     ) {
+        if !self.terminals.contains_key(&terminal_id) {
+            return;
+        }
         let (status, event) = match result {
             Ok(exit) => (
                 TerminalStatus::Exited(exit.clone()),
@@ -144,6 +161,26 @@ impl Inner {
                 },
             ),
         };
+        if let Some(workflow) = self
+            .workflows
+            .workflows
+            .iter_mut()
+            .find(|workflow| workflow.terminal_id == terminal_id)
+        {
+            workflow.status = match &status {
+                TerminalStatus::Exited(_) => crate::workflow::WorkflowStatus::Exited,
+                TerminalStatus::Failed { .. } => crate::workflow::WorkflowStatus::Failed,
+                TerminalStatus::Running => return,
+            };
+            workflow.ended_at = Some(crate::workflow::timestamp().max(workflow.started_at));
+            let workflow = workflow.clone();
+            if let Err(error) = self
+                .events
+                .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))
+            {
+                warn!(%error, "failed to record workflow exit");
+            }
+        }
         self.terminals.insert(terminal_id, status);
         if let Err(error) = self.events.append(EventKind::State(event)) {
             warn!(terminal_id = terminal_id.value(), %error, "failed to record terminal exit");

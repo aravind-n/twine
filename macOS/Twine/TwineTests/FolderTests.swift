@@ -29,7 +29,7 @@ struct FolderTests {
              "folders":{"openFolder":null,
                         "recentFolders":[{"path":"/p/locked","isMissing":false},{"path":"/p/gone","isMissing":true}],
                         "unavailableFolder":{"path":"/p/locked","reason":"inaccessible"}},
-             "terminals":[]}
+             "terminals":[],"workflows":{"session":null,"workflows":[]}}
             """
         let folders = try JSONDecoder().decode(BridgeSnapshot.self, from: Data(json.utf8)).folders
         #expect(

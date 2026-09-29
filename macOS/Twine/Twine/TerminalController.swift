@@ -5,12 +5,12 @@ import SwiftUI
 
 let terminalLogger = Logger(subsystem: "com.twineproject.Twine", category: "terminal")
 
-/// Runs one shell for a terminal view: starts the shell, sends the user's input and size changes,
-/// feeds the shell's output to the view, and closes the shell when the view goes away.
+/// Feeds a retained terminal view and forwards input and size changes. Workflow shells are owned
+/// by Rust; standalone terminals used by bridge clients retain the start/close behavior.
 @MainActor
 final class TerminalController: NSObject, TerminalViewDelegate {
     private let bridgeClient: BridgeClient
-    private let workingDirectory: URL
+    private let workingDirectory: URL?
     private var terminalID: UInt64?
     private var expectedOffset: UInt64 = 0
     private var lastSize: BridgeTerminalSize?
@@ -35,6 +35,14 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         self.failureMessage = failureMessage
     }
 
+    init(bridgeClient: BridgeClient, terminalID: UInt64, failureMessage: Binding<String?>) {
+        self.bridgeClient = bridgeClient
+        workingDirectory = nil
+        self.terminalID = terminalID
+        terminalIDBinding = .constant(terminalID)
+        self.failureMessage = failureMessage
+    }
+
     func start(view: MetalTerminalView) {
         guard task == nil else { return }
         task = Task { [weak self, weak view] in
@@ -44,17 +52,23 @@ final class TerminalController: NSObject, TerminalViewDelegate {
                 try Task.checkCancellation()
 
                 let size = terminalSize(for: view)
-                let terminalID = try await bridgeClient.startTerminal(
-                    workingDirectory: workingDirectory,
-                    size: size
-                )
+                let terminalID: UInt64
+                if let workingDirectory {
+                    terminalID = try await bridgeClient.startTerminal(workingDirectory: workingDirectory, size: size)
+                } else if let existingID = self.terminalID {
+                    terminalID = existingID
+                } else {
+                    return
+                }
                 guard !Task.isCancelled, !isStopping else {
-                    try await bridgeClient.closeTerminal(terminalID: terminalID)
+                    if workingDirectory != nil {
+                        try await bridgeClient.closeTerminal(terminalID: terminalID)
+                    }
                     return
                 }
                 self.terminalID = terminalID
                 terminalIDBinding.wrappedValue = terminalID
-                lastSize = size
+                lastSize = workingDirectory == nil ? nil : size
                 let latestSize = pendingSize ?? terminalSize(for: view)
                 pendingSize = nil
                 enqueueResize(latestSize, terminalID: terminalID)
@@ -82,6 +96,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         resizeTask = nil
         guard let terminalID else { return }
         self.terminalID = nil
+        guard workingDirectory != nil else { return }
         Task {
             do {
                 try await bridgeClient.closeTerminal(terminalID: terminalID)

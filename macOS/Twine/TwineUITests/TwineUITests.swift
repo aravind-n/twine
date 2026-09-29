@@ -77,6 +77,7 @@ final class TwineUITests: XCTestCase {
         XCTAssertTrue(explanation.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(recentFolder(missing.lastPathComponent, in: app).exists, app.debugDescription)
 
+        recentFolder(missing.lastPathComponent, in: app).hover()
         app.buttons["Remove from Recent Folders"].firstMatch.click()
         XCTAssertTrue(
             app.staticTexts["Folders you open appear here."].waitForExistence(timeout: 10),
