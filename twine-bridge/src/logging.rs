@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use tracing_oslog::OsLogger;
 use tracing_subscriber::prelude::*;
 
-use crate::client::BridgeError;
+use crate::error::BridgeError;
 
 const SUBSYSTEM: &str = "com.twineproject.Twine";
 const CATEGORY: &str = "rust";

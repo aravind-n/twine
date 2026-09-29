@@ -3,7 +3,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use tracing::error;
 
 use crate::TwineClient;
-use crate::client::BridgeError;
+use crate::error::BridgeError;
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -256,15 +256,16 @@ pub(crate) unsafe fn write_terminal_chunk(
 }
 
 fn status_for_error(error: &BridgeError) -> TwineStatus {
-    if error.is_cursor_expired() {
-        return TwineStatus::CursorExpired;
-    }
-    if error.is_invalid_argument() {
-        return TwineStatus::InvalidArgument;
-    }
-
     match error {
-        BridgeError::InputTooLarge | BridgeError::InvalidArgument => TwineStatus::InvalidArgument,
+        BridgeError::Application(twine_core::ApplicationError::Event(
+            twine_core::EventError::CursorExpired { .. },
+        )) => TwineStatus::CursorExpired,
+        BridgeError::Application(twine_core::ApplicationError::Terminal(
+            twine_core::TerminalError::InvalidSize { .. }
+            | twine_core::TerminalError::NotOpen { .. },
+        ))
+        | BridgeError::InputTooLarge
+        | BridgeError::InvalidArgument => TwineStatus::InvalidArgument,
         BridgeError::Empty => TwineStatus::Empty,
         BridgeError::InvalidUtf8 => TwineStatus::InvalidUtf8,
         BridgeError::MalformedCommand => TwineStatus::MalformedCommand,
@@ -285,10 +286,39 @@ mod tests {
     use std::path::PathBuf;
 
     use tracing_subscriber::{Layer, prelude::*};
-    use twine_core::{ApplicationError, StoreError};
+    use twine_core::{ApplicationError, EventError, StoreError, TerminalError, TerminalId};
 
     use super::*;
     use crate::test_support::TEST_LOCK;
+
+    #[test]
+    fn core_errors_keep_their_c_status_codes() {
+        let expired =
+            BridgeError::Application(ApplicationError::Event(EventError::CursorExpired {
+                requested: 1,
+                oldest_available: 2,
+            }));
+        assert_eq!(status_for_error(&expired), TwineStatus::CursorExpired);
+
+        let invalid_size =
+            BridgeError::Application(ApplicationError::Terminal(TerminalError::InvalidSize {
+                rows: 0,
+                columns: 80,
+            }));
+        assert_eq!(
+            status_for_error(&invalid_size),
+            TwineStatus::InvalidArgument
+        );
+
+        let not_open =
+            BridgeError::Application(ApplicationError::Terminal(TerminalError::NotOpen {
+                terminal_id: TerminalId::from_value(1),
+            }));
+        assert_eq!(status_for_error(&not_open), TwineStatus::InvalidArgument);
+
+        let other = BridgeError::Application(ApplicationError::Event(EventError::SequenceOverflow));
+        assert_eq!(status_for_error(&other), TwineStatus::InternalError);
+    }
 
     #[test]
     fn logged_errors_include_their_causes() {

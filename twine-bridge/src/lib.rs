@@ -1,6 +1,7 @@
 //! C ABI adapter for the Twine core.
 
 mod client;
+mod error;
 mod ffi;
 mod logging;
 mod protocol;
@@ -9,7 +10,7 @@ mod test_support;
 
 use std::path::Path;
 
-use client::BridgeError;
+use error::BridgeError;
 use ffi::{TwineBuffer, TwineStatus, TwineTerminalChunk, catch_status};
 use twine_core::TerminalSize;
 
@@ -298,8 +299,8 @@ mod tests {
     impl EnvironmentOverride {
         fn set(key: &'static str, value: &OsStr) -> Self {
             let previous = std::env::var_os(key);
-            // SAFETY: Every bridge test that can construct a terminal holds `TEST_LOCK`, and no
-            // production thread reads SHELL after the terminal command has been constructed.
+            // SAFETY: Bridge tests that override the environment hold `TEST_LOCK`. Client
+            // creation reads HOME synchronously, and terminal creation reads SHELL synchronously.
             unsafe { std::env::set_var(key, value) };
             Self { key, previous }
         }
@@ -326,6 +327,8 @@ mod tests {
     }
 
     fn create_client_in(data_directory: &Path) -> *mut TwineClient {
+        let home = tempfile::tempdir().expect("an isolated home directory should be available");
+        let _home_override = EnvironmentOverride::set("HOME", home.path().as_os_str());
         let path = data_directory
             .to_str()
             .expect("the test data directory should be UTF-8");
@@ -337,6 +340,7 @@ mod tests {
             TwineStatus::Ok
         );
         assert!(!client.is_null());
+        assert!(home.path().join(".config/twine/config.toml").is_file());
         client
     }
 
