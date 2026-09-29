@@ -1,0 +1,4 @@
+module TwineBridge {
+    header "twine_bridge.h"
+    export *
+}

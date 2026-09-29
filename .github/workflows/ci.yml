@@ -38,6 +38,8 @@ jobs:
             libraries:
               - 'twine-core/**'
               - 'twine-bridge/**'
+              - 'TwineBridgePackage/Package.swift'
+              - 'scripts/build-bridge.sh'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/**'
@@ -48,6 +50,8 @@ jobs:
               - 'macOS/**/!(*.md)'
               - 'twine-core/**'
               - 'twine-bridge/**'
+              - 'TwineBridgePackage/Package.swift'
+              - 'scripts/build-bridge.sh'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/**'
@@ -62,6 +66,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-macos
         with:
+          rust: 'true'
           rust-components: rustfmt clippy
       - uses: Swatinem/rust-cache@v2
       - name: Check Rust formatting
@@ -71,17 +76,56 @@ jobs:
       - name: Run Rust tests
         run: cargo test --workspace --locked
 
+  library-build:
+    needs: changes
+    if: >-
+      always() &&
+      (github.event_name == 'push' ||
+      (needs.changes.result == 'success' && needs.changes.outputs.app == 'true'))
+    runs-on: xcode-27
+    strategy:
+      matrix:
+        profile: [debug, release]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Restore prebuilt bridge
+        id: bridge-cache
+        uses: actions/cache@v6
+        with:
+          path: TwineBridgePackage/TwineBridge.xcframework
+          key: >-
+            twine-bridge-v1-${{ matrix.profile }}-${{
+            hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
+            'scripts/build-bridge.sh') }}
+      - uses: ./.github/actions/setup-macos
+        if: steps.bridge-cache.outputs.cache-hit != 'true'
+        with:
+          rust: 'true'
+          rust-targets: aarch64-apple-darwin x86_64-apple-darwin
+      - name: Build bridge framework
+        if: steps.bridge-cache.outputs.cache-hit != 'true'
+        run: scripts/build-bridge.sh "${{ matrix.profile }}"
+
   dependency-audit:
     needs: changes
     if: needs.changes.outputs.lockfile == 'true'
     uses: ./.github/workflows/_dependency-audit.yml
 
   app-checks:
-    needs: changes
+    needs: [changes, library-build]
     if: needs.changes.outputs.app == 'true'
     runs-on: xcode-27
     steps:
       - uses: actions/checkout@v7
+      - name: Restore Debug bridge
+        uses: actions/cache/restore@v6
+        with:
+          path: TwineBridgePackage/TwineBridge.xcframework
+          key: >-
+            twine-bridge-v1-debug-${{
+            hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
+            'scripts/build-bridge.sh') }}
+          fail-on-cache-miss: true
       - uses: ./.github/actions/setup-macos
         with:
           metal: 'true'
@@ -112,7 +156,7 @@ jobs:
             -color -ignore 'label "xcode-27" is unknown'
 
   ci-gate:
-    needs: [changes, library-checks, dependency-audit, app-checks, actionlint]
+    needs: [changes, library-checks, library-build, dependency-audit, app-checks, actionlint]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions: {}
@@ -123,6 +167,7 @@ jobs:
       APP_SELECTED: ${{ needs.changes.outputs.app }}
       WORKFLOWS_SELECTED: ${{ needs.changes.outputs.workflows }}
       LIBRARY_CHECKS_RESULT: ${{ needs.library-checks.result }}
+      LIBRARY_BUILD_RESULT: ${{ needs.library-build.result }}
       DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
       APP_CHECKS_RESULT: ${{ needs.app-checks.result }}
       ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
@@ -145,16 +190,27 @@ jobs:
             fi
           }
           check_job library-checks "$LIBRARIES_SELECTED" "$LIBRARY_CHECKS_RESULT"
+          check_job library-build "$APP_SELECTED" "$LIBRARY_BUILD_RESULT"
           check_job dependency-audit "$LOCKFILE_SELECTED" "$DEPENDENCY_AUDIT_RESULT"
           check_job app-checks "$APP_SELECTED" "$APP_CHECKS_RESULT"
           check_job actionlint "$WORKFLOWS_SELECTED" "$ACTIONLINT_RESULT"
           exit "$failed"
 
   ui-tests:
+    needs: library-build
     if: github.event_name == 'push'
     runs-on: xcode-27
     steps:
       - uses: actions/checkout@v7
+      - name: Restore Debug bridge
+        uses: actions/cache/restore@v6
+        with:
+          path: TwineBridgePackage/TwineBridge.xcframework
+          key: >-
+            twine-bridge-v1-debug-${{
+            hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
+            'scripts/build-bridge.sh') }}
+          fail-on-cache-miss: true
       - uses: ./.github/actions/setup-macos
         with:
           metal: 'true'
@@ -170,6 +226,7 @@ jobs:
           -only-testing:TwineUITests
 
   release-build:
+    needs: library-build
     if: github.event_name == 'push'
     uses: ./.github/workflows/_release-build.yml
     with:

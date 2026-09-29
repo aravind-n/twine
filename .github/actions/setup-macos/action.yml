@@ -1,7 +1,11 @@
 name: Set up macOS build tools
-description: Select Xcode 27.0, install the latest stable Rust, and optionally the Metal toolchain.
+description: Select Xcode 27.0 and optionally install Rust and the Metal toolchain.
 
 inputs:
+  rust:
+    description: Install the latest stable Rust toolchain.
+    required: false
+    default: 'false'
   rust-targets:
     description: Space-separated Rust targets to install.
     required: false
@@ -33,6 +37,7 @@ runs:
           exit 1
         fi
     - name: Install latest stable Rust
+      if: inputs.rust == 'true'
       shell: bash
       env:
         RUST_TARGETS: ${{ inputs.rust-targets }}
