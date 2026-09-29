@@ -1,6 +1,7 @@
 //! UI-independent application core for Twine.
 
 mod application;
+pub mod config;
 mod event;
 mod terminal;
 

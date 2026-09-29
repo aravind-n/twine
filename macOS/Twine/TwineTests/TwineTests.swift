@@ -13,6 +13,16 @@ import Testing
 @testable import Twine
 
 struct TwineTests {
+    @Test(arguments: [BridgeConfig.ColorScheme.system, .light, .dark])
+    func configSnapshotDecodes(colorScheme: BridgeConfig.ColorScheme) throws {
+        let json = """
+            {"sequence":1,"state":{"status":"ready"},
+             "config":{"appearance":{"color_scheme":"\(colorScheme.rawValue)"}}}
+            """
+        let snapshot = try JSONDecoder().decode(BridgeSnapshot.self, from: Data(json.utf8))
+        #expect(snapshot.config.appearance.colorScheme == colorScheme)
+    }
+
     @Test func bridgeRoundTrip() async throws {
         let worker = BridgeWorker()
         let snapshot = try await worker.open()
@@ -148,7 +158,7 @@ private actor SuspendedOpenBridgeTransport: BridgeTransport {
     func open() async throws -> BridgeSnapshot {
         openCount += 1
         try await Task.sleep(for: .milliseconds(100))
-        return BridgeSnapshot(sequence: 1, state: BridgeApplicationState(status: .ready))
+        return snapshot()
     }
 
     func close() {}
@@ -158,7 +168,11 @@ private actor SuspendedOpenBridgeTransport: BridgeTransport {
     }
 
     func snapshot() -> BridgeSnapshot {
-        BridgeSnapshot(sequence: 1, state: BridgeApplicationState(status: .ready))
+        BridgeSnapshot(
+            sequence: 1,
+            state: BridgeApplicationState(status: .ready),
+            config: BridgeConfig(appearance: .init(colorScheme: .system))
+        )
     }
 
     func events(after sequence: UInt64, limit: UInt32) -> [BridgeEvent] {

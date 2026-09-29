@@ -3,6 +3,7 @@ use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
 use tracing::{debug, info};
 
+use crate::config::Config;
 use crate::event::{CommandResult, Event, EventError, EventJournal, EventKind, StateEvent};
 use crate::terminal::{TerminalChunk, TerminalError, TerminalId, TerminalStream};
 
@@ -39,6 +40,7 @@ pub enum ApplicationState {
 pub struct Snapshot {
     pub sequence: u64,
     pub state: ApplicationState,
+    pub config: Config,
 }
 
 #[derive(Debug)]
@@ -51,6 +53,7 @@ struct Inner {
 pub struct Application {
     inner: Mutex<Inner>,
     terminal: TerminalStream,
+    config: Config,
 }
 
 impl Application {
@@ -60,7 +63,19 @@ impl Application {
     ///
     /// Returns an error if the initial ready event cannot be recorded.
     pub fn new() -> Result<Self, ApplicationError> {
-        Self::with_capacities(DEFAULT_EVENT_CAPACITY, DEFAULT_TERMINAL_CAPACITY_BYTES)
+        Self::with_config(Config::load_user())
+    }
+
+    /// Creates an application with already validated configuration, without filesystem I/O.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the initial ready event cannot be recorded.
+    pub fn with_config(config: Config) -> Result<Self, ApplicationError> {
+        let mut application =
+            Self::with_capacities(DEFAULT_EVENT_CAPACITY, DEFAULT_TERMINAL_CAPACITY_BYTES)?;
+        application.config = config;
+        Ok(application)
     }
 
     /// Creates the application with injectable limits for deterministic tests.
@@ -76,6 +91,7 @@ impl Application {
         events.append(EventKind::State(StateEvent::ApplicationReady))?;
 
         let application = Self {
+            config: Config::default(),
             inner: Mutex::new(Inner {
                 state: ApplicationState::Ready,
                 events,
@@ -127,6 +143,7 @@ impl Application {
         Ok(Snapshot {
             sequence: inner.events.latest_sequence(),
             state: inner.state,
+            config: self.config.clone(),
         })
     }
 
@@ -210,7 +227,8 @@ mod tests {
 
     #[test]
     fn snapshot_then_events_has_no_gap_or_repeat() {
-        let application = Application::new().expect("application should initialize");
+        let application =
+            Application::with_config(Config::default()).expect("application should initialize");
         let snapshot = application.snapshot().expect("snapshot should succeed");
 
         let receipt = application

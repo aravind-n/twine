@@ -29,6 +29,25 @@ nonisolated struct BridgeCommandReceipt: Decodable, Equatable, Sendable {
 nonisolated struct BridgeSnapshot: Decodable, Equatable, Sendable {
     var sequence: UInt64
     var state: BridgeApplicationState
+    let config: BridgeConfig
+}
+
+nonisolated struct BridgeConfig: Decodable, Equatable, Sendable {
+    let appearance: BridgeAppearance
+
+    enum ColorScheme: String, Decodable, Sendable {
+        case system
+        case light
+        case dark
+    }
+}
+
+nonisolated struct BridgeAppearance: Decodable, Equatable, Sendable {
+    let colorScheme: BridgeConfig.ColorScheme
+
+    private enum CodingKeys: String, CodingKey {
+        case colorScheme = "color_scheme"
+    }
 }
 
 nonisolated struct BridgeApplicationState: Decodable, Equatable, Sendable {
