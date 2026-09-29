@@ -2,6 +2,25 @@
 
 Twine is an agent workspace for coordinating your agents
 
+## Configuration
+
+Twine reads `~/.config/twine/config.toml` at startup and creates a commented default file
+on first launch. Settings are parsed and exposed to Swift, but do not change app behavior yet.
+
+```toml
+[appearance]
+color_scheme = "system" # "system", "light", or "dark"
+```
+
+Omitted settings use defaults. Invalid TOML, invalid values, or file errors use the complete
+defaults; unknown keys are ignored with a warning. Diagnostics include the file, line, and
+key (or `<document>` when a syntax error has no identifiable key). They appear in macOS
+Console under the `com.twineproject.Twine` subsystem, without logging config values.
+
+Add settings as fields with defaults in `twine-core/src/config.rs`. The Serde schema drives
+parsing, unknown-key warnings, the generated default file, and snapshot serialization;
+extend Swift's `BridgeConfig` when a consumer needs the new field.
+
 ## Development setup
 
 - Install Xcode 27.0 and point the developer tools at it: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. The SwiftTerm build plugin and SwiftLint both require Xcode rather than the Command Line Tools.

@@ -50,9 +50,10 @@ struct WireError<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WireSnapshot {
+struct WireSnapshot<'a> {
     sequence: u64,
     state: WireApplicationState,
+    config: &'a twine_core::config::Config,
 }
 
 #[derive(Serialize)]
@@ -143,6 +144,7 @@ pub(crate) fn encode_snapshot(snapshot: &Snapshot) -> Result<Vec<u8>, serde_json
     serde_json::to_vec(&WireSnapshot {
         sequence: snapshot.sequence,
         state,
+        config: &snapshot.config,
     })
 }
 
@@ -164,4 +166,30 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
         })
         .collect();
     serde_json::to_vec(&WireEventBatch { events })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use twine_core::config::{Appearance, ColorScheme, Config};
+
+    #[test]
+    fn snapshot_serializes_validated_config() {
+        let application = twine_core::Application::with_config(Config {
+            appearance: Appearance {
+                color_scheme: ColorScheme::Dark,
+            },
+        })
+        .unwrap();
+        let bytes = encode_snapshot(&application.snapshot().unwrap()).unwrap();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "sequence": 1,
+                "state": { "status": "ready" },
+                "config": { "appearance": { "color_scheme": "dark" } }
+            })
+        );
+    }
 }
