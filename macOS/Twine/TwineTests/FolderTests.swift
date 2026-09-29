@@ -15,17 +15,16 @@ struct FolderTests {
             at: folder.url.appending(path: ".git/refs/heads"), withIntermediateDirectories: true)
         let head = folder.url.appending(path: ".git/HEAD")
         try "ref: refs/heads/main\n".write(to: head, atomically: true, encoding: .utf8)
-        let client = BridgeClient(transport: BridgeWorker(dataDirectory: data.url))
+        let worker = BridgeWorker(dataDirectory: data.url)
+        let client = BridgeClient(transport: worker)
         client.start()
         do {
             try await client.waitUntilRunning()
             await client.perform(.openFolder(path: folder.path))
             try await waitUntil { client.snapshot?.folders.openFolder == folder.path }
-            try await client.refreshGitBranch(folder: folder.path)
-            try await waitUntil { client.snapshot?.folders.currentBranch == "main" }
+            try await Self.refreshBranch("main", folder: folder.path, client: client, worker: worker)
             try "ref: refs/heads/feature\n".write(to: head, atomically: true, encoding: .utf8)
-            try await client.refreshGitBranch(folder: folder.path)
-            try await waitUntil { client.snapshot?.folders.currentBranch == "feature" }
+            try await Self.refreshBranch("feature", folder: folder.path, client: client, worker: worker)
             await client.perform(.openFolder(path: other.path))
             try await waitUntil { client.snapshot?.folders.openFolder == other.path }
             #expect(client.snapshot?.folders.currentBranch == nil)
@@ -34,6 +33,27 @@ struct FolderTests {
             await client.stop()
             throw error
         }
+    }
+
+    /// A refresh can be accepted without a branch when Git times out. Retry as the app does,
+    /// then independently verify that the client receives the successful core state change.
+    private static func refreshBranch(
+        _ expected: String,
+        folder: String,
+        client: BridgeClient,
+        worker: BridgeWorker
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(5)
+        var branch: String?
+        repeat {
+            try await client.refreshGitBranch(folder: folder)
+            branch = try await worker.snapshot().folders.currentBranch
+            if branch == expected { break }
+            try await clock.sleep(for: .milliseconds(50))
+        } while clock.now < deadline
+        try #require(branch == expected)
+        try await waitUntil { client.snapshot?.folders.currentBranch == expected }
     }
 
     private static let noFolders = BridgeFolderState(openFolder: nil, recentFolders: [], unavailableFolder: nil)
