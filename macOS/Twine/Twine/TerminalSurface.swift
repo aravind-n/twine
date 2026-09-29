@@ -111,6 +111,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
         private var expectedOffset: UInt64 = 0
         private var lastSize: BridgeTerminalSize?
         private var pendingSize: BridgeTerminalSize?
+        private var pendingInput = Data()
         private var task: Task<Void, Never>?
         private var inputTask: Task<Void, Never>?
         private var resizeTask: Task<Void, Never>?
@@ -153,6 +154,10 @@ struct TerminalViewRepresentable: NSViewRepresentable {
                     let latestSize = pendingSize ?? terminalSize(for: view)
                     pendingSize = nil
                     enqueueResize(latestSize, terminalID: terminalID)
+                    if !pendingInput.isEmpty {
+                        enqueueInput(pendingInput, terminalID: terminalID)
+                        pendingInput = Data()
+                    }
                     try await pumpOutput(for: terminalID, into: view)
                 } catch is CancellationError {
                     return
@@ -189,8 +194,16 @@ struct TerminalViewRepresentable: NSViewRepresentable {
         }
 
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
-            guard let terminalID, !data.isEmpty else { return }
-            let bytes = Data(data)
+            guard !data.isEmpty, !isStopping else { return }
+            guard let terminalID else {
+                // The terminal takes focus before its shell starts, so hold typing until it has.
+                pendingInput.append(contentsOf: data)
+                return
+            }
+            enqueueInput(Data(data), terminalID: terminalID)
+        }
+
+        private func enqueueInput(_ bytes: Data, terminalID: UInt64) {
             let precedingWrite = inputTask
             inputTask = Task {
                 await precedingWrite?.value
