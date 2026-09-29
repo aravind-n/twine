@@ -1,0 +1,1 @@
+allowed-duplicate-crates = ["bitflags", "syn", "thiserror", "thiserror-impl"]

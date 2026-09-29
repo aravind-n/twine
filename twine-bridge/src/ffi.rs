@@ -259,6 +259,9 @@ fn status_for_error(error: &BridgeError) -> TwineStatus {
     if error.is_cursor_expired() {
         return TwineStatus::CursorExpired;
     }
+    if error.is_invalid_argument() {
+        return TwineStatus::InvalidArgument;
+    }
 
     match error {
         BridgeError::InputTooLarge | BridgeError::InvalidArgument => TwineStatus::InvalidArgument,

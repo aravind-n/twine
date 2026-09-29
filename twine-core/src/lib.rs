@@ -14,4 +14,7 @@ pub use application::{
 pub use event::{CommandResult, Event, EventError, EventKind, StateEvent};
 pub use folder::{FolderState, RecentFolder, UnavailableFolder, UnavailableReason};
 pub use store::StoreError;
-pub use terminal::{TerminalChunk, TerminalError, TerminalId};
+pub use terminal::{
+    TerminalChunk, TerminalError, TerminalExit, TerminalId, TerminalSize, TerminalState,
+    TerminalStatus,
+};

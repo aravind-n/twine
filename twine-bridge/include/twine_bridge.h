@@ -76,6 +76,24 @@ TwineStatus twine_client_next_terminal_chunk(
     TwineTerminalChunk *out_chunk
 );
 
+// Sends raw user input to a live terminal. Inputs larger than 64 KiB are rejected without reading
+// input_bytes. A null input pointer is valid only when input_length is zero.
+TwineStatus twine_client_write_terminal_input(
+    TwineClient *client,
+    uint64_t terminal_id,
+    const uint8_t *input_bytes,
+    size_t input_length
+);
+
+TwineStatus twine_client_resize_terminal(
+    TwineClient *client,
+    uint64_t terminal_id,
+    uint16_t rows,
+    uint16_t columns,
+    uint16_t pixel_width,
+    uint16_t pixel_height
+);
+
 // Releases a caller-owned bridge buffer and clears its fields. An already-empty buffer is accepted.
 // A null TwineBuffer pointer is rejected. Otherwise it must identify aligned, writable storage; a
 // nonempty pointer/length pair must be unchanged from the successful bridge call that returned it

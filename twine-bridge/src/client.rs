@@ -2,7 +2,10 @@ use std::path::Path;
 
 use thiserror::Error;
 use tracing::warn;
-use twine_core::{Application, ApplicationError, EventError, TerminalChunk};
+use twine_core::{
+    Application, ApplicationError, EventError, TerminalChunk, TerminalError, TerminalId,
+    TerminalSize,
+};
 
 use crate::protocol::{self, DecodedCommand};
 
@@ -60,6 +63,28 @@ impl TwineClient {
         Ok(self.bridge.application.next_terminal_chunk()?)
     }
 
+    pub(crate) fn write_terminal_input(
+        &self,
+        terminal_id: u64,
+        bytes: &[u8],
+    ) -> Result<(), BridgeError> {
+        Ok(self
+            .bridge
+            .application
+            .write_terminal_input(TerminalId::from_value(terminal_id), bytes)?)
+    }
+
+    pub(crate) fn resize_terminal(
+        &self,
+        terminal_id: u64,
+        size: TerminalSize,
+    ) -> Result<(), BridgeError> {
+        Ok(self
+            .bridge
+            .application
+            .resize_terminal(TerminalId::from_value(terminal_id), size)?)
+    }
+
     #[cfg(test)]
     pub(crate) const fn application(&self) -> &Application {
         &self.bridge.application
@@ -93,6 +118,15 @@ impl BridgeError {
         matches!(
             self,
             Self::Application(ApplicationError::Event(EventError::CursorExpired { .. }))
+        )
+    }
+
+    pub(crate) fn is_invalid_argument(&self) -> bool {
+        matches!(
+            self,
+            Self::Application(ApplicationError::Terminal(
+                TerminalError::InvalidSize { .. } | TerminalError::NotOpen { .. }
+            ))
         )
     }
 }

@@ -89,6 +89,34 @@ actor BridgeWorker: BridgeTransport {
         )
     }
 
+    func writeTerminalInput(terminalID: UInt64, bytes: Data) throws {
+        let status = try withClient { client in
+            bytes.withUnsafeBytes { input in
+                twine_client_write_terminal_input(
+                    client,
+                    terminalID,
+                    input.bindMemory(to: UInt8.self).baseAddress,
+                    input.count
+                )
+            }
+        }
+        try check(status)
+    }
+
+    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) throws {
+        let status = try withClient { client in
+            twine_client_resize_terminal(
+                client,
+                terminalID,
+                size.rows,
+                size.columns,
+                size.pixelWidth,
+                size.pixelHeight
+            )
+        }
+        try check(status)
+    }
+
     private func readSnapshot() throws -> BridgeSnapshot {
         var response = TwineBuffer()
         let status = try withClient { client in
@@ -159,21 +187,56 @@ nonisolated private struct CommandEnvelope: Encodable {
 nonisolated private struct CommandPayload: Encodable {
     let type: String
     let path: String?
+    let workingDirectory: String?
+    let size: BridgeTerminalSize?
+    let terminalID: UInt64?
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case size
+        case terminalID = "terminalId"
+        case type
+        case workingDirectory
+    }
 
     init(_ command: BridgeCommand) {
         switch command {
         case .ping:
             type = "ping"
             path = nil
+            workingDirectory = nil
+            size = nil
+            terminalID = nil
         case .openFolder(let path):
             type = "openFolder"
             self.path = path
+            workingDirectory = nil
+            size = nil
+            terminalID = nil
         case .closeFolder:
             type = "closeFolder"
             path = nil
+            workingDirectory = nil
+            size = nil
+            terminalID = nil
         case .removeRecentFolder(let path):
             type = "removeRecentFolder"
             self.path = path
+            workingDirectory = nil
+            size = nil
+            terminalID = nil
+        case .startTerminal(let workingDirectory, let terminalSize):
+            type = "startTerminal"
+            path = nil
+            self.workingDirectory = workingDirectory
+            size = terminalSize
+            terminalID = nil
+        case .closeTerminal(let terminalID):
+            type = "closeTerminal"
+            path = nil
+            workingDirectory = nil
+            size = nil
+            self.terminalID = terminalID
         }
     }
 }
