@@ -205,7 +205,11 @@ jobs:
 
   release-build:
     needs: library-build
-    if: github.event_name == 'push'
+    # Pushes skip changes, and without a status check function that skip propagates through
+    # library-build to this job.
+    if: >-
+      github.event_name == 'push' && !cancelled() &&
+      needs.library-build.result == 'success'
     uses: ./.github/workflows/_release-build.yml
     with:
       version: ci-${{ github.sha }}
