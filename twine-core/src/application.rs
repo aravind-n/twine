@@ -107,41 +107,27 @@ impl Application {
     /// cannot be recorded.
     pub fn with_config(data_directory: &Path, config: Config) -> Result<Self, ApplicationError> {
         let store = Store::open(&data_directory.join(DATABASE_FILE_NAME))?;
-        Self::with_store(
-            store,
-            config,
-            DEFAULT_EVENT_CAPACITY,
-            DEFAULT_TERMINAL_CAPACITY_BYTES,
-        )
+        Self::with_store(store, config, DEFAULT_EVENT_CAPACITY)
     }
 
-    /// Creates the application with an in-memory database, default configuration, and injectable
-    /// limits for deterministic tests.
+    /// Creates the application with an in-memory database, default configuration, and an
+    /// injectable event limit for deterministic tests.
     #[cfg(test)]
-    pub(crate) fn with_capacities(
-        event_capacity: usize,
-        terminal_capacity_bytes: usize,
-    ) -> Result<Self, ApplicationError> {
-        Self::with_store(
-            Store::open_in_memory()?,
-            Config::default(),
-            event_capacity,
-            terminal_capacity_bytes,
-        )
+    pub(crate) fn with_event_capacity(event_capacity: usize) -> Result<Self, ApplicationError> {
+        Self::with_store(Store::open_in_memory()?, Config::default(), event_capacity)
     }
 
     fn with_store(
         store: Store,
         config: Config,
         event_capacity: usize,
-        terminal_capacity_bytes: usize,
     ) -> Result<Self, ApplicationError> {
         let folders = Folders::restore(store)?;
         let mut events = EventJournal::new(event_capacity)?;
         events.append(EventKind::State(StateEvent::ApplicationReady))?;
 
         let terminal_output = Arc::new(TerminalStream::new(
-            terminal_capacity_bytes,
+            DEFAULT_TERMINAL_CAPACITY_BYTES,
             DEFAULT_TERMINAL_CAPACITY_CHUNKS,
         )?);
         let application = Self {
@@ -347,7 +333,7 @@ mod tests {
     #[test]
     fn expired_cursor_is_explicit() {
         let application =
-            Application::with_capacities(2, 64).expect("application should initialize");
+            Application::with_event_capacity(2).expect("application should initialize");
         application
             .handle_command(RequestId(1), Command::Ping)
             .expect("first command should succeed");
@@ -372,7 +358,7 @@ mod tests {
     fn folder_commands_publish_folder_state_after_the_snapshot() {
         let folder = tempfile::tempdir().expect("a folder should be available");
         let application =
-            Application::with_capacities(16, 64).expect("application should initialize");
+            Application::with_event_capacity(16).expect("application should initialize");
         let snapshot = application.snapshot().expect("snapshot should succeed");
         assert_eq!(snapshot.folders, FolderState::default());
 
@@ -411,7 +397,7 @@ mod tests {
     #[test]
     fn rejected_terminal_commands_explain_themselves() {
         let application =
-            Application::with_capacities(16, 64).expect("application should initialize");
+            Application::with_event_capacity(16).expect("application should initialize");
         let missing = {
             let folder = tempfile::tempdir().expect("a folder should be available");
             folder.path().to_owned()
@@ -461,7 +447,7 @@ mod tests {
     #[test]
     fn rejected_folder_commands_explain_themselves() {
         let application =
-            Application::with_capacities(16, 64).expect("application should initialize");
+            Application::with_event_capacity(16).expect("application should initialize");
         let missing = {
             let folder = tempfile::tempdir().expect("a folder should be available");
             folder.path().to_owned()
@@ -550,7 +536,7 @@ mod tests {
         const THREADS: usize = 4;
 
         let application = Arc::new(
-            Application::with_capacities(3_000, 64).expect("application should initialize"),
+            Application::with_event_capacity(3_000).expect("application should initialize"),
         );
         let snapshot = application.snapshot().expect("snapshot should succeed");
         let finished = Arc::new(std::sync::atomic::AtomicUsize::new(0));
