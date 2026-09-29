@@ -15,7 +15,6 @@ struct TracesHeader: View {
         }
         .padding(.horizontal, TracesLayout.headerHorizontalPadding)
         .frame(height: TracesLayout.collapsedHeight)
-        .background(.terminalBackground, in: .rect(cornerRadius: CornerRadius.panel))
         .overlay {
             RoundedRectangle(cornerRadius: CornerRadius.panel)
                 .strokeBorder(.tracesPanelHairline, lineWidth: Surface.hairlineWidth)

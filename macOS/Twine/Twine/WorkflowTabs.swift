@@ -6,7 +6,6 @@ struct WorkflowTabs: View {
     let select: (UInt64) -> Void
     let close: (UInt64) -> Void
     let create: () -> Void
-    @Binding var newButtonFrame: CGRect
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 12) {
@@ -55,10 +54,6 @@ struct WorkflowTabs: View {
                 .padding(.bottom, 5)
                 .help("New Workflow (⌘T)")
                 .accessibilityIdentifier("newWorkflow")
-                .onGeometryChange(
-                    for: CGRect.self, of: { $0.frame(in: .named("workflowWorkspace")) },
-                    action: { newButtonFrame = $0 }
-                )
         }
         .frame(height: 42, alignment: .bottom)
         .background(alignment: .bottom) { Rectangle().fill(.hairline).frame(height: Surface.hairlineWidth) }

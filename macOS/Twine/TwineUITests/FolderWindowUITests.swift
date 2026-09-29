@@ -44,7 +44,6 @@ extension TwineUITests {
         XCTAssertEqual(app.windows.firstMatch.frame.width, 400, accuracy: 2)
         XCTAssertEqual(app.windows.firstMatch.frame.height, 302, accuracy: 2)
         XCTAssertGreaterThan(choices.frame.minY, app.buttons["newWorkflow"].frame.maxY + 40)
-        XCTAssertTrue(app.staticTexts["coreConnection"].isHittable, app.debugDescription)
         XCTAssertTrue(app.staticTexts["workflowStatus"].isHittable, app.debugDescription)
         XCTAssertTrue(app.staticTexts["workflowElapsed"].isHittable, app.debugDescription)
         XCTAssertGreaterThan(app.staticTexts["gitBranch"].frame.width, 0)

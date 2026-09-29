@@ -5,10 +5,8 @@ struct WorkflowTerminalSurface: View {
     @Environment(BridgeClient.self) private var bridgeClient
     let workflow: BridgeWorkflow
     let isSelected: Bool
-    let newButtonFrame: CGRect
     let reportFailure: (String) -> Void
     @State private var draft = WorkflowDraftPresentation()
-    @State private var choicesFrame = CGRect.zero
     @State private var showsChoices = false
     @State private var focusRequest = 0
 
@@ -23,10 +21,6 @@ struct WorkflowTerminalSurface: View {
                         .frame(
                             maxWidth: min(
                                 NewTabLayout.maximumWidth, max(0, geometry.size.width - 2 * Spacing.terminalContent))
-                        )
-                        .onGeometryChange(
-                            for: CGRect.self, of: { $0.frame(in: .named("workflowWorkspace")) },
-                            action: { if workflow.kind == .draft { choicesFrame = $0 } }
                         )
                         .transition(choicesTransition)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -43,10 +37,6 @@ struct WorkflowTerminalSurface: View {
         .asymmetric(
             insertion: .opacity.combined(with: .scale(scale: Motion.choicesCardAppearScale)),
             removal: .opacity
-                .combined(with: .scale(scale: Motion.draftTabToTerminalCardScale))
-                .combined(
-                    with: .offset(
-                        x: newButtonFrame.midX - choicesFrame.midX, y: newButtonFrame.midY - choicesFrame.midY))
         )
     }
 

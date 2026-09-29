@@ -60,8 +60,11 @@ nonisolated enum NewTabLayout {
     static let promptClearance: CGFloat = 2 * Spacing.terminalContent
     static let padding: CGFloat = 16
     static let spacing: CGFloat = 8
+    static let sectionSpacing: CGFloat = 14
+    static let headingSpacing: CGFloat = 10
+    static let choiceTextSpacing: CGFloat = 4
     static let minimumChoiceWidth: CGFloat = 160
-    static let minimumChoiceHeight: CGFloat = 42
+    static let minimumChoiceHeight: CGFloat = 64
     static let choicePadding: CGFloat = 10
     static let symbolWidth: CGFloat = 16
 }
@@ -70,7 +73,6 @@ nonisolated enum FooterLayout {
     static let height: CGFloat = 22
     static let horizontalPadding: CGFloat = 4
     static let spacing: CGFloat = 8
-    static let dotSize: CGFloat = 5
     static let dividerHeight: CGFloat = 10
 }
 
@@ -186,10 +188,8 @@ nonisolated enum Motion {
     static let tracesToggle = Animation.easeInOut(duration: 0.18)
     /// The trace detail panel sliding in from the trailing edge with a fade.
     static let traceDetailPanel = Animation.easeInOut(duration: 0.22)
-    /// Typing in a draft tab turns it into a Terminal: the choices card fades and scales down to
-    /// `draftTabToTerminalCardScale` toward the `+` button.
+    /// Typing in a draft tab turns it into a Terminal while the choices card fades out in place.
     static let draftTabToTerminal = Animation.easeInOut(duration: 0.32)
-    static let draftTabToTerminalCardScale: CGFloat = 0.12
     /// The new-tab choices card fading in from `choicesCardAppearScale`.
     static let choicesCardAppear = Animation.easeInOut
     static let choicesCardAppearScale: CGFloat = 0.96

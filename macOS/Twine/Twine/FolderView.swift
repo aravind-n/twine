@@ -26,7 +26,6 @@ struct FolderView: View {
                 WorkflowWorkspace(folder: path, selection: $selection)
                 TracesHeader()
                 StatusFooter(
-                    connectionState: bridgeClient.connectionState,
                     branch: bridgeClient.snapshot?.folders.currentBranch,
                     workflow: selectedWorkflow
                 )

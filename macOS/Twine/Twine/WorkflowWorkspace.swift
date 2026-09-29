@@ -9,7 +9,6 @@ struct WorkflowWorkspace: View {
     let folder: String
     @Binding var selection: WorkflowTabSelection
     @State private var failureMessage: String?
-    @State private var newButtonFrame = CGRect.zero
 
     private var workflows: [BridgeWorkflow] {
         guard let state = bridgeClient.snapshot?.workflows, state.session?.folder == folder else { return [] }
@@ -23,8 +22,7 @@ struct WorkflowWorkspace: View {
                 selectedID: selection.selectedID,
                 select: { selection.selectedID = $0 },
                 close: close,
-                create: { Task { await create() } },
-                newButtonFrame: $newButtonFrame
+                create: { Task { await create() } }
             )
             ZStack {
                 if workflows.isEmpty {
@@ -37,7 +35,7 @@ struct WorkflowWorkspace: View {
                     let isSelected = workflow.id == selection.selectedID
                     WorkflowTerminalSurface(
                         workflow: workflow, isSelected: isSelected,
-                        newButtonFrame: newButtonFrame, reportFailure: { failureMessage = $0 }
+                        reportFailure: { failureMessage = $0 }
                     )
                     .opacity(isSelected ? 1 : 0)
                     .allowsHitTesting(isSelected)
@@ -50,7 +48,6 @@ struct WorkflowWorkspace: View {
             .overlay(panelShape.stroke(.hairline, lineWidth: Surface.hairlineWidth))
             .terminalPanelShadow()
         }
-        .coordinateSpace(name: "workflowWorkspace")
         .task {
             selection.reconcile(previous: [], current: workflows.map(\.id))
             if workflows.isEmpty { await create() }

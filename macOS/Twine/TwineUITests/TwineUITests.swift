@@ -144,7 +144,7 @@ final class TwineUITests: XCTestCase {
         try "ref: refs/heads/footer-initial\n".write(to: head, atomically: true, encoding: .utf8)
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
-        XCTAssertTrue(app.staticTexts["Core connected"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["newWorkflow"].waitForExistence(timeout: 10), app.debugDescription)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         XCTAssertTrue(app.staticTexts["footer-initial"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.staticTexts["Draft"].waitForExistence(timeout: 10), app.debugDescription)

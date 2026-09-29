@@ -53,16 +53,18 @@ struct NewTabChoices: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: NewTabLayout.spacing) {
-                Text(showsComingSoon ? "Coming soon" : "Choose a workflow")
-                    .font(.headline)
-                Text(
-                    showsComingSoon
-                        ? "\(name) workflows are coming soon. Start typing to use Terminal."
-                        : "Pick a workflow type, or start typing to use Terminal."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
+                VStack(alignment: .leading, spacing: NewTabLayout.headingSpacing) {
+                    Text(showsComingSoon ? "Coming soon" : "Choose a workflow")
+                        .font(.system(size: 14, weight: .bold))
+                    Text(
+                        showsComingSoon
+                            ? "\(name) workflows are coming soon. Start typing to use Terminal."
+                            : "Pick a workflow type, or start typing to use Terminal."
+                    )
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                }
 
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumChoiceWidth))],
@@ -72,19 +74,26 @@ struct NewTabChoices: View {
                         Button {
                             choose(choice)
                         } label: {
-                            HStack(spacing: NewTabLayout.spacing) {
-                                Image(systemName: choice.symbol).frame(width: NewTabLayout.symbolWidth)
-                                VStack(alignment: .leading, spacing: 2) {
+                            HStack(alignment: .top, spacing: NewTabLayout.spacing) {
+                                Image(systemName: choice.symbol)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .foregroundStyle(.primary.opacity(0.8))
+                                    .frame(width: NewTabLayout.symbolWidth, height: NewTabLayout.symbolWidth)
+                                VStack(alignment: .leading, spacing: NewTabLayout.choiceTextSpacing) {
                                     Text(choice.rawValue).font(.caption.weight(.semibold))
-                                    Text(choice.detail).font(.caption2).foregroundStyle(.secondary)
+                                    Text(choice.detail)
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
                                 }
                                 Spacer(minLength: 0)
                             }
                             .padding(NewTabLayout.choicePadding)
                             .frame(
-                                maxWidth: .infinity, minHeight: NewTabLayout.minimumChoiceHeight, alignment: .leading
+                                maxWidth: .infinity, minHeight: NewTabLayout.minimumChoiceHeight, alignment: .topLeading
                             )
-                            .background(.secondarySurface, in: .rect(cornerRadius: CornerRadius.choiceTile))
+                            .background(.workflowChoiceBackground, in: .rect(cornerRadius: CornerRadius.choiceTile))
                             .overlay {
                                 RoundedRectangle(cornerRadius: CornerRadius.choiceTile)
                                     .stroke(.hairline, lineWidth: Surface.hairlineWidth)
@@ -92,6 +101,7 @@ struct NewTabChoices: View {
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
+                        .help(choice.detail)
                         .accessibilityIdentifier("workflowChoice-\(choice.rawValue)")
                     }
                 }
@@ -102,7 +112,7 @@ struct NewTabChoices: View {
         .frame(height: viewportHeight)
         .padding(.horizontal, NewTabLayout.padding)
         .padding(.vertical, verticalPadding)
-        .background(.secondarySurface, in: .rect(cornerRadius: CornerRadius.choicesCard))
+        .background(.workflowChoicesBackground, in: .rect(cornerRadius: CornerRadius.choicesCard))
         .overlay {
             RoundedRectangle(cornerRadius: CornerRadius.choicesCard)
                 .stroke(.hairline, lineWidth: Surface.hairlineWidth)
