@@ -10,10 +10,14 @@ struct WorkflowWorkspace: View {
     @Binding var selection: WorkflowTabSelection
     @State private var failureMessage: String?
 
-    private var workflows: [BridgeWorkflow] {
-        guard let state = bridgeClient.snapshot?.workflows, state.session?.folder == folder else { return [] }
-        return state.workflows
+    private var allWorkflows: [BridgeWorkflow] {
+        guard bridgeClient.snapshot?.folders.openFolder == folder else { return [] }
+        return bridgeClient.snapshot?.workflows.workflows ?? []
     }
+
+    private var sessionID: UInt64? { bridgeClient.snapshot?.workflows.session?.sessionID }
+    private var workflows: [BridgeWorkflow] { allWorkflows.filter { $0.sessionID == sessionID } }
+    private var selectionKey: [UInt64] { [sessionID ?? 0] + workflows.map(\.id) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,8 +35,8 @@ struct WorkflowWorkspace: View {
                         description: Text("Open a workflow with + or ⌘T.")
                     )
                 }
-                ForEach(workflows) { workflow in
-                    let isSelected = workflow.id == selection.selectedID
+                ForEach(allWorkflows) { workflow in
+                    let isSelected = workflow.sessionID == sessionID && workflow.id == selection.selectedID
                     WorkflowTerminalSurface(
                         workflow: workflow, isSelected: isSelected,
                         reportFailure: { failureMessage = $0 }
@@ -49,11 +53,11 @@ struct WorkflowWorkspace: View {
             .terminalPanelShadow()
         }
         .task {
-            selection.reconcile(previous: [], current: workflows.map(\.id))
-            if workflows.isEmpty { await create() }
+            selection.reconcile(sessionID: sessionID, current: workflows.map(\.id))
+            if bridgeClient.snapshot?.workflows.sessionsInitialized == false { await create() }
         }
-        .onChange(of: workflows.map(\.id)) { previous, current in
-            selection.reconcile(previous: previous, current: current)
+        .onChange(of: selectionKey) {
+            selection.reconcile(sessionID: sessionID, current: workflows.map(\.id))
         }
         .focusedSceneValue(
             \.workflowActions,
@@ -78,10 +82,11 @@ struct WorkflowWorkspace: View {
 
     private func create() async {
         do {
-            let id = try await bridgeClient.createWorkflow(folder: folder, kind: .draft)
+            let targetSession = sessionID
+            let id = try await bridgeClient.createWorkflow(folder: folder, sessionID: targetSession, kind: .draft)
             if Task.isCancelled {
                 try await bridgeClient.closeWorkflow(workflowID: id)
-            } else {
+            } else if targetSession == sessionID || targetSession == nil {
                 selection.selectedID = id
             }
         } catch {

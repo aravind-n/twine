@@ -5,12 +5,12 @@ use thiserror::Error;
 use crate::application::RequestId;
 use crate::folder::FolderState;
 use crate::terminal::{TerminalExit, TerminalId};
-use crate::workflow::{Session, Workflow, WorkflowId};
+use crate::workflow::{SessionId, Workflow, WorkflowId, WorkflowState};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateEvent {
     ApplicationReady,
-    SessionChanged(Session),
+    WorkflowsChanged(WorkflowState),
     WorkflowChanged(Workflow),
     /// The open folder or the recent folders changed. Carries the complete new folder state.
     FoldersChanged(FolderState),
@@ -29,6 +29,10 @@ pub enum StateEvent {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandResult {
+    SessionCreated { session_id: SessionId },
+    SessionRenamed { session_id: SessionId },
+    SessionSelected { session_id: SessionId },
+    SessionDeleted { session_id: SessionId },
     Pong,
     WorkflowCreated { workflow_id: WorkflowId },
     WorkflowActivated { workflow_id: WorkflowId },

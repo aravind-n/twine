@@ -58,7 +58,7 @@ struct FolderView: View {
 
     private var selectedWorkflow: BridgeWorkflow? {
         guard let state = bridgeClient.snapshot?.workflows, state.session?.folder == path else { return nil }
-        return state.workflows.first { $0.id == selection.selectedID }
+        return state.workflows.first { $0.id == selection.selectedID && $0.sessionID == state.session?.sessionID }
     }
 
     private func refreshGitBranch() async {

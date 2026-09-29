@@ -44,6 +44,11 @@ nonisolated enum SidebarLayout {
     static let maximumWidth: CGFloat = 325
     static let folderHeaderHeight: CGFloat = 36
     static let folderHeaderInset: CGFloat = 10
+    static let sectionHeaderHeight: CGFloat = 48
+    static let sectionHeaderPadding: CGFloat = 17
+    static let rowHeight: CGFloat = 27
+    static let rowInset: CGFloat = 13
+    static let rowFontSize: CGFloat = 12.5
 }
 
 nonisolated enum TracesLayout {

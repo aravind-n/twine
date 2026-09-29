@@ -1,4 +1,4 @@
-//! The in-memory session and workflow lifetime for the open folder.
+//! Sessions and live workflow state for the open folder.
 
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -37,7 +37,7 @@ pub struct Session {
     pub name: String,
     pub folder: PathBuf,
     pub status: SessionStatus,
-    /// Unix time in milliseconds. These lifetimes are deliberately not persisted yet.
+    /// Unix time in milliseconds.
     pub started_at: u64,
     pub ended_at: Option<u64>,
 }
@@ -52,11 +52,18 @@ pub struct Workflow {
     pub status: WorkflowStatus,
     pub started_at: u64,
     pub ended_at: Option<u64>,
+    /// Restored workflow metadata now backed by a fresh shell, without its previous transcript.
+    pub restored: bool,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WorkflowState {
+    /// Remembers that this folder has had sessions, even after the user deletes the last one.
+    pub sessions_initialized: bool,
+    /// The selected session. Selection is remembered per folder.
     pub session: Option<Session>,
+    pub sessions: Vec<Session>,
+    /// All workflows in the open folder, including sessions that aren't selected.
     pub workflows: Vec<Workflow>,
 }
 

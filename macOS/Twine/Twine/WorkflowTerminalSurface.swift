@@ -11,6 +11,31 @@ struct WorkflowTerminalSurface: View {
     @State private var focusRequest = 0
 
     var body: some View {
+        VStack(spacing: 0) {
+            if workflow.restored {
+                Label(
+                    workflow.terminalID == 0
+                        ? "Restored tab — the shell couldn't restart."
+                        : "Restored tab — started a fresh shell. Previous terminal contents aren't restored.",
+                    systemImage: "arrow.clockwise"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("restoredWorkflowNotice")
+            }
+            if workflow.terminalID == 0 {
+                ContentUnavailableView(
+                    "Shell Couldn't Restart", systemImage: "terminal",
+                    description: Text("Open a new workflow to try again."))
+            } else {
+                terminal
+            }
+        }
+    }
+
+    private var terminal: some View {
         TerminalSurface(workflow: workflow, isSelected: isSelected, focusRequest: focusRequest) {
             try await draft.activate(client: bridgeClient, workflowID: workflow.id)
         }

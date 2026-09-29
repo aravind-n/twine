@@ -14,9 +14,10 @@ use crate::terminal::{
     TerminalStream,
 };
 
-use crate::workflow::{WorkflowId, WorkflowKind, WorkflowState};
+use crate::workflow::{SessionId, WorkflowId, WorkflowKind, WorkflowState};
 
 mod git;
+mod sessions;
 mod terminals;
 mod workflows;
 
@@ -47,8 +48,23 @@ pub enum Command {
     RefreshGitBranch {
         folder: PathBuf,
     },
+    CreateSession {
+        folder: PathBuf,
+        name: String,
+    },
+    RenameSession {
+        session_id: SessionId,
+        name: String,
+    },
+    SelectSession {
+        session_id: SessionId,
+    },
+    DeleteSession {
+        session_id: SessionId,
+    },
     CreateWorkflow {
         folder: PathBuf,
+        session_id: Option<SessionId>,
         kind: WorkflowKind,
         size: TerminalSize,
     },
@@ -105,8 +121,6 @@ struct Inner {
     events: EventJournal,
     terminals: HashMap<TerminalId, TerminalStatus>,
     workflows: WorkflowState,
-    next_session_id: u64,
-    next_workflow_id: u64,
 }
 
 pub struct Application {
@@ -167,6 +181,14 @@ impl Application {
             DEFAULT_TERMINAL_CAPACITY_BYTES,
             DEFAULT_TERMINAL_CAPACITY_CHUNKS,
         )?);
+        let terminals = TerminalManager::new(Arc::clone(&terminal_output));
+        #[cfg(test)]
+        let terminals = {
+            let mut terminals = terminals;
+            // Unit tests must not depend on the developer's login shell or startup config.
+            terminals.set_test_shell(PathBuf::from("/bin/sh"));
+            terminals
+        };
         let application = Self {
             commands: Mutex::new(()),
             config,
@@ -176,13 +198,12 @@ impl Application {
                 events,
                 terminals: HashMap::new(),
                 workflows: WorkflowState::default(),
-                next_session_id: 1,
-                next_workflow_id: 1,
             })),
             terminal_output: Arc::clone(&terminal_output),
-            terminals: TerminalManager::new(terminal_output),
+            terminals,
         };
 
+        application.restore_workflows()?;
         info!("application core initialized");
         Ok(application)
     }
@@ -226,9 +247,20 @@ impl Application {
                 .lock_inner()?
                 .update_folders(|folders| folders.remove_recent(&path))?,
             Command::RefreshGitBranch { folder } => self.refresh_git_branch(&folder)?,
-            Command::CreateWorkflow { folder, kind, size } => {
-                self.create_workflow(request_id, &folder, kind, size)?
+            Command::CreateSession { folder, name } => {
+                self.create_session(request_id, &folder, &name)?
             }
+            Command::RenameSession { session_id, name } => {
+                self.rename_session(request_id, session_id, &name)?
+            }
+            Command::SelectSession { session_id } => self.select_session(request_id, session_id)?,
+            Command::DeleteSession { session_id } => self.delete_session(request_id, session_id)?,
+            Command::CreateWorkflow {
+                folder,
+                session_id,
+                kind,
+                size,
+            } => self.create_workflow(request_id, &folder, session_id, kind, size)?,
             Command::ActivateWorkflow { workflow_id } => {
                 self.activate_workflow(request_id, workflow_id)?
             }
