@@ -9,38 +9,46 @@ struct StartPage: View {
     let removeRecentFolder: (String) -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                Image(systemName: Symbol.app)
-                    .font(.system(size: 29, weight: .medium))
-                    .foregroundStyle(.tint)
-                    .frame(width: 62, height: 62)
-                    .glassEffect(in: .rect(cornerRadius: CornerRadius.appIconTile))
-                    .padding(.bottom, 27)
-                Text("Welcome to Twine")
-                    .startPageTitleStyle()
-                    .padding(.bottom, 9)
-                subtitle
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.bottom, 28)
-                Button(action: chooseFolder) {
-                    Label("Open Folder…", systemImage: "folder")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.extraLarge)
-                Divider()
-                    .padding(.top, 35)
-                recentFolders
-                    .padding(.top, 22)
+        // Centers the content with a minimum height rather than `defaultScrollAnchor(.center, for:
+        // .alignment)`, which centers it with a top inset that macOS draws as a large scroll edge
+        // effect over the top of the page.
+        GeometryReader { geometry in
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height)
             }
-            .frame(maxWidth: 560)
-            .padding(44)
-            .frame(maxWidth: .infinity)
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .defaultScrollAnchor(.center, for: .alignment)
-        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var content: some View {
+        VStack(spacing: 0) {
+            Image(systemName: Symbol.app)
+                .font(.system(size: 29, weight: .medium))
+                .foregroundStyle(.tint)
+                .frame(width: 62, height: 62)
+                .glassEffect(in: .rect(cornerRadius: CornerRadius.appIconTile))
+                .padding(.bottom, 27)
+            Text("Welcome to Twine")
+                .startPageTitleStyle()
+                .padding(.bottom, 9)
+            subtitle
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 28)
+            Button(action: chooseFolder) {
+                Label("Open Folder…", systemImage: "folder")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.extraLarge)
+            Divider()
+                .padding(.top, 35)
+            recentFolders
+                .padding(.top, 22)
+        }
+        .frame(maxWidth: 560)
+        .padding(44)
     }
 
     /// Explains why the start page is showing when a folder couldn't be opened.
