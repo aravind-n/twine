@@ -3,16 +3,18 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::config::Config;
 use crate::event::{CommandResult, Event, EventError, EventJournal, EventKind, StateEvent};
 use crate::folder::{FolderError, FolderState, Folders};
 use crate::store::{Store, StoreError};
 use crate::terminal::{
-    TerminalChunk, TerminalError, TerminalId, TerminalManager, TerminalSize, TerminalState,
-    TerminalStatus, TerminalStream,
+    TerminalError, TerminalId, TerminalManager, TerminalSize, TerminalState, TerminalStatus,
+    TerminalStream,
 };
+
+mod terminals;
 
 const DATABASE_FILE_NAME: &str = "twine.db";
 const DEFAULT_EVENT_CAPACITY: usize = 4_096;
@@ -188,67 +190,10 @@ impl Application {
             Command::StartTerminal {
                 working_directory,
                 size,
-            } => {
-                // Hold state while the process starts so an immediately exiting shell cannot
-                // publish its exit before the command-completion event.
-                let mut inner = self.lock_inner()?;
-                match self.start_terminal(&working_directory, size) {
-                    Ok(terminal_id) => {
-                        inner.terminals.insert(terminal_id, TerminalStatus::Running);
-                        if let Err(error) = inner.events.append(EventKind::CommandCompleted {
-                            request_id,
-                            result: CommandResult::TerminalStarted { terminal_id },
-                        }) {
-                            inner.terminals.remove(&terminal_id);
-                            drop(inner);
-                            let _ = self.terminals.close(terminal_id);
-                            return Err(error.into());
-                        }
-                        debug!(
-                            request_id = request_id.0,
-                            terminal_id = terminal_id.value(),
-                            "command accepted"
-                        );
-                        return Ok(CommandReceipt {
-                            request_id,
-                            disposition: CommandDisposition::Accepted,
-                        });
-                    }
-                    Err(error) => {
-                        return Ok(rejected_receipt(
-                            request_id,
-                            "terminalStartFailed",
-                            error.to_string(),
-                        ));
-                    }
-                }
+            } => self.start_terminal_command(request_id, &working_directory, size)?,
+            Command::CloseTerminal { terminal_id } => {
+                self.close_terminal_command(request_id, terminal_id)?
             }
-            Command::CloseTerminal { terminal_id } => match self.terminals.close(terminal_id) {
-                Ok(()) => {
-                    let mut inner = self.lock_inner()?;
-                    inner.terminals.remove(&terminal_id);
-                    inner.events.append(EventKind::CommandCompleted {
-                        request_id,
-                        result: CommandResult::TerminalClosed { terminal_id },
-                    })?;
-                    debug!(
-                        request_id = request_id.0,
-                        terminal_id = terminal_id.value(),
-                        "command accepted"
-                    );
-                    return Ok(CommandReceipt {
-                        request_id,
-                        disposition: CommandDisposition::Accepted,
-                    });
-                }
-                Err(error) => {
-                    return Ok(rejected_receipt(
-                        request_id,
-                        "terminalCloseFailed",
-                        error.to_string(),
-                    ));
-                }
-            },
         };
         match &disposition {
             CommandDisposition::Accepted => debug!(request_id = request_id.0, "command accepted"),
@@ -301,113 +246,6 @@ impl Application {
         Ok(self.lock_inner()?.events.after(sequence, limit)?)
     }
 
-    /// Allocates a fresh identity for one terminal byte stream.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the terminal ID space is exhausted or the terminal registry cannot be
-    /// accessed.
-    pub fn open_terminal(&self) -> Result<TerminalId, ApplicationError> {
-        Ok(self.terminal_output.open()?)
-    }
-
-    /// Publishes terminal output without routing it through the structured event journal.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the byte offset overflows, the chunk is larger than the queue, the
-    /// bounded queue is full, or the queue cannot be accessed.
-    pub fn publish_terminal_output(
-        &self,
-        terminal_id: TerminalId,
-        bytes: Vec<u8>,
-    ) -> Result<u64, ApplicationError> {
-        Ok(self.terminal_output.publish(terminal_id, bytes)?)
-    }
-
-    /// Removes the next terminal chunk from the binary output queue.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the queue cannot be accessed.
-    pub fn next_terminal_chunk(&self) -> Result<Option<TerminalChunk>, ApplicationError> {
-        Ok(self.terminal_output.next_chunk()?)
-    }
-
-    /// Releases the retained byte offset for a terminal whose queued output has been drained.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if output for the terminal is still queued or the queue cannot be
-    /// accessed.
-    pub fn close_terminal_output(&self, terminal_id: TerminalId) -> Result<(), ApplicationError> {
-        Ok(self.terminal_output.close(terminal_id)?)
-    }
-
-    /// Writes binary user input to a live terminal.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the terminal is not running or the PTY writer fails.
-    pub fn write_terminal_input(
-        &self,
-        terminal_id: TerminalId,
-        bytes: &[u8],
-    ) -> Result<(), ApplicationError> {
-        Ok(self.terminals.write_input(terminal_id, bytes)?)
-    }
-
-    /// Changes the kernel PTY size for a live terminal.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the size is invalid, the terminal is not running, or resizing fails.
-    pub fn resize_terminal(
-        &self,
-        terminal_id: TerminalId,
-        size: TerminalSize,
-    ) -> Result<(), ApplicationError> {
-        Ok(self.terminals.resize(terminal_id, size)?)
-    }
-
-    fn start_terminal(
-        &self,
-        working_directory: &Path,
-        size: TerminalSize,
-    ) -> Result<TerminalId, ApplicationError> {
-        let inner = Arc::downgrade(&self.inner);
-        Ok(self.terminals.start_default_shell(
-            working_directory,
-            size,
-            Arc::new(move |terminal_id, result| {
-                let Some(inner) = inner.upgrade() else { return };
-                let Ok(mut inner) = inner.lock() else {
-                    warn!(terminal_id = terminal_id.value(), "application state lock poisoned after terminal exit");
-                    return;
-                };
-                let (status, event) = match result {
-                    Ok(exit) => (
-                        TerminalStatus::Exited(exit.clone()),
-                        StateEvent::TerminalExited { terminal_id, exit },
-                    ),
-                    Err(message) => (
-                        TerminalStatus::Failed {
-                            message: message.clone(),
-                        },
-                        StateEvent::TerminalFailed {
-                            terminal_id,
-                            message,
-                        },
-                    ),
-                };
-                inner.terminals.insert(terminal_id, status);
-                if let Err(error) = inner.events.append(EventKind::State(event)) {
-                    warn!(terminal_id = terminal_id.value(), %error, "failed to record terminal exit");
-                }
-            }),
-        )?)
-    }
-
     fn lock_inner(&self) -> Result<MutexGuard<'_, Inner>, ApplicationError> {
         self.inner.lock().map_err(|_| ApplicationError::Poisoned)
     }
@@ -436,10 +274,7 @@ impl Inner {
             Err(error @ FolderError::Missing) => ("folderNotFound", error),
             Err(error @ FolderError::Inaccessible) => ("folderInaccessible", error),
         };
-        Ok(CommandDisposition::Rejected {
-            code: code.to_owned(),
-            message: error.to_string(),
-        })
+        Ok(rejection(code, &error))
     }
 }
 
@@ -449,13 +284,10 @@ impl Drop for Application {
     }
 }
 
-fn rejected_receipt(request_id: RequestId, code: &str, message: String) -> CommandReceipt {
-    CommandReceipt {
-        request_id,
-        disposition: CommandDisposition::Rejected {
-            code: code.to_owned(),
-            message,
-        },
+fn rejection(code: &str, error: &dyn std::error::Error) -> CommandDisposition {
+    CommandDisposition::Rejected {
+        code: code.to_owned(),
+        message: error.to_string(),
     }
 }
 
@@ -476,6 +308,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::config::{ColorScheme, Config};
     use crate::folder::{UnavailableFolder, UnavailableReason};
 
     #[test]
@@ -536,75 +369,6 @@ mod tests {
     }
 
     #[test]
-    fn terminal_output_has_absolute_offsets_and_backpressure() {
-        let application =
-            Application::with_capacities(4, 5).expect("application should initialize");
-        let terminal_id = application.open_terminal().expect("terminal should open");
-
-        assert_eq!(
-            application
-                .publish_terminal_output(terminal_id, vec![0, 1, 2])
-                .expect("first chunk should fit"),
-            0
-        );
-        assert_eq!(
-            application
-                .publish_terminal_output(terminal_id, vec![3, 4])
-                .expect("second chunk should fit"),
-            3
-        );
-        assert!(matches!(
-            application.publish_terminal_output(terminal_id, vec![5]),
-            Err(ApplicationError::Terminal(TerminalError::BufferFull { .. }))
-        ));
-
-        let first = application
-            .next_terminal_chunk()
-            .expect("read should succeed")
-            .expect("chunk should exist");
-        assert_eq!(first.terminal_id, terminal_id);
-        assert_eq!(first.offset, 0);
-        assert_eq!(first.bytes, vec![0, 1, 2]);
-
-        assert_eq!(
-            application
-                .publish_terminal_output(terminal_id, vec![5])
-                .expect("space should be reusable"),
-            5
-        );
-
-        assert!(matches!(
-            application.close_terminal_output(terminal_id),
-            Err(ApplicationError::Terminal(
-                TerminalError::PendingOutput { .. }
-            ))
-        ));
-        while application
-            .next_terminal_chunk()
-            .expect("read should succeed")
-            .is_some()
-        {}
-        application
-            .close_terminal_output(terminal_id)
-            .expect("drained terminal should close");
-        assert!(matches!(
-            application.publish_terminal_output(terminal_id, vec![6]),
-            Err(ApplicationError::Terminal(TerminalError::NotOpen { .. }))
-        ));
-
-        let next_terminal_id = application
-            .open_terminal()
-            .expect("next terminal should open");
-        assert_ne!(next_terminal_id, terminal_id);
-        assert_eq!(
-            application
-                .publish_terminal_output(next_terminal_id, vec![6])
-                .expect("fresh terminal should start at zero"),
-            0
-        );
-    }
-
-    #[test]
     fn folder_commands_publish_folder_state_after_the_snapshot() {
         let folder = tempfile::tempdir().expect("a folder should be available");
         let application =
@@ -642,6 +406,56 @@ mod tests {
                 terminals: Vec::new(),
             }
         );
+    }
+
+    #[test]
+    fn rejected_terminal_commands_explain_themselves() {
+        let application =
+            Application::with_capacities(16, 64).expect("application should initialize");
+        let missing = {
+            let folder = tempfile::tempdir().expect("a folder should be available");
+            folder.path().to_owned()
+        }; // Dropping `folder` deletes it.
+        let sequence = application
+            .snapshot()
+            .expect("snapshot should succeed")
+            .sequence;
+
+        let start = application
+            .handle_command(
+                RequestId(1),
+                Command::StartTerminal {
+                    working_directory: missing,
+                    size: TerminalSize {
+                        rows: 24,
+                        columns: 80,
+                        pixel_width: 800,
+                        pixel_height: 480,
+                    },
+                },
+            )
+            .expect("command should succeed");
+        assert!(matches!(
+            start.disposition,
+            CommandDisposition::Rejected { ref code, .. } if code == "terminalStartFailed"
+        ));
+
+        let close = application
+            .handle_command(
+                RequestId(2),
+                Command::CloseTerminal {
+                    terminal_id: TerminalId::from_value(99),
+                },
+            )
+            .expect("command should succeed");
+        assert!(matches!(
+            close.disposition,
+            CommandDisposition::Rejected { ref code, .. } if code == "terminalCloseFailed"
+        ));
+
+        let snapshot = application.snapshot().expect("snapshot should succeed");
+        assert_eq!(snapshot.sequence, sequence);
+        assert!(snapshot.terminals.is_empty());
     }
 
     #[test]
@@ -793,5 +607,23 @@ mod tests {
                 snapshot.sequence + u64::try_from(index).expect("test index should fit") + 1
             );
         }
+    }
+
+    #[test]
+    fn snapshot_contains_loaded_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        std::fs::write(&path, "[appearance]\ncolor_scheme = 'dark'\n").unwrap();
+        let application =
+            Application::with_config(directory.path(), Config::load(&path).config).unwrap();
+        assert_eq!(
+            application
+                .snapshot()
+                .unwrap()
+                .config
+                .appearance
+                .color_scheme,
+            ColorScheme::Dark
+        );
     }
 }

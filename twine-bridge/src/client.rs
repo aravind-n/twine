@@ -84,11 +84,6 @@ impl TwineClient {
             .application
             .resize_terminal(TerminalId::from_value(terminal_id), size)?)
     }
-
-    #[cfg(test)]
-    pub(crate) const fn application(&self) -> &Application {
-        &self.bridge.application
-    }
 }
 
 #[derive(Debug, Error)]

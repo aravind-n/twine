@@ -43,6 +43,13 @@ final class TwineUITests: XCTestCase {
         XCTAssertTrue(app.windows.firstMatch.title.hasPrefix(folder.lastPathComponent), app.debugDescription)
         XCTAssertFalse(app.staticTexts["Welcome to Twine"].exists, app.debugDescription)
 
+        // The reopened folder's terminal takes typing without a click.
+        let marker = folder.appending(path: "typed-marker")
+        app.typeText("touch \(marker.lastPathComponent)\r")
+        let typed = expectation(
+            for: NSPredicate { _, _ in FileManager.default.fileExists(atPath: marker.path) }, evaluatedWith: nil)
+        wait(for: [typed], timeout: 10)
+
         startPageButton.click()
         XCTAssertTrue(app.staticTexts["Welcome to Twine"].waitForExistence(timeout: 10), app.debugDescription)
         let recent = recentFolder(folder.lastPathComponent, in: app)

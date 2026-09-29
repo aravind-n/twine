@@ -68,7 +68,11 @@ final class MetalTerminalView: TerminalView {
         super.viewDidMoveToWindow()
         applyTwinePalette()
 
-        guard window != nil, !isUsingMetalRenderer else { return }
+        guard let window else { return }
+        // The terminal is the folder's primary surface, so it takes keyboard input without a click.
+        window.makeFirstResponder(self)
+
+        guard !isUsingMetalRenderer else { return }
 
         do {
             try setUseMetal(true)

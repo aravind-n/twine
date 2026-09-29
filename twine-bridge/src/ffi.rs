@@ -284,9 +284,11 @@ pub(crate) fn live_buffer_count() -> usize {
 mod tests {
     use std::path::PathBuf;
 
+    use tracing_subscriber::{Layer, prelude::*};
     use twine_core::{ApplicationError, StoreError};
 
     use super::*;
+    use crate::test_support::TEST_LOCK;
 
     #[test]
     fn logged_errors_include_their_causes() {
@@ -326,5 +328,41 @@ mod tests {
             unsafe { with_input_bytes(bytes.as_ptr(), 4, 3, |_| Ok(())) },
             Err(BridgeError::InputTooLarge)
         ));
+    }
+
+    #[test]
+    fn panic_guard_returns_status_instead_of_unwinding() {
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let status = catch_status(|| -> Result<(), BridgeError> {
+            panic!("test panic");
+        });
+        assert_eq!(status, TwineStatus::Panic);
+    }
+
+    #[test]
+    fn panic_guard_contains_diagnostic_subscriber_panics() {
+        struct PanickingLayer;
+
+        impl<S> Layer<S> for PanickingLayer
+        where
+            S: tracing::Subscriber,
+        {
+            fn on_event(
+                &self,
+                _event: &tracing::Event<'_>,
+                _context: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                panic!("test subscriber panic");
+            }
+        }
+
+        // Tests that log from other threads can register the logging callsite concurrently and
+        // cache it as disabled before this scoped subscriber exists.
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let subscriber = tracing_subscriber::registry().with(PanickingLayer);
+        tracing::subscriber::with_default(subscriber, || {
+            let status = catch_status(|| Err(BridgeError::InvalidArgument));
+            assert_eq!(status, TwineStatus::Panic);
+        });
     }
 }
