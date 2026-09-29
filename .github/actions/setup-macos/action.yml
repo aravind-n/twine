@@ -31,7 +31,8 @@ runs:
           exit 1
         fi
         echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
-        version="$(DEVELOPER_DIR="$developer_dir" xcodebuild -version | head -n 1)"
+        # sed reads all of the output. head exits early, and xcodebuild then crashes on the broken pipe.
+        version="$(DEVELOPER_DIR="$developer_dir" xcodebuild -version | sed -n 1p)"
         if [[ "$version" != 'Xcode 27.0' ]]; then
           echo "::error::Expected Xcode 27.0, found $version"
           exit 1
