@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -141,6 +142,32 @@ struct BridgeTests {
         #expect(client.connectionState == .running)
     }
 
+    @Test @MainActor func appQuitWaitsForBridgeTeardownAndStartsItOnce() async throws {
+        let transport = SuspendedCloseTransport()
+        let client = BridgeClient(transport: transport)
+        client.start()
+        try await waitUntil { client.connectionState == .running }
+
+        let delegate = AppTerminationDelegate()
+        delegate.connect(to: client)
+        var replies: [Bool] = []
+        let first = delegate.beginTermination { replies.append($0) }
+        let second = delegate.beginTermination { replies.append($0) }
+
+        #expect(first == .terminateLater)
+        #expect(second == .terminateLater)
+        try await waitUntil { await transport.closeCount == 1 }
+        #expect(replies.isEmpty)
+
+        await transport.completeClose()
+        try await waitUntil { replies == [true] }
+        #expect(await transport.closeCount == 1)
+        #expect(client.connectionState == .idle)
+
+        client.start()
+        #expect(client.connectionState == .idle)
+    }
+
     @MainActor
     private func recordConcurrentProgress(
         client: BridgeClient,
@@ -201,6 +228,47 @@ private actor FailingOpenTransport: BridgeTransport {
     }
 
     func close() {}
+
+    func send(_ command: BridgeCommand) -> BridgeCommandReceipt {
+        BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)
+    }
+
+    func snapshot() -> BridgeSnapshot {
+        .testReady()
+    }
+
+    func events(after sequence: UInt64, limit: UInt32) -> [BridgeEvent] {
+        []
+    }
+
+    func nextTerminalChunk() -> BridgeTerminalChunk? {
+        nil
+    }
+
+    func writeTerminalInput(terminalID: UInt64, bytes: Data) {}
+
+    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) {}
+}
+
+private actor SuspendedCloseTransport: BridgeTransport {
+    private(set) var closeCount = 0
+    private var closeContinuation: CheckedContinuation<Void, Never>?
+
+    func open() -> BridgeSnapshot {
+        .testReady()
+    }
+
+    func close() async {
+        closeCount += 1
+        await withCheckedContinuation { continuation in
+            closeContinuation = continuation
+        }
+    }
+
+    func completeClose() {
+        closeContinuation?.resume()
+        closeContinuation = nil
+    }
 
     func send(_ command: BridgeCommand) -> BridgeCommandReceipt {
         BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)

@@ -198,11 +198,16 @@ impl TerminalManager {
     }
 
     pub(crate) fn shutdown(&self) {
-        let Ok(mut sessions) = self.sessions.lock() else {
-            warn!("terminal session lock poisoned during shutdown");
-            return;
+        let mut sessions = match self.sessions.lock() {
+            Ok(sessions) => sessions,
+            Err(poisoned) => {
+                warn!("terminal session lock poisoned during shutdown; recovering owned sessions");
+                poisoned.into_inner()
+            }
         };
-        for (terminal_id, session) in sessions.drain() {
+        let owned_sessions = std::mem::take(&mut *sessions);
+        drop(sessions);
+        for (terminal_id, session) in owned_sessions {
             let _ = self.output.cancel(terminal_id);
             stop_session(terminal_id, session);
         }
@@ -634,6 +639,207 @@ mod tests {
             terminal_id
         );
         manager.close(terminal_id).expect("terminal should close");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_reaps_multiple_shells_and_descendants_with_a_full_output_queue() {
+        let stream = Arc::new(
+            TerminalStream::new(READ_CHUNK_BYTES, 1).expect("terminal stream should initialize"),
+        );
+        let manager = TerminalManager::new(Arc::clone(&stream));
+        let directory = unique_test_directory();
+        std::fs::create_dir(&directory).expect("test directory should be created");
+
+        let mut quiet_shell = CommandBuilder::new("/bin/sh");
+        quiet_shell.args([
+            "-c",
+            "trap '' HUP; echo $$ > \"$TWINE_TEST_DIR/shell.pid\"; \
+             (trap '' HUP; while :; do sleep 1; done) & \
+             echo $! > \"$TWINE_TEST_DIR/descendant.pid\"; \
+             while :; do sleep 1; done",
+        ]);
+        quiet_shell.env("TWINE_TEST_DIR", &directory);
+        let quiet_id = manager
+            .start_command(quiet_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .expect("shell with descendant should start");
+
+        let mut noisy_shell = CommandBuilder::new("/bin/sh");
+        noisy_shell.args([
+            "-c",
+            "echo $$ > \"$TWINE_TEST_DIR/noisy.pid\"; exec /usr/bin/yes",
+        ]);
+        noisy_shell.env("TWINE_TEST_DIR", &directory);
+        let noisy_id = manager
+            .start_command(noisy_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .expect("output-heavy shell should start");
+
+        let process_ids = ["shell.pid", "descendant.pid", "noisy.pid"]
+            .map(|name| read_process_id(&directory.join(name)));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while stream.queued_chunk_count() == 0 {
+            assert!(Instant::now() < deadline, "output queue did not fill");
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        let started = Instant::now();
+        manager.shutdown();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(
+            manager
+                .lock_sessions()
+                .expect("sessions should lock")
+                .is_empty()
+        );
+        assert!(stream.tracks_no_terminals());
+        for process_id in process_ids {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while process_exists(process_id) {
+                assert!(
+                    Instant::now() < deadline,
+                    "process {process_id} survived shutdown"
+                );
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        manager.shutdown();
+        assert_ne!(quiet_id, noisy_id);
+        std::fs::remove_dir_all(directory).expect("test directory should be removed");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn shutdown_kills_background_job_in_another_process_group() {
+        let stream = Arc::new(
+            TerminalStream::new(READ_CHUNK_BYTES, 16).expect("terminal stream should initialize"),
+        );
+        let manager = TerminalManager::new(Arc::clone(&stream));
+        let directory = unique_test_directory();
+        std::fs::create_dir(&directory).expect("test directory should be created");
+
+        let mut shell = CommandBuilder::new("/bin/sh");
+        shell.args([
+            "-c",
+            "trap '' HUP; set -m; echo $$ > \"$TWINE_TEST_DIR/shell.pid\"; \
+             (trap '' HUP; while :; do sleep 1; done) & \
+             echo $! > \"$TWINE_TEST_DIR/descendant.pid\"; \
+             while :; do sleep 1; done",
+        ]);
+        shell.env("TWINE_TEST_DIR", &directory);
+        manager
+            .start_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .expect("shell should start");
+
+        let shell_id = read_process_id(&directory.join("shell.pid"));
+        let descendant_id = read_process_id(&directory.join("descendant.pid"));
+        let shell_group = unsafe { libc::getpgid(shell_id) };
+        let descendant_group = unsafe { libc::getpgid(descendant_id) };
+        manager.shutdown();
+
+        assert!(shell_group > 0);
+        assert!(descendant_group > 0);
+        assert_ne!(shell_group, descendant_group);
+        assert!(stream.tracks_no_terminals());
+        for process_id in [shell_id, descendant_id] {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while process_exists(process_id) {
+                assert!(
+                    Instant::now() < deadline,
+                    "process {process_id} survived shutdown"
+                );
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        std::fs::remove_dir_all(directory).expect("test directory should be removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_recovers_poisoned_session_and_child_locks() {
+        let stream = Arc::new(
+            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+        );
+        let manager = TerminalManager::new(Arc::clone(&stream));
+        let directory = unique_test_directory();
+        std::fs::create_dir(&directory).expect("test directory should be created");
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args([
+            "-c",
+            "echo $$ > \"$TWINE_TEST_DIR/shell.pid\"; trap '' HUP; while :; do sleep 1; done",
+        ]);
+        command.env("TWINE_TEST_DIR", &directory);
+        let terminal_id = manager
+            .start_command(command, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .expect("shell should start");
+        let process_id = read_process_id(&directory.join("shell.pid"));
+        let child = Arc::clone(
+            &manager
+                .lock_sessions()
+                .expect("sessions should lock")
+                .get(&terminal_id)
+                .expect("terminal should be registered")
+                .child,
+        );
+
+        thread::scope(|scope| {
+            assert!(
+                scope
+                    .spawn(|| {
+                        let _guard = child.lock().expect("child should lock");
+                        panic!("poison the child lock");
+                    })
+                    .join()
+                    .is_err()
+            );
+            assert!(
+                scope
+                    .spawn(|| {
+                        let _guard = manager.sessions.lock().expect("sessions should lock");
+                        panic!("poison the session lock");
+                    })
+                    .join()
+                    .is_err()
+            );
+        });
+
+        manager.shutdown();
+        assert!(stream.tracks_no_terminals());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while process_exists(process_id) {
+            assert!(
+                Instant::now() < deadline,
+                "process survived poisoned-lock shutdown"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        std::fs::remove_dir_all(directory).expect("test directory should be removed");
+    }
+
+    fn test_terminal_size() -> TerminalSize {
+        TerminalSize {
+            rows: 24,
+            columns: 80,
+            pixel_width: 800,
+            pixel_height: 480,
+        }
+    }
+
+    #[cfg(unix)]
+    fn read_process_id(path: &Path) -> libc::pid_t {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Ok(contents) = std::fs::read_to_string(path)
+                && let Ok(process_id) = contents.trim().parse()
+            {
+                return process_id;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "process ID was not written to {}",
+                path.display()
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fn drain_output(
