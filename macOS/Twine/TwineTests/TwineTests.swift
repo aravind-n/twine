@@ -44,7 +44,12 @@ struct TwineTests {
 
         client.start()
         client.start()
-        try await Task.sleep(for: .milliseconds(20))
+        // Wait for the first open to begin. It stays suspended until `stop()` cancels it, so the
+        // client is still starting however slowly the test runs.
+        for _ in 0..<200 {
+            if await transport.openCount > 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
 
         #expect(await transport.openCount == 1)
         #expect(client.connectionState == .starting)
@@ -152,12 +157,16 @@ struct TwineTests {
     }
 }
 
+/// A transport whose first open never finishes on its own; only cancellation ends it. Later opens
+/// finish at once.
 private actor SuspendedOpenBridgeTransport: BridgeTransport {
     private(set) var openCount = 0
 
     func open() async throws -> BridgeSnapshot {
         openCount += 1
-        try await Task.sleep(for: .milliseconds(100))
+        if openCount == 1 {
+            try await Task.sleep(for: .seconds(3_600))
+        }
         return snapshot()
     }
 
