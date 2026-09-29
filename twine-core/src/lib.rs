@@ -1,15 +1,12 @@
-#[allow(clippy::must_use_candidate)]
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! UI-independent application core for Twine.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod application;
+mod event;
+mod terminal;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use application::{
+    Application, ApplicationError, ApplicationState, Command, CommandDisposition, CommandReceipt,
+    RequestId, Snapshot,
+};
+pub use event::{CommandResult, Event, EventError, EventKind, StateEvent};
+pub use terminal::{TerminalChunk, TerminalError, TerminalId};
