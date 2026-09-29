@@ -495,6 +495,9 @@ mod tests {
             }
         }
 
+        // Tests that log from other threads can register the logging callsite concurrently and
+        // cache it as disabled before this scoped subscriber exists.
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
         let subscriber = tracing_subscriber::registry().with(PanickingLayer);
         tracing::subscriber::with_default(subscriber, || {
             let status = ffi::catch_status(|| Err(BridgeError::InvalidArgument));
