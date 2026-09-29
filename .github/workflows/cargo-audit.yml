@@ -1,0 +1,14 @@
+name: Weekly Cargo Audit
+
+# Reports advisories published for existing Rust dependencies without failing unrelated pull requests.
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit:
+    uses: ./.github/workflows/_cargo-audit.yml
