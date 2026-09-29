@@ -4,17 +4,28 @@ use thiserror::Error;
 
 use crate::application::RequestId;
 use crate::folder::FolderState;
+use crate::terminal::{TerminalExit, TerminalId};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateEvent {
     ApplicationReady,
     /// The open folder or the recent folders changed. Carries the complete new folder state.
     FoldersChanged(FolderState),
+    TerminalExited {
+        terminal_id: TerminalId,
+        exit: TerminalExit,
+    },
+    TerminalFailed {
+        terminal_id: TerminalId,
+        message: String,
+    },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandResult {
     Pong,
+    TerminalStarted { terminal_id: TerminalId },
+    TerminalClosed { terminal_id: TerminalId },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -52,19 +63,20 @@ impl EventJournal {
         })
     }
 
-    pub(crate) fn append(&mut self, kind: EventKind) -> Result<(), EventError> {
+    pub(crate) fn append(&mut self, kind: EventKind) -> Result<Event, EventError> {
         let sequence = self
             .latest_sequence
             .checked_add(1)
             .ok_or(EventError::SequenceOverflow)?;
-        self.events.push_back(Event { sequence, kind });
+        let event = Event { sequence, kind };
+        self.events.push_back(event.clone());
         self.latest_sequence = sequence;
 
         if self.events.len() > self.capacity {
             self.events.pop_front();
         }
 
-        Ok(())
+        Ok(event)
     }
 
     pub(crate) const fn latest_sequence(&self) -> u64 {

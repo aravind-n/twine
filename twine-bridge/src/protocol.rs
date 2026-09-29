@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use twine_core::{
     ApplicationState, Command, CommandDisposition, CommandReceipt, CommandResult, Event, EventKind,
-    FolderState, RequestId, Snapshot, StateEvent, UnavailableReason,
+    FolderState, RequestId, Snapshot, StateEvent, TerminalId, TerminalSize, TerminalState,
+    TerminalStatus, UnavailableReason,
 };
 
 use crate::client::BridgeError;
@@ -26,6 +27,28 @@ pub(crate) enum DecodedCommand {
 struct RawCommandEnvelope {
     request_id: u64,
     command: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawStartTerminal {
+    working_directory: String,
+    size: RawTerminalSize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawCloseTerminal {
+    terminal_id: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawTerminalSize {
+    rows: u16,
+    columns: u16,
+    pixel_width: u16,
+    pixel_height: u16,
 }
 
 #[derive(Serialize)]
@@ -57,6 +80,7 @@ struct WireSnapshot<'a> {
     state: WireApplicationState,
     config: &'a twine_core::config::Config,
     folders: WireFolderState<'a>,
+    terminals: Vec<WireTerminalState>,
 }
 
 /// Paths serialize as strings; serde rejects a path that isn't valid UTF-8.
@@ -122,6 +146,31 @@ enum WireApplicationState {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WireTerminalState {
+    terminal_id: u64,
+    #[serde(flatten)]
+    status: WireTerminalStatus,
+}
+
+#[derive(Serialize)]
+#[serde(
+    tag = "status",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum WireTerminalStatus {
+    Running,
+    Exited {
+        exit_code: u32,
+        signal: Option<String>,
+    },
+    Failed {
+        message: String,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WireEventBatch<'a> {
     events: Vec<WireEvent<'a>>,
 }
@@ -141,6 +190,15 @@ struct WireEvent<'a> {
 )]
 enum WireEventKind<'a> {
     ApplicationReady,
+    TerminalExited {
+        terminal_id: u64,
+        exit_code: u32,
+        signal: Option<String>,
+    },
+    TerminalFailed {
+        terminal_id: u64,
+        message: String,
+    },
     CommandCompleted {
         request_id: u64,
         result: WireCommandResult,
@@ -151,9 +209,15 @@ enum WireEventKind<'a> {
 }
 
 #[derive(Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 enum WireCommandResult {
     Pong,
+    TerminalStarted { terminal_id: u64 },
+    TerminalClosed { terminal_id: u64 },
 }
 
 pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeError> {
@@ -174,6 +238,26 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         "removeRecentFolder" => DecodedCommand::Known(Command::RemoveRecentFolder {
             path: decode_path(&raw.command)?,
         }),
+        "startTerminal" => {
+            let command: RawStartTerminal =
+                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
+            DecodedCommand::Known(Command::StartTerminal {
+                working_directory: command.working_directory.into(),
+                size: TerminalSize {
+                    rows: command.size.rows,
+                    columns: command.size.columns,
+                    pixel_width: command.size.pixel_width,
+                    pixel_height: command.size.pixel_height,
+                },
+            })
+        }
+        "closeTerminal" => {
+            let command: RawCloseTerminal =
+                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
+            DecodedCommand::Known(Command::CloseTerminal {
+                terminal_id: TerminalId::from_value(command.terminal_id),
+            })
+        }
         other => DecodedCommand::Unsupported(other.to_owned()),
     };
     Ok(CommandEnvelope {
@@ -222,7 +306,25 @@ pub(crate) fn encode_snapshot(snapshot: &Snapshot) -> Result<Vec<u8>, serde_json
         state,
         config: &snapshot.config,
         folders: (&snapshot.folders).into(),
+        terminals: snapshot.terminals.iter().map(wire_terminal_state).collect(),
     })
+}
+
+fn wire_terminal_state(terminal: &TerminalState) -> WireTerminalState {
+    let status = match &terminal.status {
+        TerminalStatus::Running => WireTerminalStatus::Running,
+        TerminalStatus::Exited(exit) => WireTerminalStatus::Exited {
+            exit_code: exit.exit_code,
+            signal: exit.signal.clone(),
+        },
+        TerminalStatus::Failed { message } => WireTerminalStatus::Failed {
+            message: message.clone(),
+        },
+    };
+    WireTerminalState {
+        terminal_id: terminal.terminal_id.value(),
+        status,
+    }
 }
 
 pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Error> {
@@ -237,12 +339,44 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
                         folders: folders.into(),
                     }
                 }
+                EventKind::State(StateEvent::TerminalExited { terminal_id, exit }) => {
+                    WireEventKind::TerminalExited {
+                        terminal_id: terminal_id.value(),
+                        exit_code: exit.exit_code,
+                        signal: exit.signal.clone(),
+                    }
+                }
+                EventKind::State(StateEvent::TerminalFailed {
+                    terminal_id,
+                    message,
+                }) => WireEventKind::TerminalFailed {
+                    terminal_id: terminal_id.value(),
+                    message: message.clone(),
+                },
                 EventKind::CommandCompleted {
                     request_id,
                     result: CommandResult::Pong,
                 } => WireEventKind::CommandCompleted {
                     request_id: request_id.0,
                     result: WireCommandResult::Pong,
+                },
+                EventKind::CommandCompleted {
+                    request_id,
+                    result: CommandResult::TerminalStarted { terminal_id },
+                } => WireEventKind::CommandCompleted {
+                    request_id: request_id.0,
+                    result: WireCommandResult::TerminalStarted {
+                        terminal_id: terminal_id.value(),
+                    },
+                },
+                EventKind::CommandCompleted {
+                    request_id,
+                    result: CommandResult::TerminalClosed { terminal_id },
+                } => WireEventKind::CommandCompleted {
+                    request_id: request_id.0,
+                    result: WireCommandResult::TerminalClosed {
+                        terminal_id: terminal_id.value(),
+                    },
                 },
             },
         })
@@ -276,7 +410,8 @@ mod tests {
                 "sequence": 1,
                 "state": { "status": "ready" },
                 "config": { "appearance": { "color_scheme": "dark" } },
-                "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null }
+                "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null },
+                "terminals": []
             })
         );
     }
@@ -304,6 +439,7 @@ mod tests {
                     reason: UnavailableReason::Inaccessible,
                 }),
             },
+            terminals: Vec::new(),
         };
         let json: Value = serde_json::from_slice(&encode_snapshot(&snapshot).unwrap()).unwrap();
         assert_eq!(
@@ -316,6 +452,48 @@ mod tests {
                 ],
                 "unavailableFolder": { "path": "/projects/locked", "reason": "inaccessible" }
             })
+        );
+    }
+
+    #[test]
+    fn terminal_command_result_uses_camel_case_identifiers() {
+        let events = [
+            Event {
+                sequence: 2,
+                kind: EventKind::CommandCompleted {
+                    request_id: RequestId(7),
+                    result: CommandResult::TerminalStarted {
+                        terminal_id: TerminalId::from_value(41),
+                    },
+                },
+            },
+            Event {
+                sequence: 3,
+                kind: EventKind::CommandCompleted {
+                    request_id: RequestId(8),
+                    result: CommandResult::TerminalClosed {
+                        terminal_id: TerminalId::from_value(41),
+                    },
+                },
+            },
+        ];
+
+        let encoded: Value = serde_json::from_slice(
+            &encode_events(&events).expect("terminal event should serialize"),
+        )
+        .expect("terminal event should be valid JSON");
+
+        assert_eq!(encoded["events"][0]["event"]["result"]["terminalId"], 41);
+        assert_eq!(encoded["events"][1]["event"]["result"]["terminalId"], 41);
+        assert!(
+            encoded["events"][0]["event"]["result"]
+                .get("terminal_id")
+                .is_none()
+        );
+        assert!(
+            encoded["events"][1]["event"]["result"]
+                .get("terminal_id")
+                .is_none()
         );
     }
 }

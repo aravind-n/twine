@@ -3,6 +3,7 @@ import OSLog
 import Observation
 
 private let bridgeLogger = Logger(subsystem: "com.twineproject.Twine", category: "bridge")
+private let commandResultCacheLimit = 256
 
 enum BridgeConnectionState: Equatable {
     case idle
@@ -21,6 +22,12 @@ final class BridgeClient {
     private let transport: any BridgeTransport
     private var eventTask: Task<Void, Never>?
     private var isStopping = false
+    private var commandResults: [UInt64: BridgeCommandResult] = [:]
+    private var ignoredCommandResults: Set<UInt64> = []
+    private var commandWaiters: [UInt64: CheckedContinuation<BridgeCommandResult, any Error>] = [:]
+    private var terminalChunkRouter = TerminalChunkRouter(capacityBytes: 1024 * 1024)
+    private var isFetchingTerminalChunk = false
+    private var closedTerminalIDs: Set<UInt64> = []
 
     init(transport: any BridgeTransport) {
         self.transport = transport
@@ -46,28 +53,85 @@ final class BridgeClient {
         eventTask = nil
         snapshot = nil
         lastCommandCompletion = nil
+        commandResults.removeAll()
+        ignoredCommandResults.removeAll()
+        terminalChunkRouter.removeAll()
+        closedTerminalIDs.removeAll()
+        failCommandWaiters(with: BridgeFailure.notConnected)
         connectionState = .idle
         isStopping = false
     }
 
     func send(_ command: BridgeCommand) async throws -> BridgeCommandReceipt {
-        try await transport.send(command)
-    }
-
-    /// Sends a command whose outcome arrives as state events, logging a rejection or failure.
-    func perform(_ command: BridgeCommand) async {
-        do {
-            let receipt = try await send(command)
-            if let rejection = receipt.error {
-                bridgeLogger.notice("Command rejected: \(rejection.code, privacy: .public)")
+        let receipt = try await transport.send(command)
+        if receipt.status == .accepted {
+            switch command {
+            case .ping, .startTerminal, .closeTerminal:
+                if commandResults.removeValue(forKey: receipt.requestID) == nil {
+                    ignoredCommandResults.insert(receipt.requestID)
+                }
+            case .openFolder, .closeFolder, .removeRecentFolder:
+                break
             }
-        } catch {
-            bridgeLogger.error("Command failed: \(error.localizedDescription, privacy: .public)")
         }
+        return receipt
     }
 
-    func nextTerminalChunk() async throws -> BridgeTerminalChunk? {
-        try await transport.nextTerminalChunk()
+    func nextTerminalChunk(for terminalID: UInt64) async throws -> BridgeTerminalChunk? {
+        guard connectionState == .running else { throw BridgeFailure.notConnected }
+        if let chunk = terminalChunkRouter.dequeue(for: terminalID) {
+            return chunk
+        }
+        guard terminalChunkRouter.hasCapacity, !isFetchingTerminalChunk else { return nil }
+        isFetchingTerminalChunk = true
+        defer { isFetchingTerminalChunk = false }
+        guard let chunk = try await transport.nextTerminalChunk() else { return nil }
+        guard connectionState == .running, !isStopping else { throw BridgeFailure.notConnected }
+        if !closedTerminalIDs.contains(chunk.terminalID) {
+            terminalChunkRouter.enqueue(chunk)
+        }
+        try Task.checkCancellation()
+        return terminalChunkRouter.dequeue(for: terminalID)
+    }
+
+    func startTerminal(
+        workingDirectory: URL,
+        size: BridgeTerminalSize
+    ) async throws -> UInt64 {
+        let result = try await sendAndAwaitCompletion(
+            .startTerminal(workingDirectory: workingDirectory.path, size: size)
+        )
+        guard case .terminalStarted(let terminalID) = result else {
+            throw BridgeFailure.unexpectedCommandResult
+        }
+        return terminalID
+    }
+
+    func closeTerminal(terminalID: UInt64) async throws {
+        let result = try await sendAndAwaitCompletion(.closeTerminal(terminalID: terminalID))
+        guard case .terminalClosed(let closedID) = result, closedID == terminalID else {
+            throw BridgeFailure.unexpectedCommandResult
+        }
+        closedTerminalIDs.insert(terminalID)
+        terminalChunkRouter.discard(for: terminalID)
+    }
+
+    private func sendAndAwaitCompletion(_ command: BridgeCommand) async throws -> BridgeCommandResult {
+        guard connectionState == .running else { throw BridgeFailure.notConnected }
+        let receipt = try await transport.send(command)
+        guard connectionState == .running else { throw BridgeFailure.notConnected }
+        guard receipt.status == .accepted else {
+            throw BridgeFailure.commandRejected(
+                code: receipt.error?.code ?? "unknown",
+                message: receipt.error?.message ?? "The command was rejected."
+            )
+        }
+        if let result = commandResults.removeValue(forKey: receipt.requestID) {
+            return result
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            commandWaiters[receipt.requestID] = continuation
+        }
     }
 
     private func openAndRun() async {
@@ -131,14 +195,7 @@ final class BridgeClient {
                 return false
             }
 
-            switch event.event {
-            case .applicationReady:
-                current.state = BridgeApplicationState(status: .ready)
-            case .commandCompleted(let requestID, let result):
-                lastCommandCompletion = BridgeCommandCompletion(requestID: requestID, result: result)
-            case .foldersChanged(let folders):
-                current.folders = folders
-            }
+            apply(event.event, to: &current)
             current.sequence = event.sequence
         }
 
@@ -146,10 +203,156 @@ final class BridgeClient {
         return true
     }
 
+    private func apply(_ event: BridgeEvent.Kind, to snapshot: inout BridgeSnapshot) {
+        switch event {
+        case .applicationReady:
+            snapshot.state = BridgeApplicationState(status: .ready)
+        case .commandCompleted(let requestID, let result):
+            applyCommandCompletion(requestID: requestID, result: result, to: &snapshot)
+        case .foldersChanged(let folders):
+            snapshot.folders = folders
+        case .terminalExited(let terminalID, let exit):
+            updateTerminal(
+                BridgeTerminalState(terminalID: terminalID, status: .exited(exit)),
+                in: &snapshot
+            )
+        case .terminalFailed(let terminalID, let message):
+            updateTerminal(
+                BridgeTerminalState(terminalID: terminalID, status: .failed(message: message)),
+                in: &snapshot
+            )
+        }
+    }
+
+    private func applyCommandCompletion(
+        requestID: UInt64,
+        result: BridgeCommandResult,
+        to snapshot: inout BridgeSnapshot
+    ) {
+        lastCommandCompletion = BridgeCommandCompletion(requestID: requestID, result: result)
+        switch result {
+        case .terminalStarted(let terminalID):
+            closedTerminalIDs.remove(terminalID)
+            updateTerminal(
+                BridgeTerminalState(terminalID: terminalID, status: .running),
+                in: &snapshot
+            )
+        case .terminalClosed(let terminalID):
+            closedTerminalIDs.insert(terminalID)
+            terminalChunkRouter.discard(for: terminalID)
+            snapshot.terminals.removeAll { $0.terminalID == terminalID }
+        case .pong:
+            break
+        }
+        if let waiter = commandWaiters.removeValue(forKey: requestID) {
+            waiter.resume(returning: result)
+        } else if ignoredCommandResults.remove(requestID) != nil {
+            return
+        } else {
+            cacheCommandResult(result, requestID: requestID)
+        }
+    }
+
+    private func cacheCommandResult(_ result: BridgeCommandResult, requestID: UInt64) {
+        commandResults[requestID] = result
+        if commandResults.count > commandResultCacheLimit {
+            if let oldestRequestID = commandResults.keys.min() {
+                commandResults.removeValue(forKey: oldestRequestID)
+            }
+        }
+    }
+
     private func fail(_ error: any Error) {
         bridgeLogger.error("Bridge failed: \(error.localizedDescription, privacy: .public)")
         connectionState = .failed(error.localizedDescription)
         eventTask?.cancel()
         eventTask = nil
+        commandResults.removeAll()
+        ignoredCommandResults.removeAll()
+        terminalChunkRouter.removeAll()
+        closedTerminalIDs.removeAll()
+        failCommandWaiters(with: error)
+    }
+
+    private func updateTerminal(_ terminal: BridgeTerminalState, in snapshot: inout BridgeSnapshot) {
+        if let index = snapshot.terminals.firstIndex(where: { $0.terminalID == terminal.terminalID }) {
+            snapshot.terminals[index] = terminal
+        } else {
+            snapshot.terminals.append(terminal)
+        }
+    }
+
+    private func failCommandWaiters(with error: any Error) {
+        let waiters = commandWaiters.values
+        commandWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(throwing: error)
+        }
+    }
+
+}
+
+extension BridgeClient {
+    /// Sends a command whose outcome arrives as state events, logging a rejection or failure.
+    func perform(_ command: BridgeCommand) async {
+        do {
+            let receipt = try await send(command)
+            if let rejection = receipt.error {
+                bridgeLogger.notice("Command rejected: \(rejection.code, privacy: .public)")
+            }
+        } catch {
+            bridgeLogger.error("Command failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func terminalStatus(for terminalID: UInt64) -> BridgeTerminalState.Status? {
+        snapshot?.terminals.first { $0.terminalID == terminalID }?.status
+    }
+
+    func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws {
+        try await transport.writeTerminalInput(terminalID: terminalID, bytes: bytes)
+    }
+
+    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) async throws {
+        try await transport.resizeTerminal(terminalID: terminalID, size: size)
+    }
+}
+
+private struct TerminalChunkRouter {
+    let capacityBytes: Int
+    private var chunksByTerminal: [UInt64: [BridgeTerminalChunk]] = [:]
+    private var byteCount = 0
+
+    var hasCapacity: Bool {
+        byteCount < capacityBytes
+    }
+
+    mutating func enqueue(_ chunk: BridgeTerminalChunk) {
+        chunksByTerminal[chunk.terminalID, default: []].append(chunk)
+        byteCount += chunk.bytes.count
+    }
+
+    mutating func dequeue(for terminalID: UInt64) -> BridgeTerminalChunk? {
+        guard var chunks = chunksByTerminal[terminalID], !chunks.isEmpty else { return nil }
+        let chunk = chunks.removeFirst()
+        byteCount -= chunk.bytes.count
+        if chunks.isEmpty {
+            chunksByTerminal.removeValue(forKey: terminalID)
+        } else {
+            chunksByTerminal[terminalID] = chunks
+        }
+        return chunk
+    }
+
+    mutating func discard(for terminalID: UInt64) {
+        guard let chunks = chunksByTerminal.removeValue(forKey: terminalID) else { return }
+        byteCount -= chunks.reduce(into: 0) { bytes, chunk in
+            bytes += chunk.bytes.count
+        }
+    }
+
+    mutating func removeAll() {
+        chunksByTerminal.removeAll()
+        byteCount = 0
     }
 }

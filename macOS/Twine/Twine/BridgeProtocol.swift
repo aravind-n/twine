@@ -6,6 +6,15 @@ nonisolated enum BridgeCommand: Sendable {
     /// Closes the open folder, so the window shows the start page.
     case closeFolder
     case removeRecentFolder(path: String)
+    case startTerminal(workingDirectory: String, size: BridgeTerminalSize)
+    case closeTerminal(terminalID: UInt64)
+}
+
+nonisolated struct BridgeTerminalSize: Codable, Equatable, Sendable {
+    let rows: UInt16
+    let columns: UInt16
+    let pixelWidth: UInt16
+    let pixelHeight: UInt16
 }
 
 nonisolated struct BridgeCommandReceipt: Decodable, Equatable, Sendable {
@@ -35,6 +44,7 @@ nonisolated struct BridgeSnapshot: Decodable, Equatable, Sendable {
     var state: BridgeApplicationState
     let config: BridgeConfig
     var folders: BridgeFolderState
+    var terminals: [BridgeTerminalState] = []
 }
 
 nonisolated struct BridgeConfig: Decodable, Equatable, Sendable {
@@ -106,6 +116,8 @@ nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
         case applicationReady
         case commandCompleted(requestID: UInt64, result: BridgeCommandResult)
         case foldersChanged(BridgeFolderState)
+        case terminalExited(terminalID: UInt64, exit: BridgeTerminalExit)
+        case terminalFailed(terminalID: UInt64, message: String)
     }
 
     private enum CodingKeys: CodingKey {
@@ -127,6 +139,8 @@ nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
 
 nonisolated enum BridgeCommandResult: Equatable, Sendable {
     case pong
+    case terminalStarted(terminalID: UInt64)
+    case terminalClosed(terminalID: UInt64)
 }
 
 nonisolated struct BridgeCommandCompletion: Equatable, Sendable {
@@ -140,7 +154,61 @@ nonisolated struct BridgeTerminalChunk: Equatable, Sendable {
     let bytes: Data
 }
 
+nonisolated struct BridgeTerminalExit: Decodable, Equatable, Sendable {
+    let exitCode: UInt32
+    let signal: String?
+}
+
+nonisolated struct BridgeTerminalState: Decodable, Equatable, Sendable {
+    let terminalID: UInt64
+    let status: Status
+
+    enum Status: Equatable, Sendable {
+        case running
+        case exited(BridgeTerminalExit)
+        case failed(message: String)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case exitCode
+        case message
+        case signal
+        case status
+        case terminalID = "terminalId"
+    }
+
+    private enum WireStatus: String, Decodable {
+        case exited
+        case failed
+        case running
+    }
+
+    init(terminalID: UInt64, status: Status) {
+        self.terminalID = terminalID
+        self.status = status
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        terminalID = try container.decode(UInt64.self, forKey: .terminalID)
+        switch try container.decode(WireStatus.self, forKey: .status) {
+        case .running:
+            status = .running
+        case .exited:
+            status = .exited(
+                BridgeTerminalExit(
+                    exitCode: try container.decode(UInt32.self, forKey: .exitCode),
+                    signal: try container.decodeIfPresent(String.self, forKey: .signal)
+                )
+            )
+        case .failed:
+            status = .failed(message: try container.decode(String.self, forKey: .message))
+        }
+    }
+}
+
 nonisolated enum BridgeFailure: Error, Equatable, LocalizedError, Sendable {
+    case commandRejected(code: String, message: String)
     case cursorExpired
     case empty
     case internalError
@@ -148,12 +216,16 @@ nonisolated enum BridgeFailure: Error, Equatable, LocalizedError, Sendable {
     case invalidUTF8
     case malformedCommand
     case nullPointer
+    case notConnected
     case panic
     case requestIDOverflow
+    case unexpectedCommandResult
     case unknownStatus(UInt32)
 
     var errorDescription: String? {
         switch self {
+        case .commandRejected(let code, let message):
+            "The core rejected the command (\(code)): \(message)"
         case .cursorExpired:
             "The bridge event cursor expired."
         case .empty:
@@ -168,10 +240,14 @@ nonisolated enum BridgeFailure: Error, Equatable, LocalizedError, Sendable {
             "The bridge command was malformed."
         case .nullPointer:
             "The bridge received a null pointer."
+        case .notConnected:
+            "The Rust core is not connected."
         case .panic:
             "The bridge contained an internal Rust panic."
         case .requestIDOverflow:
             "The bridge request ID counter overflowed."
+        case .unexpectedCommandResult:
+            "The core returned an unexpected command result."
         case .unknownStatus(let status):
             "The bridge returned unknown status \(status)."
         }
@@ -185,6 +261,8 @@ nonisolated protocol BridgeTransport: Sendable {
     func snapshot() async throws -> BridgeSnapshot
     func events(after sequence: UInt64, limit: UInt32) async throws -> [BridgeEvent]
     func nextTerminalChunk() async throws -> BridgeTerminalChunk?
+    func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws
+    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) async throws
 }
 
 nonisolated private struct EventPayload: Decodable {
@@ -192,8 +270,12 @@ nonisolated private struct EventPayload: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case folders
+        case exitCode
+        case message
         case requestID = "requestId"
         case result
+        case signal
+        case terminalID = "terminalId"
         case type
     }
 
@@ -201,6 +283,8 @@ nonisolated private struct EventPayload: Decodable {
         case applicationReady
         case commandCompleted
         case foldersChanged
+        case terminalExited
+        case terminalFailed
     }
 
     init(from decoder: any Decoder) throws {
@@ -215,6 +299,19 @@ nonisolated private struct EventPayload: Decodable {
             )
         case .foldersChanged:
             kind = .foldersChanged(try container.decode(BridgeFolderState.self, forKey: .folders))
+        case .terminalExited:
+            kind = .terminalExited(
+                terminalID: try container.decode(UInt64.self, forKey: .terminalID),
+                exit: BridgeTerminalExit(
+                    exitCode: try container.decode(UInt32.self, forKey: .exitCode),
+                    signal: try container.decodeIfPresent(String.self, forKey: .signal)
+                )
+            )
+        case .terminalFailed:
+            kind = .terminalFailed(
+                terminalID: try container.decode(UInt64.self, forKey: .terminalID),
+                message: try container.decode(String.self, forKey: .message)
+            )
         }
     }
 }
@@ -223,11 +320,14 @@ nonisolated private struct CommandResultPayload: Decodable {
     let result: BridgeCommandResult
 
     private enum CodingKeys: String, CodingKey {
+        case terminalID = "terminalId"
         case type
     }
 
     private enum ResultType: String, Decodable {
         case pong
+        case terminalStarted
+        case terminalClosed
     }
 
     init(from decoder: any Decoder) throws {
@@ -235,6 +335,14 @@ nonisolated private struct CommandResultPayload: Decodable {
         switch try container.decode(ResultType.self, forKey: .type) {
         case .pong:
             result = .pong
+        case .terminalStarted:
+            result = .terminalStarted(
+                terminalID: try container.decode(UInt64.self, forKey: .terminalID)
+            )
+        case .terminalClosed:
+            result = .terminalClosed(
+                terminalID: try container.decode(UInt64.self, forKey: .terminalID)
+            )
         }
     }
 }

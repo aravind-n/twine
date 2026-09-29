@@ -8,6 +8,7 @@
 import AppKit
 import MetalKit
 import SwiftTerm
+import SwiftUI
 import Testing
 
 @testable import Twine
@@ -18,7 +19,8 @@ struct TwineTests {
         let json = """
             {"sequence":1,"state":{"status":"ready"},
              "config":{"appearance":{"color_scheme":"\(colorScheme.rawValue)"}},
-             "folders":{"openFolder":null,"recentFolders":[],"unavailableFolder":null}}
+             "folders":{"openFolder":null,"recentFolders":[],"unavailableFolder":null},
+             "terminals":[]}
             """
         let snapshot = try JSONDecoder().decode(BridgeSnapshot.self, from: Data(json.utf8))
         #expect(snapshot.config.appearance.colorScheme == colorScheme)
@@ -124,6 +126,89 @@ struct TwineTests {
         #expect(heartbeatAdvancedWithEvents)
     }
 
+    @Test @MainActor func terminalBridgeRunsShellInRequestedDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(
+            component: "twine-terminal-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+
+        let client = BridgeClient(
+            transport: BridgeWorker(dataDirectory: directory.appending(component: ".twine-data"))
+        )
+        client.start()
+        var terminalID: UInt64?
+        do {
+            try await waitUntilRunning(client)
+            terminalID = try await client.startTerminal(
+                workingDirectory: directory,
+                size: BridgeTerminalSize(
+                    rows: 24,
+                    columns: 80,
+                    pixelWidth: 800,
+                    pixelHeight: 480
+                )
+            )
+            let startedTerminalID = try #require(terminalID)
+            try await client.writeTerminalInput(
+                terminalID: startedTerminalID,
+                bytes: Data("pwd\nprintf '__TWINE_SWIFT__\\n'\nexit 9\n".utf8)
+            )
+            let (output, exit) = try await collectTerminalOutput(
+                from: client,
+                terminalID: startedTerminalID
+            )
+            let text = String(data: output, encoding: .utf8) ?? ""
+            #expect(text.contains(directory.path))
+            #expect(text.contains("__TWINE_SWIFT__"))
+            #expect(exit.exitCode == 9)
+
+            try await client.closeTerminal(terminalID: startedTerminalID)
+            terminalID = nil
+            await client.stop()
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            if let terminalID {
+                try? await client.closeTerminal(terminalID: terminalID)
+            }
+            await client.stop()
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    @MainActor
+    private func collectTerminalOutput(
+        from client: BridgeClient,
+        terminalID: UInt64
+    ) async throws -> (Data, BridgeTerminalExit) {
+        let terminal = TerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
+        let responder = TerminalTestResponder(client: client, terminalID: terminalID)
+        terminal.terminalDelegate = responder
+        defer { withExtendedLifetime(responder) {} }
+        var output = Data()
+        var expectedOffset: UInt64 = 0
+        for _ in 0..<500 {
+            if let chunk = try await client.nextTerminalChunk(for: terminalID) {
+                #expect(chunk.terminalID == terminalID)
+                #expect(chunk.offset == expectedOffset)
+                expectedOffset += UInt64(chunk.bytes.count)
+                output.append(chunk.bytes)
+                terminal.feed(byteArray: Array(chunk.bytes)[...])
+            } else {
+                let text = String(data: output, encoding: .utf8) ?? ""
+                if text.contains("__TWINE_SWIFT__") {
+                    if case .exited(let exit) = client.terminalStatus(for: terminalID) {
+                        return (output, exit)
+                    }
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        Issue.record("shell output and exit were not reported before the timeout")
+        throw BridgeFailure.internalError
+    }
+
     @Test @MainActor func terminalEnablesMetalWhenAvailable() {
         guard MTLCreateSystemDefaultDevice() != nil else { return }
 
@@ -133,6 +218,50 @@ struct TwineTests {
         window.contentView = terminal
 
         #expect(terminal.isUsingMetalRenderer)
+    }
+
+    @Test @MainActor func terminalAppliesResizeReceivedDuringStartup() async throws {
+        let transport = DelayedTerminalBridgeTransport()
+        let client = BridgeClient(transport: transport)
+        client.start()
+        try await waitUntilRunning(client)
+
+        var boundTerminalID: UInt64?
+        var failureMessage: String?
+        let coordinator = TerminalViewRepresentable.Coordinator(
+            bridgeClient: client,
+            workingDirectory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            terminalID: Binding(
+                get: { boundTerminalID },
+                set: { boundTerminalID = $0 }
+            ),
+            failureMessage: Binding(
+                get: { failureMessage },
+                set: { failureMessage = $0 }
+            )
+        )
+        let terminal = MetalTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
+        coordinator.start(view: terminal)
+        for _ in 0..<100 where !(await transport.didReceiveStart) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(await transport.didReceiveStart)
+
+        coordinator.sizeChanged(source: terminal, newCols: 120, newRows: 40)
+        await transport.completeStart()
+        for _ in 0..<100 where await transport.lastResize == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let resize = try #require(await transport.lastResize)
+        #expect(resize.columns == 120)
+        #expect(resize.rows == 40)
+        #expect(boundTerminalID == 41)
+        #expect(failureMessage == nil)
+
+        coordinator.stop()
+        try await Task.sleep(for: .milliseconds(20))
+        await client.stop()
     }
 
     @MainActor
@@ -194,5 +323,71 @@ private actor SuspendedOpenBridgeTransport: BridgeTransport {
 
     func nextTerminalChunk() -> BridgeTerminalChunk? {
         nil
+    }
+
+    func writeTerminalInput(terminalID: UInt64, bytes: Data) {}
+
+    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) {}
+}
+
+private actor DelayedTerminalBridgeTransport: BridgeTransport {
+    private(set) var didReceiveStart = false
+    private(set) var lastResize: BridgeTerminalSize?
+    private var eventsToDeliver: [BridgeEvent] = []
+    private var nextRequestID: UInt64 = 1
+
+    func open() -> BridgeSnapshot {
+        .testReady()
+    }
+
+    func close() {}
+
+    func send(_ command: BridgeCommand) -> BridgeCommandReceipt {
+        let requestID = nextRequestID
+        nextRequestID += 1
+        switch command {
+        case .startTerminal:
+            didReceiveStart = true
+        case .closeTerminal(let terminalID):
+            eventsToDeliver.append(
+                BridgeEvent(
+                    sequence: UInt64(eventsToDeliver.count) + 3,
+                    event: .commandCompleted(
+                        requestID: requestID,
+                        result: .terminalClosed(terminalID: terminalID)
+                    )
+                )
+            )
+        case .ping, .openFolder, .closeFolder, .removeRecentFolder:
+            break
+        }
+        return BridgeCommandReceipt(requestID: requestID, status: .accepted, error: nil)
+    }
+
+    func completeStart() {
+        eventsToDeliver.append(
+            BridgeEvent(
+                sequence: 2,
+                event: .commandCompleted(requestID: 1, result: .terminalStarted(terminalID: 41))
+            )
+        )
+    }
+
+    func snapshot() -> BridgeSnapshot {
+        .testReady()
+    }
+
+    func events(after sequence: UInt64, limit: UInt32) -> [BridgeEvent] {
+        eventsToDeliver.filter { $0.sequence > sequence }.prefix(Int(limit)).map(\.self)
+    }
+
+    func nextTerminalChunk() -> BridgeTerminalChunk? {
+        nil
+    }
+
+    func writeTerminalInput(terminalID: UInt64, bytes: Data) {}
+
+    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) {
+        lastResize = size
     }
 }

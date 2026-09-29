@@ -9,6 +9,7 @@ use std::path::Path;
 
 use client::BridgeError;
 use ffi::{TwineBuffer, TwineStatus, TwineTerminalChunk, catch_status};
+use twine_core::TerminalSize;
 
 pub use client::TwineClient;
 
@@ -16,6 +17,7 @@ const MAX_COMMAND_BYTES: usize = 1024 * 1024;
 const MAX_EVENT_BATCH: usize = 256;
 /// The longest path macOS accepts (`PATH_MAX`).
 const MAX_PATH_BYTES: usize = 1024;
+const MAX_TERMINAL_INPUT_BYTES: usize = 64 * 1024;
 
 #[unsafe(no_mangle)]
 /// Creates a bridge client whose core keeps its database in `data_directory`.
@@ -193,6 +195,73 @@ pub unsafe extern "C" fn twine_client_next_terminal_chunk(
 }
 
 #[unsafe(no_mangle)]
+/// Writes raw input bytes to a live terminal.
+///
+/// # Safety
+///
+/// An input larger than `MAX_TERMINAL_INPUT_BYTES` is rejected without reading `input_bytes`. For
+/// a nonzero input at or below that limit, a null `input_bytes` is rejected; otherwise it must
+/// identify `input_length` readable bytes for the duration of this call. A null `client` is
+/// rejected; otherwise it must be live, correctly aligned, and exclusively owned for the call.
+pub unsafe extern "C" fn twine_client_write_terminal_input(
+    client: *mut TwineClient,
+    terminal_id: u64,
+    input_bytes: *const u8,
+    input_length: usize,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: Guaranteed by this function's input contract. The slice remains scoped to the
+        // callback and is copied to the PTY before this call returns.
+        unsafe {
+            ffi::with_input_bytes(
+                input_bytes,
+                input_length,
+                MAX_TERMINAL_INPUT_BYTES,
+                |bytes| {
+                    // SAFETY: The outer function's contract keeps the client alive for this call.
+                    ffi::with_client(client, |client| {
+                        client.write_terminal_input(terminal_id, bytes)
+                    })
+                },
+            )
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Changes the dimensions of a live terminal's PTY.
+///
+/// # Safety
+///
+/// A null `client` is rejected; otherwise it must be live, correctly aligned, and exclusively
+/// owned for the duration of this call.
+pub unsafe extern "C" fn twine_client_resize_terminal(
+    client: *mut TwineClient,
+    terminal_id: u64,
+    rows: u16,
+    columns: u16,
+    pixel_width: u16,
+    pixel_height: u16,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: Guaranteed by this function's client contract.
+        unsafe {
+            ffi::with_client(client, |client| {
+                client.resize_terminal(
+                    terminal_id,
+                    TerminalSize {
+                        rows,
+                        columns,
+                        pixel_width,
+                        pixel_height,
+                    },
+                )
+            })
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Releases a bridge buffer.
 ///
 /// # Safety
@@ -207,7 +276,12 @@ pub unsafe extern "C" fn twine_buffer_release(buffer: *mut TwineBuffer) -> Twine
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::{OsStr, OsString};
     use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     use tempfile::TempDir;
     use tracing_subscriber::{Layer, prelude::*};
@@ -215,6 +289,34 @@ mod tests {
     use super::*;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvironmentOverride {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvironmentOverride {
+        fn set(key: &'static str, value: &OsStr) -> Self {
+            let previous = std::env::var_os(key);
+            // SAFETY: Every bridge test that can construct a terminal holds `TEST_LOCK`, and no
+            // production thread reads SHELL after the terminal command has been constructed.
+            unsafe { std::env::set_var(key, value) };
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvironmentOverride {
+        fn drop(&mut self) {
+            // SAFETY: The guard is dropped while its test still holds `TEST_LOCK`.
+            unsafe {
+                if let Some(previous) = &self.previous {
+                    std::env::set_var(self.key, previous);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
 
     /// Creates a client with a fresh data directory, which must outlive the client.
     fn create_client() -> (TempDir, *mut TwineClient) {
@@ -295,6 +397,27 @@ mod tests {
         assert!(buffer.data.is_null());
         assert_eq!(buffer.length, 0);
         bytes
+    }
+
+    fn send_json_command(
+        client: *mut TwineClient,
+        command: &serde_json::Value,
+    ) -> serde_json::Value {
+        let command = serde_json::to_vec(&command).expect("test command should encode");
+        let mut response = TwineBuffer::empty();
+        assert_eq!(
+            // SAFETY: The test client and command bytes are live and the output is empty.
+            unsafe {
+                twine_client_send_command(
+                    client,
+                    command.as_ptr(),
+                    command.len(),
+                    &raw mut response,
+                )
+            },
+            TwineStatus::Ok
+        );
+        serde_json::from_slice(&take_buffer(response)).expect("command response should be JSON")
     }
 
     #[test]
@@ -522,6 +645,42 @@ mod tests {
     }
 
     #[test]
+    fn terminal_functions_reject_invalid_arguments() {
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let (_data, client) = create_client();
+        let byte = 0_u8;
+        assert_eq!(
+            // SAFETY: The null input is intentionally paired with a nonzero length and must be
+            // rejected before it is read.
+            unsafe { twine_client_write_terminal_input(client, 1, std::ptr::null(), 1) },
+            TwineStatus::NullPointer
+        );
+        assert_eq!(
+            // SAFETY: The oversized length must be rejected before the one-byte pointer is read.
+            unsafe {
+                twine_client_write_terminal_input(
+                    client,
+                    1,
+                    &raw const byte,
+                    MAX_TERMINAL_INPUT_BYTES + 1,
+                )
+            },
+            TwineStatus::InvalidArgument
+        );
+        assert_eq!(
+            // SAFETY: The client is live; the invalid size is rejected by the core.
+            unsafe { twine_client_resize_terminal(client, 1, 0, 80, 800, 480) },
+            TwineStatus::InvalidArgument
+        );
+        assert_eq!(
+            // SAFETY: A null client is permitted by the ABI contract and rejected by the bridge.
+            unsafe { twine_client_resize_terminal(std::ptr::null_mut(), 1, 24, 80, 800, 480) },
+            TwineStatus::NullPointer
+        );
+        destroy(client);
+    }
+
+    #[test]
     fn terminal_stream_preserves_binary_bytes_and_absolute_offset() {
         let _guard = TEST_LOCK.lock().expect("test lock should be available");
         let (_data, client) = create_client();
@@ -548,6 +707,106 @@ mod tests {
 
         // SAFETY: The live test client is destroyed exactly once after all operations finish.
         assert_eq!(unsafe { twine_client_destroy(client) }, TwineStatus::Ok);
+    }
+
+    #[test]
+    fn resize_abi_updates_a_live_terminal() {
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let shell_path =
+            std::env::temp_dir().join(format!("twine-bridge-test-shell-{}", std::process::id()));
+        std::fs::write(&shell_path, "#!/bin/sh\nexec /bin/sh\n")
+            .expect("test shell wrapper should be written");
+        #[cfg(unix)]
+        std::fs::set_permissions(&shell_path, std::fs::Permissions::from_mode(0o700))
+            .expect("test shell wrapper should be executable");
+        let _shell_override = EnvironmentOverride::set("SHELL", shell_path.as_os_str());
+        let (_data, client) = create_client();
+        let working_directory = std::env::current_dir().expect("current directory should exist");
+        let response = send_json_command(
+            client,
+            &serde_json::json!({
+                "requestId": 70,
+                "command": {
+                    "type": "startTerminal",
+                    "workingDirectory": working_directory,
+                    "size": {
+                        "rows": 24,
+                        "columns": 80,
+                        "pixelWidth": 800,
+                        "pixelHeight": 480
+                    }
+                }
+            }),
+        );
+        assert_eq!(response["status"], "accepted");
+
+        let mut events = TwineBuffer::empty();
+        assert_eq!(
+            // SAFETY: The test client is live and the output storage is empty and writable.
+            unsafe { twine_client_events_after(client, 0, 16, &raw mut events) },
+            TwineStatus::Ok
+        );
+        let events: serde_json::Value =
+            serde_json::from_slice(&take_buffer(events)).expect("terminal events should be JSON");
+        let terminal_id = events["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find_map(|event| {
+                (event["event"]["requestId"] == 70)
+                    .then(|| event["event"]["result"]["terminalId"].as_u64())
+                    .flatten()
+            })
+            .expect("start event should include the terminal ID");
+
+        assert_eq!(
+            // SAFETY: The client and terminal are live and exclusively accessed by this test.
+            unsafe { twine_client_resize_terminal(client, terminal_id, 37, 101, 1_010, 740) },
+            TwineStatus::Ok
+        );
+        let input = b"stty size\nexit\n";
+        assert_eq!(
+            // SAFETY: The client and input bytes are live for the duration of the call.
+            unsafe {
+                twine_client_write_terminal_input(client, terminal_id, input.as_ptr(), input.len())
+            },
+            TwineStatus::Ok
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut output = Vec::new();
+        while !String::from_utf8_lossy(&output).contains("37 101") {
+            let mut chunk = TwineTerminalChunk::empty();
+            match
+                // SAFETY: The test client is live and the output storage is empty and writable.
+                unsafe { twine_client_next_terminal_chunk(client, &raw mut chunk) }
+            {
+                TwineStatus::Ok => output.extend(take_buffer(chunk.bytes)),
+                TwineStatus::Empty => std::thread::sleep(Duration::from_millis(5)),
+                status => panic!("terminal output failed with {status:?}"),
+            }
+            assert!(
+                Instant::now() < deadline,
+                "resized dimensions did not reach the shell; output: {}",
+                String::from_utf8_lossy(&output)
+            );
+        }
+
+        let close_response = send_json_command(
+            client,
+            &serde_json::json!({
+                "requestId": 71,
+                "command": {
+                    "type": "closeTerminal",
+                    "terminalId": terminal_id
+                }
+            }),
+        );
+        assert_eq!(close_response["status"], "accepted");
+
+        // SAFETY: The live test client is destroyed exactly once after all operations finish.
+        assert_eq!(unsafe { twine_client_destroy(client) }, TwineStatus::Ok);
+        std::fs::remove_file(shell_path).expect("test shell wrapper should be removed");
     }
 
     #[test]

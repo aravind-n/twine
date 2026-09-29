@@ -85,7 +85,7 @@ private struct FolderView: View {
     let closeFolder: () -> Void
 
     var body: some View {
-        TerminalSurface()
+        TerminalSurface(workingDirectory: URL(filePath: path, directoryHint: .isDirectory))
             .padding()
             .navigationTitle(URL(filePath: path).lastPathComponent)
             .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
