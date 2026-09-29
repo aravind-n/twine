@@ -21,6 +21,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 - Window background: `windowBackgroundColor`.
 - Content margins: 14pt left, right, and top; 11pt bottom.
 - Vertical spacing between the terminal block, the Traces panel, and the footer: 13pt.
+- The folder toolbar has the sidebar toggle. Close Folder in the File menu returns to the start page.
 
 ## Corner radii
 
@@ -41,7 +42,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 
 - **Panel outline:** a 1pt hairline in the primary color at 12% opacity (8% for the Traces panel).
 - **Terminal panel shadow:** black at 8% opacity, radius 12, y offset 4.
-- **Glass:** Liquid Glass only on small controls: the `+` button, icon buttons, the Traces chevron, the selected agent subtab, the sidebar folder header, and the start page icon tile. Terminal text, trace lanes, and logs sit on solid backgrounds.
+- **Glass:** Use Liquid Glass sparingly for important controls and navigation. Let native toolbars and menus adopt the system appearance; prefer the native glass button style for `+`. Sidebar section menus stay borderless on the sidebar material, and the folder label uses a subtle fill. Terminal text, trace lanes, and logs sit on solid backgrounds. Follow Apple's [Materials](https://developer.apple.com/design/human-interface-guidelines/materials) and [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass) guidance.
 - **Workflow tint:** a workflow with multiple agents fills its selected tab and its subtab strip with `controlBackgroundColor` plus a 12% accent wash. Terminal and single-agent workflows use the terminal background for the selected tab.
 - **Secondary surfaces:** the trace detail panel and start page cards use `controlBackgroundColor`.
 
@@ -93,17 +94,17 @@ All ease-in-out, all tied to a user action.
 
 ### Workflow tabs
 
-- A 42pt row directly above the terminal panel, on a 1pt hairline baseline (primary at 12%).
+- A 42pt row directly above the terminal panel, with no horizontal divider beneath the tabs.
 - "WORKFLOWS" label first, 12pt from the tabs, 11pt above the baseline.
 - Tabs are 6pt apart, each with a 15pt-wide icon and the title (180pt max, then truncated), with 12pt horizontal padding.
-- The selected tab is 35pt tall; others are 29pt. The selected tab has 10pt rounded top corners, a hairline outline on its top and sides, and the same fill as the panel below, so tab and panel read as one shape.
+- The selected tab is 35pt tall; others are 29pt. The selected tab has 10pt rounded top corners, a hairline outline on its top and sides, and the same fill as the panel below, so tab and panel read as one shape. The terminal panel keeps its rounded side and bottom outline, with no horizontal top stroke.
 - On hover, the icon is replaced by a close button (9pt semibold `xmark`, 20×23 hit area, 9pt from the leading edge).
-- `+` button: an 11pt semibold symbol in a 26×26 glass square, 5pt above the baseline, at the end of the row.
+- `+` button: an 11pt semibold symbol in a 26×26 glass square, 5pt above the baseline, immediately after the tabs. When tabs overflow, it stays visible at the trailing edge of the scroll area.
 - The row scrolls horizontally when tabs overflow and keeps the selected tab in view.
 
 ### Terminal panel and agent subtabs
 
-- The terminal panel has a 17pt radius on all four corners, with a hairline outline and shadow. The tab row sits directly above it.
+- The terminal panel has a 17pt radius on all four corners, with a hairline outline along its curved corners, sides, and bottom, and a shadow. The tab row sits directly above it.
 - Workflows with more than one agent get a 43pt subtab strip at the top of the panel, with 18pt horizontal padding and the workflow tint. It starts with a "TERMINAL" label (13pt after it), then subtabs 5pt apart: the role's colored symbol and name, 10pt horizontal padding, 29pt tall. The selected subtab is semibold on a 9pt-radius glass capsule. A secondary terminal symbol sits at the trailing edge.
 - Terminal content has about 24pt padding.
 
@@ -127,8 +128,9 @@ All ease-in-out, all tied to a user action.
 ### Sidebar
 
 - Hidden initially. Width 245 to 325pt, ideal 285.
-- Section header: 48pt tall, 17pt horizontal padding, the section label, and a trailing ellipsis menu as a glass icon button.
-- Folder header: a 36pt glass bar (10pt radius, 10pt inset) with the accent app symbol and the folder name in semibold subheadline.
+- Background: native sidebar material, with frosted translucency and a tone distinct from the window's solid content area. Follow the window's active state and system appearance.
+- Section header: 48pt tall, 17pt horizontal padding, the section label, and a trailing borderless ellipsis menu.
+- Folder header: a 36pt bar with a subtle translucent fill (10pt radius, 10pt inset), the accent app symbol, and the folder name in semibold subheadline.
 - File rows: 27pt tall, 12.5pt text, indented 13pt plus 15pt per level, a 9pt tertiary disclosure chevron (11pt wide), a 12pt file symbol (16pt wide), and a rounded (8pt) accent-tinted selection.
 - Sessions follow the same row and header design as files.
 

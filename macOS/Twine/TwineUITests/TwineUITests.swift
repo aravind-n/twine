@@ -37,9 +37,9 @@ final class TwineUITests: XCTestCase {
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
 
-        // Only the folder's window has the Start Page toolbar button.
-        let startPageButton = app.buttons["Start Page"].firstMatch
-        XCTAssertTrue(startPageButton.waitForExistence(timeout: 10), app.debugDescription)
+        let sidebarToggle = app.buttons["sidebarToggle"]
+        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["Start Page"].exists)
         // The window's accessibility title also includes the subtitle, the folder's path.
         XCTAssertTrue(app.windows.firstMatch.title.hasPrefix(folder.lastPathComponent), app.debugDescription)
         XCTAssertFalse(app.staticTexts["Welcome to Twine"].exists, app.debugDescription)
@@ -51,17 +51,22 @@ final class TwineUITests: XCTestCase {
             for: NSPredicate { _, _ in FileManager.default.fileExists(atPath: marker.path) }, evaluatedWith: nil)
         wait(for: [typed], timeout: 10)
 
-        startPageButton.click()
+        closeFolder(in: app)
         XCTAssertTrue(app.staticTexts["Welcome to Twine"].waitForExistence(timeout: 10), app.debugDescription)
         let recent = recentFolder(folder.lastPathComponent, in: app)
         XCTAssertTrue(recent.waitForExistence(timeout: 10), app.debugDescription)
 
         recent.click()
-        XCTAssertTrue(startPageButton.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 10), app.debugDescription)
 
+        closeFolder(in: app)
+        XCTAssertTrue(app.staticTexts["Welcome to Twine"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
+    func closeFolder(in app: XCUIApplication) {
         app.menuBars.menuBarItems["File"].click()
         app.menuItems["Close Folder"].click()
-        XCTAssertTrue(app.staticTexts["Welcome to Twine"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor
@@ -178,7 +183,7 @@ final class TwineUITests: XCTestCase {
         }
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
-        XCTAssertTrue(app.buttons["Start Page"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10))
 
         let shellFile = folder.appending(path: "shell.pid")
         let descendantFile = folder.appending(path: "descendant.pid")

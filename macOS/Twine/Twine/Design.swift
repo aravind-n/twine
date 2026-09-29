@@ -82,7 +82,7 @@ nonisolated enum FooterLayout {
 }
 
 nonisolated enum Surface {
-    /// The width of the hairline that outlines panels, cards, and tiles and underlines the tab row.
+    /// The width of the hairline that outlines panels, cards, and tiles.
     static let hairlineWidth: CGFloat = 1
 }
 
@@ -93,7 +93,7 @@ extension View {
 }
 
 extension ShapeStyle where Self == Color {
-    /// Outlines on panels, cards, and tiles, and the tab row's baseline.
+    /// Outlines on panels, cards, and tiles.
     static var hairline: Color { .primary.opacity(0.12) }
 
     /// The Traces panel's fainter outline.
