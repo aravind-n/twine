@@ -207,64 +207,6 @@ nonisolated struct BridgeTerminalState: Decodable, Equatable, Sendable {
     }
 }
 
-nonisolated enum BridgeFailure: Error, Equatable, LocalizedError, Sendable {
-    case commandRejected(code: String, message: String)
-    case cursorExpired
-    case empty
-    case internalError
-    case invalidArgument
-    case invalidUTF8
-    case malformedCommand
-    case nullPointer
-    case notConnected
-    case panic
-    case requestIDOverflow
-    case unexpectedCommandResult
-    case unknownStatus(UInt32)
-
-    var errorDescription: String? {
-        switch self {
-        case .commandRejected(let code, let message):
-            "The core rejected the command (\(code)): \(message)"
-        case .cursorExpired:
-            "The bridge event cursor expired."
-        case .empty:
-            "The bridge has no value available."
-        case .internalError:
-            "The Rust core reported an internal error."
-        case .invalidArgument:
-            "The bridge received an invalid argument."
-        case .invalidUTF8:
-            "The bridge received invalid UTF-8."
-        case .malformedCommand:
-            "The bridge command was malformed."
-        case .nullPointer:
-            "The bridge received a null pointer."
-        case .notConnected:
-            "The Rust core is not connected."
-        case .panic:
-            "The bridge contained an internal Rust panic."
-        case .requestIDOverflow:
-            "The bridge request ID counter overflowed."
-        case .unexpectedCommandResult:
-            "The core returned an unexpected command result."
-        case .unknownStatus(let status):
-            "The bridge returned unknown status \(status)."
-        }
-    }
-}
-
-nonisolated protocol BridgeTransport: Sendable {
-    func open() async throws -> BridgeSnapshot
-    func close() async
-    func send(_ command: BridgeCommand) async throws -> BridgeCommandReceipt
-    func snapshot() async throws -> BridgeSnapshot
-    func events(after sequence: UInt64, limit: UInt32) async throws -> [BridgeEvent]
-    func nextTerminalChunk() async throws -> BridgeTerminalChunk?
-    func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws
-    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) async throws
-}
-
 nonisolated private struct EventPayload: Decodable {
     let kind: BridgeEvent.Kind
 
@@ -343,6 +285,80 @@ nonisolated private struct CommandResultPayload: Decodable {
             result = .terminalClosed(
                 terminalID: try container.decode(UInt64.self, forKey: .terminalID)
             )
+        }
+    }
+}
+
+/// A command as the core's JSON protocol expects it, tagged with the request ID its completion event
+/// carries.
+nonisolated struct CommandEnvelope: Encodable {
+    private let requestID: UInt64
+    private let command: CommandPayload
+
+    private enum CodingKeys: String, CodingKey {
+        case command
+        case requestID = "requestId"
+    }
+
+    init(requestID: UInt64, command: BridgeCommand) {
+        self.requestID = requestID
+        self.command = CommandPayload(command)
+    }
+}
+
+nonisolated private struct CommandPayload: Encodable {
+    let type: String
+    let path: String?
+    let workingDirectory: String?
+    let size: BridgeTerminalSize?
+    let terminalID: UInt64?
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case size
+        case terminalID = "terminalId"
+        case type
+        case workingDirectory
+    }
+
+    init(_ command: BridgeCommand) {
+        switch command {
+        case .ping:
+            type = "ping"
+            path = nil
+            workingDirectory = nil
+            size = nil
+            terminalID = nil
+        case .openFolder(let path):
+            type = "openFolder"
+            self.path = path
+            workingDirectory = nil
+            size = nil
+            terminalID = nil
+        case .closeFolder:
+            type = "closeFolder"
+            path = nil
+            workingDirectory = nil
+            size = nil
+            terminalID = nil
+        case .removeRecentFolder(let path):
+            type = "removeRecentFolder"
+            self.path = path
+            workingDirectory = nil
+            size = nil
+            terminalID = nil
+        case .startTerminal(let workingDirectory, let terminalSize):
+            type = "startTerminal"
+            path = nil
+            self.workingDirectory = workingDirectory
+            size = terminalSize
+            terminalID = nil
+        case .closeTerminal(let terminalID):
+            type = "closeTerminal"
+            path = nil
+            workingDirectory = nil
+            size = nil
+            self.terminalID = terminalID
         }
     }
 }

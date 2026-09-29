@@ -27,7 +27,6 @@ final class BridgeClient {
     private var commandWaiters: [UInt64: CheckedContinuation<BridgeCommandResult, any Error>] = [:]
     private var terminalChunkRouter = TerminalChunkRouter(capacityBytes: 1024 * 1024)
     private var isFetchingTerminalChunk = false
-    private var closedTerminalIDs: Set<UInt64> = []
 
     init(transport: any BridgeTransport) {
         self.transport = transport
@@ -56,7 +55,6 @@ final class BridgeClient {
         commandResults.removeAll()
         ignoredCommandResults.removeAll()
         terminalChunkRouter.removeAll()
-        closedTerminalIDs.removeAll()
         failCommandWaiters(with: BridgeFailure.notConnected)
         connectionState = .idle
         isStopping = false
@@ -87,9 +85,7 @@ final class BridgeClient {
         defer { isFetchingTerminalChunk = false }
         guard let chunk = try await transport.nextTerminalChunk() else { return nil }
         guard connectionState == .running, !isStopping else { throw BridgeFailure.notConnected }
-        if !closedTerminalIDs.contains(chunk.terminalID) {
-            terminalChunkRouter.enqueue(chunk)
-        }
+        terminalChunkRouter.enqueue(chunk)
         try Task.checkCancellation()
         return terminalChunkRouter.dequeue(for: terminalID)
     }
@@ -112,8 +108,7 @@ final class BridgeClient {
         guard case .terminalClosed(let closedID) = result, closedID == terminalID else {
             throw BridgeFailure.unexpectedCommandResult
         }
-        closedTerminalIDs.insert(terminalID)
-        terminalChunkRouter.discard(for: terminalID)
+        terminalChunkRouter.markClosed(terminalID)
     }
 
     private func sendAndAwaitCompletion(_ command: BridgeCommand) async throws -> BridgeCommandResult {
@@ -232,14 +227,13 @@ final class BridgeClient {
         lastCommandCompletion = BridgeCommandCompletion(requestID: requestID, result: result)
         switch result {
         case .terminalStarted(let terminalID):
-            closedTerminalIDs.remove(terminalID)
+            terminalChunkRouter.markStarted(terminalID)
             updateTerminal(
                 BridgeTerminalState(terminalID: terminalID, status: .running),
                 in: &snapshot
             )
         case .terminalClosed(let terminalID):
-            closedTerminalIDs.insert(terminalID)
-            terminalChunkRouter.discard(for: terminalID)
+            terminalChunkRouter.markClosed(terminalID)
             snapshot.terminals.removeAll { $0.terminalID == terminalID }
         case .pong:
             break
@@ -270,7 +264,6 @@ final class BridgeClient {
         commandResults.removeAll()
         ignoredCommandResults.removeAll()
         terminalChunkRouter.removeAll()
-        closedTerminalIDs.removeAll()
         failCommandWaiters(with: error)
     }
 
@@ -293,6 +286,21 @@ final class BridgeClient {
 }
 
 extension BridgeClient {
+    /// Waits until the connection is running. Throws if it fails or the waiting task is cancelled.
+    func waitUntilRunning() async throws {
+        while true {
+            try Task.checkCancellation()
+            switch connectionState {
+            case .running:
+                return
+            case .failed(let message):
+                throw BridgeFailure.connectionFailed(message)
+            case .idle, .starting:
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+    }
+
     /// Sends a command whose outcome arrives as state events, logging a rejection or failure.
     func perform(_ command: BridgeCommand) async {
         do {
@@ -315,44 +323,5 @@ extension BridgeClient {
 
     func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) async throws {
         try await transport.resizeTerminal(terminalID: terminalID, size: size)
-    }
-}
-
-private struct TerminalChunkRouter {
-    let capacityBytes: Int
-    private var chunksByTerminal: [UInt64: [BridgeTerminalChunk]] = [:]
-    private var byteCount = 0
-
-    var hasCapacity: Bool {
-        byteCount < capacityBytes
-    }
-
-    mutating func enqueue(_ chunk: BridgeTerminalChunk) {
-        chunksByTerminal[chunk.terminalID, default: []].append(chunk)
-        byteCount += chunk.bytes.count
-    }
-
-    mutating func dequeue(for terminalID: UInt64) -> BridgeTerminalChunk? {
-        guard var chunks = chunksByTerminal[terminalID], !chunks.isEmpty else { return nil }
-        let chunk = chunks.removeFirst()
-        byteCount -= chunk.bytes.count
-        if chunks.isEmpty {
-            chunksByTerminal.removeValue(forKey: terminalID)
-        } else {
-            chunksByTerminal[terminalID] = chunks
-        }
-        return chunk
-    }
-
-    mutating func discard(for terminalID: UInt64) {
-        guard let chunks = chunksByTerminal.removeValue(forKey: terminalID) else { return }
-        byteCount -= chunks.reduce(into: 0) { bytes, chunk in
-            bytes += chunk.bytes.count
-        }
-    }
-
-    mutating func removeAll() {
-        chunksByTerminal.removeAll()
-        byteCount = 0
     }
 }

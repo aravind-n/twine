@@ -14,12 +14,7 @@ struct FolderTests {
     }
 
     @Test func windowShowsTheOpenFolderOrTheStartPage() {
-        var snapshot = BridgeSnapshot(
-            sequence: 1,
-            state: BridgeApplicationState(status: .ready),
-            config: BridgeConfig(appearance: .init(colorScheme: .system)),
-            folders: Self.noFolders
-        )
+        var snapshot = BridgeSnapshot.testReady()
         #expect(WindowContent(connectionState: .running, snapshot: snapshot) == .startPage(Self.noFolders))
 
         snapshot.folders.openFolder = "/Users/me/project"
@@ -110,11 +105,11 @@ struct FolderTests {
         let client = BridgeClient(transport: BridgeWorker(dataDirectory: dataDirectory.url))
         client.start()
 
-        try await Self.waitUntil { client.snapshot?.folders == Self.noFolders }
+        try await waitUntil { client.snapshot?.folders == Self.noFolders }
         await client.perform(.openFolder(path: folder.path))
-        try await Self.waitUntil { client.snapshot?.folders.openFolder == folder.path }
+        try await waitUntil { client.snapshot?.folders.openFolder == folder.path }
         await client.perform(.closeFolder)
-        try await Self.waitUntil { client.snapshot?.folders.openFolder == nil }
+        try await waitUntil { client.snapshot?.folders.openFolder == nil }
         #expect(client.snapshot?.folders.recentFolders == [BridgeRecentFolder(path: folder.path, isMissing: false)])
         await client.stop()
     }
@@ -124,12 +119,5 @@ struct FolderTests {
         let folder = TemporaryPath()
         try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
         return folder
-    }
-
-    private static func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<200 where !condition() {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(condition())
     }
 }
