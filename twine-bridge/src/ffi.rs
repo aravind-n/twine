@@ -90,7 +90,7 @@ pub(crate) fn catch_status(operation: impl FnOnce() -> Result<(), BridgeError>) 
             Ok(Err(error)) => {
                 let status = status_for_error(&error);
                 if !matches!(status, TwineStatus::Empty) {
-                    error!(%error, ?status, "bridge operation failed");
+                    error!(error = %describe(&error), ?status, "bridge operation failed");
                 }
                 status
             }
@@ -103,6 +103,19 @@ pub(crate) fn catch_status(operation: impl FnOnce() -> Result<(), BridgeError>) 
         Ok(status) => status,
         Err(_) => TwineStatus::Panic,
     }
+}
+
+/// Formats an error with its causes, which would otherwise be lost: the error's message alone names
+/// the operation that failed, and the causes say why.
+fn describe(error: &dyn std::error::Error) -> String {
+    let mut description = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        description.push_str(": ");
+        description.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    description
 }
 
 /// # Safety
@@ -155,7 +168,7 @@ pub(crate) unsafe fn with_input_bytes<T>(
     operation: impl FnOnce(&[u8]) -> Result<T, BridgeError>,
 ) -> Result<T, BridgeError> {
     if length > maximum_length {
-        return Err(BridgeError::CommandTooLarge);
+        return Err(BridgeError::InputTooLarge);
     }
     if length == 0 {
         return operation(&[]);
@@ -248,7 +261,7 @@ fn status_for_error(error: &BridgeError) -> TwineStatus {
     }
 
     match error {
-        BridgeError::CommandTooLarge | BridgeError::InvalidArgument => TwineStatus::InvalidArgument,
+        BridgeError::InputTooLarge | BridgeError::InvalidArgument => TwineStatus::InvalidArgument,
         BridgeError::Empty => TwineStatus::Empty,
         BridgeError::InvalidUtf8 => TwineStatus::InvalidUtf8,
         BridgeError::MalformedCommand => TwineStatus::MalformedCommand,
@@ -266,7 +279,24 @@ pub(crate) fn live_buffer_count() -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use twine_core::{ApplicationError, StoreError};
+
     use super::*;
+
+    #[test]
+    fn logged_errors_include_their_causes() {
+        let error =
+            BridgeError::Application(ApplicationError::Store(StoreError::CreateDirectory {
+                path: PathBuf::from("/data"),
+                source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+            }));
+        assert_eq!(
+            describe(&error),
+            "failed to create the data directory /data: permission denied"
+        );
+    }
 
     #[test]
     fn input_bytes_validate_pointer_and_length_before_borrowing() {
@@ -291,7 +321,7 @@ mod tests {
         assert!(matches!(
             // SAFETY: The oversized length is rejected before a slice is constructed.
             unsafe { with_input_bytes(bytes.as_ptr(), 4, 3, |_| Ok(())) },
-            Err(BridgeError::CommandTooLarge)
+            Err(BridgeError::InputTooLarge)
         ));
     }
 }

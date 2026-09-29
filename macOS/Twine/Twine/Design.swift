@@ -72,6 +72,13 @@ extension ShapeStyle where Self == Color {
     static var statusNeedsAttention: Color { .orange }
 }
 
+// MARK: - Symbols
+
+nonisolated enum Symbol {
+    /// Twine's app symbol, on the start page's icon tile and the sidebar's folder header.
+    static let app = "point.3.filled.connected.trianglepath.dotted"
+}
+
 // MARK: - Typography
 
 extension View {

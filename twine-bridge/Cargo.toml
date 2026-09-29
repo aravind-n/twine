@@ -16,5 +16,8 @@ tracing-oslog = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
 twine-core = { path = "../twine-core" }
 
+[dev-dependencies]
+tempfile = "3"
+
 [lints]
 workspace = true

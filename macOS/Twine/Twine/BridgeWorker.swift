@@ -2,10 +2,16 @@ import Foundation
 import TwineBridge
 
 actor BridgeWorker: BridgeTransport {
+    /// The directory where the core keeps its database.
+    private let dataDirectory: URL
     private var client: OpaquePointer?
     private var nextRequestID: UInt64 = 1
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
+
+    init(dataDirectory: URL) {
+        self.dataDirectory = dataDirectory
+    }
 
     isolated deinit {
         if let client {
@@ -16,7 +22,8 @@ actor BridgeWorker: BridgeTransport {
     func open() throws -> BridgeSnapshot {
         if client == nil {
             var createdClient: OpaquePointer?
-            try check(twine_client_create(&createdClient))
+            let path = Array(dataDirectory.path(percentEncoded: false).utf8)
+            try check(path.withUnsafeBufferPointer { twine_client_create($0.baseAddress, $0.count, &createdClient) })
             guard let createdClient else {
                 throw BridgeFailure.nullPointer
             }
@@ -151,11 +158,22 @@ nonisolated private struct CommandEnvelope: Encodable {
 
 nonisolated private struct CommandPayload: Encodable {
     let type: String
+    let path: String?
 
     init(_ command: BridgeCommand) {
         switch command {
         case .ping:
             type = "ping"
+            path = nil
+        case .openFolder(let path):
+            type = "openFolder"
+            self.path = path
+        case .closeFolder:
+            type = "closeFolder"
+            path = nil
+        case .removeRecentFolder(let path):
+            type = "removeRecentFolder"
+            self.path = path
         }
     }
 }

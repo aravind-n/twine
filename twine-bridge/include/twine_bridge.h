@@ -40,7 +40,16 @@ typedef struct TwineTerminalChunk {
 // initialize valid out parameters to an empty value before work. Every non-null client must be a
 // live pointer returned by twine_client_create; calls for a client are serialized, and the client is
 // destroyed exactly once after its calls finish. Functions other than destroy reject a null client.
-TwineStatus twine_client_create(TwineClient **out_client);
+//
+// data_directory is the absolute UTF-8 path of the directory where the core keeps its database.
+// A path longer than 1024 bytes is rejected without reading data_directory. For a nonzero length at
+// or below that limit, a null data_directory is rejected; otherwise it must identify
+// data_directory_length readable bytes for the duration of this call.
+TwineStatus twine_client_create(
+    const uint8_t *data_directory,
+    size_t data_directory_length,
+    TwineClient **out_client
+);
 TwineStatus twine_client_destroy(TwineClient *client);
 
 // A command larger than 1 MiB is rejected without reading command_bytes. For a nonzero command at

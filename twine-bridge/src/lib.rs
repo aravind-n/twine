@@ -5,6 +5,8 @@ mod ffi;
 mod logging;
 mod protocol;
 
+use std::path::Path;
+
 use client::BridgeError;
 use ffi::{TwineBuffer, TwineStatus, TwineTerminalChunk, catch_status};
 
@@ -12,22 +14,48 @@ pub use client::TwineClient;
 
 const MAX_COMMAND_BYTES: usize = 1024 * 1024;
 const MAX_EVENT_BATCH: usize = 256;
+/// The longest path macOS accepts (`PATH_MAX`).
+const MAX_PATH_BYTES: usize = 1024;
 
 #[unsafe(no_mangle)]
-/// Creates a bridge client.
+/// Creates a bridge client whose core keeps its database in `data_directory`.
 ///
 /// # Safety
 ///
-/// A null `out_client` is rejected without dereferencing it. Otherwise it must point to aligned,
-/// writable storage for one client pointer.
-pub unsafe extern "C" fn twine_client_create(out_client: *mut *mut TwineClient) -> TwineStatus {
+/// A null `out_client` is rejected without dereferencing any other pointer. Otherwise it must
+/// point to aligned, writable storage for one client pointer. A data directory longer than
+/// `MAX_PATH_BYTES` is rejected without reading `data_directory`. For a nonzero length at or below
+/// the limit, a null `data_directory` is rejected; otherwise it must point to
+/// `data_directory_length` readable bytes.
+pub unsafe extern "C" fn twine_client_create(
+    data_directory: *const u8,
+    data_directory_length: usize,
+    out_client: *mut *mut TwineClient,
+) -> TwineStatus {
     catch_status(|| {
-        // SAFETY: Guaranteed by this function's contract.
+        // SAFETY: Guaranteed by this function's output contract.
         unsafe { ffi::write_client(out_client, std::ptr::null_mut()) }?;
         logging::initialize()?;
-        let client = Box::new(TwineClient::new()?);
-        // SAFETY: Guaranteed by this function's contract.
-        unsafe { ffi::write_client(out_client, Box::into_raw(client)) }
+        // SAFETY: Guaranteed by this function's input contract. The borrowed bytes stay scoped to
+        // the callback.
+        let client = unsafe {
+            ffi::with_input_bytes(
+                data_directory,
+                data_directory_length,
+                MAX_PATH_BYTES,
+                |bytes| {
+                    let path = Path::new(
+                        std::str::from_utf8(bytes).map_err(|_| BridgeError::InvalidUtf8)?,
+                    );
+                    if !path.is_absolute() {
+                        return Err(BridgeError::InvalidArgument);
+                    }
+                    TwineClient::new(path)
+                },
+            )
+        }?;
+        // SAFETY: Guaranteed by this function's output contract.
+        unsafe { ffi::write_client(out_client, Box::into_raw(Box::new(client))) }
     })
 }
 
@@ -181,21 +209,75 @@ pub unsafe extern "C" fn twine_buffer_release(buffer: *mut TwineBuffer) -> Twine
 mod tests {
     use std::sync::Mutex;
 
+    use tempfile::TempDir;
     use tracing_subscriber::{Layer, prelude::*};
 
     use super::*;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
-    fn create_client() -> *mut TwineClient {
+    /// Creates a client with a fresh data directory, which must outlive the client.
+    fn create_client() -> (TempDir, *mut TwineClient) {
+        let data = tempfile::tempdir().expect("a data directory should be available");
+        let client = create_client_in(data.path());
+        (data, client)
+    }
+
+    fn create_client_in(data_directory: &Path) -> *mut TwineClient {
+        let path = data_directory
+            .to_str()
+            .expect("the test data directory should be UTF-8");
         let mut client = std::ptr::null_mut();
-        // SAFETY: The output points to writable storage for one client pointer.
         assert_eq!(
-            unsafe { twine_client_create(&raw mut client) },
+            // SAFETY: The path bytes are live for the call and the output points to writable
+            // storage for one client pointer.
+            unsafe { twine_client_create(path.as_ptr(), path.len(), &raw mut client) },
             TwineStatus::Ok
         );
         assert!(!client.is_null());
         client
+    }
+
+    fn send_command(client: *mut TwineClient, command: &str) -> serde_json::Value {
+        let mut response = TwineBuffer::empty();
+        assert_eq!(
+            // SAFETY: The test client and command bytes are live and the output is empty.
+            unsafe {
+                twine_client_send_command(
+                    client,
+                    command.as_ptr(),
+                    command.len(),
+                    &raw mut response,
+                )
+            },
+            TwineStatus::Ok
+        );
+        serde_json::from_slice(&take_buffer(response)).expect("the response should be JSON")
+    }
+
+    fn snapshot(client: *mut TwineClient) -> serde_json::Value {
+        let mut snapshot = TwineBuffer::empty();
+        assert_eq!(
+            // SAFETY: The test client is live and the output storage is empty and writable.
+            unsafe { twine_client_snapshot(client, &raw mut snapshot) },
+            TwineStatus::Ok
+        );
+        serde_json::from_slice(&take_buffer(snapshot)).expect("the snapshot should be JSON")
+    }
+
+    fn events_after(client: *mut TwineClient, sequence: u64) -> serde_json::Value {
+        let mut events = TwineBuffer::empty();
+        assert_eq!(
+            // SAFETY: The test client is live and the output storage is empty and writable.
+            unsafe { twine_client_events_after(client, sequence, 16, &raw mut events) },
+            TwineStatus::Ok
+        );
+        serde_json::from_slice(&take_buffer(events)).expect("the events should be JSON")
+    }
+
+    fn destroy(client: *mut TwineClient) {
+        // SAFETY: The live test client is destroyed exactly once after all operations finish.
+        assert_eq!(unsafe { twine_client_destroy(client) }, TwineStatus::Ok);
     }
 
     fn take_buffer(mut buffer: TwineBuffer) -> Vec<u8> {
@@ -218,7 +300,7 @@ mod tests {
     #[test]
     fn command_round_trip_and_event_stream_preserve_request_id() {
         let _guard = TEST_LOCK.lock().expect("test lock should be available");
-        let client = create_client();
+        let (_data, client) = create_client();
         let mut snapshot = TwineBuffer::empty();
         assert_eq!(
             // SAFETY: The test client is live and the output storage is empty and writable.
@@ -269,7 +351,7 @@ mod tests {
     #[test]
     fn unsupported_and_malformed_commands_are_errors_not_panics() {
         let _guard = TEST_LOCK.lock().expect("test lock should be available");
-        let client = create_client();
+        let (_data, client) = create_client();
         let unknown = br#"{"requestId":9,"command":{"type":"launchMoon"}}"#;
         let mut response = TwineBuffer::empty();
         assert_eq!(
@@ -325,13 +407,40 @@ mod tests {
     #[test]
     fn exported_functions_reject_invalid_arguments_and_initialize_outputs() {
         let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let data = tempfile::tempdir().expect("a data directory should be available");
+        let path = data
+            .path()
+            .to_str()
+            .expect("the test data directory should be UTF-8");
         assert_eq!(
             // SAFETY: A null output is permitted by the ABI contract and rejected by the bridge.
-            unsafe { twine_client_create(std::ptr::null_mut()) },
+            unsafe { twine_client_create(path.as_ptr(), path.len(), std::ptr::null_mut()) },
             TwineStatus::NullPointer
         );
+        let mut rejected = std::ptr::dangling_mut::<TwineClient>();
+        for (bytes, length, status) in [
+            // A nonzero length requires a readable pointer.
+            (std::ptr::null(), 1, TwineStatus::NullPointer),
+            (b"relative".as_ptr(), 8, TwineStatus::InvalidArgument),
+            (b"".as_ptr(), 0, TwineStatus::InvalidArgument),
+            (b"/\xff".as_ptr(), 2, TwineStatus::InvalidUtf8),
+            // An oversized length is rejected before the pointer is read.
+            (
+                path.as_ptr(),
+                MAX_PATH_BYTES + 1,
+                TwineStatus::InvalidArgument,
+            ),
+        ] {
+            assert_eq!(
+                // SAFETY: Each input is either rejected before it is read or identifies `length`
+                // live bytes; the output points to writable storage for one client pointer.
+                unsafe { twine_client_create(bytes, length, &raw mut rejected) },
+                status
+            );
+            assert!(rejected.is_null());
+        }
 
-        let client = create_client();
+        let (_data, client) = create_client();
         let byte = 0_u8;
         let mut response = TwineBuffer {
             data: std::ptr::dangling_mut::<u8>(),
@@ -415,7 +524,7 @@ mod tests {
     #[test]
     fn terminal_stream_preserves_binary_bytes_and_absolute_offset() {
         let _guard = TEST_LOCK.lock().expect("test lock should be available");
-        let client = create_client();
+        let (_data, client) = create_client();
         // SAFETY: The client is alive and actor-style exclusive access is maintained in this test.
         let client_ref = unsafe { &*client };
         let terminal_id = client_ref
@@ -444,7 +553,7 @@ mod tests {
     #[test]
     fn repeated_buffer_release_returns_live_count_to_zero() {
         let _guard = TEST_LOCK.lock().expect("test lock should be available");
-        let client = create_client();
+        let (_data, client) = create_client();
         let command = br#"{"requestId":1,"command":{"type":"ping"}}"#;
 
         for _ in 0..10_000 {
@@ -467,6 +576,134 @@ mod tests {
         assert_eq!(ffi::live_buffer_count(), 0);
         // SAFETY: The live test client is destroyed exactly once after all operations finish.
         assert_eq!(unsafe { twine_client_destroy(client) }, TwineStatus::Ok);
+    }
+
+    #[test]
+    fn folder_commands_round_trip_through_snapshot_and_events() {
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let (_data, client) = create_client();
+        let folder = tempfile::tempdir().expect("a folder should be available");
+        let path = folder
+            .path()
+            .to_str()
+            .expect("the test folder should be UTF-8");
+        let initial = snapshot(client);
+        assert_eq!(
+            initial["folders"],
+            serde_json::json!({"openFolder": null, "recentFolders": [], "unavailableFolder": null})
+        );
+
+        let command = serde_json::json!({
+            "requestId": 1,
+            "command": {"type": "openFolder", "path": path},
+        });
+        assert_eq!(
+            send_command(client, &command.to_string())["status"],
+            "accepted"
+        );
+        let sequence = initial["sequence"]
+            .as_u64()
+            .expect("sequence should be an integer");
+        let events = events_after(client, sequence);
+        assert_eq!(events["events"][0]["event"]["type"], "foldersChanged");
+        let opened = serde_json::json!({
+            "openFolder": path,
+            "recentFolders": [{"path": path, "isMissing": false}],
+            "unavailableFolder": null,
+        });
+        assert_eq!(events["events"][0]["event"]["folders"], opened);
+        assert_eq!(snapshot(client)["folders"], opened);
+
+        let response = send_command(
+            client,
+            r#"{"requestId":2,"command":{"type":"closeFolder"}}"#,
+        );
+        assert_eq!(response["status"], "accepted");
+        assert_eq!(
+            snapshot(client)["folders"]["openFolder"],
+            serde_json::Value::Null
+        );
+
+        let command = serde_json::json!({
+            "requestId": 3,
+            "command": {"type": "removeRecentFolder", "path": path},
+        });
+        assert_eq!(
+            send_command(client, &command.to_string())["status"],
+            "accepted"
+        );
+        assert_eq!(
+            snapshot(client)["folders"]["recentFolders"],
+            serde_json::json!([])
+        );
+        destroy(client);
+    }
+
+    #[test]
+    fn folder_commands_reject_missing_folders_and_require_a_path() {
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let (_data, client) = create_client();
+        let missing = {
+            let folder = tempfile::tempdir().expect("a folder should be available");
+            folder
+                .path()
+                .to_str()
+                .expect("the test folder should be UTF-8")
+                .to_owned()
+        }; // Dropping `folder` deletes it.
+
+        let command = serde_json::json!({
+            "requestId": 1,
+            "command": {"type": "openFolder", "path": missing},
+        });
+        let response = send_command(client, &command.to_string());
+        assert_eq!(response["status"], "rejected");
+        assert_eq!(response["error"]["code"], "folderNotFound");
+        assert_eq!(
+            snapshot(client)["folders"]["unavailableFolder"],
+            serde_json::json!({"path": missing, "reason": "missing"})
+        );
+
+        let without_path = br#"{"requestId":2,"command":{"type":"openFolder"}}"#;
+        let mut response = TwineBuffer::empty();
+        assert_eq!(
+            // SAFETY: The test client and command bytes are live and the output is empty.
+            unsafe {
+                twine_client_send_command(
+                    client,
+                    without_path.as_ptr(),
+                    without_path.len(),
+                    &raw mut response,
+                )
+            },
+            TwineStatus::MalformedCommand
+        );
+        assert!(response.data.is_null());
+        destroy(client);
+    }
+
+    #[test]
+    fn a_new_client_reopens_the_last_folder_from_its_data_directory() {
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let (data, client) = create_client();
+        let folder = tempfile::tempdir().expect("a folder should be available");
+        let path = folder
+            .path()
+            .to_str()
+            .expect("the test folder should be UTF-8");
+        let command = serde_json::json!({
+            "requestId": 1,
+            "command": {"type": "openFolder", "path": path},
+        });
+        assert_eq!(
+            send_command(client, &command.to_string())["status"],
+            "accepted"
+        );
+        destroy(client);
+
+        let relaunched = create_client_in(data.path());
+        assert_eq!(snapshot(relaunched)["folders"]["openFolder"], path);
+        destroy(relaunched);
     }
 
     #[test]

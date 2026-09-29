@@ -22,7 +22,7 @@ final class BridgeClient {
     private var eventTask: Task<Void, Never>?
     private var isStopping = false
 
-    init(transport: any BridgeTransport = BridgeWorker()) {
+    init(transport: any BridgeTransport) {
         self.transport = transport
     }
 
@@ -52,6 +52,18 @@ final class BridgeClient {
 
     func send(_ command: BridgeCommand) async throws -> BridgeCommandReceipt {
         try await transport.send(command)
+    }
+
+    /// Sends a command whose outcome arrives as state events, logging a rejection or failure.
+    func perform(_ command: BridgeCommand) async {
+        do {
+            let receipt = try await send(command)
+            if let rejection = receipt.error {
+                bridgeLogger.notice("Command rejected: \(rejection.code, privacy: .public)")
+            }
+        } catch {
+            bridgeLogger.error("Command failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     func nextTerminalChunk() async throws -> BridgeTerminalChunk? {
@@ -124,6 +136,8 @@ final class BridgeClient {
                 current.state = BridgeApplicationState(status: .ready)
             case .commandCompleted(let requestID, let result):
                 lastCommandCompletion = BridgeCommandCompletion(requestID: requestID, result: result)
+            case .foldersChanged(let folders):
+                current.folders = folders
             }
             current.sequence = event.sequence
         }
