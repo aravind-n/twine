@@ -22,6 +22,7 @@ nonisolated private struct CommandPayload: Encodable {
     var path: String?
     var folder: String?
     var kind: BridgeWorkflow.Kind?
+    var sessionID: UInt64?
     var workflowID: UInt64?
     var name: String?
     var workingDirectory: String?
@@ -32,6 +33,7 @@ nonisolated private struct CommandPayload: Encodable {
         case path, folder, kind, size, type, workingDirectory, name
         case terminalID = "terminalId"
         case workflowID = "workflowId"
+        case sessionID = "sessionId"
     }
 
     init(_ command: BridgeCommand) {
@@ -52,6 +54,9 @@ nonisolated private struct CommandPayload: Encodable {
         case .refreshGitBranch(let folder):
             type = "refreshGitBranch"
             self.folder = folder
+        case .createSession, .renameSession, .selectSession, .deleteSession:
+            type = ""
+            configureSession(command)
         case .createWorkflow, .activateWorkflow, .nameDraftWorkflow, .closeWorkflow:
             type = ""
             configureWorkflow(command)
@@ -65,9 +70,31 @@ nonisolated private struct CommandPayload: Encodable {
         }
     }
 
+    private mutating func configureSession(_ command: BridgeCommand) {
+        switch command {
+        case .createSession(let folder, let name):
+            type = "createSession"
+            self.folder = folder
+            self.name = name
+        case .renameSession(let sessionID, let name):
+            type = "renameSession"
+            self.sessionID = sessionID
+            self.name = name
+        case .selectSession(let sessionID):
+            type = "selectSession"
+            self.sessionID = sessionID
+        case .deleteSession(let sessionID):
+            type = "deleteSession"
+            self.sessionID = sessionID
+        default:
+            break
+        }
+    }
+
     private mutating func configureWorkflow(_ command: BridgeCommand) {
         switch command {
-        case .createWorkflow(let folder, let kind, let size):
+        case .createWorkflow(let folder, let sessionID, let kind, let size):
+            self.sessionID = sessionID
             type = "createWorkflow"
             self.folder = folder
             self.kind = kind

@@ -5,13 +5,13 @@ use serde_json::Value;
 use twine_core::{
     ApplicationState, Command, CommandDisposition, CommandReceipt, CommandResult, Event, EventKind,
     FolderState, RequestId, Snapshot, StateEvent, TerminalId, TerminalSize, TerminalState,
-    TerminalStatus, UnavailableReason, WorkflowId, WorkflowKind,
+    TerminalStatus, UnavailableReason,
 };
 
 use crate::error::BridgeError;
 
 mod workflows;
-use workflows::{WireSession, WireWorkflow, WireWorkflowState};
+use workflows::{WireWorkflow, WireWorkflowState};
 
 #[derive(Debug)]
 pub(crate) struct CommandEnvelope {
@@ -37,34 +37,6 @@ struct RawCommandEnvelope {
 struct RawStartTerminal {
     working_directory: String,
     size: RawTerminalSize,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawCreateWorkflow {
-    folder: PathBuf,
-    kind: RawWorkflowKind,
-    size: RawTerminalSize,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-enum RawWorkflowKind {
-    Draft,
-    Terminal,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawWorkflowId {
-    workflow_id: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawDraftName {
-    workflow_id: u64,
-    name: String,
 }
 
 #[derive(Deserialize)]
@@ -223,8 +195,8 @@ struct WireEvent<'a> {
     rename_all_fields = "camelCase"
 )]
 enum WireEventKind<'a> {
-    SessionChanged {
-        session: WireSession<'a>,
+    WorkflowsChanged {
+        workflows: WireWorkflowState<'a>,
     },
     WorkflowChanged {
         workflow: WireWorkflow<'a>,
@@ -258,12 +230,51 @@ enum WireEventKind<'a> {
     rename_all_fields = "camelCase"
 )]
 enum WireCommandResult {
+    SessionCreated { session_id: u64 },
+    SessionRenamed { session_id: u64 },
+    SessionSelected { session_id: u64 },
+    SessionDeleted { session_id: u64 },
     WorkflowCreated { workflow_id: u64 },
     WorkflowActivated { workflow_id: u64 },
     WorkflowClosed { workflow_id: u64 },
     Pong,
     TerminalStarted { terminal_id: u64 },
     TerminalClosed { terminal_id: u64 },
+}
+
+impl From<&CommandResult> for WireCommandResult {
+    fn from(result: &CommandResult) -> Self {
+        match result {
+            CommandResult::SessionCreated { session_id } => Self::SessionCreated {
+                session_id: session_id.0,
+            },
+            CommandResult::SessionRenamed { session_id } => Self::SessionRenamed {
+                session_id: session_id.0,
+            },
+            CommandResult::SessionSelected { session_id } => Self::SessionSelected {
+                session_id: session_id.0,
+            },
+            CommandResult::SessionDeleted { session_id } => Self::SessionDeleted {
+                session_id: session_id.0,
+            },
+            CommandResult::WorkflowCreated { workflow_id } => Self::WorkflowCreated {
+                workflow_id: workflow_id.0,
+            },
+            CommandResult::WorkflowActivated { workflow_id } => Self::WorkflowActivated {
+                workflow_id: workflow_id.0,
+            },
+            CommandResult::WorkflowClosed { workflow_id } => Self::WorkflowClosed {
+                workflow_id: workflow_id.0,
+            },
+            CommandResult::Pong => Self::Pong,
+            CommandResult::TerminalStarted { terminal_id } => Self::TerminalStarted {
+                terminal_id: terminal_id.value(),
+            },
+            CommandResult::TerminalClosed { terminal_id } => Self::TerminalClosed {
+                terminal_id: terminal_id.value(),
+            },
+        }
+    }
 }
 
 pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeError> {
@@ -297,44 +308,9 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
                 folder: PathBuf::from(folder),
             })
         }
-        "createWorkflow" => {
-            let command: RawCreateWorkflow =
-                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
-            DecodedCommand::Known(Command::CreateWorkflow {
-                folder: command.folder,
-                kind: match command.kind {
-                    RawWorkflowKind::Draft => WorkflowKind::Draft,
-                    RawWorkflowKind::Terminal => WorkflowKind::Terminal,
-                },
-                size: TerminalSize {
-                    rows: command.size.rows,
-                    columns: command.size.columns,
-                    pixel_width: command.size.pixel_width,
-                    pixel_height: command.size.pixel_height,
-                },
-            })
-        }
-        "activateWorkflow" => {
-            let command: RawWorkflowId =
-                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
-            DecodedCommand::Known(Command::ActivateWorkflow {
-                workflow_id: WorkflowId(command.workflow_id),
-            })
-        }
-        "nameDraftWorkflow" => {
-            let command: RawDraftName =
-                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
-            DecodedCommand::Known(Command::NameDraftWorkflow {
-                workflow_id: WorkflowId(command.workflow_id),
-                name: command.name,
-            })
-        }
-        "closeWorkflow" => {
-            let command: RawWorkflowId =
-                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
-            DecodedCommand::Known(Command::CloseWorkflow {
-                workflow_id: WorkflowId(command.workflow_id),
-            })
+        "createSession" | "renameSession" | "selectSession" | "deleteSession"
+        | "createWorkflow" | "activateWorkflow" | "nameDraftWorkflow" | "closeWorkflow" => {
+            DecodedCommand::Known(workflows::decode_command(command_type, &raw.command)?)
         }
         "startTerminal" => {
             let command: RawStartTerminal =
@@ -432,9 +408,9 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
         .map(|event| WireEvent {
             sequence: event.sequence,
             event: match &event.kind {
-                EventKind::State(StateEvent::SessionChanged(session)) => {
-                    WireEventKind::SessionChanged {
-                        session: session.into(),
+                EventKind::State(StateEvent::WorkflowsChanged(workflows)) => {
+                    WireEventKind::WorkflowsChanged {
+                        workflows: workflows.into(),
                     }
                 }
                 EventKind::State(StateEvent::WorkflowChanged(workflow)) => {
@@ -442,33 +418,12 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
                         workflow: workflow.into(),
                     }
                 }
-                EventKind::CommandCompleted {
-                    request_id,
-                    result: CommandResult::WorkflowCreated { workflow_id },
-                } => WireEventKind::CommandCompleted {
-                    request_id: request_id.0,
-                    result: WireCommandResult::WorkflowCreated {
-                        workflow_id: workflow_id.0,
-                    },
-                },
-                EventKind::CommandCompleted {
-                    request_id,
-                    result: CommandResult::WorkflowActivated { workflow_id },
-                } => WireEventKind::CommandCompleted {
-                    request_id: request_id.0,
-                    result: WireCommandResult::WorkflowActivated {
-                        workflow_id: workflow_id.0,
-                    },
-                },
-                EventKind::CommandCompleted {
-                    request_id,
-                    result: CommandResult::WorkflowClosed { workflow_id },
-                } => WireEventKind::CommandCompleted {
-                    request_id: request_id.0,
-                    result: WireCommandResult::WorkflowClosed {
-                        workflow_id: workflow_id.0,
-                    },
-                },
+                EventKind::CommandCompleted { request_id, result } => {
+                    WireEventKind::CommandCompleted {
+                        request_id: request_id.0,
+                        result: result.into(),
+                    }
+                }
                 EventKind::State(StateEvent::ApplicationReady) => WireEventKind::ApplicationReady,
                 EventKind::State(StateEvent::FoldersChanged(folders)) => {
                     WireEventKind::FoldersChanged {
@@ -493,31 +448,6 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
                 }) => WireEventKind::TerminalFailed {
                     terminal_id: terminal_id.value(),
                     message: message.clone(),
-                },
-                EventKind::CommandCompleted {
-                    request_id,
-                    result: CommandResult::Pong,
-                } => WireEventKind::CommandCompleted {
-                    request_id: request_id.0,
-                    result: WireCommandResult::Pong,
-                },
-                EventKind::CommandCompleted {
-                    request_id,
-                    result: CommandResult::TerminalStarted { terminal_id },
-                } => WireEventKind::CommandCompleted {
-                    request_id: request_id.0,
-                    result: WireCommandResult::TerminalStarted {
-                        terminal_id: terminal_id.value(),
-                    },
-                },
-                EventKind::CommandCompleted {
-                    request_id,
-                    result: CommandResult::TerminalClosed { terminal_id },
-                } => WireEventKind::CommandCompleted {
-                    request_id: request_id.0,
-                    result: WireCommandResult::TerminalClosed {
-                        terminal_id: terminal_id.value(),
-                    },
                 },
             },
         })
@@ -553,7 +483,7 @@ mod tests {
                 "config": { "appearance": { "color_scheme": "dark" } },
                 "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null, "currentBranch": null },
                 "terminals": [],
-                "workflows": { "session": null, "workflows": [] }
+                "workflows": { "session": null, "sessions": [], "sessionsInitialized": false, "workflows": [] }
             })
         );
     }

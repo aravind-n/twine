@@ -3,10 +3,9 @@ use std::path::Path;
 use super::{Application, ApplicationError, CommandDisposition, RequestId};
 use crate::event::{CommandResult, EventKind, StateEvent};
 use crate::folder::Folders;
-use crate::terminal::{TerminalSize, TerminalStatus};
+use crate::terminal::{TerminalId, TerminalSize, TerminalStatus};
 use crate::workflow::{
-    Session, SessionId, SessionStatus, Workflow, WorkflowId, WorkflowKind, WorkflowStatus,
-    timestamp,
+    SessionId, Workflow, WorkflowId, WorkflowKind, WorkflowState, WorkflowStatus, timestamp,
 };
 
 impl Application {
@@ -23,17 +22,18 @@ impl Application {
             ));
         }
         let mut inner = self.lock_inner()?;
-        let Some(workflow) = inner
+        let Some(index) = inner
             .workflows
             .workflows
-            .iter_mut()
-            .find(|workflow| workflow.workflow_id == workflow_id)
+            .iter()
+            .position(|workflow| workflow.workflow_id == workflow_id)
         else {
             return Ok(reject(
                 "workflowNotFound",
                 "The workflow is no longer open.",
             ));
         };
+        let mut workflow = inner.workflows.workflows[index].clone();
         if workflow.kind != WorkflowKind::Draft {
             return Ok(reject(
                 "workflowNotDraft",
@@ -41,8 +41,12 @@ impl Application {
             ));
         }
         if workflow.name != name {
+            inner
+                .folders
+                .store()
+                .update_workflow(workflow_id, name, workflow.kind)?;
             name.clone_into(&mut workflow.name);
-            let workflow = workflow.clone();
+            inner.workflows.workflows[index] = workflow.clone();
             inner
                 .events
                 .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))?;
@@ -54,65 +58,66 @@ impl Application {
         &self,
         request_id: RequestId,
         folder: &Path,
+        session_id: Option<SessionId>,
         kind: WorkflowKind,
         size: TerminalSize,
     ) -> Result<CommandDisposition, ApplicationError> {
         let mut inner = self.lock_inner()?;
-        // A view whose folder has closed while awaiting startup must not create a shell elsewhere.
         if inner.folders.state().open_folder.as_deref() != Some(folder) {
             return Ok(reject(
                 "folderChanged",
                 "The workflow's folder is no longer open.",
             ));
         }
-        let workflow_id = WorkflowId(inner.next_workflow_id);
-        let next_workflow_id = inner
-            .next_workflow_id
-            .checked_add(1)
-            .ok_or(ApplicationError::IdExhausted)?;
-        let next_session_id = inner
-            .next_session_id
-            .checked_add(1)
-            .ok_or(ApplicationError::IdExhausted)?;
+        let selected = inner
+            .workflows
+            .session
+            .as_ref()
+            .map(|session| session.session_id);
+        if session_id.is_some() && session_id != selected {
+            return Ok(reject(
+                "sessionChanged",
+                "Select the session again before opening a workflow.",
+            ));
+        }
         let terminal_id = match self.start_terminal(folder, size) {
             Ok(id) => id,
             Err(error) => return Ok(super::rejection("terminalStartFailed", &error)),
         };
-        let started_at = timestamp();
-        inner.next_workflow_id = next_workflow_id;
-        inner.terminals.insert(terminal_id, TerminalStatus::Running);
-        if inner.workflows.session.is_none() {
-            let session = Session {
-                session_id: SessionId(inner.next_session_id),
-                name: "Session".to_owned(),
-                folder: folder.to_owned(),
-                status: SessionStatus::Active,
-                started_at,
-                ended_at: None,
+        let name = match kind {
+            WorkflowKind::Draft => "New workflow",
+            WorkflowKind::Terminal => "Terminal",
+        };
+        let persisted = (|| -> Result<_, ApplicationError> {
+            let session_id = match selected {
+                Some(id) => id,
+                None => inner.add_session(folder, "Session")?,
             };
-            inner.next_session_id = next_session_id;
-            inner.workflows.session = Some(session.clone());
-            inner
-                .events
-                .append(EventKind::State(StateEvent::SessionChanged(session)))?;
-        }
+            let workflow_id = inner
+                .folders
+                .store()
+                .create_workflow(session_id, name, kind)?;
+            Ok((session_id, workflow_id))
+        })();
+        let (session_id, workflow_id) = match persisted {
+            Ok(ids) => ids,
+            Err(error) => {
+                drop(inner);
+                let _ = self.terminals.close(terminal_id);
+                return Err(error);
+            }
+        };
+        inner.terminals.insert(terminal_id, TerminalStatus::Running);
         let workflow = Workflow {
             workflow_id,
-            session_id: inner
-                .workflows
-                .session
-                .as_ref()
-                .expect("session was just created")
-                .session_id,
-            name: match kind {
-                WorkflowKind::Draft => "New workflow".to_owned(),
-                WorkflowKind::Terminal => "Terminal".to_owned(),
-            },
+            session_id,
+            name: name.to_owned(),
             kind,
             terminal_id,
             status: WorkflowStatus::Running,
-            started_at,
+            started_at: timestamp(),
             ended_at: None,
+            restored: false,
         };
         inner.workflows.workflows.push(workflow.clone());
         inner
@@ -131,21 +136,25 @@ impl Application {
         workflow_id: WorkflowId,
     ) -> Result<CommandDisposition, ApplicationError> {
         let mut inner = self.lock_inner()?;
-        let Some(workflow) = inner
+        let Some(index) = inner
             .workflows
             .workflows
-            .iter_mut()
-            .find(|workflow| workflow.workflow_id == workflow_id)
+            .iter()
+            .position(|workflow| workflow.workflow_id == workflow_id)
         else {
             return Ok(reject(
                 "workflowNotFound",
                 "The workflow is no longer open.",
             ));
         };
-        // Activation changes the workflow type, never terminal ownership, timing, or process state.
+        let mut workflow = inner.workflows.workflows[index].clone();
+        inner
+            .folders
+            .store()
+            .update_workflow(workflow_id, "Terminal", WorkflowKind::Terminal)?;
         workflow.kind = WorkflowKind::Terminal;
         "Terminal".clone_into(&mut workflow.name);
-        let workflow = workflow.clone();
+        inner.workflows.workflows[index] = workflow.clone();
         inner
             .events
             .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))?;
@@ -174,6 +183,7 @@ impl Application {
                     "The workflow is no longer open.",
                 ));
             };
+            inner.folders.store().delete_workflow(workflow_id)?;
             let mut workflow = inner.workflows.workflows.remove(index);
             workflow.status = WorkflowStatus::Closed;
             workflow
@@ -186,8 +196,9 @@ impl Application {
                 .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))?;
             terminal_id
         };
-        // Joining a supervisor while holding Inner would deadlock its exit callback.
-        self.terminals.close(terminal_id)?;
+        if terminal_id.value() != 0 {
+            self.terminals.close(terminal_id)?;
+        }
         self.lock_inner()?
             .events
             .append(EventKind::CommandCompleted {
@@ -195,6 +206,66 @@ impl Application {
                 result: CommandResult::WorkflowClosed { workflow_id },
             })?;
         Ok(CommandDisposition::Accepted)
+    }
+
+    /// Loads tabs from SQLite and gives each one a new shell. No terminal bytes or process IDs
+    /// are persisted. Failed shell starts keep their tab so the user can see and close it.
+    pub(super) fn restore_workflows(&self) -> Result<(), ApplicationError> {
+        let mut inner = self.lock_inner()?;
+        let Some(folder) = inner.folders.state().open_folder.clone() else {
+            return Ok(());
+        };
+        let sessions = inner.folders.store().sessions(&folder)?;
+        let sessions_initialized = inner.folders.store().sessions_initialized(&folder)?;
+        if !sessions_initialized {
+            return Ok(());
+        }
+        let selected = inner.folders.store().selected_session(&folder)?;
+        let session = sessions
+            .iter()
+            .find(|session| Some(session.session_id) == selected)
+            .or_else(|| sessions.first())
+            .cloned();
+        let stored = inner.folders.store().workflows(&folder)?;
+        inner.workflows = WorkflowState {
+            sessions_initialized,
+            session,
+            sessions,
+            workflows: Vec::new(),
+        };
+        for stored in stored {
+            let (terminal_id, status) = match self.start_terminal(
+                &folder,
+                TerminalSize {
+                    rows: 24,
+                    columns: 80,
+                    pixel_width: 800,
+                    pixel_height: 480,
+                },
+            ) {
+                Ok(id) => {
+                    inner.terminals.insert(id, TerminalStatus::Running);
+                    (id, WorkflowStatus::Running)
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "failed to restart a restored workflow shell");
+                    (TerminalId::from_value(0), WorkflowStatus::Failed)
+                }
+            };
+            inner.workflows.workflows.push(Workflow {
+                workflow_id: stored.workflow_id,
+                session_id: stored.session_id,
+                name: stored.name,
+                kind: stored.kind,
+                terminal_id,
+                status,
+                started_at: timestamp(),
+                ended_at: (status == WorkflowStatus::Failed).then(timestamp),
+                restored: true,
+            });
+        }
+        inner.publish_workflows()?;
+        Ok(())
     }
 
     pub(super) fn change_folder(
@@ -211,7 +282,6 @@ impl Application {
             if inner.folders.state().open_folder == previous {
                 return Ok(disposition);
             }
-            // Forget ownership before cleanup, so a late exit cannot resurrect a closed terminal.
             let terminal_ids = inner.terminals.keys().copied().collect::<Vec<_>>();
             inner.terminals.clear();
             for terminal_id in &terminal_ids {
@@ -221,32 +291,22 @@ impl Application {
                         terminal_id: *terminal_id,
                     }))?;
             }
-            for mut workflow in std::mem::take(&mut inner.workflows.workflows) {
-                workflow.status = WorkflowStatus::Closed;
-                workflow
-                    .ended_at
-                    .get_or_insert(timestamp().max(workflow.started_at));
-                inner
-                    .events
-                    .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))?;
-            }
-            if let Some(mut session) = inner.workflows.session.take() {
-                session.status = SessionStatus::Closed;
-                session.ended_at = Some(timestamp().max(session.started_at));
-                inner
-                    .events
-                    .append(EventKind::State(StateEvent::SessionChanged(session)))?;
+            // Closing a folder ends its processes, while sessions and tabs stay in SQLite.
+            if inner.workflows != WorkflowState::default() {
+                inner.workflows = WorkflowState::default();
+                inner.publish_workflows()?;
             }
             (disposition, terminal_ids)
         };
         for terminal_id in terminal_ids {
             self.terminals.close(terminal_id)?;
         }
+        self.restore_workflows()?;
         Ok(disposition)
     }
 }
 
-fn reject(code: &str, message: &str) -> CommandDisposition {
+pub(super) fn reject(code: &str, message: &str) -> CommandDisposition {
     CommandDisposition::Rejected {
         code: code.to_owned(),
         message: message.to_owned(),
@@ -286,6 +346,7 @@ mod tests {
                     RequestId(2),
                     Command::CreateWorkflow {
                         folder: folder.to_owned(),
+                        session_id: None,
                         kind,
                         size: TerminalSize {
                             rows: 24,
@@ -524,7 +585,7 @@ mod tests {
             );
         }
         let events = application.events_after(sequence, 32).unwrap();
-        assert!(events.iter().any(|event| matches!(&event.kind, EventKind::State(StateEvent::SessionChanged(session)) if session.status == SessionStatus::Closed && session.ended_at.is_some())));
+        assert!(events.iter().any(|event| matches!(&event.kind, EventKind::State(StateEvent::WorkflowsChanged(state)) if state == &WorkflowState::default())));
         let third = create(&application, second_folder.path(), WorkflowKind::Terminal);
         assert!(third.workflow_id.0 > second.workflow_id.0);
         assert_ne!(third.session_id, second.session_id);
@@ -556,6 +617,7 @@ mod tests {
                             RequestId(2),
                             Command::CreateWorkflow {
                                 folder: folder.path().to_owned(),
+                                session_id: None,
                                 kind: WorkflowKind::Terminal,
                                 size: TerminalSize {
                                     rows: 24,
@@ -610,9 +672,8 @@ mod tests {
                 snapshot.sequence + u64::try_from(index).unwrap() + 1
             );
             match &event.kind {
-                EventKind::State(StateEvent::SessionChanged(session)) => {
-                    state.session =
-                        (session.status == SessionStatus::Active).then(|| session.clone());
+                EventKind::State(StateEvent::WorkflowsChanged(changed)) => {
+                    state = changed.clone();
                 }
                 EventKind::State(StateEvent::WorkflowChanged(workflow)) => {
                     state

@@ -48,7 +48,8 @@ final class BridgeClient {
         let receipt = try await transport.send(command)
         if receipt.status == .accepted {
             switch command {
-            case .ping, .startTerminal, .closeTerminal, .createWorkflow, .activateWorkflow, .closeWorkflow:
+            case .ping, .startTerminal, .closeTerminal, .createWorkflow, .activateWorkflow, .closeWorkflow,
+                .createSession, .renameSession, .selectSession, .deleteSession:
                 if commandResults.removeValue(forKey: receipt.requestID) == nil {
                     ignoredCommandResults.insert(receipt.requestID)
                 }
@@ -195,8 +196,8 @@ final class BridgeClient {
             snapshot.state = BridgeApplicationState(status: .ready)
         case .commandCompleted(let requestID, let result):
             applyCommandCompletion(requestID: requestID, result: result, to: &snapshot)
-        case .sessionChanged(let session):
-            snapshot.workflows.session = session.status == .closed ? nil : session
+        case .workflowsChanged(let state):
+            applyWorkflowState(state, to: &snapshot)
         case .workflowChanged(let workflow):
             applyWorkflow(workflow, to: &snapshot)
         case .foldersChanged(let folders):
@@ -233,7 +234,8 @@ final class BridgeClient {
         case .terminalClosed(let terminalID):
             terminalChunkRouter.markClosed(terminalID)
             snapshot.terminals.removeAll { $0.terminalID == terminalID }
-        case .pong, .workflowCreated, .workflowActivated, .workflowClosed:
+        case .pong, .workflowCreated, .workflowActivated, .workflowClosed,
+            .sessionCreated, .sessionRenamed, .sessionSelected, .sessionDeleted:
             break
         }
         if let waiter = commandWaiters.removeValue(forKey: requestID) {
@@ -284,6 +286,23 @@ final class BridgeClient {
 }
 
 extension BridgeClient {
+    private func applyWorkflowState(_ state: BridgeWorkflowState, to snapshot: inout BridgeSnapshot) {
+        for workflow in snapshot.workflows.workflows
+        where !state.workflows.contains(where: { $0.id == workflow.id }) {
+            terminalChunkRouter.markClosed(workflow.terminalID)
+            snapshot.terminals.removeAll { $0.terminalID == workflow.terminalID }
+        }
+        for workflow in state.workflows
+        where !snapshot.workflows.workflows.contains(where: { $0.id == workflow.id }) {
+            if workflow.terminalID != 0 {
+                terminalChunkRouter.markStarted(workflow.terminalID)
+                updateTerminal(
+                    BridgeTerminalState(terminalID: workflow.terminalID, status: .running), in: &snapshot)
+            }
+        }
+        snapshot.workflows = state
+    }
+
     private func applyWorkflow(_ workflow: BridgeWorkflow, to snapshot: inout BridgeSnapshot) {
         if workflow.status == .closed {
             snapshot.workflows.workflows.removeAll { $0.id == workflow.id }

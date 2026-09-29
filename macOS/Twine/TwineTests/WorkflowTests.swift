@@ -157,3 +157,63 @@ private struct TestTerminal {
     let controller: TerminalController
     let failure: TerminalFailure
 }
+
+extension WorkflowTests {
+    @Test @MainActor func sessionSelectionRemembersEachSessionsTab() {
+        var selection = WorkflowTabSelection()
+        selection.reconcile(sessionID: 10, current: [1, 2])
+        selection.selectedID = 2
+        selection.reconcile(sessionID: 20, current: [3, 4])
+        #expect(selection.selectedID == 3)
+        selection.selectedID = 4
+        selection.reconcile(sessionID: 10, current: [1, 2])
+        #expect(selection.selectedID == 2)
+        selection.reconcile(sessionID: 20, current: [3])
+        #expect(selection.selectedID == 3)
+        selection.reconcile(sessionID: 30, current: [])
+        #expect(selection.selectedID == nil)
+    }
+
+    @Test @MainActor func sessionsAndTabsRestoreThroughTheRealBridge() async throws {
+        let directory = TemporaryPath()
+        try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: true)
+        let data = directory.url.appending(path: ".twine")
+        let client = BridgeClient(transport: BridgeWorker(dataDirectory: data))
+        client.start()
+        do {
+            try await client.waitUntilRunning()
+            _ = try await client.send(.openFolder(path: directory.url.path))
+            try await waitUntil { client.snapshot?.folders.openFolder == directory.url.path }
+            let first = try await client.createSession(folder: directory.url.path, name: "First")
+            let tab = try await client.createWorkflow(folder: directory.url.path, sessionID: first)
+            let second = try await client.createSession(folder: directory.url.path, name: "Second")
+            let draft = try await client.createWorkflow(folder: directory.url.path, sessionID: second, kind: .draft)
+            try await client.nameDraftWorkflow(workflowID: draft, name: "Single agent")
+            try await client.renameSession(sessionID: first, name: "Renamed")
+            try await client.selectSession(sessionID: first)
+            #expect(client.snapshot?.workflows.session?.name == "Renamed")
+            #expect(client.snapshot?.workflows.workflows.count == 2)
+            await client.stop()
+            client.start()
+            try await client.waitUntilRunning()
+            let restored = try #require(client.snapshot?.workflows)
+            #expect(restored.sessions.map(\.name) == ["Renamed", "Second"])
+            #expect(restored.session?.id == first)
+            #expect(restored.workflows.map(\.id) == [tab, draft])
+            #expect(restored.workflows.allSatisfy { $0.restored })
+            #expect(restored.workflows[1].name == "Single agent")
+            try await client.deleteSession(sessionID: first)
+            #expect(client.snapshot?.workflows.session?.id == second)
+            #expect(client.snapshot?.workflows.workflows.map(\.id) == [draft])
+            #expect(client.snapshot?.terminals.count == 1)
+            try await client.deleteSession(sessionID: second)
+            #expect(client.snapshot?.workflows.sessions.isEmpty == true)
+            #expect(client.snapshot?.workflows.session == nil)
+            #expect(client.snapshot?.terminals.isEmpty == true)
+            await client.stop()
+        } catch {
+            await client.stop()
+            throw error
+        }
+    }
+}

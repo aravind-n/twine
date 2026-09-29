@@ -10,10 +10,12 @@ extension BridgeClient {
 
     func createWorkflow(
         folder: String,
+        sessionID: UInt64? = nil,
         kind: BridgeWorkflow.Kind = .terminal,
         size: BridgeTerminalSize = .init(rows: 24, columns: 80, pixelWidth: 800, pixelHeight: 480)
     ) async throws -> UInt64 {
-        let result = try await sendAndAwaitCompletion(.createWorkflow(folder: folder, kind: kind, size: size))
+        let result = try await sendAndAwaitCompletion(
+            .createWorkflow(folder: folder, sessionID: sessionID, kind: kind, size: size))
         guard case .workflowCreated(let workflowID) = result else {
             throw BridgeFailure.unexpectedCommandResult
         }

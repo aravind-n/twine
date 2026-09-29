@@ -56,6 +56,10 @@ pub(crate) struct Folders {
 }
 
 impl Folders {
+    pub(crate) fn store(&mut self) -> &mut Store {
+        &mut self.store
+    }
+
     pub(crate) fn update_git_branch(&mut self, folder: &Path, branch: Option<String>) -> bool {
         if self.state.open_folder.as_deref() != Some(folder) || self.state.current_branch == branch
         {

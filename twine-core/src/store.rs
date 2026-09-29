@@ -5,6 +5,8 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use thiserror::Error;
 use tracing::info;
 
+mod workflows;
+
 /// Schema migrations in the order they apply. `PRAGMA user_version` counts the ones already applied,
 /// so append new migrations and never change or reorder one that has shipped.
 const MIGRATIONS: &[&str] = &[
@@ -13,6 +15,25 @@ const MIGRATIONS: &[&str] = &[
         path TEXT PRIMARY KEY NOT NULL,
         last_opened_at INTEGER NOT NULL,
         is_open INTEGER NOT NULL DEFAULT 0 CHECK (is_open IN (0, 1))
+    ) STRICT",
+    // 2: Sessions and workflow tabs outlive terminal processes and the recent-folder list.
+    "CREATE TABLE sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        folder TEXT NOT NULL,
+        name TEXT NOT NULL,
+        started_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX sessions_folder ON sessions(folder);
+    CREATE TABLE workflows (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('draft', 'terminal'))
+    ) STRICT;
+    CREATE INDEX workflows_session ON workflows(session_id);
+    CREATE TABLE folder_selection (
+        folder TEXT PRIMARY KEY NOT NULL,
+        session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL
     ) STRICT",
 ];
 
@@ -166,6 +187,8 @@ fn migrate(connection: &mut Connection) -> Result<(), StoreError> {
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("database returned an invalid identifier")]
+    InvalidIdentifier,
     #[error("failed to create the data directory {}", path.display())]
     CreateDirectory {
         path: PathBuf,
@@ -217,6 +240,36 @@ mod tests {
             schema_version(&reopened.connection),
             i64::try_from(MIGRATIONS.len()).expect("the migration count fits in i64")
         );
+    }
+
+    #[test]
+    fn migration_from_version_one_preserves_folders_and_adds_session_storage() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(MIGRATIONS[0]).unwrap();
+        connection
+            .execute("INSERT INTO recent_folders VALUES ('/folder', 1, 1)", [])
+            .unwrap();
+        connection.pragma_update(None, "user_version", 1).unwrap();
+        migrate(&mut connection).unwrap();
+        let mut store = Store::with_connection(connection).unwrap();
+        assert_eq!(
+            store.recent_folders().unwrap(),
+            [StoredFolder {
+                path: "/folder".into(),
+                is_open: true
+            }]
+        );
+        let id = store
+            .create_session(Path::new("/folder"), "Session", 123)
+            .unwrap();
+        store
+            .create_workflow(id, "Terminal", crate::WorkflowKind::Terminal)
+            .unwrap();
+        assert_eq!(
+            store.selected_session(Path::new("/folder")).unwrap(),
+            Some(id)
+        );
+        assert_eq!(store.workflows(Path::new("/folder")).unwrap().len(), 1);
     }
 
     #[test]

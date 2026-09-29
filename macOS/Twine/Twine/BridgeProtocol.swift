@@ -8,7 +8,11 @@ nonisolated enum BridgeCommand: Sendable {
     case closeFolderIfOpen(path: String)
     case removeRecentFolder(path: String)
     case refreshGitBranch(folder: String)
-    case createWorkflow(folder: String, kind: BridgeWorkflow.Kind, size: BridgeTerminalSize)
+    case createSession(folder: String, name: String)
+    case renameSession(sessionID: UInt64, name: String)
+    case selectSession(sessionID: UInt64)
+    case deleteSession(sessionID: UInt64)
+    case createWorkflow(folder: String, sessionID: UInt64? = nil, kind: BridgeWorkflow.Kind, size: BridgeTerminalSize)
     case activateWorkflow(workflowID: UInt64)
     case nameDraftWorkflow(workflowID: UInt64, name: String)
     case closeWorkflow(workflowID: UInt64)
@@ -122,7 +126,7 @@ nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
 
     enum Kind: Equatable, Sendable {
         case applicationReady
-        case sessionChanged(BridgeSession)
+        case workflowsChanged(BridgeWorkflowState)
         case workflowChanged(BridgeWorkflow)
         case commandCompleted(requestID: UInt64, result: BridgeCommandResult)
         case foldersChanged(BridgeFolderState)
@@ -149,6 +153,10 @@ nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
 }
 
 nonisolated enum BridgeCommandResult: Equatable, Sendable {
+    case sessionCreated(sessionID: UInt64)
+    case sessionRenamed(sessionID: UInt64)
+    case sessionSelected(sessionID: UInt64)
+    case sessionDeleted(sessionID: UInt64)
     case workflowCreated(workflowID: UInt64)
     case workflowActivated(workflowID: UInt64)
     case workflowClosed(workflowID: UInt64)
@@ -226,7 +234,7 @@ nonisolated private struct EventPayload: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case folders
-        case session
+        case workflows
         case workflow
         case exitCode
         case message
@@ -241,7 +249,7 @@ nonisolated private struct EventPayload: Decodable {
         case applicationReady
         case commandCompleted
         case foldersChanged
-        case sessionChanged
+        case workflowsChanged
         case workflowChanged
         case terminalClosed
         case terminalExited
@@ -258,8 +266,8 @@ nonisolated private struct EventPayload: Decodable {
                 requestID: try container.decode(UInt64.self, forKey: .requestID),
                 result: try container.decode(CommandResultPayload.self, forKey: .result).result
             )
-        case .sessionChanged:
-            kind = .sessionChanged(try container.decode(BridgeSession.self, forKey: .session))
+        case .workflowsChanged:
+            kind = .workflowsChanged(try container.decode(BridgeWorkflowState.self, forKey: .workflows))
         case .workflowChanged:
             kind = .workflowChanged(try container.decode(BridgeWorkflow.self, forKey: .workflow))
         case .foldersChanged:
@@ -287,12 +295,14 @@ nonisolated private struct CommandResultPayload: Decodable {
     let result: BridgeCommandResult
 
     private enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
         case workflowID = "workflowId"
         case terminalID = "terminalId"
         case type
     }
 
     private enum ResultType: String, Decodable {
+        case sessionCreated, sessionRenamed, sessionSelected, sessionDeleted
         case pong
         case workflowCreated
         case workflowActivated
@@ -304,6 +314,14 @@ nonisolated private struct CommandResultPayload: Decodable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(ResultType.self, forKey: .type) {
+        case .sessionCreated:
+            result = .sessionCreated(sessionID: try container.decode(UInt64.self, forKey: .sessionID))
+        case .sessionRenamed:
+            result = .sessionRenamed(sessionID: try container.decode(UInt64.self, forKey: .sessionID))
+        case .sessionSelected:
+            result = .sessionSelected(sessionID: try container.decode(UInt64.self, forKey: .sessionID))
+        case .sessionDeleted:
+            result = .sessionDeleted(sessionID: try container.decode(UInt64.self, forKey: .sessionID))
         case .workflowCreated:
             result = .workflowCreated(workflowID: try container.decode(UInt64.self, forKey: .workflowID))
         case .workflowActivated:

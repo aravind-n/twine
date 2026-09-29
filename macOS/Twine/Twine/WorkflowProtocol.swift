@@ -1,11 +1,14 @@
 import Foundation
 
 nonisolated struct BridgeWorkflowState: Decodable, Equatable, Sendable {
+    var sessionsInitialized = false
     var session: BridgeSession?
+    var sessions: [BridgeSession] = []
     var workflows: [BridgeWorkflow] = []
 }
 
-nonisolated struct BridgeSession: Decodable, Equatable, Sendable {
+nonisolated struct BridgeSession: Decodable, Equatable, Identifiable, Sendable {
+    var id: UInt64 { sessionID }
     let sessionID: UInt64
     let name: String
     let folder: String
@@ -33,6 +36,7 @@ nonisolated struct BridgeWorkflow: Decodable, Equatable, Identifiable, Sendable 
     let status: Status
     let startedAt: UInt64
     let endedAt: UInt64?
+    var restored = false
 
     var id: UInt64 { workflowID }
 
@@ -52,6 +56,6 @@ nonisolated struct BridgeWorkflow: Decodable, Equatable, Identifiable, Sendable 
         case workflowID = "workflowId"
         case sessionID = "sessionId"
         case terminalID = "terminalId"
-        case name, kind, status, startedAt, endedAt
+        case name, kind, status, startedAt, endedAt, restored
     }
 }
