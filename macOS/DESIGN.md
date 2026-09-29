@@ -26,7 +26,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 
 | Component | Radius |
 |---|---|
-| Terminal panel (bottom corners; the top joins the tab row) | 17 |
+| Terminal panel (all corners) | 17 |
 | Traces panel | 17 |
 | Start page app icon tile | 16 |
 | New-tab choices card | 14 |
@@ -103,7 +103,7 @@ All ease-in-out, all tied to a user action.
 
 ### Terminal panel and agent subtabs
 
-- The terminal panel has straight top corners where it meets the tab row, 17pt rounded bottom corners, and a hairline outline and shadow.
+- The terminal panel has a 17pt radius on all four corners, with a hairline outline and shadow. The tab row sits directly above it.
 - Workflows with more than one agent get a 43pt subtab strip at the top of the panel, with 18pt horizontal padding and the workflow tint. It starts with a "TERMINAL" label (13pt after it), then subtabs 5pt apart: the role's colored symbol and name, 10pt horizontal padding, 29pt tall. The selected subtab is semibold on a 9pt-radius glass capsule. A secondary terminal symbol sits at the trailing edge.
 - Terminal content has about 24pt padding.
 

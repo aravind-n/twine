@@ -133,7 +133,7 @@ final class TwineUITests: XCTestCase {
     /// test starts clean and never touches the real data directory. `lastOpenFolder` seeds the data
     /// as if that folder was open when Twine last quit.
     @MainActor
-    private func makeApp(lastOpenFolder: URL? = nil) throws -> XCUIApplication {
+    func makeApp(lastOpenFolder: URL? = nil) throws -> XCUIApplication {
         let dataDirectory = FileManager.default.temporaryDirectory.appending(path: "TwineUITests-\(UUID().uuidString)")
         addTeardownBlock {
             try? FileManager.default.removeItem(at: dataDirectory)

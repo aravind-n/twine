@@ -9,7 +9,7 @@ import SwiftUI
 
 /// Corner radii, named for the components that use them.
 nonisolated enum CornerRadius {
-    /// The terminal panel's bottom corners, the Traces panel, and other rounded solid panels.
+    /// All corners of the terminal panel, the Traces panel, and other rounded solid panels.
     static let panel: CGFloat = 17
     static let appIconTile: CGFloat = 16
     static let choicesCard: CGFloat = 14
@@ -33,6 +33,23 @@ nonisolated enum Spacing {
     static let windowMargins = EdgeInsets(top: 14, leading: 14, bottom: 11, trailing: 14)
     /// Vertical space between the terminal block, the Traces panel, and the footer.
     static let windowSections: CGFloat = 13
+    static let terminalContent: CGFloat = 24
+}
+
+// MARK: - Folder window layout
+
+nonisolated enum SidebarLayout {
+    static let minimumWidth: CGFloat = 245
+    static let idealWidth: CGFloat = 285
+    static let maximumWidth: CGFloat = 325
+    static let folderHeaderHeight: CGFloat = 36
+    static let folderHeaderInset: CGFloat = 10
+}
+
+nonisolated enum TracesLayout {
+    static let collapsedHeight: CGFloat = 48
+    static let headerHorizontalPadding: CGFloat = 21
+    static let chevronSize: CGFloat = 26
 }
 
 // MARK: - Surfaces and colors

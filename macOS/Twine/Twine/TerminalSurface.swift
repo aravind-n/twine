@@ -32,7 +32,7 @@ struct TerminalSurface: View {
                     .padding(8)
             }
         }
-        .padding(24)
+        .padding(Spacing.terminalContent)
         .background(.terminalBackground)
         .clipShape(panelShape)
         .overlay(panelShape.stroke(.hairline, lineWidth: Surface.hairlineWidth))
@@ -57,15 +57,8 @@ struct TerminalSurface: View {
         }
     }
 
-    private var panelShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            cornerRadii: .init(
-                topLeading: 0,
-                bottomLeading: CornerRadius.panel,
-                bottomTrailing: CornerRadius.panel,
-                topTrailing: 0
-            )
-        )
+    private var panelShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: CornerRadius.panel)
     }
 }
 
