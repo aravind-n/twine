@@ -6,6 +6,7 @@ struct WorkflowTabs: View {
     let select: (UInt64) -> Void
     let close: (UInt64) -> Void
     let create: () -> Void
+    @State private var tabsWidth: CGFloat?
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 12) {
@@ -13,21 +14,34 @@ struct WorkflowTabs: View {
                 .sectionLabelStyle()
                 .fixedSize()
                 .padding(.bottom, 11)
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal) {
-                    HStack(alignment: .bottom, spacing: 6) {
-                        ForEach(workflows) { workflow in
-                            WorkflowTab(
-                                workflow: workflow,
-                                isSelected: workflow.id == selectedID,
-                                select: { select(workflow.id) },
-                                close: { close(workflow.id) }
-                            )
-                            .id(workflow.id)
-                        }
-                    }
-                    .padding(.horizontal, 1)
-                }
+            scrollingTabs
+                .frame(maxWidth: tabsWidth)
+                .layoutPriority(1)
+            createButton
+            Spacer(minLength: 0)
+        }
+        .frame(height: 42, alignment: .bottom)
+    }
+
+    private var tabs: some View {
+        HStack(alignment: .bottom, spacing: 6) {
+            ForEach(workflows) { workflow in
+                WorkflowTab(
+                    workflow: workflow,
+                    isSelected: workflow.id == selectedID,
+                    select: { select(workflow.id) },
+                    close: { close(workflow.id) }
+                )
+                .id(workflow.id)
+            }
+        }
+        .padding(.horizontal, 1)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }, action: { tabsWidth = $0 })
+    }
+
+    private var scrollingTabs: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) { tabs }
                 .scrollIndicators(.hidden)
                 .onChange(of: selectedID) { _, selectedID in
                     if let selectedID {
@@ -44,19 +58,20 @@ struct WorkflowTabs: View {
                     action: { _ in
                         if let selectedID { proxy.scrollTo(selectedID) }
                     })
-            }
-            Button("New Workflow", systemImage: "plus", action: create)
-                .labelStyle(.iconOnly)
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 26, height: 26)
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: CornerRadius.glassIconButton))
-                .padding(.bottom, 5)
-                .help("New Workflow (⌘T)")
-                .accessibilityIdentifier("newWorkflow")
         }
-        .frame(height: 42, alignment: .bottom)
-        .background(alignment: .bottom) { Rectangle().fill(.hairline).frame(height: Surface.hairlineWidth) }
+    }
+
+    private var createButton: some View {
+        Button("New Workflow", systemImage: "plus", action: create)
+            .labelStyle(.iconOnly)
+            .font(.system(size: 11, weight: .semibold))
+            .buttonStyle(.glass)
+            .buttonBorderShape(.roundedRectangle(radius: CornerRadius.glassIconButton))
+            .controlSize(.small)
+            .frame(width: 26, height: 26)
+            .padding(.bottom, 5)
+            .help("New Workflow (⌘T)")
+            .accessibilityIdentifier("newWorkflow")
     }
 }
 
@@ -96,9 +111,10 @@ private struct WorkflowTab: View {
         .background {
             if isSelected {
                 tabShape.fill(.terminalBackground)
-                    .overlay { tabShape.stroke(.hairline, lineWidth: Surface.hairlineWidth) }
-                    // Cover the bottom stroke and row baseline with the terminal's fill.
-                    .overlay(alignment: .bottom) { Rectangle().fill(.terminalBackground).frame(height: 1) }
+                    .overlay {
+                        tabShape.strokeBorder(.hairline, lineWidth: Surface.hairlineWidth)
+                            .mask { Rectangle().padding(.bottom, Surface.hairlineWidth) }
+                    }
             }
         }
         .overlay(alignment: .leading) {

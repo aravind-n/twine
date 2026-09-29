@@ -69,7 +69,7 @@ struct ContentView: View {
             )
         case .folder(let path):
             // A new identity per folder, so the folder's views, such as its terminal, start fresh.
-            FolderView(path: path) { perform(.closeFolder) }
+            FolderView(path: path)
                 .id(path)
         }
     }

@@ -9,6 +9,8 @@ extension TwineUITests {
         app.launch()
         let first = app.buttons["workflowTab-1"]
         XCTAssertTrue(first.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertGreaterThanOrEqual(app.buttons["newWorkflow"].frame.minX, first.frame.maxX)
+        XCTAssertLessThan(app.buttons["newWorkflow"].frame.minX - first.frame.maxX, 18)
         app.typeText("exec /bin/sh\r")
         app.typeText("TWINE_VALUE=first; echo $$ > first.pid\r")
         let firstPID = try workflowPID(folder.appending(path: "first.pid"))
@@ -79,7 +81,7 @@ extension TwineUITests {
             app.typeKey("t", modifierFlags: .command)
             app.typeKey("w", modifierFlags: .command)
         }
-        app.buttons["Start Page"].click()
+        closeFolder(in: app)
         XCTAssertTrue(app.staticTexts["Welcome to Twine"].waitForExistence(timeout: 10))
         app.terminate()
     }

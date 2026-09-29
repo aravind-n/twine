@@ -28,6 +28,7 @@ struct WorkflowWorkspace: View {
                 close: close,
                 create: { Task { await create() } }
             )
+            .zIndex(1)
             ZStack {
                 if workflows.isEmpty {
                     ContentUnavailableView(
@@ -49,7 +50,11 @@ struct WorkflowWorkspace: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.terminalBackground)
             .clipShape(panelShape)
-            .overlay(panelShape.stroke(.hairline, lineWidth: Surface.hairlineWidth))
+            .overlay {
+                panelShape.stroke(.hairline, lineWidth: Surface.hairlineWidth)
+                    .mask { Rectangle().padding(.top, Surface.hairlineWidth) }
+                    .allowsHitTesting(false)
+            }
             .terminalPanelShadow()
         }
         .task {

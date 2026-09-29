@@ -8,7 +8,6 @@ private let gitLogger = Logger(subsystem: "com.twineproject.Twine", category: "g
 struct FolderView: View {
     @Environment(BridgeClient.self) private var bridgeClient
     let path: String
-    let closeFolder: () -> Void
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var selection = WorkflowTabSelection()
 
@@ -46,10 +45,6 @@ struct FolderView: View {
                 .keyboardShortcut("s", modifiers: [.command, .control])
                 .help(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar")
                 .accessibilityIdentifier("sidebarToggle")
-            }
-            ToolbarItem(placement: .navigation) {
-                Button("Start Page", systemImage: "house", action: closeFolder)
-                    .help("Close the folder and return to the start page")
             }
         }
     }

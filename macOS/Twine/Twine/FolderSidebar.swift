@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import OSLog
 import SwiftUI
@@ -56,7 +57,7 @@ struct FolderSidebar: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(.windowBackground)
+        .background { SidebarMaterial().ignoresSafeArea() }
         .sheet(item: $editor) { editor in
             SessionNameForm(editor: editor) { name in
                 run {
@@ -103,7 +104,7 @@ struct FolderSidebar: View {
         }
         .padding(.horizontal, SidebarLayout.folderHeaderInset)
         .frame(height: SidebarLayout.folderHeaderHeight)
-        .glassEffect(in: .rect(cornerRadius: CornerRadius.sidebarFolderHeader))
+        .background(.quaternary, in: .rect(cornerRadius: CornerRadius.sidebarFolderHeader))
         .padding(SidebarLayout.folderHeaderInset)
         .help((path as NSString).abbreviatingWithTildeInPath)
     }
@@ -119,7 +120,6 @@ struct FolderSidebar: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .frame(width: 26, height: 26)
-            .glassEffect(in: .rect(cornerRadius: CornerRadius.glassIconButton))
             .accessibilityLabel("\(title) Actions")
             .accessibilityIdentifier("\(title.lowercased())Actions")
         }
@@ -166,6 +166,18 @@ struct FolderSidebar: View {
             }
         }
     }
+}
+
+private struct SidebarMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 private struct SessionEditor: Identifiable {
