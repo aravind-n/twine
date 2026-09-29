@@ -5,6 +5,37 @@ import Testing
 
 @MainActor
 struct FolderTests {
+    @Test func branchRefreshRoundTripsAndClearsWhenTheFolderChanges() async throws {
+        let data = TemporaryPath()
+        let folder = try Self.makeFolder()
+        let other = try Self.makeFolder()
+        try FileManager.default.createDirectory(
+            at: folder.url.appending(path: ".git/objects"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: folder.url.appending(path: ".git/refs/heads"), withIntermediateDirectories: true)
+        let head = folder.url.appending(path: ".git/HEAD")
+        try "ref: refs/heads/main\n".write(to: head, atomically: true, encoding: .utf8)
+        let client = BridgeClient(transport: BridgeWorker(dataDirectory: data.url))
+        client.start()
+        do {
+            try await client.waitUntilRunning()
+            await client.perform(.openFolder(path: folder.path))
+            try await waitUntil { client.snapshot?.folders.openFolder == folder.path }
+            try await client.refreshGitBranch(folder: folder.path)
+            try await waitUntil { client.snapshot?.folders.currentBranch == "main" }
+            try "ref: refs/heads/feature\n".write(to: head, atomically: true, encoding: .utf8)
+            try await client.refreshGitBranch(folder: folder.path)
+            try await waitUntil { client.snapshot?.folders.currentBranch == "feature" }
+            await client.perform(.openFolder(path: other.path))
+            try await waitUntil { client.snapshot?.folders.openFolder == other.path }
+            #expect(client.snapshot?.folders.currentBranch == nil)
+            await client.stop()
+        } catch {
+            await client.stop()
+            throw error
+        }
+    }
+
     private static let noFolders = BridgeFolderState(openFolder: nil, recentFolders: [], unavailableFolder: nil)
 
     @Test func windowShowsNothingUntilTheFirstSnapshot() {

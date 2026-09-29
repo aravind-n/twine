@@ -7,7 +7,7 @@ private let workflowLogger = Logger(subsystem: "com.twineproject.Twine", categor
 struct WorkflowWorkspace: View {
     @Environment(BridgeClient.self) private var bridgeClient
     let folder: String
-    @State private var selection = WorkflowTabSelection()
+    @Binding var selection: WorkflowTabSelection
     @State private var failureMessage: String?
     @State private var newButtonFrame = CGRect.zero
 

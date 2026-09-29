@@ -8,7 +8,7 @@ struct WorkflowTerminalSurface: View {
     let newButtonFrame: CGRect
     let reportFailure: (String) -> Void
     @State private var draft = WorkflowDraftPresentation()
-    @State private var panelFrame = CGRect.zero
+    @State private var choicesFrame = CGRect.zero
     @State private var showsChoices = false
     @State private var focusRequest = 0
 
@@ -24,14 +24,15 @@ struct WorkflowTerminalSurface: View {
                             maxWidth: min(
                                 NewTabLayout.maximumWidth, max(0, geometry.size.width - 2 * Spacing.terminalContent))
                         )
+                        .onGeometryChange(
+                            for: CGRect.self, of: { $0.frame(in: .named("workflowWorkspace")) },
+                            action: { if workflow.kind == .draft { choicesFrame = $0 } }
+                        )
                         .transition(choicesTransition)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
-        .onGeometryChange(
-            for: CGRect.self, of: { $0.frame(in: .named("workflowWorkspace")) }, action: { panelFrame = $0 }
-        )
         .animation(Motion.draftTabToTerminal, value: workflow.kind)
         .onAppear {
             withAnimation(Motion.choicesCardAppear) { showsChoices = true }
@@ -44,7 +45,8 @@ struct WorkflowTerminalSurface: View {
             removal: .opacity
                 .combined(with: .scale(scale: Motion.draftTabToTerminalCardScale))
                 .combined(
-                    with: .offset(x: newButtonFrame.midX - panelFrame.midX, y: newButtonFrame.midY - panelFrame.midY))
+                    with: .offset(
+                        x: newButtonFrame.midX - choicesFrame.midX, y: newButtonFrame.midY - choicesFrame.midY))
         )
     }
 

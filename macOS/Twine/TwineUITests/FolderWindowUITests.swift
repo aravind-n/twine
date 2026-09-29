@@ -12,6 +12,62 @@ extension TwineUITests {
     }
 
     @MainActor
+    func testDraftAndFooterAtMinimumWindowSizeInLightAppearance() throws {
+        try checkMinimumDraftWindow(appearance: "Light")
+    }
+
+    @MainActor
+    func testDraftAndFooterAtMinimumWindowSizeInDarkAppearance() throws {
+        try checkMinimumDraftWindow(appearance: "Dark")
+    }
+
+    @MainActor
+    private func checkMinimumDraftWindow(appearance: String) throws {
+        let folder = try createFolder()
+        try FileManager.default.createDirectory(
+            at: folder.appending(path: ".git/objects"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: folder.appending(path: ".git/refs/heads"), withIntermediateDirectories: true)
+        try "ref: refs/heads/a-long-branch-name-for-checking-footer-truncation\n".write(
+            to: folder.appending(path: ".git/HEAD"), atomically: true, encoding: .utf8)
+        let app = try makeApp(lastOpenFolder: folder)
+        app.launchEnvironment["TWINE_TEST_APPEARANCE"] = appearance
+        app.launch()
+        let choices = app.scrollViews["newTabChoices"]
+        XCTAssertTrue(choices.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["gitBranch"].waitForExistence(timeout: 10), app.debugDescription)
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
+        attachWindow(in: app, name: "\(appearance), centered draft and footer")
+
+        // The title bar adds 52 points to the 400 × 250 minimum content size.
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 400, height: 302))
+        XCTAssertEqual(app.windows.firstMatch.frame.width, 400, accuracy: 2)
+        XCTAssertEqual(app.windows.firstMatch.frame.height, 302, accuracy: 2)
+        XCTAssertGreaterThan(choices.frame.minY, app.buttons["newWorkflow"].frame.maxY + 40)
+        XCTAssertTrue(app.staticTexts["coreConnection"].isHittable, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["workflowStatus"].isHittable, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["workflowElapsed"].isHittable, app.debugDescription)
+        XCTAssertGreaterThan(app.staticTexts["gitBranch"].frame.width, 0)
+        attachWindow(in: app, name: "\(appearance), minimum window with visible prompt")
+
+        let coordinator = app.buttons["workflowChoice-Coordinator"]
+        for _ in 0..<5 where !coordinator.isHittable {
+            choices.scroll(byDeltaX: 0, deltaY: -100)
+        }
+        XCTAssertTrue(coordinator.isHittable, app.debugDescription)
+        attachWindow(in: app, name: "\(appearance), minimum window scrolled choices")
+        coordinator.click()
+        app.typeText("printf '%s' compact > compact.txt\r")
+        let typed = expectation(
+            for: NSPredicate { _, _ in
+                (try? String(contentsOf: folder.appending(path: "compact.txt"), encoding: .utf8)) == "compact"
+            }, evaluatedWith: nil)
+        wait(for: [typed], timeout: 10)
+        XCTAssertTrue(choices.waitForNonExistence(timeout: 10), app.debugDescription)
+        app.terminate()
+    }
+
+    @MainActor
     private func checkFolderWindow(appearance: String) throws {
         let folder = try createFolder()
         let app = try makeApp(lastOpenFolder: folder)
@@ -70,7 +126,7 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func resizeWindow(_ window: XCUIElement, to size: CGSize) {
+    func resizeWindow(_ window: XCUIElement, to size: CGSize) {
         // Keep a tall restored window's bottom resize edge on-screen.
         let titleBar = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
             .withOffset(CGVector(dx: 0, dy: 20))

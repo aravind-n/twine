@@ -56,12 +56,22 @@ nonisolated enum TracesLayout {
 
 nonisolated enum NewTabLayout {
     static let maximumWidth: CGFloat = 740
+    /// Leave the terminal's first row visible when the choices need to scroll.
+    static let promptClearance: CGFloat = 2 * Spacing.terminalContent
     static let padding: CGFloat = 16
     static let spacing: CGFloat = 8
     static let minimumChoiceWidth: CGFloat = 160
     static let minimumChoiceHeight: CGFloat = 42
     static let choicePadding: CGFloat = 10
     static let symbolWidth: CGFloat = 16
+}
+
+nonisolated enum FooterLayout {
+    static let height: CGFloat = 22
+    static let horizontalPadding: CGFloat = 4
+    static let spacing: CGFloat = 8
+    static let dotSize: CGFloat = 5
+    static let dividerHeight: CGFloat = 10
 }
 
 nonisolated enum Surface {

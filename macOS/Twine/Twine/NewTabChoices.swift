@@ -37,6 +37,20 @@ struct NewTabChoices: View {
         WorkflowChoice.allCases.contains { $0 != .terminal && $0.rawValue == name }
     }
 
+    private var verticalPadding: CGFloat {
+        min(
+            NewTabLayout.padding,
+            max(0, (availableHeight - NewTabLayout.promptClearance - NewTabLayout.minimumChoiceHeight) / 2))
+    }
+
+    private var viewportHeight: CGFloat {
+        min(contentHeight, max(0, availableHeight - NewTabLayout.promptClearance - 2 * verticalPadding))
+    }
+
+    private var verticalOffset: CGFloat {
+        max(0, NewTabLayout.promptClearance - (availableHeight - viewportHeight - 2 * verticalPadding) / 2)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: NewTabLayout.spacing) {
@@ -44,7 +58,7 @@ struct NewTabChoices: View {
                     .font(.headline)
                 Text(
                     showsComingSoon
-                        ? "\(name) workflows are coming soon. Type below to use Terminal."
+                        ? "\(name) workflows are coming soon. Start typing to use Terminal."
                         : "Pick a workflow type, or start typing to use Terminal."
                 )
                 .font(.caption)
@@ -85,13 +99,15 @@ struct NewTabChoices: View {
             .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { contentHeight = $0 })
         }
         .scrollBounceBehavior(.basedOnSize)
-        .frame(height: min(contentHeight, max(0, availableHeight - 2 * NewTabLayout.padding)))
-        .padding(NewTabLayout.padding)
+        .frame(height: viewportHeight)
+        .padding(.horizontal, NewTabLayout.padding)
+        .padding(.vertical, verticalPadding)
         .background(.secondarySurface, in: .rect(cornerRadius: CornerRadius.choicesCard))
         .overlay {
             RoundedRectangle(cornerRadius: CornerRadius.choicesCard)
                 .stroke(.hairline, lineWidth: Surface.hairlineWidth)
         }
         .accessibilityIdentifier("newTabChoices")
+        .offset(y: verticalOffset)
     }
 }

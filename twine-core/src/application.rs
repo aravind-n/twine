@@ -16,6 +16,7 @@ use crate::terminal::{
 
 use crate::workflow::{WorkflowId, WorkflowKind, WorkflowState};
 
+mod git;
 mod terminals;
 mod workflows;
 
@@ -42,6 +43,9 @@ pub enum Command {
     },
     RemoveRecentFolder {
         path: PathBuf,
+    },
+    RefreshGitBranch {
+        folder: PathBuf,
     },
     CreateWorkflow {
         folder: PathBuf,
@@ -221,6 +225,7 @@ impl Application {
             Command::RemoveRecentFolder { path } => self
                 .lock_inner()?
                 .update_folders(|folders| folders.remove_recent(&path))?,
+            Command::RefreshGitBranch { folder } => self.refresh_git_branch(&folder)?,
             Command::CreateWorkflow { folder, kind, size } => {
                 self.create_workflow(request_id, &folder, kind, size)?
             }

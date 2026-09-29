@@ -4,6 +4,7 @@ mod application;
 pub mod config;
 mod event;
 mod folder;
+mod git;
 mod store;
 mod terminal;
 mod workflow;

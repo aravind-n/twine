@@ -919,7 +919,7 @@ mod tests {
         let initial = snapshot(client);
         assert_eq!(
             initial["folders"],
-            serde_json::json!({"openFolder": null, "recentFolders": [], "unavailableFolder": null})
+            serde_json::json!({"openFolder": null, "recentFolders": [], "unavailableFolder": null, "currentBranch": null})
         );
 
         let command = serde_json::json!({
@@ -938,7 +938,7 @@ mod tests {
         let opened = serde_json::json!({
             "openFolder": path,
             "recentFolders": [{"path": path, "isMissing": false}],
-            "unavailableFolder": null,
+            "unavailableFolder": null, "currentBranch": null,
         });
         assert_eq!(events["events"][0]["event"]["folders"], opened);
         assert_eq!(snapshot(client)["folders"], opened);

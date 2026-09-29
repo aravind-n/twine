@@ -7,6 +7,7 @@ nonisolated enum BridgeCommand: Sendable {
     case closeFolder
     case closeFolderIfOpen(path: String)
     case removeRecentFolder(path: String)
+    case refreshGitBranch(folder: String)
     case createWorkflow(folder: String, kind: BridgeWorkflow.Kind, size: BridgeTerminalSize)
     case activateWorkflow(workflowID: UInt64)
     case nameDraftWorkflow(workflowID: UInt64, name: String)
@@ -81,6 +82,7 @@ nonisolated struct BridgeApplicationState: Decodable, Equatable, Sendable {
 
 /// The open folder and the recent folders the start page lists.
 nonisolated struct BridgeFolderState: Decodable, Equatable, Sendable {
+    var currentBranch: String?
     /// The folder the window shows, or `nil` while it shows the start page.
     var openFolder: String?
     /// Recently opened folders, most recent first.

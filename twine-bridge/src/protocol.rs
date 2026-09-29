@@ -119,6 +119,7 @@ struct WireSnapshot<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WireFolderState<'a> {
+    current_branch: Option<&'a str>,
     open_folder: Option<&'a Path>,
     recent_folders: Vec<WireRecentFolder<'a>>,
     unavailable_folder: Option<WireUnavailableFolder<'a>>,
@@ -148,6 +149,7 @@ enum WireUnavailableReason {
 impl<'a> From<&'a FolderState> for WireFolderState<'a> {
     fn from(folders: &'a FolderState) -> Self {
         Self {
+            current_branch: folders.current_branch.as_deref(),
             open_folder: folders.open_folder.as_deref(),
             recent_folders: folders
                 .recent_folders
@@ -285,6 +287,16 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         "removeRecentFolder" => DecodedCommand::Known(Command::RemoveRecentFolder {
             path: decode_path(&raw.command)?,
         }),
+        "refreshGitBranch" => {
+            let folder = raw
+                .command
+                .get("folder")
+                .and_then(Value::as_str)
+                .ok_or(BridgeError::MalformedCommand)?;
+            DecodedCommand::Known(Command::RefreshGitBranch {
+                folder: PathBuf::from(folder),
+            })
+        }
         "createWorkflow" => {
             let command: RawCreateWorkflow =
                 serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
@@ -539,7 +551,7 @@ mod tests {
                 "sequence": 1,
                 "state": { "status": "ready" },
                 "config": { "appearance": { "color_scheme": "dark" } },
-                "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null },
+                "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null, "currentBranch": null },
                 "terminals": [],
                 "workflows": { "session": null, "workflows": [] }
             })
@@ -553,6 +565,7 @@ mod tests {
             state: ApplicationState::Ready,
             config: Config::default(),
             folders: FolderState {
+                current_branch: None,
                 open_folder: None,
                 recent_folders: vec![
                     RecentFolder {
@@ -576,6 +589,7 @@ mod tests {
         assert_eq!(
             json["folders"],
             serde_json::json!({
+                "currentBranch": null,
                 "openFolder": null,
                 "recentFolders": [
                     { "path": "/projects/locked", "isMissing": false },

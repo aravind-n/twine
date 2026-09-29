@@ -49,6 +49,9 @@ nonisolated private struct CommandPayload: Encodable {
         case .removeRecentFolder(let path):
             type = "removeRecentFolder"
             self.path = path
+        case .refreshGitBranch(let folder):
+            type = "refreshGitBranch"
+            self.folder = folder
         case .createWorkflow, .activateWorkflow, .nameDraftWorkflow, .closeWorkflow:
             type = ""
             configureWorkflow(command)
