@@ -1,23 +1,9 @@
+import AppKit
 import Foundation
 import SwiftTerm
 import Testing
 
 @testable import Twine
-
-extension BridgeSnapshot {
-    static func testReady(sequence: UInt64 = 1) -> Self {
-        Self(
-            sequence: sequence,
-            state: BridgeApplicationState(status: .ready),
-            config: BridgeConfig(appearance: .init(colorScheme: .system)),
-            folders: BridgeFolderState(
-                openFolder: nil,
-                recentFolders: [],
-                unavailableFolder: nil
-            )
-        )
-    }
-}
 
 struct TerminalRoutingTests {
     @Test @MainActor func terminalOutputIsDemultiplexedByTerminalID() async throws {
@@ -25,10 +11,7 @@ struct TerminalRoutingTests {
         let client = BridgeClient(transport: transport)
         client.start()
         defer { Task { await client.stop() } }
-        for _ in 0..<100 where client.connectionState != .running {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(client.connectionState == .running)
+        try await waitUntil { client.connectionState == .running }
         var firstOutput = Data()
         var secondOutput = Data()
         var firstOffset: UInt64 = 0
@@ -56,16 +39,11 @@ struct TerminalRoutingTests {
         let client = BridgeClient(transport: transport)
         client.start()
         defer { Task { await client.stop() } }
-        for _ in 0..<100 where client.connectionState != .running {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(client.connectionState == .running)
+        try await waitUntil { client.connectionState == .running }
 
         let firstRead = Task { try await client.nextTerminalChunk(for: 2) }
-        for _ in 0..<100 where await transport.readCount == 0 {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(await transport.readCount == 1)
+        try await waitUntil { await transport.readCount > 0 }
+        #expect(await transport.readCount == 1)
         let competingRead = Task { try await client.nextTerminalChunk(for: 1) }
         try await Task.sleep(for: .milliseconds(20))
         await transport.completePendingReads()
@@ -83,16 +61,11 @@ struct TerminalRoutingTests {
         let client = BridgeClient(transport: transport)
         client.start()
         defer { Task { await client.stop() } }
-        for _ in 0..<100 where client.connectionState != .running {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(client.connectionState == .running)
+        try await waitUntil { client.connectionState == .running }
 
         let cancelledRead = Task { try await client.nextTerminalChunk(for: 1) }
-        for _ in 0..<100 where await transport.readCount == 0 {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(await transport.readCount == 1)
+        try await waitUntil { await transport.readCount > 0 }
+        #expect(await transport.readCount == 1)
         cancelledRead.cancel()
         await transport.completeFirstRead(
             with: BridgeTerminalChunk(terminalID: 2, offset: 0, bytes: Data("preserved".utf8))
@@ -111,16 +84,11 @@ struct TerminalRoutingTests {
         let client = BridgeClient(transport: transport)
         client.start()
         defer { Task { await client.stop() } }
-        for _ in 0..<100 where client.connectionState != .running {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(client.connectionState == .running)
+        try await waitUntil { client.connectionState == .running }
 
         let pendingRead = Task { try await client.nextTerminalChunk(for: 1) }
-        for _ in 0..<100 where await transport.readCount == 0 {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(await transport.readCount == 1)
+        try await waitUntil { await transport.readCount > 0 }
+        #expect(await transport.readCount == 1)
         try await client.closeTerminal(terminalID: 1)
         await transport.completeFirstRead(
             with: BridgeTerminalChunk(terminalID: 1, offset: 0, bytes: Data("late".utf8))
@@ -128,6 +96,90 @@ struct TerminalRoutingTests {
 
         #expect(try await pendingRead.value == nil)
     }
+
+    @Test @MainActor func terminalBridgeRunsShellInRequestedDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(
+            component: "twine-terminal-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+
+        let client = BridgeClient(
+            transport: BridgeWorker(dataDirectory: directory.appending(component: ".twine-data"))
+        )
+        client.start()
+        var terminalID: UInt64?
+        do {
+            try await waitUntil { client.connectionState == .running }
+            terminalID = try await client.startTerminal(
+                workingDirectory: directory,
+                size: BridgeTerminalSize(
+                    rows: 24,
+                    columns: 80,
+                    pixelWidth: 800,
+                    pixelHeight: 480
+                )
+            )
+            let startedTerminalID = try #require(terminalID)
+            try await client.writeTerminalInput(
+                terminalID: startedTerminalID,
+                bytes: Data("pwd\nprintf '__TWINE_SWIFT__\\n'\nexit 9\n".utf8)
+            )
+            let (output, exit) = try await collectTerminalOutput(
+                from: client,
+                terminalID: startedTerminalID
+            )
+            let text = String(data: output, encoding: .utf8) ?? ""
+            #expect(text.contains(directory.path))
+            #expect(text.contains("__TWINE_SWIFT__"))
+            #expect(exit.exitCode == 9)
+
+            try await client.closeTerminal(terminalID: startedTerminalID)
+            terminalID = nil
+            await client.stop()
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            if let terminalID {
+                try? await client.closeTerminal(terminalID: terminalID)
+            }
+            await client.stop()
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    @MainActor
+    private func collectTerminalOutput(
+        from client: BridgeClient,
+        terminalID: UInt64
+    ) async throws -> (Data, BridgeTerminalExit) {
+        let terminal = TerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
+        let responder = TerminalTestResponder(client: client, terminalID: terminalID)
+        terminal.terminalDelegate = responder
+        defer { withExtendedLifetime(responder) {} }
+        var output = Data()
+        var expectedOffset: UInt64 = 0
+        for _ in 0..<500 {
+            if let chunk = try await client.nextTerminalChunk(for: terminalID) {
+                #expect(chunk.terminalID == terminalID)
+                #expect(chunk.offset == expectedOffset)
+                expectedOffset += UInt64(chunk.bytes.count)
+                output.append(chunk.bytes)
+                terminal.feed(byteArray: Array(chunk.bytes)[...])
+            } else {
+                let text = String(data: output, encoding: .utf8) ?? ""
+                if text.contains("__TWINE_SWIFT__") {
+                    if case .exited(let exit) = client.terminalStatus(for: terminalID) {
+                        return (output, exit)
+                    }
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        Issue.record("shell output and exit were not reported before the timeout")
+        throw BridgeFailure.internalError
+    }
+
 }
 
 @MainActor
