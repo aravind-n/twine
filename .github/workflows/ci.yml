@@ -2,7 +2,7 @@ name: CI
 
 # Pull requests run every check their changes select, and ci-gate is the one required check.
 # Main only accepts up-to-date pull requests, so pushes to main skip those checks and run
-# only the work pull requests don't: UI tests and the release build.
+# only the work pull requests don't: the release build.
 on:
   pull_request:
   push:
@@ -85,7 +85,8 @@ jobs:
     runs-on: xcode-27
     strategy:
       matrix:
-        profile: [debug, release]
+        # Pull requests test a Debug app; main packages a Release app.
+        profile: ${{ github.event_name == 'push' && fromJSON('["release"]') || fromJSON('["debug"]') }}
     steps:
       - uses: actions/checkout@v7
       - name: Restore prebuilt bridge
@@ -143,6 +144,11 @@ jobs:
           xcodebuild test-without-building -project macOS/Twine/Twine.xcodeproj -scheme Twine
           -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
           -only-testing:TwineTests
+      - name: Run UI tests
+        run: >-
+          xcodebuild test-without-building -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          -only-testing:TwineUITests
 
   actionlint:
     needs: changes
@@ -195,35 +201,6 @@ jobs:
           check_job app-checks "$APP_SELECTED" "$APP_CHECKS_RESULT"
           check_job actionlint "$WORKFLOWS_SELECTED" "$ACTIONLINT_RESULT"
           exit "$failed"
-
-  ui-tests:
-    needs: library-build
-    if: github.event_name == 'push'
-    runs-on: xcode-27
-    steps:
-      - uses: actions/checkout@v7
-      - name: Restore Debug bridge
-        uses: actions/cache/restore@v6
-        with:
-          path: TwineBridgePackage/TwineBridge.xcframework
-          key: >-
-            twine-bridge-v1-debug-${{
-            hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
-            'scripts/build-bridge.sh') }}
-          fail-on-cache-miss: true
-      - uses: ./.github/actions/setup-macos
-        with:
-          metal: 'true'
-      - name: Build app for testing (Debug)
-        run: >-
-          xcodebuild build-for-testing -project macOS/Twine/Twine.xcodeproj -scheme Twine
-          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
-          -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
-      - name: Run UI tests
-        run: >-
-          xcodebuild test-without-building -project macOS/Twine/Twine.xcodeproj -scheme Twine
-          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
-          -only-testing:TwineUITests
 
   release-build:
     needs: library-build
