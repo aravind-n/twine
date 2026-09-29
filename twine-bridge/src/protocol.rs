@@ -8,7 +8,7 @@ use twine_core::{
     TerminalStatus, UnavailableReason,
 };
 
-use crate::client::BridgeError;
+use crate::error::BridgeError;
 
 #[derive(Debug)]
 pub(crate) struct CommandEnvelope {
