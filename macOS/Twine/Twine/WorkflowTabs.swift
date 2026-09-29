@@ -6,6 +6,7 @@ struct WorkflowTabs: View {
     let select: (UInt64) -> Void
     let close: (UInt64) -> Void
     let create: () -> Void
+    @Binding var newButtonFrame: CGRect
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 12) {
@@ -45,15 +46,19 @@ struct WorkflowTabs: View {
                         if let selectedID { proxy.scrollTo(selectedID) }
                     })
             }
-            Button("New Terminal Workflow", systemImage: "plus", action: create)
+            Button("New Workflow", systemImage: "plus", action: create)
                 .labelStyle(.iconOnly)
                 .font(.system(size: 11, weight: .semibold))
                 .frame(width: 26, height: 26)
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .rect(cornerRadius: CornerRadius.glassIconButton))
                 .padding(.bottom, 5)
-                .help("New Terminal Workflow (⌘T)")
+                .help("New Workflow (⌘T)")
                 .accessibilityIdentifier("newWorkflow")
+                .onGeometryChange(
+                    for: CGRect.self, of: { $0.frame(in: .named("workflowWorkspace")) },
+                    action: { newButtonFrame = $0 }
+                )
         }
         .frame(height: 42, alignment: .bottom)
         .background(alignment: .bottom) { Rectangle().fill(.hairline).frame(height: Surface.hairlineWidth) }

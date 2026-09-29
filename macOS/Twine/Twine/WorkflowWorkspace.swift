@@ -9,6 +9,7 @@ struct WorkflowWorkspace: View {
     let folder: String
     @State private var selection = WorkflowTabSelection()
     @State private var failureMessage: String?
+    @State private var newButtonFrame = CGRect.zero
 
     private var workflows: [BridgeWorkflow] {
         guard let state = bridgeClient.snapshot?.workflows, state.session?.folder == folder else { return [] }
@@ -22,21 +23,25 @@ struct WorkflowWorkspace: View {
                 selectedID: selection.selectedID,
                 select: { selection.selectedID = $0 },
                 close: close,
-                create: { Task { await create() } }
+                create: { Task { await create() } },
+                newButtonFrame: $newButtonFrame
             )
             ZStack {
                 if workflows.isEmpty {
                     ContentUnavailableView(
                         "No Open Tabs", systemImage: "terminal",
-                        description: Text("Open a Terminal workflow with + or ⌘T.")
+                        description: Text("Open a workflow with + or ⌘T.")
                     )
                 }
                 ForEach(workflows) { workflow in
                     let isSelected = workflow.id == selection.selectedID
-                    TerminalSurface(workflow: workflow, isSelected: isSelected)
-                        .opacity(isSelected ? 1 : 0)
-                        .allowsHitTesting(isSelected)
-                        .accessibilityHidden(!isSelected)
+                    WorkflowTerminalSurface(
+                        workflow: workflow, isSelected: isSelected,
+                        newButtonFrame: newButtonFrame, reportFailure: { failureMessage = $0 }
+                    )
+                    .opacity(isSelected ? 1 : 0)
+                    .allowsHitTesting(isSelected)
+                    .accessibilityHidden(!isSelected)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -45,6 +50,7 @@ struct WorkflowWorkspace: View {
             .overlay(panelShape.stroke(.hairline, lineWidth: Surface.hairlineWidth))
             .terminalPanelShadow()
         }
+        .coordinateSpace(name: "workflowWorkspace")
         .task {
             selection.reconcile(previous: [], current: workflows.map(\.id))
             if workflows.isEmpty { await create() }
@@ -75,7 +81,7 @@ struct WorkflowWorkspace: View {
 
     private func create() async {
         do {
-            let id = try await bridgeClient.createWorkflow(folder: folder)
+            let id = try await bridgeClient.createWorkflow(folder: folder, kind: .draft)
             if Task.isCancelled {
                 try await bridgeClient.closeWorkflow(workflowID: id)
             } else {

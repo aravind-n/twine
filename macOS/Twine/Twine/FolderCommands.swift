@@ -22,7 +22,7 @@ struct FolderCommands: Commands {
     var body: some Commands {
         let isRunning = bridgeClient.connectionState == .running
         CommandGroup(replacing: .newItem) {
-            Button("New Terminal Workflow") { workflowActions?.create() }
+            Button("New Workflow") { workflowActions?.create() }
                 .keyboardShortcut("t")
                 .disabled(workflowActions == nil || !isRunning)
             Button("Close Workflow") { workflowActions?.close?() }

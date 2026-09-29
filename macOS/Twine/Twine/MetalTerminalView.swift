@@ -52,7 +52,20 @@ struct TerminalPalette {
 }
 
 final class MetalTerminalView: TerminalView {
+    private(set) var isSendingTerminalResponse = false
+
+    override func send(source: Terminal, data: ArraySlice<UInt8>) {
+        isSendingTerminalResponse = true
+        defer { isSendingTerminalResponse = false }
+        super.send(source: source, data: data)
+    }
+
     private var focusTask: Task<Void, Never>?
+    var focusRequest = 0 {
+        didSet {
+            if focusRequest != oldValue, isSelected { requestKeyboardFocus() }
+        }
+    }
     var isSelected = true {
         didSet {
             guard isSelected != oldValue else { return }

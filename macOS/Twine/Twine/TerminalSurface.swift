@@ -8,6 +8,8 @@ struct TerminalSurface: View {
 
     let workflow: BridgeWorkflow
     let isSelected: Bool
+    var focusRequest = 0
+    var beforeUserInput: (() async throws -> Void)?
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -15,6 +17,8 @@ struct TerminalSurface: View {
                 bridgeClient: bridgeClient,
                 terminalID: workflow.terminalID,
                 isSelected: isSelected,
+                focusRequest: focusRequest,
+                beforeUserInput: beforeUserInput,
                 failureMessage: $failureMessage
             )
 
@@ -52,15 +56,22 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     let bridgeClient: BridgeClient
     let terminalID: UInt64
     let isSelected: Bool
+    let focusRequest: Int
+    var beforeUserInput: (() async throws -> Void)?
     @Binding var failureMessage: String?
 
     func makeCoordinator() -> TerminalController {
-        TerminalController(bridgeClient: bridgeClient, terminalID: terminalID, failureMessage: $failureMessage)
+        let controller = TerminalController(
+            bridgeClient: bridgeClient, terminalID: terminalID, failureMessage: $failureMessage
+        )
+        controller.beforeUserInput = beforeUserInput
+        return controller
     }
 
     func makeNSView(context: Context) -> MetalTerminalView {
         let view = MetalTerminalView(frame: .zero)
         view.isSelected = isSelected
+        view.focusRequest = focusRequest
         view.isHidden = !isSelected
         view.terminalDelegate = context.coordinator
         context.coordinator.start(view: view)
@@ -68,8 +79,10 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MetalTerminalView, context: Context) {
+        context.coordinator.beforeUserInput = beforeUserInput
         nsView.isHidden = !isSelected
         nsView.isSelected = isSelected
+        nsView.focusRequest = focusRequest
         nsView.applyTwinePalette()
     }
 

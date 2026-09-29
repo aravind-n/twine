@@ -10,6 +10,46 @@ use crate::workflow::{
 };
 
 impl Application {
+    pub(super) fn name_draft_workflow(
+        &self,
+        workflow_id: WorkflowId,
+        name: &str,
+    ) -> Result<CommandDisposition, ApplicationError> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().any(char::is_control) {
+            return Ok(reject(
+                "invalidWorkflowName",
+                "A workflow needs a single-line name.",
+            ));
+        }
+        let mut inner = self.lock_inner()?;
+        let Some(workflow) = inner
+            .workflows
+            .workflows
+            .iter_mut()
+            .find(|workflow| workflow.workflow_id == workflow_id)
+        else {
+            return Ok(reject(
+                "workflowNotFound",
+                "The workflow is no longer open.",
+            ));
+        };
+        if workflow.kind != WorkflowKind::Draft {
+            return Ok(reject(
+                "workflowNotDraft",
+                "The workflow is already configured.",
+            ));
+        }
+        if workflow.name != name {
+            name.clone_into(&mut workflow.name);
+            let workflow = workflow.clone();
+            inner
+                .events
+                .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))?;
+        }
+        Ok(CommandDisposition::Accepted)
+    }
+
     pub(super) fn create_workflow(
         &self,
         request_id: RequestId,

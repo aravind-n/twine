@@ -52,7 +52,7 @@ final class BridgeClient {
                 if commandResults.removeValue(forKey: receipt.requestID) == nil {
                     ignoredCommandResults.insert(receipt.requestID)
                 }
-            case .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder:
+            case .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .nameDraftWorkflow:
                 break
             }
         }

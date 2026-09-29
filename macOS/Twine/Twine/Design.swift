@@ -54,6 +54,16 @@ nonisolated enum TracesLayout {
 
 // MARK: - Surfaces and colors
 
+nonisolated enum NewTabLayout {
+    static let maximumWidth: CGFloat = 740
+    static let padding: CGFloat = 16
+    static let spacing: CGFloat = 8
+    static let minimumChoiceWidth: CGFloat = 160
+    static let minimumChoiceHeight: CGFloat = 42
+    static let choicePadding: CGFloat = 10
+    static let symbolWidth: CGFloat = 16
+}
+
 nonisolated enum Surface {
     /// The width of the hairline that outlines panels, cards, and tiles and underlines the tab row.
     static let hairlineWidth: CGFloat = 1

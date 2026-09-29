@@ -112,6 +112,51 @@ fn draft_activation_preserves_shell_identity_state_and_timing() {
 }
 
 #[test]
+fn naming_an_unavailable_choice_keeps_the_draft_shell_and_activation_wins() {
+    let folder = tempfile::tempdir().unwrap();
+    let application = application(folder.path());
+    let draft = create(&application, folder.path(), WorkflowKind::Draft);
+    let receipt = application
+        .handle_command(
+            RequestId(3),
+            Command::NameDraftWorkflow {
+                workflow_id: draft.workflow_id,
+                name: "Single agent".to_owned(),
+            },
+        )
+        .unwrap();
+    assert_eq!(receipt.disposition, CommandDisposition::Accepted);
+    let named = application.snapshot().unwrap().workflows.workflows[0].clone();
+    assert_eq!(named.name, "Single agent");
+    assert_eq!(named.kind, WorkflowKind::Draft);
+    assert_eq!(named.terminal_id, draft.terminal_id);
+    assert_eq!(named.started_at, draft.started_at);
+    application
+        .handle_command(
+            RequestId(4),
+            Command::ActivateWorkflow {
+                workflow_id: draft.workflow_id,
+            },
+        )
+        .unwrap();
+    let receipt = application
+        .handle_command(
+            RequestId(5),
+            Command::NameDraftWorkflow {
+                workflow_id: draft.workflow_id,
+                name: "Coordinator".to_owned(),
+            },
+        )
+        .unwrap();
+    assert!(
+        matches!(receipt.disposition, CommandDisposition::Rejected { ref code, .. } if code == "workflowNotDraft")
+    );
+    let activated = application.snapshot().unwrap().workflows.workflows[0].clone();
+    assert_eq!(activated.name, "Terminal");
+    assert_eq!(activated.terminal_id, draft.terminal_id);
+}
+
+#[test]
 fn closing_one_workflow_keeps_the_other_shell_and_publishes_its_end() {
     let folder = tempfile::tempdir().unwrap();
     let application = application(folder.path());

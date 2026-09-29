@@ -87,6 +87,50 @@ final class TwineUITests: XCTestCase {
     }
 
     @MainActor
+    func testDraftChoicesAndTypingKeepThePromptUsable() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "TwineUITests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let app = try makeApp(lastOpenFolder: folder)
+        app.launch()
+        let terminalChoice = app.buttons["workflowChoice-Terminal"]
+        XCTAssertTrue(terminalChoice.waitForExistence(timeout: 10), app.debugDescription)
+        let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        screenshot.name = "New workflow choices"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        terminalChoice.click()
+        app.typeText("printf '%s' chosen > chosen.txt\r")
+        let chosen = expectation(
+            for: NSPredicate { _, _ in
+                (try? String(contentsOf: folder.appending(path: "chosen.txt"), encoding: .utf8)) == "chosen"
+            }, evaluatedWith: nil
+        )
+        wait(for: [chosen], timeout: 10)
+
+        app.buttons["newWorkflow"].click()
+        let coordinatorChoice = app.buttons["workflowChoice-Coordinator"]
+        XCTAssertTrue(coordinatorChoice.waitForExistence(timeout: 10), app.debugDescription)
+        coordinatorChoice.click()
+        XCTAssertTrue(app.staticTexts["Coming soon"].waitForExistence(timeout: 10), app.debugDescription)
+        app.typeText("printf '%s' typed > typed.txt\r")
+        let typed = expectation(
+            for: NSPredicate { _, _ in
+                (try? String(contentsOf: folder.appending(path: "typed.txt"), encoding: .utf8)) == "typed"
+            }, evaluatedWith: nil
+        )
+        wait(for: [typed], timeout: 10)
+        XCTAssertTrue(coordinatorChoice.waitForNonExistence(timeout: 10), app.debugDescription)
+
+        app.typeKey("t", modifierFlags: .command)
+        XCTAssertTrue(terminalChoice.waitForExistence(timeout: 10), app.debugDescription)
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(terminalChoice.waitForNonExistence(timeout: 10), app.debugDescription)
+        app.terminate()
+    }
+
+    @MainActor
     func testQuitStopsShellAndDescendant() throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "TwineUITests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

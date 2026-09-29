@@ -51,6 +51,10 @@ pub enum Command {
     ActivateWorkflow {
         workflow_id: WorkflowId,
     },
+    NameDraftWorkflow {
+        workflow_id: WorkflowId,
+        name: String,
+    },
     CloseWorkflow {
         workflow_id: WorkflowId,
     },
@@ -222,6 +226,9 @@ impl Application {
             }
             Command::ActivateWorkflow { workflow_id } => {
                 self.activate_workflow(request_id, workflow_id)?
+            }
+            Command::NameDraftWorkflow { workflow_id, name } => {
+                self.name_draft_workflow(workflow_id, &name)?
             }
             Command::CloseWorkflow { workflow_id } => {
                 self.close_workflow(request_id, workflow_id)?

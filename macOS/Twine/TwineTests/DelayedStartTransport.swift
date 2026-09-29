@@ -38,7 +38,7 @@ actor DelayedStartTransport {
             closedTerminalIDs.insert(terminalID)
             deliver(.commandCompleted(requestID: requestID, result: .terminalClosed(terminalID: terminalID)))
         case .ping, .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .createWorkflow,
-            .activateWorkflow, .closeWorkflow:
+            .activateWorkflow, .closeWorkflow, .nameDraftWorkflow:
             break
         }
         return BridgeCommandReceipt(requestID: requestID, status: .accepted, error: nil)

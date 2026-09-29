@@ -1,6 +1,13 @@
 import Foundation
 
 extension BridgeClient {
+    func nameDraftWorkflow(workflowID: UInt64, name: String) async throws {
+        let receipt = try await send(.nameDraftWorkflow(workflowID: workflowID, name: name))
+        if let error = receipt.error {
+            throw BridgeFailure.commandRejected(code: error.code, message: error.message)
+        }
+    }
+
     func createWorkflow(
         folder: String,
         kind: BridgeWorkflow.Kind = .terminal,

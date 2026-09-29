@@ -62,6 +62,13 @@ struct RawWorkflowId {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RawDraftName {
+    workflow_id: u64,
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RawCloseTerminal {
     terminal_id: u64,
 }
@@ -300,6 +307,14 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
                 serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
             DecodedCommand::Known(Command::ActivateWorkflow {
                 workflow_id: WorkflowId(command.workflow_id),
+            })
+        }
+        "nameDraftWorkflow" => {
+            let command: RawDraftName =
+                serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
+            DecodedCommand::Known(Command::NameDraftWorkflow {
+                workflow_id: WorkflowId(command.workflow_id),
+                name: command.name,
             })
         }
         "closeWorkflow" => {

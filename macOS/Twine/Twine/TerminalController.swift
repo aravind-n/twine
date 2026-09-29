@@ -22,6 +22,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     private var isStopping = false
     private let terminalIDBinding: Binding<UInt64?>
     private let failureMessage: Binding<String?>
+    var beforeUserInput: (() async throws -> Void)?
 
     init(
         bridgeClient: BridgeClient,
@@ -119,15 +120,18 @@ final class TerminalController: NSObject, TerminalViewDelegate {
             pendingInput.append(contentsOf: data)
             return
         }
-        enqueueInput(Data(data), terminalID: terminalID)
+        let isUserInput = (source as? MetalTerminalView)?.isSendingTerminalResponse != true
+        enqueueInput(Data(data), terminalID: terminalID, isUserInput: isUserInput)
     }
 
-    private func enqueueInput(_ bytes: Data, terminalID: UInt64) {
+    private func enqueueInput(_ bytes: Data, terminalID: UInt64, isUserInput: Bool = false) {
         let precedingWrite = inputTask
         inputTask = Task {
             await precedingWrite?.value
             guard !Task.isCancelled else { return }
             do {
+                if isUserInput { try await beforeUserInput?() }
+                try Task.checkCancellation()
                 var lowerBound = bytes.startIndex
                 while lowerBound < bytes.endIndex {
                     let upperBound = bytes.index(
