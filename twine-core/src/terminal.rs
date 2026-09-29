@@ -936,10 +936,17 @@ fn terminate_running_process(process: &mut ChildProcess) -> ExitResult {
         .map_err(|error| error.to_string())
 }
 
-fn stop_session(terminal_id: TerminalId, mut session: TerminalSession) {
-    session.reader_cancelled.store(true, Ordering::Release);
-    terminate_child(&session.child);
-    if let Some(thread) = session.reader_thread.take()
+fn stop_session(terminal_id: TerminalId, session: TerminalSession) {
+    let TerminalSession {
+        master,
+        writer,
+        child,
+        reader_cancelled,
+        reader_thread,
+        supervisor_thread,
+    } = session;
+    reader_cancelled.store(true, Ordering::Release);
+    if let Some(thread) = reader_thread
         && thread.join().is_err()
     {
         warn!(
@@ -947,7 +954,13 @@ fn stop_session(terminal_id: TerminalId, mut session: TerminalSession) {
             "terminal reader thread panicked"
         );
     }
-    if let Some(thread) = session.supervisor_thread.take()
+    // Close the PTY master before waiting for the child. A shell that exits as session leader waits
+    // for its unread terminal output to drain, and only the hangup from closing the master ends that
+    // wait now that nothing reads the output.
+    drop(writer);
+    drop(master);
+    terminate_child(&child);
+    if let Some(thread) = supervisor_thread
         && thread.join().is_err()
     {
         warn!(
@@ -1282,6 +1295,43 @@ mod tests {
                 .0,
             terminal_id
         );
+    }
+
+    #[test]
+    fn closing_terminal_does_not_wait_for_output_written_on_hangup() {
+        let stream = Arc::new(
+            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+        );
+        let manager = TerminalManager::new(stream);
+        // Like an interactive shell restoring terminal modes as it exits.
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args([
+            "-c",
+            "trap 'printf restore; exit' HUP; while :; do sleep 0.01; done",
+        ]);
+        let terminal_id = manager
+            .start_command(
+                command,
+                TerminalSize {
+                    rows: 24,
+                    columns: 80,
+                    pixel_width: 800,
+                    pixel_height: 480,
+                },
+                None,
+                Arc::new(|_, _| {}),
+            )
+            .expect("child should start");
+        thread::sleep(Duration::from_millis(100));
+
+        let (closed_sender, closed_receiver) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let _ = closed_sender.send(manager.close(terminal_id));
+        });
+        closed_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("closing should not wait for the exiting child's output to drain")
+            .expect("terminal should close");
     }
 
     #[test]
