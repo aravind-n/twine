@@ -15,10 +15,14 @@ pub struct TwineClient {
 
 impl TwineClient {
     pub(crate) fn new() -> Result<Self, BridgeError> {
+        #[cfg(not(test))]
+        let application = Application::new()?;
+        // Bridge unit tests must not read or create the developer's config file.
+        #[cfg(test)]
+        let application = Application::with_config(twine_core::config::Config::default())?;
+
         Ok(Self {
-            bridge: BridgeClient {
-                application: Application::new()?,
-            },
+            bridge: BridgeClient { application },
         })
     }
 
