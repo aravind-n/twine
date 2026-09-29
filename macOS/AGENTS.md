@@ -6,6 +6,8 @@ Use SwiftTerm in an AppKit view for the primary terminal surface, with its Metal
 
 Get backend state and send commands only through the Swift bridge client; build the Rust side of a feature alongside its UI rather than mocking it.
 
+The app consumes the backend through the local `TwineBridge` binary Swift package. From the repository root, run `scripts/build-bridge.sh debug` before Debug builds and `scripts/build-bridge.sh release` before Release builds. Keep Cargo invocations, Rust source paths, C header paths, and direct static-library linkage out of the Xcode project.
+
 Follow the visual direction in [DESIGN.md](DESIGN.md) for all UI work.
 
 ## Swift conventions

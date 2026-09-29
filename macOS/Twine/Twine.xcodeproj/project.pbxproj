@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		F2DDC765306A85810066E501 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F2DDC767306A85810066E501 /* SwiftTerm */; };
+		F2DDC768306B00010066E501 /* TwineBridge in Frameworks */ = {isa = PBXBuildFile; productRef = F2DDC76A306B00010066E501 /* TwineBridge */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -55,6 +56,7 @@
 		F266A3E43068BD6000C1232B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				F2DDC768306B00010066E501 /* TwineBridge in Frameworks */,
 				F2DDC765306A85810066E501 /* SwiftTerm in Frameworks */,
 			);
 		};
@@ -98,7 +100,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = F266A4063068BD6100C1232B /* Build configuration list for PBXNativeTarget "Twine" */;
 			buildPhases = (
-				F2DDC764306A85810066E501 /* Build Rust bridge */,
 				F266A3E33068BD6000C1232B /* Sources */,
 				F266A3E43068BD6000C1232B /* Frameworks */,
 				F266A3E53068BD6000C1232B /* Resources */,
@@ -112,6 +113,7 @@
 			);
 			name = Twine;
 			packageProductDependencies = (
+				F2DDC76A306B00010066E501 /* TwineBridge */,
 				F2DDC767306A85810066E501 /* SwiftTerm */,
 			);
 			productName = Twine;
@@ -193,6 +195,7 @@
 			mainGroup = F266A3DE3068BD6000C1232B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineBridgePackage" */,
 				F2DDC75D306A855C0066E501 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */,
 				F2DDC766306A85810066E501 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
@@ -225,26 +228,6 @@
 			);
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		F2DDC764306A85810066E501 /* Build Rust bridge */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/Scripts/build-rust.sh",
-			);
-			name = "Build Rust bridge";
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/libtwine_bridge.a",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${SRCROOT}/Scripts/build-rust.sh\"";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		F266A3E33068BD6000C1232B /* Sources */ = {
@@ -330,7 +313,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../../twine-bridge/include";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -388,7 +370,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/../../twine-bridge/include";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -416,10 +397,6 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"$(DERIVED_FILE_DIR)/libtwine_bridge.a",
-				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.twineproject.Twine;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -427,7 +404,6 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = Twine/Twine-Bridging-Header.h;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 			};
@@ -451,10 +427,6 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"$(DERIVED_FILE_DIR)/libtwine_bridge.a",
-				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.twineproject.Twine;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -462,7 +434,6 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = Twine/Twine-Bridging-Header.h;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 			};
@@ -581,6 +552,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineBridgePackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../TwineBridgePackage;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		F2DDC75D306A855C0066E501 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -601,6 +579,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		F2DDC76A306B00010066E501 /* TwineBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineBridgePackage" */;
+			productName = TwineBridge;
+		};
 		F2DDC767306A85810066E501 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F2DDC766306A85810066E501 /* XCRemoteSwiftPackageReference "SwiftTerm" */;

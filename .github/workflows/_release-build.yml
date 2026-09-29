@@ -17,9 +17,17 @@ jobs:
       BUILD_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
+      - name: Restore Release bridge
+        uses: actions/cache/restore@v6
+        with:
+          path: TwineBridgePackage/TwineBridge.xcframework
+          key: >-
+            twine-bridge-v1-release-${{
+            hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
+            'scripts/build-bridge.sh') }}
+          fail-on-cache-miss: true
       - uses: ./.github/actions/setup-macos
         with:
-          rust-targets: aarch64-apple-darwin x86_64-apple-darwin
           metal: 'true'
       - name: Build universal Release app
         run: >-
