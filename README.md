@@ -38,6 +38,11 @@ are interrupted, without automatically restarting harnesses. The Traces timeline
 role's stage invocations. Select a span to inspect its stage changes, completions, and handoffs;
 this history survives reopening the app.
 
+Startup recovers interrupted work across all folders before publishing state. Agents retain their
+individual lifecycle status, and unfinished trace spans gain a stopped event without changing
+earlier events or transcript anchors. Completed and cancelled runs keep their outcomes. Recovery
+requires exclusive ownership of the data directory; another live Twine core prevents startup.
+
 The automated Rust suite uses fake harnesses for complete runs. To repeat the optional real
 Adversarial smoke test with an authenticated Codex installation:
 

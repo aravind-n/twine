@@ -172,6 +172,16 @@ private struct AgentPane: View {
 
     private var idleTitle: String {
         if workflow.run == nil { return "Shell Couldn't Restart" }
+        if let status = workflow.run?.agents.first(where: { $0.id == agent.id })?.status {
+            switch status {
+            case .interrupted: return "Agent Interrupted"
+            case .completed: return "Agent Completed"
+            case .cancelled: return "Agent Cancelled"
+            case .exited: return "Agent Exited"
+            case .failed: return "Agent Failed"
+            case .waiting, .running: break
+            }
+        }
         return workflow.status == .running ? "Agent Waiting" : "Agent Stopped"
     }
 

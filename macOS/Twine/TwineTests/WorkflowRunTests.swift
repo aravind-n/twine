@@ -5,6 +5,17 @@ import Testing
 
 @MainActor
 struct WorkflowRunTests {
+    @Test(arguments: ["interrupted", "completed", "cancelled", "exited"])
+    func perAgentLifecycleSurvivesDecoding(_ status: String) throws {
+        let json = """
+            {"generation":1,"stage":"Implement","status":"interrupted","agents":[
+              {"agentId":4,"active":false,"done":false,"reviewer":false,"harness":"pi","targets":[],
+               "status":"\(status)"}]}
+            """
+        let run = try JSONDecoder().decode(CoreWorkflowRun.self, from: Data(json.utf8))
+        #expect(run.agents.first?.status?.rawValue == status)
+    }
+
     @Test func coreCatalogDecodesRolesAndLaunchBounds() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "TwineRunTests-\(UUID().uuidString)")
         let worker = CoreWorker(dataDirectory: directory)

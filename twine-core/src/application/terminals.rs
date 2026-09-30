@@ -263,7 +263,12 @@ impl Inner {
         ) {
             warn!(%error, "failed to persist process trace");
         }
+        let agent_status = match &status {
+            TerminalStatus::Failed { .. } => crate::RunAgentStatus::Failed,
+            _ => crate::RunAgentStatus::Exited,
+        };
         self.terminals.insert(terminal_id, status);
+        self.record_run_agent_exit(terminal_id, agent_status);
         if let Some(workflow) = self.workflows.workflows.iter_mut().find(|workflow| {
             workflow.status == WorkflowStatus::Running
                 && workflow.terminal_ids().contains(&terminal_id)
@@ -297,6 +302,35 @@ impl Inner {
         }
         if let Err(error) = self.events.append(EventKind::State(event)) {
             warn!(terminal_id = terminal_id.value(), %error, "failed to record terminal exit");
+        }
+    }
+
+    fn record_run_agent_exit(
+        &mut self,
+        terminal_id: TerminalId,
+        agent_status: crate::RunAgentStatus,
+    ) {
+        if let Some(index) = self.workflows.workflows.iter().position(|workflow| {
+            workflow.run.is_some() && workflow.agents.iter().any(|a| a.terminal_id == terminal_id)
+        }) {
+            let mut workflow = self.workflows.workflows[index].clone();
+            let id = workflow
+                .agents
+                .iter()
+                .find(|a| a.terminal_id == terminal_id)
+                .expect("terminal belongs to workflow")
+                .agent_id
+                .0;
+            let run = workflow.run.as_mut().expect("workflow has a run");
+            if let Some(agent) = run.agents.iter_mut().find(|a| a.agent_id == id)
+                && agent.status == crate::RunAgentStatus::Running
+            {
+                agent.status = agent_status;
+                // Exiting never completes a role or advances the run.
+                if let Err(error) = self.publish_run_best_effort(index, workflow) {
+                    warn!(%error, "failed to record workflow agent exit");
+                }
+            }
         }
     }
 }

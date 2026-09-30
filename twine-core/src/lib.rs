@@ -14,8 +14,8 @@ mod workflow;
 mod workflow_run;
 mod workflow_type;
 pub use workflow_run::{
-    Assignment, CompletionSignal, Decision, RoleLaunch, RunAgent, RunError, RunStatus, WorkflowRun,
-    WorkflowTrace,
+    Assignment, CompletionSignal, Decision, RoleLaunch, RunAgent, RunAgentStatus, RunError,
+    RunStatus, WorkflowRun, WorkflowTrace,
 };
 
 pub use application::{

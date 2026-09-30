@@ -11,6 +11,7 @@ use crate::workflow::timestamp;
 use crate::workflow_type::{Completion, HandoffContent, WorkflowType, WorkflowTypeRef, validate};
 
 pub(crate) mod completion;
+mod recovery;
 
 /// One harness choice per role instance, fixed at launch.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -67,6 +68,22 @@ pub struct RunAgent {
     pub instance: u8,
     pub label: String,
     pub harness: HarnessId,
+    /// Defaults for records saved before per-agent lifecycle tracking was introduced.
+    #[serde(default)]
+    pub status: RunAgentStatus,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RunAgentStatus {
+    #[default]
+    Waiting,
+    Running,
+    Completed,
+    Exited,
+    Failed,
+    Cancelled,
+    Interrupted,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -137,6 +154,7 @@ impl WorkflowRun {
                         role.name.clone()
                     },
                     harness: choice.harness,
+                    status: RunAgentStatus::Waiting,
                 });
             }
         }
@@ -245,18 +263,7 @@ impl WorkflowRun {
         {
             return Err(RunError::Assignments);
         }
-        self.trace(
-            "roleCompleted",
-            Some(agent_id),
-            None,
-            match signal.decision {
-                Decision::Done => "Marked done",
-                Decision::Approve => "Approved",
-                Decision::RequestChanges => "Requested changes",
-            },
-        );
-        let decision = signal.decision;
-        self.completions.insert(agent_id, signal);
+        let decision = self.record_completion(agent_id, signal);
         // A review decision is the completion rule for the whole stage, even when other roles
         // are helping the reviewer. AllRolesDone instead waits for every role instance.
         let stage_done = reviewer
@@ -268,6 +275,12 @@ impl WorkflowRun {
             return Ok(false);
         }
         self.trace("stageCompleted", None, None, "Stage completed");
+        // A review decision can stop other participants without completing their work.
+        for agent in &mut self.agents {
+            if agent.status == RunAgentStatus::Running {
+                agent.status = RunAgentStatus::Cancelled;
+            }
+        }
         let definition = &self.workflow_type.definition;
         let stage = &definition.stages[self.stage_index];
         let next = if decision == Decision::RequestChanges {
@@ -303,8 +316,35 @@ impl WorkflowRun {
             self.generation += 1;
             self.completions.clear();
             self.message = None;
+            let stage = &self.workflow_type.definition.stages[self.stage_index];
+            for agent in &mut self.agents {
+                if stage.roles.iter().any(|role| role.0 == agent.role) {
+                    agent.status = RunAgentStatus::Waiting;
+                }
+            }
         }
         Ok(true)
+    }
+
+    fn record_completion(&mut self, agent_id: u64, signal: CompletionSignal) -> Decision {
+        self.trace(
+            "roleCompleted",
+            Some(agent_id),
+            None,
+            match signal.decision {
+                Decision::Done => "Marked done",
+                Decision::Approve => "Approved",
+                Decision::RequestChanges => "Requested changes",
+            },
+        );
+        let decision = signal.decision;
+        self.completions.insert(agent_id, signal);
+        self.agents
+            .iter_mut()
+            .find(|a| a.agent_id == agent_id)
+            .expect("completion agent was validated")
+            .status = RunAgentStatus::Completed;
+        decision
     }
 
     fn deliver_handoffs(&mut self, next: usize) {
@@ -437,6 +477,20 @@ impl WorkflowRun {
     }
 
     pub(crate) fn finish(&mut self, status: RunStatus, message: &str) {
+        let active: Vec<_> = self.active_agents().iter().map(|a| a.agent_id).collect();
+        for agent in &mut self.agents {
+            if agent.status == RunAgentStatus::Running
+                || (agent.status == RunAgentStatus::Waiting
+                    && active.contains(&agent.agent_id)
+                    && !self.completions.contains_key(&agent.agent_id))
+            {
+                agent.status = match status {
+                    RunStatus::Interrupted => RunAgentStatus::Interrupted,
+                    RunStatus::Failed => RunAgentStatus::Failed,
+                    _ => RunAgentStatus::Cancelled,
+                };
+            }
+        }
         self.status = status;
         self.message = Some(message.to_owned());
         self.trace("workflowEnded", None, None, message);

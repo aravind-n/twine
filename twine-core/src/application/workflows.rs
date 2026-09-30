@@ -509,17 +509,23 @@ fn restore_run(
     workflow: &mut Workflow,
     store: &mut crate::store::Store,
 ) -> Result<(), ApplicationError> {
+    let mut interrupted = false;
     if let Some(run) = &mut workflow.run {
+        // Startup has already recovered all folders. A folder closed and reopened within this
+        // instance can still contain a stopped run that needs the same interruption outcome.
         if run.status == crate::RunStatus::Running {
             run.finish(
                 crate::RunStatus::Interrupted,
                 "Twine stopped while the workflow was running.",
             );
+            interrupted = true;
         }
         workflow.status = super::runs::workflow_status(run.status);
         workflow.ended_at = Some(workflow.started_at);
     }
-    store.save_workflow_run(workflow)?;
+    if interrupted {
+        store.save_workflow_run(workflow)?;
+    }
     Ok(())
 }
 

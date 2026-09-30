@@ -20,6 +20,8 @@ use crate::workflow::{SessionId, WorkflowId, WorkflowKind, WorkflowState};
 mod agents;
 mod files;
 mod git;
+#[cfg(test)]
+mod recovery;
 mod runs;
 mod sessions;
 mod terminals;
@@ -196,10 +198,11 @@ impl Application {
     /// Returns an error if the database cannot be opened or migrated, transcript storage cannot
     /// be opened or is owned by another core, or the initial ready event cannot be recorded.
     pub fn with_config(data_directory: &Path, config: Config) -> Result<Self, ApplicationError> {
-        let store = Store::open(&data_directory.join(DATABASE_FILE_NAME))?;
+        // Acquire directory ownership before migrating or recovering any durable state.
         let transcripts = Arc::new(TranscriptRecorder::open(
             &data_directory.join("transcripts"),
         )?);
+        let store = Store::open(&data_directory.join(DATABASE_FILE_NAME))?;
         Self::with_store(store, config, DEFAULT_EVENT_CAPACITY, transcripts)
     }
 
@@ -220,11 +223,13 @@ impl Application {
     }
 
     fn with_store(
-        store: Store,
+        mut store: Store,
         config: Config,
         event_capacity: usize,
         transcripts: Arc<TranscriptRecorder>,
     ) -> Result<Self, ApplicationError> {
+        // Recover every folder, including closed or currently unavailable folders, before ready.
+        store.recover_interrupted_work()?;
         let folders = Folders::restore(store)?;
         let mut events = EventJournal::new(event_capacity)?;
         events.append(EventKind::State(StateEvent::ApplicationReady))?;

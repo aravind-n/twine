@@ -44,7 +44,12 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
         let targets: [Target]
         var role: String?
         var instance: Int?
+        var status: AgentStatus?
         var id: UInt64 { agentId }
+    }
+
+    enum AgentStatus: String, Decodable, Sendable {
+        case waiting, running, completed, exited, failed, cancelled, interrupted
     }
 
     struct Target: Decodable, Equatable, Identifiable, Sendable {

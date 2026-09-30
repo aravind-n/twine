@@ -206,6 +206,11 @@ impl Application {
                         inner.terminals.remove(&tab.terminal_id);
                     }
                     tab.terminal_id = terminal_id;
+                    run.agents
+                        .iter_mut()
+                        .find(|a| a.agent_id == agent.agent_id)
+                        .expect("launched agent belongs to run")
+                        .status = crate::RunAgentStatus::Running;
                     processes
                         .inboxes
                         .insert(AgentId(agent.agent_id), (run.generation, inbox));
@@ -488,7 +493,7 @@ impl super::Inner {
         self.record_run(index, workflow)
     }
 
-    fn publish_run_best_effort(
+    pub(super) fn publish_run_best_effort(
         &mut self,
         index: usize,
         workflow: Workflow,

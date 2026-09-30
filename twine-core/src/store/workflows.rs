@@ -157,7 +157,7 @@ impl Store {
             agents.entry(workflow_id).or_default().push(agent);
         }
         let mut statement = self.connection.prepare(
-            "SELECT w.id, w.session_id, w.name, w.kind, w.harness, w.agent_status, r.state FROM workflows w
+            "SELECT w.id, w.session_id, w.name, w.kind, w.harness, w.lifecycle_status, r.state FROM workflows w
              LEFT JOIN workflow_runs r ON r.workflow_id = w.id
              JOIN sessions s ON s.id = w.session_id WHERE s.folder = ?1 AND w.closed_at IS NULL ORDER BY w.id",
         )?;
@@ -190,13 +190,15 @@ impl Store {
                     run: row
                         .get::<_, Option<String>>(6)?
                         .map(|value| {
-                            serde_json::from_str(&value).map_err(|error| {
-                                rusqlite::Error::FromSqlConversionFailure(
-                                    6,
-                                    rusqlite::types::Type::Text,
-                                    Box::new(error),
-                                )
-                            })
+                            crate::WorkflowRun::from_stored_json(&value)
+                                .map(Box::new)
+                                .map_err(|error| {
+                                    rusqlite::Error::FromSqlConversionFailure(
+                                        6,
+                                        rusqlite::types::Type::Text,
+                                        Box::new(error),
+                                    )
+                                })
                         })
                         .transpose()?,
                 })
@@ -262,7 +264,7 @@ impl Store {
         status: WorkflowStatus,
     ) -> Result<(), StoreError> {
         self.connection.execute(
-            "UPDATE workflows SET agent_status = ?2 WHERE id = ?1",
+            "UPDATE workflows SET lifecycle_status = ?2 WHERE id = ?1",
             params![sql_integer(id.0)?, status_name(status)],
         )?;
         Ok(())
@@ -318,7 +320,8 @@ fn status_name(status: WorkflowStatus) -> Option<&'static str> {
         WorkflowStatus::Exited => Some("exited"),
         WorkflowStatus::Failed => Some("failed"),
         WorkflowStatus::Cancelled => Some("cancelled"),
-        WorkflowStatus::Interrupted | WorkflowStatus::Closed | WorkflowStatus::Completed => None,
+        WorkflowStatus::Interrupted => Some("interrupted"),
+        WorkflowStatus::Closed | WorkflowStatus::Completed => None,
     }
 }
 
@@ -328,6 +331,7 @@ fn status_from_name(name: &str) -> Option<WorkflowStatus> {
         "exited" => Some(WorkflowStatus::Exited),
         "failed" => Some(WorkflowStatus::Failed),
         "cancelled" => Some(WorkflowStatus::Cancelled),
+        "interrupted" => Some(WorkflowStatus::Interrupted),
         _ => None,
     }
 }
