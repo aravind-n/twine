@@ -209,6 +209,14 @@ actor ScriptedAgentTransport {
         chunks.isEmpty ? nil : chunks.removeFirst()
     }
 
+    func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {
+        throw BridgeFailure.invalidArgument
+    }
+
+    func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
+        throw BridgeFailure.invalidArgument
+    }
+
     func writeTerminalInput(terminalID: UInt64, bytes: Data) {}
 
     func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) {}

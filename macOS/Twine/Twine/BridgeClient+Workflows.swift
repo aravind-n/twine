@@ -63,3 +63,15 @@ extension BridgeFailure {
         if case .commandRejected(let code, _) = self { code == "agentNotRunning" } else { false }
     }
 }
+
+extension BridgeClient {
+    func markTerminalRunning(_ terminalID: UInt64, in snapshot: inout BridgeSnapshot) {
+        terminalChunkRouter.markStarted(terminalID)
+        updateTerminal(BridgeTerminalState(terminalID: terminalID, status: .running), in: &snapshot)
+    }
+
+    func markTerminalClosed(_ terminalID: UInt64, in snapshot: inout BridgeSnapshot) {
+        terminalChunkRouter.markClosed(terminalID)
+        snapshot.terminals.removeAll { $0.terminalID == terminalID }
+    }
+}

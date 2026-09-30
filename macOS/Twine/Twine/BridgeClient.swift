@@ -20,7 +20,7 @@ final class BridgeClient {
     private var commandResults: [UInt64: BridgeCommandResult] = [:]
     private var ignoredCommandResults: Set<UInt64> = []
     private var commandWaiters: [UInt64: CheckedContinuation<BridgeCommandResult, any Error>] = [:]
-    private var terminalChunkRouter = TerminalChunkRouter(capacityBytes: 1024 * 1024)
+    var terminalChunkRouter = TerminalChunkRouter(capacityBytes: 1024 * 1024)
     private var isFetchingTerminalChunk = false
 
     init(transport: any BridgeTransport) {
@@ -255,17 +255,7 @@ final class BridgeClient {
         failCommandWaiters(with: error)
     }
 
-    private func markTerminalRunning(_ terminalID: UInt64, in snapshot: inout BridgeSnapshot) {
-        terminalChunkRouter.markStarted(terminalID)
-        updateTerminal(BridgeTerminalState(terminalID: terminalID, status: .running), in: &snapshot)
-    }
-
-    private func markTerminalClosed(_ terminalID: UInt64, in snapshot: inout BridgeSnapshot) {
-        terminalChunkRouter.markClosed(terminalID)
-        snapshot.terminals.removeAll { $0.terminalID == terminalID }
-    }
-
-    private func updateTerminal(_ terminal: BridgeTerminalState, in snapshot: inout BridgeSnapshot) {
+    func updateTerminal(_ terminal: BridgeTerminalState, in snapshot: inout BridgeSnapshot) {
         if let index = snapshot.terminals.firstIndex(where: { $0.terminalID == terminal.terminalID }) {
             snapshot.terminals[index] = terminal
         } else {
