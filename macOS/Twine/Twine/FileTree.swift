@@ -7,12 +7,17 @@ struct FileTree: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                if let failure = model.failure {
-                    Text(failure).font(.caption).foregroundStyle(.secondary).padding(12)
+                FileTreeRow(
+                    entry: FileEntry(path: folder, name: URL(filePath: folder).lastPathComponent, kind: .directory),
+                    depth: 0, isExpanded: model.isRootExpanded, action: model.toggleRoot)
+                if model.isRootExpanded {
+                    if let failure = model.failure {
+                        Text(failure).font(.caption).foregroundStyle(.secondary).padding(12)
+                    }
+                    FileTreeDirectory(path: folder, depth: 1, model: model)
                 }
-                FileTreeDirectory(path: folder, depth: 0, model: model)
             }
-            .padding(.horizontal, SidebarLayout.folderHeaderInset)
+            .padding(.horizontal, SidebarLayout.contentInset)
         }
         .accessibilityIdentifier("fileTree")
     }
@@ -55,13 +60,32 @@ private struct FileTreeDirectory: View {
     }
 
     private func row(_ entry: FileEntry) -> some View {
-        let isDirectory = entry.kind == .directory
-        let selected = editor.path == entry.path
-        return Button {
-            if isDirectory { model.toggle(entry.path) } else { editor.select(entry.path, folder: folderPath) }
-        } label: {
+        FileTreeRow(
+            entry: entry, depth: depth, isExpanded: model.expanded.contains(entry.path),
+            isSelected: editor.path == entry.path
+        ) {
+            if entry.kind == .directory {
+                model.toggle(entry.path)
+            } else {
+                editor.select(entry.path, folder: folderPath)
+            }
+        }
+    }
+}
+
+private struct FileTreeRow: View {
+    let entry: FileEntry
+    let depth: Int
+    let isExpanded: Bool
+    var isSelected = false
+    let action: () -> Void
+
+    private var isDirectory: Bool { entry.kind == .directory }
+
+    var body: some View {
+        Button(action: action) {
             HStack(spacing: 4) {
-                Image(systemName: model.expanded.contains(entry.path) ? "chevron.down" : "chevron.right")
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 9)).foregroundStyle(.tertiary)
                     .frame(width: 11).opacity(isDirectory ? 1 : 0)
                 Image(systemName: isDirectory ? "folder" : (entry.kind == .symlink ? "link" : "doc"))
@@ -76,7 +100,7 @@ private struct FileTreeDirectory: View {
             .frame(height: SidebarLayout.rowHeight)
             .contentShape(.rect)
             .background(
-                selected ? Color.fileSelection : .clear,
+                isSelected ? Color.fileSelection : .clear,
                 in: .rect(cornerRadius: CornerRadius.fileRowSelection))
         }
         .buttonStyle(.plain)
@@ -84,8 +108,8 @@ private struct FileTreeDirectory: View {
         .accessibilityLabel(entry.name)
         .accessibilityValue(
             isDirectory
-                ? (model.expanded.contains(entry.path) ? "Expanded" : "Collapsed")
-                : (selected ? "Selected" : "")
+                ? (isExpanded ? "Expanded" : "Collapsed")
+                : (isSelected ? "Selected" : "")
         )
         .accessibilityIdentifier("fileRow-\(entry.path)")
     }

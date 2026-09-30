@@ -4,14 +4,21 @@ import XCTest
 extension TwineUITests {
     @MainActor
     func testTracesExpandSelectCopyAndKeepTheTimelineVisible() throws {
+        for appearance in ["Light", "Dark"] { try checkTraces(appearance: appearance) }
+    }
+
+    @MainActor
+    private func checkTraces(appearance: String) throws {
         let folder = try traceFolder()
         let app = try makeApp(lastOpenFolder: folder)
+        app.launchEnvironment["TWINE_TEST_APPEARANCE"] = appearance
         app.launch()
         defer { app.terminate() }
         let header = app.buttons["tracesHeader"]
         XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(header.label, "Traces, collapsed")
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
+        attachWindow(in: app, name: "\(appearance), Traces collapsed")
         header.click()
         XCTAssertEqual(header.label, "Traces, expanded")
         let span = app.buttons["traceSpan-1"]
@@ -28,16 +35,14 @@ extension TwineUITests {
             }, evaluatedWith: nil)
         wait(for: [copied], timeout: 5)
         XCTAssertTrue(NSPasteboard.general.string(forType: .string)?.contains("Terminal — Shell") == true)
+        attachWindow(in: app, name: "\(appearance), Traces expanded with details")
 
         // At the supported minimum width the lane contracts to its role symbol.
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 400, height: 620))
         XCTAssertTrue(span.isHittable, app.debugDescription)
         XCTAssertTrue(close.isHittable, app.debugDescription)
         XCTAssertLessThan(span.frame.maxX, close.frame.minX)
-        let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
-        screenshot.name = "Traces and details at minimum width"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
+        attachWindow(in: app, name: "\(appearance), Traces and details at minimum width")
         close.click()
         XCTAssertTrue(close.waitForNonExistence(timeout: 5))
         XCTAssertTrue(span.isHittable)

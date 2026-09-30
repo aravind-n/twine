@@ -18,11 +18,10 @@ struct TracesHeader: View {
                         .font(.caption2).foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: TracesLayout.chevronSize, height: TracesLayout.chevronSize)
-                    .glassEffect(in: .rect(cornerRadius: CornerRadius.glassIconButton))
             }
             .padding(.horizontal, TracesLayout.headerHorizontalPadding)
             .frame(maxWidth: .infinity)

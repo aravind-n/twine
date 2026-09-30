@@ -21,12 +21,11 @@ struct FolderSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            folderHeader
             sectionHeader("Files") {
-                Button("Collapse All", systemImage: "arrow.up.left.and.arrow.down.right") { files.expanded.removeAll() }
+                Button("Collapse All", systemImage: "arrow.up.left.and.arrow.down.right", action: files.collapseAll)
             }
             FileTree(folder: path, model: files)
-            Divider().padding(.horizontal, SidebarLayout.folderHeaderInset)
+            Divider().padding(.horizontal, SidebarLayout.contentInset)
             sectionHeader("Sessions") {
                 Button("New Session", systemImage: "plus") { create() }
                     .accessibilityIdentifier("newSession")
@@ -51,7 +50,7 @@ struct FolderSidebar: View {
                             .frame(height: SidebarLayout.rowHeight)
                     }
                 }
-                .padding(.horizontal, SidebarLayout.folderHeaderInset)
+                .padding(.horizontal, SidebarLayout.contentInset)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -88,23 +87,6 @@ struct FolderSidebar: View {
         } message: {
             Text(failureMessage ?? "")
         }
-    }
-
-    private var folderHeader: some View {
-        HStack {
-            Image(systemName: Symbol.app).foregroundStyle(.tint).accessibilityHidden(true)
-            Text(URL(filePath: path).lastPathComponent)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("sidebarFolderName")
-        }
-        .padding(.horizontal, SidebarLayout.folderHeaderInset)
-        .frame(height: SidebarLayout.folderHeaderHeight)
-        .background(.quaternary, in: .rect(cornerRadius: CornerRadius.sidebarFolderHeader))
-        .padding(SidebarLayout.folderHeaderInset)
-        .help((path as NSString).abbreviatingWithTildeInPath)
     }
 
     private func sectionHeader<Actions: View>(_ title: String, @ViewBuilder actions: () -> Actions) -> some View {

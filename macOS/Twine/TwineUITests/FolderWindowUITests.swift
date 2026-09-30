@@ -82,8 +82,8 @@ extension TwineUITests {
 
         let toggle = app.buttons["sidebarToggle"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
-        let folderName = app.staticTexts["sidebarFolderName"]
-        XCTAssertFalse(folderName.exists, "The sidebar should start hidden")
+        let root = fileRow(folder, in: app)
+        XCTAssertFalse(root.exists, "The sidebar should start hidden")
         let traces = app.descendants(matching: .any).matching(identifier: "tracesHeader").firstMatch
         XCTAssertTrue(traces.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(traces.label, "Traces, collapsed")
@@ -97,9 +97,10 @@ extension TwineUITests {
         attachWindow(in: app, name: "\(appearance), sidebar hidden")
 
         toggle.click()
-        XCTAssertTrue(folderName.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(root.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Sidebar")).count, 1)
-        XCTAssertEqual(folderName.value as? String, folder.lastPathComponent)
+        XCTAssertEqual(root.label, folder.lastPathComponent)
+        XCTAssertEqual(root.value as? String, "Expanded")
         XCTAssertLessThan(traces.frame.width, fullWidth)
         let withSidebar = try shellState(in: app, folder: folder, checkpoint: "sidebar")
         XCTAssertEqual(withSidebar.processID, initial.processID, "Toggling must preserve the live shell")
@@ -108,7 +109,7 @@ extension TwineUITests {
         attachWindow(in: app, name: "\(appearance), sidebar visible")
 
         app.typeKey("s", modifierFlags: [.command, .control])
-        XCTAssertTrue(folderName.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(root.waitForNonExistence(timeout: 5))
         let hiddenAgain = try shellState(in: app, folder: folder, checkpoint: "hidden")
         XCTAssertEqual(hiddenAgain.processID, initial.processID)
         XCTAssertEqual(hiddenAgain.columns, initial.columns)
@@ -121,7 +122,7 @@ extension TwineUITests {
         XCTAssertTrue(traces.isHittable)
 
         toggle.click()
-        XCTAssertTrue(folderName.waitForExistence(timeout: 5))
+        XCTAssertTrue(root.waitForExistence(timeout: 5))
         let narrowSidebar = try shellState(in: app, folder: folder, checkpoint: "narrow-sidebar")
         XCTAssertEqual(narrowSidebar.processID, initial.processID)
         XCTAssertGreaterThan(narrowSidebar.columns, 0)
@@ -184,7 +185,7 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func attachWindow(in app: XCUIApplication, name: String) {
+    func attachWindow(in app: XCUIApplication, name: String) {
         let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
