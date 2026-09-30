@@ -5,12 +5,15 @@ import SwiftUI
 struct TerminalHistoryText: NSViewRepresentable {
     let text: String
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> TerminalHistoryScrollView {
         Self.makeScrollView()
     }
 
-    static func makeScrollView() -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
+    static func makeScrollView() -> TerminalHistoryScrollView {
+        let source = NSTextView.scrollableTextView()
+        let scroll = TerminalHistoryScrollView()
+        scroll.documentView = source.documentView
+        scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         guard let view = scroll.documentView as? NSTextView else { return scroll }
         view.isEditable = false
@@ -29,23 +32,41 @@ struct TerminalHistoryText: NSViewRepresentable {
         return scroll
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
+    func updateNSView(_ scroll: TerminalHistoryScrollView, context: Context) {
         Self.show(text, in: scroll)
     }
 
-    static func show(_ text: String, in scroll: NSScrollView) {
+    static func show(_ text: String, in scroll: TerminalHistoryScrollView) {
         guard let view = scroll.documentView as? NSTextView else { return }
         view.backgroundColor = .terminalBackground
         view.textColor = .terminalText
         if view.string != text {
             view.string = text
-            let lastOutput = (text as NSString).rangeOfCharacter(
+            scroll.pendingOutput = (text as NSString).rangeOfCharacter(
                 from: .whitespacesAndNewlines.inverted, options: .backwards)
-            if lastOutput.location != NSNotFound { view.scrollRangeToVisible(lastOutput) }
-            // A wide historical row scrolls vertically into view while its first column stays visible.
-            scroll.contentView.scroll(to: NSPoint(x: 0, y: scroll.contentView.bounds.minY))
-            scroll.reflectScrolledClipView(scroll.contentView)
+            scroll.needsLayout = true
         }
+    }
+}
+
+/// SwiftUI supplies the text before the viewport has a size. Position it once layout has real bounds.
+final class TerminalHistoryScrollView: NSScrollView {
+    var pendingOutput: NSRange?
+
+    override func layout() {
+        super.layout()
+        guard let range = pendingOutput, contentView.bounds.height > 0,
+            let view = documentView as? NSTextView,
+            let layout = view.layoutManager, let container = view.textContainer
+        else { return }
+        pendingOutput = nil
+        guard range.location != NSNotFound else { return }
+        let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        let output = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            .offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
+        let origin = NSPoint(x: 0, y: max(0, output.maxY + view.textContainerInset.height - contentView.bounds.height))
+        contentView.scroll(to: origin)
+        reflectScrolledClipView(contentView)
     }
 }
 

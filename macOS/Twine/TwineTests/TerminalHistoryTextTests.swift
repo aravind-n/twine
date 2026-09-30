@@ -7,14 +7,15 @@ import Testing
 struct TerminalHistoryTextTests {
     @Test func viewportShowsOutputInsteadOfTrailingBlankTerminalRows() throws {
         let scroll = TerminalHistoryText.makeScrollView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 160)
-        let window = NSWindow(
-            contentRect: scroll.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = scroll
         let text =
             "command\nFINAL_HISTORY\n" + String(repeating: "long historical row ", count: 12)
             + String(repeating: "\n", count: 40)
+        // SwiftUI updates text while the newly created view still has a zero-sized frame.
         TerminalHistoryText.show(text, in: scroll)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 160),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = scroll
         scroll.layoutSubtreeIfNeeded()
         let view = try #require(scroll.documentView as? NSTextView)
         let layout = try #require(view.layoutManager)
