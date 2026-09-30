@@ -3,8 +3,10 @@ name: CI
 # Pull requests run every check their changes select, and ci-gate is the one required check.
 # Main only accepts up-to-date pull requests, so pushes to main skip those checks and run
 # only the work pull requests don't: the release build and the UI tests.
+# Manual runs build the Debug app and run UI tests when a push run needs a retry.
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -82,7 +84,7 @@ jobs:
     needs: changes
     if: >-
       always() &&
-      (github.event_name == 'push' ||
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
       (needs.changes.result == 'success' && needs.changes.outputs.app == 'true'))
     runs-on: xcode-27
     strategy:
@@ -159,7 +161,7 @@ jobs:
     needs: library-build
     # Pull requests skip the UI tests because they are slow; main runs them after each merge.
     if: >-
-      github.event_name == 'push' && !cancelled() &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !cancelled() &&
       needs.library-build.result == 'success'
     runs-on: xcode-27
     steps:
