@@ -79,6 +79,20 @@ actor BridgeWorker: BridgeTransport {
         return try decoder.decode(FileBrowserSnapshot.self, from: consume(&response))
     }
 
+    func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {
+        let data = try encoder.encode(request)
+        var response = TwineBuffer()
+        let status = try withClient { client in
+            data.withUnsafeBytes { bytes in
+                twine_client_save_file(
+                    client, bytes.bindMemory(to: UInt8.self).baseAddress,
+                    bytes.count, &response)
+            }
+        }
+        try check(status)
+        return try decoder.decode(FileSaveResult.self, from: consume(&response))
+    }
+
     func events(after sequence: UInt64, limit: UInt32) throws -> [BridgeEvent] {
         var response = TwineBuffer()
         let status = try withClient { client in

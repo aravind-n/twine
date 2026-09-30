@@ -34,6 +34,7 @@ enum WindowContent: Equatable {
 
 struct ContentView: View {
     @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(FileEditorModel.self) private var fileEditor
     @State private var isChoosingFolder = false
 
     var body: some View {
@@ -42,12 +43,19 @@ struct ContentView: View {
             .fileImporter(isPresented: $isChoosingFolder, allowedContentTypes: [.folder]) { result in
                 switch result {
                 case .success(let url):
+                    guard fileEditor.select(nil) else { return }
                     perform(.openFolder(path: url.path(percentEncoded: false)))
                 case .failure(let error):
                     folderLogger.error("Folder picker failed: \(error.localizedDescription, privacy: .public)")
                 }
             }
             .focusedSceneValue(\.isChoosingFolder, $isChoosingFolder)
+            .windowDismissBehavior(fileEditor.isSaving ? .disabled : .automatic)
+            .dismissalConfirmationDialog("Discard unsaved changes?", shouldPresent: fileEditor.isDirty) {
+                Button("Discard Changes", role: .destructive) { fileEditor.discardAndClose() }
+            } message: {
+                Text("Cancel to keep editing or save with ⌘S.")
+            }
     }
 
     @ViewBuilder private var content: some View {

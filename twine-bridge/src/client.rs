@@ -12,6 +12,15 @@ pub struct TwineClient {
 }
 
 impl TwineClient {
+    pub(crate) fn save_file(&self, bytes: &[u8]) -> Result<Vec<u8>, BridgeError> {
+        let text = std::str::from_utf8(bytes).map_err(|_| BridgeError::InvalidUtf8)?;
+        let request: protocol::files::SaveRequest =
+            serde_json::from_str(text).map_err(|_| BridgeError::MalformedCommand)?;
+        Ok(protocol::files::encode_save(
+            self.application.save_file(&request.into()),
+        )?)
+    }
+
     pub(crate) fn poll_files(&self, bytes: &[u8]) -> Result<Vec<u8>, BridgeError> {
         let text = std::str::from_utf8(bytes).map_err(|_| BridgeError::InvalidUtf8)?;
         let request: protocol::files::FileRequest =

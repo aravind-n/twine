@@ -7,12 +7,11 @@ private let filesLogger = Logger(subsystem: "com.twineproject.Twine", category: 
 @Observable
 final class FileBrowserModel {
     var expanded: Set<String> = []
-    var selectedPath: String?
     private(set) var snapshot: FileBrowserSnapshot?
     private(set) var failure: String?
 
-    func request(folder: String) -> FileBrowserRequest {
-        FileBrowserRequest(folder: folder, directories: expanded.sorted(), file: selectedPath)
+    func request(folder: String, file: String? = nil) -> FileBrowserRequest {
+        FileBrowserRequest(folder: folder, directories: expanded.sorted(), file: file)
     }
 
     func toggle(_ path: String) {
@@ -25,13 +24,20 @@ final class FileBrowserModel {
         }
     }
 
-    func watch(_ request: FileBrowserRequest, client: BridgeClient) async {
+    func watch(_ request: FileBrowserRequest, client: BridgeClient, editor: FileEditorModel) async {
         var request = request
+        var lastGeneration: UUID?
         do {
             while !Task.isCancelled {
+                let generation = editor.generation
+                if generation != lastGeneration {
+                    request.revision = nil
+                    lastGeneration = generation
+                }
                 if let next = try await client.pollFiles(request) {
                     try Task.checkCancellation()
                     snapshot = next
+                    if generation == editor.generation { editor.receive(next.file) }
                     request.revision = next.revision
                 }
                 failure = nil

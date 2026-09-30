@@ -8,8 +8,11 @@ Show the sidebar to browse the open folder. Expanding a directory loads only its
 empty directories remain visible. The Rust file watcher checks expanded directories and the
 selected file every 500 ms, including changes made by shells and agents.
 
-Select a file to open its read-only text viewer. It supports UTF-8 text up to **2 MiB**, text
-selection and copying, and **⌘L** to go to a line. **⌘W** closes the file and returns to the
+Select a file to make small edits to UTF-8 text up to **2 MiB**. Use **⌘Z** to undo, **⇧⌘Z** to
+redo, **⌘S** to save, and **⌘L** to go to a line. Unsaved changes show “Edited” in the header.
+Saves go through Rust and check the disk version first. If it changed, choose **Reload** to discard
+your edits or **Overwrite** to save them; **Cancel** keeps the edits without changing the file.
+Disk updates refresh clean files and never replace unsaved edits. **⌘W** closes the file and returns to the
 workflow. Binary files, larger files, deleted paths, symbolic links, and special files show
 an explanatory state. Up to 256 directories can be expanded at once.
 

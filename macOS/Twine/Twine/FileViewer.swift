@@ -1,16 +1,17 @@
 import SwiftUI
 
 struct FileViewer: View {
+    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(FileEditorModel.self) private var editor
     let path: String
     let folder: String
-    let preview: FilePreview?
     let failure: String?
     let close: () -> Void
     @State private var showsGoToLine = false
     @State private var line = "1"
     @State private var lineRequest: FileLineRequest?
 
-    private var current: FilePreview? { preview?.path == path ? preview : nil }
+    private var current: FilePreview? { editor.baseline }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,7 +20,9 @@ struct FileViewer: View {
                 Text(path.hasPrefix(folder + "/") ? String(path.dropFirst(folder.count + 1)) : path)
                     .font(.caption).lineLimit(1).truncationMode(.middle).help(path)
                 Spacer(minLength: 0)
-                Text("Read Only").sectionLabelStyle()
+                if editor.isDirty { Text("Edited").sectionLabelStyle().accessibilityIdentifier("fileEdited") }
+                Button(editor.isSaving ? "Saving…" : "Save") { editor.requestSave() }
+                    .font(.caption).disabled(!editor.canSave).accessibilityIdentifier("saveFile")
                 Button("Go to Line…") { showsGoToLine = true }
                     .font(.caption)
                     .keyboardShortcut("l", modifiers: .command)
@@ -33,7 +36,7 @@ struct FileViewer: View {
             }
             .padding(14)
             Divider()
-            if let failure {
+            if let failure, current == nil {
                 ContentUnavailableView(
                     "Couldn't Refresh File", systemImage: "exclamationmark.triangle",
                     description: Text(failure))
@@ -47,12 +50,37 @@ struct FileViewer: View {
         .background(.background)
         .clipShape(.rect(cornerRadius: CornerRadius.panel))
         .overlay { RoundedRectangle(cornerRadius: CornerRadius.panel).stroke(.hairline, lineWidth: 1) }
+        .task(id: editor.saveID) { await editor.savePending(client: bridgeClient) }
+        .alert(
+            "File Changed on Disk",
+            isPresented: Binding(get: { editor.conflict != nil }, set: { if !$0 { editor.conflict = nil } }),
+            presenting: editor.conflict
+        ) { file in
+            Button("Cancel", role: .cancel) { editor.conflict = nil }
+            Button("Reload", role: .destructive) { editor.reloadConflict(file) }
+            Button("Overwrite", role: .destructive) { editor.requestSave(overwrite: true) }
+        } message: { _ in
+            Text(
+                "The file changed since you opened it. Reload discards your edits. "
+                    + "Overwrite replaces the disk version with your edits."
+            )
+        }
+        .alert(
+            "Couldn't Save File",
+            isPresented: Binding(get: { editor.failure != nil }, set: { if !$0 { editor.failure = nil } })
+        ) {
+            Button("OK") { editor.failure = nil }
+        } message: {
+            Text(editor.failure ?? "")
+        }
     }
 
     @ViewBuilder private func content(_ preview: FilePreview) -> some View {
         switch preview.status {
         case .text:
-            FileTextView(text: preview.text ?? "", lineRequest: lineRequest)
+            FileTextView(
+                text: Binding(get: { editor.text }, set: { editor.text = $0 }),
+                loadID: editor.loadID, isEditable: !editor.isSaving, lineRequest: lineRequest)
         case .binary:
             unavailable("Binary File", "Only UTF-8 text files can be displayed.")
         case .tooLarge:
@@ -71,8 +99,8 @@ struct FileViewer: View {
     }
 
     private var requestedRange: NSRange? {
-        guard let number = Int(line), let text = current?.text else { return nil }
-        return FileTextView.lineRange(in: text, line: number)
+        guard let number = Int(line), current?.status == .text else { return nil }
+        return FileTextView.lineRange(in: editor.text, line: number)
     }
 
     private var goToLineForm: some View {

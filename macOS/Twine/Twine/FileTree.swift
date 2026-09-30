@@ -19,9 +19,12 @@ struct FileTree: View {
 }
 
 private struct FileTreeDirectory: View {
+    @Environment(FileEditorModel.self) private var editor
     let path: String
     let depth: Int
     @Bindable var model: FileBrowserModel
+
+    private var folderPath: String? { model.snapshot?.folder }
 
     private var directory: FileDirectory? { model.snapshot?.directories.first { $0.path == path } }
 
@@ -53,9 +56,9 @@ private struct FileTreeDirectory: View {
 
     private func row(_ entry: FileEntry) -> some View {
         let isDirectory = entry.kind == .directory
-        let selected = model.selectedPath == entry.path
+        let selected = editor.path == entry.path
         return Button {
-            if isDirectory { model.toggle(entry.path) } else { model.selectedPath = entry.path }
+            if isDirectory { model.toggle(entry.path) } else { editor.select(entry.path, folder: folderPath) }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: model.expanded.contains(entry.path) ? "chevron.down" : "chevron.right")

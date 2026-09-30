@@ -18,6 +18,7 @@ struct WorkflowActions {
 /// They replace New Window: the core has one open folder, so a second window could only mirror it.
 struct FolderCommands: Commands {
     let bridgeClient: BridgeClient
+    let editor: FileEditorModel
     @FocusedBinding(\.isChoosingFolder) private var isChoosingFolder
     @FocusedValue(\.workflowActions) private var workflowActions
     @FocusedValue(\.closeFile) private var closeFile
@@ -35,11 +36,15 @@ struct FolderCommands: Commands {
             .keyboardShortcut("o")
             .disabled(isChoosingFolder == nil || !isRunning)
             Button("Close Folder") {
+                guard editor.select(nil) else { return }
                 Task { await bridgeClient.perform(.closeFolder) }
             }
             .disabled(!isRunning || bridgeClient.snapshot?.folders.openFolder == nil)
         }
         CommandGroup(replacing: .saveItem) {
+            Button("Save") { editor.requestSave() }
+                .keyboardShortcut("s")
+                .disabled(!editor.canSave || !isRunning)
             Button(closeTitle) {
                 if let closeFile {
                     closeFile()

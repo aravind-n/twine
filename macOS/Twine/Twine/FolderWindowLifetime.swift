@@ -5,22 +5,27 @@ import SwiftUI
 struct FolderWindowLifetime: NSViewRepresentable {
     let bridgeClient: BridgeClient
     let folder: String
+    let editor: FileEditorModel
 
     func makeNSView(context: Context) -> FolderWindowObserver {
-        FolderWindowObserver(bridgeClient: bridgeClient, folder: folder)
+        FolderWindowObserver(bridgeClient: bridgeClient, folder: folder, editor: editor)
     }
 
-    func updateNSView(_ nsView: FolderWindowObserver, context: Context) {}
+    func updateNSView(_ nsView: FolderWindowObserver, context: Context) {
+        nsView.window?.isDocumentEdited = editor.isDirty
+    }
 }
 
 final class FolderWindowObserver: NSView {
     private let bridgeClient: BridgeClient
     private let folder: String
     private weak var observedWindow: NSWindow?
+    private let editor: FileEditorModel
 
-    init(bridgeClient: BridgeClient, folder: String) {
+    init(bridgeClient: BridgeClient, folder: String, editor: FileEditorModel) {
         self.bridgeClient = bridgeClient
         self.folder = folder
+        self.editor = editor
         super.init(frame: .zero)
         NotificationCenter.default.addObserver(
             self, selector: #selector(windowWillClose), name: NSWindow.willCloseNotification, object: nil
@@ -34,10 +39,12 @@ final class FolderWindowObserver: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observedWindow = window
+        window?.isDocumentEdited = editor.isDirty
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
         guard let observedWindow, notification.object as? NSWindow === observedWindow else { return }
+        editor.discardAndClose()
         Task { await bridgeClient.perform(.closeFolderIfOpen(path: folder)) }
     }
 }
