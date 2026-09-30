@@ -2,6 +2,78 @@ import Darwin
 import XCTest
 
 extension TwineUITests {
+    /// Codex waits 250 ms for OSC 10/11 before permanently omitting its prompt shading.
+    @MainActor
+    func testAgentReceivesTerminalColorsBeforeItsStartupProbeTimesOut() throws {
+        let folder = try makeFolder()
+        try writeColorProbe(in: folder)
+        let app = try makeApp(lastOpenFolder: folder)
+        defer { app.terminate() }
+        app.launchEnvironment["SHELL"] = "/bin/sh"
+        app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(folder.path)/bin:/bin:/usr/bin"
+        app.launch()
+        XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
+        element("workflowChoice-Terminal", in: app).click()
+        app.typeText("mkdir bin; printf '#!/bin/sh\\n' > bin/pi; cat stub.txt >> bin/pi; chmod +x bin/pi\r")
+        let installed = expectation(
+            for: NSPredicate { _, _ in
+                FileManager.default.isExecutableFile(atPath: folder.appending(path: "bin/pi").path)
+            }, evaluatedWith: nil)
+        wait(for: [installed], timeout: 10)
+        app.buttons["newWorkflow"].click()
+        chooseHarness("pi", in: app)
+        let prompt = element("agentPrompt", in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 10), app.debugDescription)
+        prompt.click()
+        prompt.typeText("Check startup terminal colors")
+        element("agentStart", in: app).click()
+        let resultFile = folder.appending(path: "color-probe.txt")
+        waitForFile(resultFile, containing: "\n", in: app)
+        let result = try String(contentsOf: resultFile, encoding: .utf8)
+        let attachment = XCTAttachment(string: result)
+        attachment.name = "Agent startup color probe"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertTrue(result.hasPrefix("PASS after "), result)
+    }
+
+    private func writeColorProbe(in folder: URL) throws {
+        try #"""
+        use strict;
+        use warnings;
+        use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
+        $| = 1;
+        my $started = clock_gettime(CLOCK_MONOTONIC);
+        my $deadline = $started + 0.250;
+        print "\e[6n\e]10;?\e\\\e]11;?\e\\\e[?u\e[c";
+        my $reply = '';
+        my $complete = 0;
+        my $finished;
+        while (my $remaining = $deadline - clock_gettime(CLOCK_MONOTONIC)) {
+            last if $remaining <= 0;
+            my $readable = '';
+            vec($readable, 0, 1) = 1;
+            last unless select($readable, undef, undef, $remaining) > 0;
+            last unless sysread(STDIN, my $chunk, 4096);
+            $reply .= $chunk;
+            if ($reply =~ /\e\]10;rgb:[0-9a-f\/]+(?:\a|\e\\)/i
+                && $reply =~ /\e\]11;rgb:[0-9a-f\/]+(?:\a|\e\\)/i) {
+                $finished = clock_gettime(CLOCK_MONOTONIC);
+                $complete = $finished <= $deadline;
+                last;
+            }
+        }
+        open(my $result, '>', 'color-probe.txt') or die $!;
+        printf $result "%s after %.1f ms\n", $complete ? 'PASS' : 'TIMEOUT',
+            (($finished // clock_gettime(CLOCK_MONOTONIC)) - $started) * 1000;
+        close($result);
+        print "\r\nColor probe complete\r\n";
+        sleep 30;
+        """#.write(to: folder.appending(path: "probe.pl"), atomically: true, encoding: .utf8)
+        try "stty raw -echo\nexec /usr/bin/perl ./probe.pl\n".write(
+            to: folder.appending(path: "stub.txt"), atomically: true, encoding: .utf8)
+    }
+
     @MainActor
     func testForceQuitRestoresActiveAgentAsInterrupted() throws {
         let folder = try makeFolder()

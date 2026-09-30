@@ -174,7 +174,9 @@ impl Application {
             "agent started"
         );
         if placeholder.value() != 0 {
-            let _ = self.terminals.close(placeholder);
+            // Return promptly so the UI can answer the agent's startup terminal queries before
+            // they time out. Reaping the old shell includes a hang-up grace period.
+            let _ = self.terminals.close_in_background(placeholder);
         }
         Ok(CommandDisposition::Accepted)
     }
