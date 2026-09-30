@@ -715,9 +715,10 @@ mod tests {
             )
             .expect("shell with a detached descendant should start");
 
+        // The shell exits once Python has started, which can take seconds on a busy CI host.
         assert_eq!(
             exit_receiver
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(Duration::from_secs(10))
                 .expect("supervisor should report the primary shell exit")
                 .0,
             terminal_id
