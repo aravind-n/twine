@@ -9,6 +9,7 @@ mod git;
 mod store;
 mod terminal;
 mod workflow;
+mod workflow_type;
 
 pub use application::{
     Application, ApplicationError, ApplicationState, Command, CommandDisposition, CommandReceipt,
@@ -29,4 +30,9 @@ pub use terminal::{
 pub use workflow::{
     Session, SessionId, SessionStatus, Workflow, WorkflowId, WorkflowKind, WorkflowState,
     WorkflowStatus,
+};
+pub use workflow_type::{
+    Completion, ElementPath, Handoff, HandoffContent, InstanceCount, MAX_PARALLEL_AGENTS,
+    MAX_REVIEW_ROUNDS, ReviewLoop, Role, RoleId, Stage, StageId, StageRole, ValidationIssue,
+    ValidationProblem, WorkflowTypeDefinition, validate,
 };
