@@ -29,11 +29,14 @@ extension TwineUITests {
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.buttons["agentSubtab-1"].exists)
         XCTAssertTrue(app.buttons["agentSubtab-2"].exists)
+        inspectStage("implement", in: app)
 
         completeRole(in: app, summary: "Initial implementation")
+        inspectStage("review", in: app)
         app.buttons["agentSubtab-2"].click()
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
         completeRole(in: app, summary: "Fix the edge case", requestChanges: true)
+        inspectStage("implement", in: app)
         app.buttons["agentSubtab-1"].click()
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
         completeRole(in: app, summary: "Fixed the edge case")
@@ -42,6 +45,19 @@ extension TwineUITests {
         completeRole(in: app, summary: "Approved")
         XCTAssertTrue(app.staticTexts["Completed"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(item("workflowCancel").exists)
+        inspectTraceHandoff(in: app)
+
+        app.buttons["newWorkflow"].click()
+        item("workflowChoice-Adversarial").click()
+        for role in ["implementer", "reviewer"] {
+            XCTAssertEqual(item("roleHarness-\(role)-0").value as? String, "pi")
+        }
+        attachScreenshot(of: app, named: "Adversarial graph and saved harness choices")
+    }
+
+    @MainActor
+    private func inspectTraceHandoff(in app: XCUIApplication) {
+        func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
         item("tracesHeader").click()
         let span = app.buttons["traceSpan-3"]
         XCTAssertTrue(span.waitForExistence(timeout: 10), app.debugDescription)
@@ -55,6 +71,25 @@ extension TwineUITests {
         screenshot.name = "Completed Adversarial workflow and traces"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+    }
+
+    @MainActor
+    private func inspectStage(_ stage: String, in app: XCUIApplication) {
+        func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        XCTAssertTrue(item("inspectWorkflowType").waitForExistence(timeout: 10), app.debugDescription)
+        item("inspectWorkflowType").click()
+        XCTAssertTrue(item("workflowTypeInspector").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(item("graphStage-\(stage)").value as? String, "Current stage")
+        let handoffs = item("graphHandoffs").value as? String ?? ""
+        XCTAssertTrue(
+            handoffs.contains("Implementer in Implement sends result to Reviewer in Review."), app.debugDescription)
+        XCTAssertTrue(
+            handoffs.contains("Reviewer in Review sends feedback to Implementer in Implement."), app.debugDescription)
+        XCTAssertFalse(item("workflowStart").exists)
+        XCTAssertFalse(item("roleHarness-implementer-0").exists)
+        attachScreenshot(of: app, named: "Live graph at \(stage)")
+        item("closeWorkflowType").click()
+        XCTAssertTrue(item("workflowTypeInspector").waitForNonExistence(timeout: 5), app.debugDescription)
     }
 
     @MainActor
@@ -74,7 +109,7 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func workflowRunApp() throws -> XCUIApplication {
+    private func workflowRunApp(appearance: String? = nil) throws -> XCUIApplication {
         let folder = FileManager.default.temporaryDirectory.appending(path: "TwineRunUI-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
@@ -86,6 +121,8 @@ extension TwineUITests {
             at: bin.appending(path: "pi"),
             withDestinationURL: URL(filePath: "/usr/bin/true"))
         let app = try makeApp(lastOpenFolder: folder)
+        app.launchEnvironment["TWINE_TEST_PREFERENCES_SUITE"] = "TwineRunUITests-\(UUID())"
+        app.launchEnvironment["TWINE_TEST_APPEARANCE"] = appearance
         app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(folder.path)/bin:/bin:/usr/bin"
         app.launch()
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
@@ -94,6 +131,30 @@ extension TwineUITests {
         item("workflowChoice-Terminal").click()
         XCTAssertTrue(item("newTabChoices").waitForNonExistence(timeout: 10), app.debugDescription)
         return app
+    }
+
+    @MainActor
+    func testCoordinatorGraphsInBothAppearances() throws {
+        for appearance in ["Light", "Dark"] {
+            let app = try workflowRunApp(appearance: appearance)
+            defer { app.terminate() }
+            func item(_ id: String) -> XCUIElement {
+                app.descendants(matching: .any).matching(identifier: id).firstMatch
+            }
+            app.buttons["newWorkflow"].click()
+            XCTAssertTrue(item("workflowChoice-Coordinator").waitForExistence(timeout: 10))
+            attachScreenshot(of: app, named: "Catalog graph previews in \(appearance)")
+            item("workflowChoice-Coordinator").click()
+            XCTAssertTrue(item("workflowGraph-coordinator").waitForExistence(timeout: 10))
+            XCTAssertTrue(item("graphNode-work-worker-1").exists)
+            XCTAssertTrue(item("graphNode-work-worker-2").exists)
+            let handoffs = item("graphHandoffs").value as? String ?? ""
+            XCTAssertTrue(
+                handoffs.contains("Coordinator in Split sends assignment to Worker 1 in Work."), app.debugDescription)
+            XCTAssertTrue(
+                handoffs.contains("Worker 1 in Work sends result to Coordinator in Gather."), app.debugDescription)
+            attachScreenshot(of: app, named: "Coordinator launch graph in \(appearance)")
+        }
     }
 
 }
