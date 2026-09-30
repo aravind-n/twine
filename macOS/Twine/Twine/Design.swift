@@ -74,6 +74,20 @@ nonisolated enum NewTabLayout {
     static let symbolWidth: CGFloat = 16
 }
 
+/// The subtab strip at the top of a multi-agent workflow's terminal panel.
+nonisolated enum AgentSubtabLayout {
+    static let height: CGFloat = 43
+    static let horizontalPadding: CGFloat = 18
+    /// Between the "TERMINAL" label and the first subtab.
+    static let labelSpacing: CGFloat = 13
+    static let spacing: CGFloat = 5
+    static let subtabHeight: CGFloat = 29
+    static let subtabPadding: CGFloat = 10
+    static let symbolSpacing: CGFloat = 6
+    /// Longer role names truncate, as workflow tab titles do.
+    static let maximumTitleWidth: CGFloat = 180
+}
+
 nonisolated enum FooterLayout {
     static let height: CGFloat = 22
     static let horizontalPadding: CGFloat = 4

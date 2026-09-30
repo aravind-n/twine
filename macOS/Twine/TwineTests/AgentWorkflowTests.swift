@@ -23,7 +23,7 @@ struct AgentWorkflowTests {
     @Test func agentWorkflowsDecodeTheirHarness() throws {
         let json = """
             {"workflowId": 3, "sessionId": 1, "name": "Claude Code", "kind": "singleAgent",
-             "harness": "claudeCode", "terminalId": 9, "status": "cancelled", "startedAt": 1,
+             "harness": "claudeCode", "terminalId": 9, "agents": [], "status": "cancelled", "startedAt": 1,
              "endedAt": 2, "restored": false}
             """
         let workflow = try JSONDecoder().decode(BridgeWorkflow.self, from: Data(json.utf8))

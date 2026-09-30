@@ -113,7 +113,8 @@ private struct WorkflowTab: View {
         .accessibilityIdentifier("workflowTab-\(workflow.id)")
         .background {
             if isSelected {
-                tabShape.fill(.terminalBackground)
+                // The selected tab shares the fill of the panel's top edge: the subtab strip, or the terminal.
+                tabShape.fill(workflow.showsAgentSubtabs ? Color.workflowTint : .terminalBackground)
                     .overlay {
                         tabShape.strokeBorder(.hairline, lineWidth: Surface.hairlineWidth)
                             .mask { Rectangle().padding(.bottom, Surface.hairlineWidth) }

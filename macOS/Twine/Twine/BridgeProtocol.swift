@@ -12,7 +12,10 @@ nonisolated enum BridgeCommand: Sendable {
     case renameSession(sessionID: UInt64, name: String)
     case selectSession(sessionID: UInt64)
     case deleteSession(sessionID: UInt64)
-    case createWorkflow(folder: String, sessionID: UInt64? = nil, kind: BridgeWorkflow.Kind, size: BridgeTerminalSize)
+    /// `roles` names one agent each, in order; only `agents` workflows have them.
+    case createWorkflow(
+        folder: String, sessionID: UInt64? = nil, kind: BridgeWorkflow.Kind, roles: [String] = [],
+        size: BridgeTerminalSize)
     case activateWorkflow(workflowID: UInt64)
     case nameDraftWorkflow(workflowID: UInt64, name: String)
     case closeWorkflow(workflowID: UInt64)

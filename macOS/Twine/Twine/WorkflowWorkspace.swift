@@ -70,6 +70,7 @@ struct WorkflowWorkspace: View {
             \.workflowActions,
             WorkflowActions(
                 create: { Task { await create() } },
+                createAgents: { roles in Task { await create(kind: .agents, roles: roles) } },
                 close: selection.selectedID.map { id in { close(id) } },
                 cancelAgent: workflows.first(where: { $0.id == selection.selectedID && $0.isRunningAgent })
                     .map { workflow in { cancelAgent(workflow.id) } }
@@ -89,10 +90,11 @@ struct WorkflowWorkspace: View {
 
     private var panelShape: RoundedRectangle { RoundedRectangle(cornerRadius: CornerRadius.panel) }
 
-    private func create() async {
+    private func create(kind: BridgeWorkflow.Kind = .draft, roles: [String] = []) async {
         do {
             let targetSession = sessionID
-            let id = try await bridgeClient.createWorkflow(folder: folder, sessionID: targetSession, kind: .draft)
+            let id = try await bridgeClient.createWorkflow(
+                folder: folder, sessionID: targetSession, kind: kind, roles: roles)
             if Task.isCancelled {
                 try await bridgeClient.closeWorkflow(workflowID: id)
             } else if targetSession == sessionID || targetSession == nil {
