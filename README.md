@@ -1,6 +1,6 @@
 # Twine
 
-Twine is an agent workspace for coordinating your agents
+Twine is an new workspace coordination for agents and artifacts
 
 ## Files
 
