@@ -1,56 +1,40 @@
 import SwiftUI
 
-/// An agents workflow's panel: every agent's live terminal, with subtabs to switch between them when
-/// there is more than one. Each workflow remembers its subtab while it's open, because every
-/// workflow stays mounted until it closes.
+/// An agents workflow's panel: subtabs when there is more than one agent, over every agent's live
+/// terminal in the workflow's layout. The layout, including the agent with the keyboard, is kept for
+/// each workflow across relaunch.
 struct AgentWorkflowSurface: View {
+    @Environment(WorkflowLayouts.self) private var layouts
+    let folder: String
     let workflow: BridgeWorkflow
     let isSelected: Bool
-    @State private var selectedAgentID: UInt64?
 
     var body: some View {
-        let shownID = workflow.shownAgent(selectedID: selectedAgentID)?.id
+        let layout = Binding(
+            get: { layouts.layout(for: workflow.id, in: folder) },
+            set: { layouts.setLayout($0, for: workflow.id, in: folder) }
+        )
         VStack(spacing: 0) {
             if workflow.showsAgentSubtabs {
-                AgentSubtabs(agents: workflow.agents, selectedID: shownID) { selectedAgentID = $0 }
+                AgentSubtabs(
+                    agents: workflow.agents,
+                    selectedID: layout.wrappedValue.focusedAgent(in: workflow.agents)?.id,
+                    mode: layout.mode, showsLayoutPicker: isSelected
+                ) { layout.wrappedValue.focus($0, in: workflow.agents) }
             }
+            // Under subtabs, the run controls and notice join the strip, which Bento panes also sit on.
             if let run = workflow.run {
-                WorkflowRunControls(workflowID: workflow.id, run: run, selectedAgentID: shownID)
+                WorkflowRunControls(
+                    workflowID: workflow.id, run: run,
+                    selectedAgentID: layout.wrappedValue.focusedAgent(in: workflow.agents)?.id
+                )
+                .background(workflow.showsAgentSubtabs ? Color.workflowTint : .clear)
             }
             if workflow.restored {
                 RestoredWorkflowNotice(workflow: workflow)
+                    .background(workflow.showsAgentSubtabs ? Color.workflowTint : .clear)
             }
-            ZStack {
-                ForEach(workflow.agents) { agent in
-                    let isShown = agent.id == shownID
-                    Group {
-                        if agent.terminalID == 0 {
-                            ContentUnavailableView(
-                                idleTitle,
-                                systemImage: "terminal",
-                                description: Text(
-                                    workflow.run != nil && workflow.status == .running
-                                        ? "This role starts when its stage begins."
-                                        : "Open a new workflow to try again."))
-                        } else {
-                            TerminalSurface(
-                                terminalID: agent.terminalID, isSelected: isSelected && isShown,
-                                subject: workflow.run == nil ? "Shell" : "Agent",
-                                isCancelled: workflow.status == .cancelled
-                            )
-                            .id(agent.terminalID)
-                        }
-                    }
-                    .opacity(isShown ? 1 : 0)
-                    .allowsHitTesting(isShown)
-                    .accessibilityHidden(!isShown)
-                }
-            }
+            AgentPanes(workflow: workflow, layout: layout, isSelected: isSelected)
         }
     }
-    private var idleTitle: String {
-        if workflow.run == nil { return "Shell Couldn't Restart" }
-        return workflow.status == .running ? "Agent Waiting" : "Agent Stopped"
-    }
-
 }

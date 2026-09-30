@@ -14,6 +14,10 @@ struct WorkflowActions {
     let createAgents: ([String]) -> Void
     let close: (() -> Void)?
     let cancelAgent: (() -> Void)?
+    /// The selected workflow's layout mode, when it has agents to arrange.
+    let layoutMode: Binding<WorkflowLayout.Mode>?
+    /// Moves the keyboard forward or back by a number of agents: subtabs in tab mode, panes in Bento mode.
+    let moveFocus: ((Int) -> Void)?
 }
 
 /// File menu commands that open a folder and close it, returning the window to the start page.
@@ -21,7 +25,7 @@ struct WorkflowActions {
 /// They replace New Window: the core has one open folder, so a second window could only mirror it.
 struct FolderCommands: Commands {
     #if DEBUG
-        private static let testRoles = ["Implementer", "Reviewer", "Coordinator"]
+        private static let testRoles = ["Implementer", "Reviewer", "Coordinator", "Worker"]
     #endif
 
     let bridgeClient: BridgeClient
@@ -61,6 +65,21 @@ struct FolderCommands: Commands {
                 Task { await bridgeClient.perform(.closeFolder) }
             }
             .disabled(!isRunning || bridgeClient.snapshot?.folders.openFolder == nil)
+        }
+        CommandGroup(after: .sidebar) {
+            Toggle(
+                "Bento Panes",
+                isOn: Binding(
+                    get: { workflowActions?.layoutMode?.wrappedValue == .bento },
+                    set: { workflowActions?.layoutMode?.wrappedValue = $0 ? .bento : .tabs })
+            )
+            .disabled(workflowActions?.layoutMode == nil)
+            Button("Next Agent") { workflowActions?.moveFocus?(1) }
+                .keyboardShortcut("]")
+                .disabled(workflowActions?.moveFocus == nil)
+            Button("Previous Agent") { workflowActions?.moveFocus?(-1) }
+                .keyboardShortcut("[")
+                .disabled(workflowActions?.moveFocus == nil)
         }
         CommandGroup(replacing: .saveItem) {
             Button("Save") { editor.requestSave() }

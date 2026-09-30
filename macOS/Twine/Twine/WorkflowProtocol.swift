@@ -71,11 +71,6 @@ nonisolated struct BridgeWorkflow: Decodable, Equatable, Identifiable, Sendable 
         (kind == .agents ? agents.map(\.terminalID) : [terminalID]).filter { $0 != 0 }
     }
 
-    /// The agent whose terminal shows: the selected one while it exists, otherwise the first.
-    func shownAgent(selectedID: UInt64?) -> BridgeAgent? {
-        agents.first { $0.id == selectedID } ?? agents.first
-    }
-
     enum Kind: String, Codable, Sendable {
         case draft
         case terminal

@@ -178,9 +178,7 @@ private struct ChoiceTile: View {
             }
             Spacer(minLength: 0)
             if choice.opensMenu {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                MenuChevron()
             }
         }
         .padding(NewTabLayout.choicePadding)

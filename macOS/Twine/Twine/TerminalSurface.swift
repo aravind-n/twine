@@ -11,25 +11,33 @@ struct TerminalSurface: View {
     @State private var failureMessage: String?
 
     let terminalID: UInt64
+    /// Hidden terminals keep running without drawing.
+    let isVisible: Bool
+    /// The selected terminal takes the keyboard.
     let isSelected: Bool
     var focusRequest = 0
     /// Prompt forms above a terminal own automatic keyboard focus until dismissed.
     var automaticallyFocuses = true
+    var padding = Spacing.terminalContent
     /// What runs in the terminal, for its exit message.
     var subject = "Shell"
     /// A cancelled agent says so instead of how its process ended.
     var isCancelled = false
     var beforeUserInput: (() async throws -> Void)?
+    /// Called after the terminal takes the keyboard, such as when it's clicked.
+    var didFocus: (() -> Void)?
 
     var body: some View {
-        TerminalPadding(minimumContentHeight: Self.minimumTerminalHeight) {
+        TerminalPadding(padding: padding, minimumContentHeight: Self.minimumTerminalHeight) {
             ZStack(alignment: .bottomLeading) {
                 TerminalViewRepresentable(
                     bridgeClient: bridgeClient,
                     terminalID: terminalID,
+                    isVisible: isVisible,
                     isSelected: isSelected,
                     focusRequest: focusRequest,
                     automaticallyFocuses: automaticallyFocuses,
+                    didFocus: didFocus,
                     beforeUserInput: beforeUserInput,
                     failureMessage: $failureMessage
                 )
@@ -45,7 +53,10 @@ struct TerminalSurface: View {
                 }
             }
         }
-        .background(.terminalBackground)
+        .background {
+            // Clicking the padding focuses the terminal, as clicking its text does.
+            Color.terminalBackground.onTapGesture { didFocus?() }
+        }
     }
 
     private var statusMessage: String? {
@@ -65,10 +76,11 @@ struct TerminalSurface: View {
     }
 }
 
-/// The design's padding around terminal content. Short panels give up vertical padding before the
-/// content drops below `minimumContentHeight`. The padding comes from the bounds during layout, not
-/// from measured state, so it can't feed back into the window's minimum size.
+/// Padding around terminal content. Short panels give up vertical padding before the content drops
+/// below `minimumContentHeight`. The padding comes from the bounds during layout, not from measured
+/// state, so it can't feed back into the window's minimum size.
 nonisolated private struct TerminalPadding: Layout {
+    let padding: CGFloat
     let minimumContentHeight: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -76,8 +88,8 @@ nonisolated private struct TerminalPadding: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let horizontal = min(Spacing.terminalContent, bounds.width / 2)
-        let vertical = min(Spacing.terminalContent, max(0, (bounds.height - minimumContentHeight) / 2))
+        let horizontal = min(padding, bounds.width / 2)
+        let vertical = min(padding, max(0, (bounds.height - minimumContentHeight) / 2))
         let content = ProposedViewSize(width: bounds.width - 2 * horizontal, height: bounds.height - 2 * vertical)
         for subview in subviews {
             subview.place(at: CGPoint(x: bounds.minX + horizontal, y: bounds.minY + vertical), proposal: content)
@@ -88,9 +100,11 @@ nonisolated private struct TerminalPadding: Layout {
 struct TerminalViewRepresentable: NSViewRepresentable {
     let bridgeClient: BridgeClient
     let terminalID: UInt64
+    let isVisible: Bool
     let isSelected: Bool
     let focusRequest: Int
     let automaticallyFocuses: Bool
+    var didFocus: (() -> Void)?
     var beforeUserInput: (() async throws -> Void)?
     @Binding var failureMessage: String?
 
@@ -107,7 +121,8 @@ struct TerminalViewRepresentable: NSViewRepresentable {
         view.automaticallyFocuses = automaticallyFocuses
         view.isSelected = isSelected
         view.focusRequest = focusRequest
-        view.isHidden = !isSelected
+        view.isHidden = !isVisible
+        view.didFocus = didFocus
         view.terminalDelegate = context.coordinator
         context.coordinator.start(view: view)
         return view
@@ -115,8 +130,9 @@ struct TerminalViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: MetalTerminalView, context: Context) {
         context.coordinator.beforeUserInput = beforeUserInput
-        nsView.isHidden = !isSelected
+        nsView.isHidden = !isVisible
         nsView.automaticallyFocuses = automaticallyFocuses
+        nsView.didFocus = didFocus
         nsView.isSelected = isSelected
         nsView.focusRequest = focusRequest
         nsView.applyTwinePalette()
