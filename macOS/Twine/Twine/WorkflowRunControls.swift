@@ -49,7 +49,8 @@ struct WorkflowRunControls: View {
         .font(.caption).controlSize(.small).padding(.horizontal, 18).padding(.vertical, 6)
         .sheet(isPresented: $showsCompletion) {
             if let agent {
-                WorkflowCompletionForm(workflowID: workflowID, generation: run.generation, agent: agent)
+                WorkflowCompletionForm(
+                    workflowID: workflowID, generation: run.generation, agent: agent, needsTask: run.needsTask)
             }
         }
         .onChange(of: run.generation) { showsCompletion = false }
@@ -62,7 +63,7 @@ struct WorkflowRunControls: View {
     WorkflowRunControls(
         workflowID: 1,
         run: .init(
-            generation: 1, stage: "Review", status: .running, message: nil,
+            generation: 1, stage: "Review", status: .running, message: nil, needsTask: false,
             agents: [.init(agentId: 1, active: true, done: false, reviewer: true, harness: .codex, targets: [])]),
         selectedAgentID: 1
     )

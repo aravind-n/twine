@@ -24,6 +24,13 @@ nonisolated struct WorkflowLayout: Codable, Equatable, Sendable {
         agents.first { $0.id == focusedAgentID } ?? agents.first
     }
 
+    /// A new run opens on the first stage's agent, which asks the user for the task. A layout that
+    /// already has a focused agent keeps it.
+    mutating func openOnFirstStage(activeAgentIDs: [UInt64], in agents: [CoreAgent]) {
+        guard focusedAgentID == nil, let first = activeAgentIDs.first else { return }
+        focus(first, in: agents)
+    }
+
     /// One agent per Bento pane: the saved order for agents that still exist, then the rest in role
     /// order, up to four. The focused agent always has a pane.
     func panes(of agents: [CoreAgent]) -> [CoreAgent] {

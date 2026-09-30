@@ -8,7 +8,7 @@ struct WorkflowRunTests {
     @Test(arguments: ["interrupted", "completed", "cancelled", "exited"])
     func perAgentLifecycleSurvivesDecoding(_ status: String) throws {
         let json = """
-            {"generation":1,"stage":"Implement","status":"interrupted","agents":[
+            {"generation":1,"stage":"Implement","status":"interrupted","needsTask":false,"agents":[
               {"agentId":4,"active":false,"done":false,"reviewer":false,"harness":"pi","targets":[],
                "status":"\(status)"}]}
             """
@@ -41,7 +41,7 @@ struct WorkflowRunTests {
             decision: .done, summary: "Split the task",
             assignments: [
                 .init(role: "worker", instance: 1, task: "Fix one file", files: ["one.swift"])
-            ])
+            ], task: "Tidy the parser")
         let envelope = CommandEnvelope(
             requestID: 2,
             command: .completeWorkflowRole(
@@ -52,6 +52,7 @@ struct WorkflowRunTests {
         #expect(command["generation"] as? Int == 5)
         #expect(command["agentId"] as? Int == 4)
         let encoded = try #require(command["signal"] as? [String: Any])
+        #expect(encoded["task"] as? String == "Tidy the parser")
         let decoded = try JSONDecoder().decode(
             CoreCompletionSignal.self, from: JSONSerialization.data(withJSONObject: encoded))
         #expect(decoded == signal)
@@ -62,7 +63,7 @@ struct WorkflowRunTests {
         let envelope = CommandEnvelope(
             requestID: 1,
             command: .startWorkflowRun(
-                workflowID: 3, workflowType: reference, prompt: "Task",
+                workflowID: 3, workflowType: reference,
                 roles: [.init(role: "worker", harness: .codex), .init(role: "worker", harness: .claudeCode)],
                 size: .init(rows: 24, columns: 80, pixelWidth: 800, pixelHeight: 480)))
         let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope)) as? [String: Any])

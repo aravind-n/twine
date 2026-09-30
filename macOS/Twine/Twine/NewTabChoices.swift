@@ -6,17 +6,19 @@ struct NewTabChoices: View {
     let availableHeight: CGFloat
     let isSelected: Bool
     let choose: (WorkflowChoice) -> Void
-    /// Runs `prompt` with the harness in the draft's folder. Throws the reason it couldn't start.
-    let startAgent: (CoreHarness, String) async throws -> Void
+    /// Starts the harness in the draft's folder, waiting for the user. Throws the reason it couldn't start.
+    let startAgent: (CoreHarness) async throws -> Void
     /// Gives the keyboard back to the terminal, which nothing else in the card can take.
     let focusTerminal: () -> Void
     @State private var contentHeight: CGFloat = 0
-    @Binding var harness: CoreHarness?
+    @State private var startFailure: String?
     @Binding var selectedType: CoreWorkflowType?
+    /// Set while a picked harness starts, so keys typed meanwhile can't turn the draft into a shell.
+    @Binding var startingHarness: CoreHarness?
     private var catalog: [CoreWorkflowType] { client.snapshot?.workflowTypes ?? [] }
 
-    // A prompt form owns keyboard input, so it can use the space reserved for the shell prompt.
-    private var showsPrompt: Bool { harness != nil || selectedType != nil }
+    // A launch form owns keyboard input, so it can use the space reserved for the shell prompt.
+    private var showsPrompt: Bool { selectedType != nil }
     private var promptClearance: CGFloat { showsPrompt ? 0 : NewTabLayout.promptClearance }
 
     private var verticalPadding: CGFloat {
@@ -43,17 +45,6 @@ struct NewTabChoices: View {
                 }
                 .id(selectedType.id)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { contentHeight = $0 })
-            } else if let harness {
-                AgentPromptForm(
-                    harness: Binding(get: { harness }, set: { self.harness = $0 }),
-                    isSelected: isSelected,
-                    back: {
-                        self.harness = nil
-                        focusTerminal()
-                    },
-                    start: startAgent
-                )
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { contentHeight = $0 })
             } else {
                 choices
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { contentHeight = $0 })
@@ -78,6 +69,12 @@ struct NewTabChoices: View {
         VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
             ChoicesHeading(
                 title: "Choose a workflow", message: "Pick a workflow type, or start typing to use Terminal.")
+            if let startFailure {
+                Label(startFailure, systemImage: "exclamationmark.triangle")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Color.statusNeedsAttention)
+                    .accessibilityIdentifier("agentStartFailure")
+            }
 
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumChoiceWidth), spacing: NewTabLayout.spacing)],
@@ -105,12 +102,13 @@ struct NewTabChoices: View {
             if choice.opensMenu {
                 Menu {
                     ForEach(CoreHarness.allCases) { harness in
-                        Button(harness.displayName) { self.harness = harness }
+                        Button(harness.displayName) { start(harness) }
                             .accessibilityIdentifier("harness-\(harness.rawValue)")
                     }
                 } label: {
                     ChoiceTile(choice: choice)
                 }
+                .disabled(startingHarness != nil)
                 .menuStyle(.button)
                 .menuIndicator(.hidden)
                 .buttonStyle(.plain)
@@ -126,6 +124,16 @@ struct NewTabChoices: View {
                 .help(choice.detail)
                 .accessibilityIdentifier("workflowChoice-\(choice.rawValue)")
             }
+        }
+    }
+
+    private func start(_ harness: CoreHarness) {
+        guard startingHarness == nil else { return }
+        startingHarness = harness
+        startFailure = nil
+        Task {
+            defer { startingHarness = nil }
+            do { try await startAgent(harness) } catch { startFailure = error.localizedDescription }
         }
     }
 }

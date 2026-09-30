@@ -22,7 +22,7 @@ Follow the visual direction in [DESIGN.md](DESIGN.md) for all UI work.
 
 ## UI testing and signing
 
-- Run macOS UI tests from the repository root with `make ui-test-macos`. `ONLY=<test>` runs one test, for example `make ui-test-macos ONLY=testSingleAgentStartsWithThePromptTakesInputAndCancels`.
+- Run macOS UI tests from the repository root with `make ui-test-macos`. `ONLY=<test>` runs one test, for example `make ui-test-macos ONLY=testSingleAgentStartsInteractivelyTakesInputAndCancels`.
 - Let Xcode use the project's default signing settings. `make ui-test-macos` launches `TwineUITests-Runner` with Xcode's ad hoc "Sign to Run Locally" signature; an Apple Development identity isn't required. Avoid overriding signing with `CODE_SIGNING_ALLOWED=NO` or `CODE_SIGN_IDENTITY=-`. If a sandbox blocks Xcode's cache writes, rerun with access to the Xcode and SwiftPM caches.
 - UI tests bring Twine to the foreground and control the desktop's pointer and keyboard. Tell the user before starting a run that will interrupt their desktop use. Check the final test result: a launched runner does not mean every test passed.
 

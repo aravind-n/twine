@@ -9,6 +9,8 @@ nonisolated struct CoreCompletionSignal: Codable, Equatable, Sendable {
     var decision: Decision
     var summary: String
     var assignments: [Assignment] = []
+    /// The user's task, restated in full, while the run still needs it.
+    var task = ""
 
     enum Decision: String, Codable, Sendable { case done, approve, requestChanges }
     struct Assignment: Codable, Equatable, Sendable {
@@ -24,12 +26,14 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
     let stage: String
     let status: Status
     let message: String?
+    /// The first stage still has to report the task the user gave it.
+    let needsTask: Bool
     let agents: [Agent]
     var stageID: String?
     var workflowType: CoreWorkflowType?
 
     private enum CodingKeys: String, CodingKey {
-        case generation, stage, status, message, agents, workflowType
+        case generation, stage, status, message, needsTask, agents, workflowType
         case stageID = "stageId"
     }
 

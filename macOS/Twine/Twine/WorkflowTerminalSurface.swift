@@ -11,8 +11,8 @@ struct WorkflowTerminalSurface: View {
     @State private var draft = WorkflowDraftPresentation()
     @State private var showsChoices = false
     @State private var focusRequest = 0
-    @State private var selectedHarness: CoreHarness?
     @State private var selectedType: CoreWorkflowType?
+    @State private var startingHarness: CoreHarness?
     private var history: TraceTerminalTarget? {
         navigation.target.flatMap { $0.workflowID == workflow.id ? $0 : nil }
     }
@@ -65,7 +65,7 @@ struct WorkflowTerminalSurface: View {
         TerminalSurface(
             terminalID: workflow.terminalID, isVisible: isSelected && history == nil,
             isSelected: isSelected && history == nil, focusRequest: focusRequest,
-            automaticallyFocuses: workflow.kind != .draft || (selectedHarness == nil && selectedType == nil),
+            automaticallyFocuses: workflow.kind != .draft || (selectedType == nil && startingHarness == nil),
             subject: workflow.kind == .singleAgent ? "Agent" : "Shell", isCancelled: workflow.status == .cancelled
         ) {
             try await draft.activate(client: coreClient, workflowID: workflow.id)
@@ -79,7 +79,7 @@ struct WorkflowTerminalSurface: View {
                         workflowID: workflow.id, availableHeight: geometry.size.height,
                         isSelected: isSelected,
                         choose: choose, startAgent: startAgent, focusTerminal: { focusRequest += 1 },
-                        harness: $selectedHarness, selectedType: $selectedType
+                        selectedType: $selectedType, startingHarness: $startingHarness
                     )
                     .frame(
                         maxWidth: min(
@@ -103,8 +103,8 @@ struct WorkflowTerminalSurface: View {
         )
     }
 
-    private func startAgent(harness: CoreHarness, prompt: String) async throws {
-        try await coreClient.startAgent(workflowID: workflow.id, harness: harness, prompt: prompt)
+    private func startAgent(harness: CoreHarness) async throws {
+        try await coreClient.startAgent(workflowID: workflow.id, harness: harness)
         focusRequest += 1
     }
 

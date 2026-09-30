@@ -157,6 +157,8 @@ enum RawHarness {
 struct RawStartAgent {
     workflow_id: u64,
     harness: RawHarness,
+    /// Without one, the agent starts interactively.
+    #[serde(default)]
     prompt: String,
     size: RawTerminalSize,
 }

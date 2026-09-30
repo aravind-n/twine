@@ -509,6 +509,11 @@ mod tests {
             Command::StartAgent { workflow_id, harness: twine_core::HarnessId::ClaudeCode, ref prompt, .. }
                 if workflow_id.0 == 7 && prompt == "-fix it"
         ));
+        let interactive = decode(&format!(
+            r#"{{"requestId": 4, "command": {{"type": "startAgent", "workflowId": 7,
+                "harness": "pi", {size}}}}}"#
+        ));
+        assert!(matches!(interactive, Command::StartAgent { ref prompt, .. } if prompt.is_empty()));
         let cancel =
             decode(r#"{"requestId": 2, "command": {"type": "cancelAgent", "workflowId": 7}}"#);
         assert!(matches!(cancel, Command::CancelAgent { workflow_id } if workflow_id.0 == 7));
@@ -567,6 +572,14 @@ mod tests {
             if roles.len() == 2 && roles[1].harness == twine_core::HarnessId::ClaudeCode)
         );
         let command = decode(
+            r#"{"requestId":5,"command":{"type":"startWorkflowRun","workflowId":3,
+            "workflowType":{"builtin":"adversarial"},"roleLaunches":[],
+            "size":{"rows":24,"columns":80,"pixelWidth":800,"pixelHeight":480}}}"#,
+        );
+        assert!(
+            matches!(command, Command::StartWorkflowRun { ref prompt, .. } if prompt.is_empty())
+        );
+        let command = decode(
             r#"{"requestId":2,"command":{"type":"completeWorkflowRole","workflowId":3,
             "agentId":4,"generation":5,"signal":{"decision":"requestChanges","summary":"Fix the edge case"}}}"#,
         );
@@ -576,10 +589,20 @@ mod tests {
                 generation: 5,
                 signal: twine_core::CompletionSignal {
                     decision: twine_core::Decision::RequestChanges,
+                    ref task,
                     ..
                 },
                 ..
-            }
+            } if task.is_empty()
+        ));
+        let command = decode(
+            r#"{"requestId":4,"command":{"type":"completeWorkflowRole","workflowId":3,
+            "agentId":4,"generation":1,"signal":{"decision":"done","task":"Add a toggle"}}}"#,
+        );
+        assert!(matches!(
+            command,
+            Command::CompleteWorkflowRole { signal: twine_core::CompletionSignal { ref task, .. }, .. }
+                if task == "Add a toggle"
         ));
         let command =
             decode(r#"{"requestId":3,"command":{"type":"cancelWorkflowRun","workflowId":3}}"#);

@@ -15,23 +15,20 @@ extension TwineUITests {
             picker.click()
             app.menuItems["pi"].click()
         }
-        item("workflowPrompt").click()
-        item("workflowPrompt").typeText("Build a small ")
         app.buttons["workflowTab-1"].click()
         app.buttons["workflowTab-2"].click()
-        XCTAssertEqual(item("workflowPrompt").value as? String, "Build a small ")
-        // macOS selects the field's contents when focus returns; continue at the end.
-        app.typeKey(.rightArrow, modifierFlags: [])
-        app.typeText("feature")
-        XCTAssertTrue(item("workflowPrompt").exists, "Returning to a launch form keeps typing out of the shell")
-        XCTAssertEqual(item("workflowPrompt").value as? String, "Build a small feature")
-        item("workflowStart").click()
+        app.typeText("x")
+        // Draft activation is asynchronous, so give a stray key time to reach the shell.
+        XCTAssertFalse(app.staticTexts["Draft"].waitForNonExistence(timeout: 2), "Typing stays out of the shell")
+        XCTAssertTrue(item("workflowStart").exists)
+        app.typeKey(.return, modifierFlags: [])
+        // The run opens on the implementer, which asks for the task in its terminal.
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.buttons["agentSubtab-1"].exists)
+        XCTAssertEqual(app.buttons["agentSubtab-1"].value as? String, "Selected", app.debugDescription)
         XCTAssertTrue(app.buttons["agentSubtab-2"].exists)
         inspectStage("implement", in: app)
 
-        completeRole(in: app, summary: "Initial implementation")
+        completeRole(in: app, summary: "Initial implementation", task: "Build a small feature")
         inspectStage("review", in: app)
         app.buttons["agentSubtab-2"].click()
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
@@ -117,10 +114,18 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func completeRole(in app: XCUIApplication, summary: String, requestChanges: Bool = false) {
+    private func completeRole(
+        in app: XCUIApplication, summary: String, requestChanges: Bool = false, task: String? = nil
+    ) {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
         item("workflowMarkDone").click()
         XCTAssertTrue(item("completionSummary").waitForExistence(timeout: 5), app.debugDescription)
+        // Only the first stage's completion, before the task is known, asks for it.
+        XCTAssertEqual(item("completionTask").exists, task != nil, app.debugDescription)
+        if let task {
+            item("completionTask").click()
+            item("completionTask").typeText(task)
+        }
         if requestChanges {
             let decision = item("Request changes")
             XCTAssertTrue(decision.waitForExistence(timeout: 5), app.debugDescription)

@@ -27,7 +27,8 @@ an explanatory state. Up to 256 directories can be expanded at once.
 ## Agent workflows
 
 Choose **Adversarial**, **Coordinator**, or a stored custom workflow type from a new tab.
-Pick a harness for each role instance and enter the workflow's prompt. Harnesses run directly
+Pick a harness for each role instance and start it. The first stage's agent asks for the task in
+its terminal and reports it when it finishes, so later roles receive it. Harnesses run directly
 in the open folder; parallel workers receive their own sub-task and advisory file ownership.
 Each role has a terminal subtab. A stage starts fresh harness processes, including when a review
 loop returns to an earlier role.
@@ -35,7 +36,7 @@ loop returns to an earlier role.
 Agents advance stages by invoking the private completion command included in their instructions.
 The command accepts JSON on stdin: `decision` is `done`, `approve`, or `requestChanges`, with
 a `summary` and, for assignment handoffs, `assignments` containing `role`, `instance`, `task`,
-and `files`. Each invocation gets a new mailbox; submissions are atomic and limited to 64 KiB.
+and `files`. Until the task is known, the first completion must also include `task`. Each invocation gets a new mailbox; submissions are atomic and limited to 64 KiB.
 Rejected submissions can be corrected and resubmitted. Terminal prose and process exits never
 advance a stage.
 

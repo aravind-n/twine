@@ -34,11 +34,10 @@ extension CoreClient {
     func startAgent(
         workflowID: UInt64,
         harness: CoreHarness,
-        prompt: String,
         size: CoreTerminalSize = .init(rows: 24, columns: 80, pixelWidth: 800, pixelHeight: 480)
     ) async throws {
         let result = try await sendAndAwaitCompletion(
-            .startAgent(workflowID: workflowID, harness: harness, prompt: prompt, size: size))
+            .startAgent(workflowID: workflowID, harness: harness, size: size))
         guard case .agentStarted(let startedID) = result, startedID == workflowID else {
             throw CoreFailure.unexpectedCommandResult
         }

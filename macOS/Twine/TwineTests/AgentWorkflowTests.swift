@@ -32,17 +32,17 @@ struct AgentWorkflowTests {
         #expect(workflow.status == .cancelled)
     }
 
-    @Test func startAgentEncodesHarnessPromptAndSize() throws {
+    @Test func startAgentEncodesHarnessAndSizeWithoutAPrompt() throws {
         let size = CoreTerminalSize(rows: 24, columns: 80, pixelWidth: 800, pixelHeight: 480)
         let envelope = CommandEnvelope(
-            requestID: 5, command: .startAgent(workflowID: 3, harness: .piAgent, prompt: "-fix", size: size))
+            requestID: 5, command: .startAgent(workflowID: 3, harness: .piAgent, size: size))
         let object = try #require(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope)) as? [String: Any])
         let command = try #require(object["command"] as? [String: Any])
         #expect(command["type"] as? String == "startAgent")
         #expect(command["workflowId"] as? UInt64 == 3)
         #expect(command["harness"] as? String == "pi")
-        #expect(command["prompt"] as? String == "-fix")
+        #expect(command["prompt"] == nil)
     }
 
     private func agent(_ status: CoreWorkflow.Status) -> CoreWorkflow {
@@ -115,14 +115,14 @@ struct AgentWorkflowTests {
 
         await transport.reply(with: .completes(.agentStarted(workflowID: 99)))
         await #expect(throws: CoreFailure.unexpectedCommandResult) {
-            try await client.startAgent(workflowID: 3, harness: .codex, prompt: "go")
+            try await client.startAgent(workflowID: 3, harness: .codex)
         }
         await transport.reply(with: .completes(.agentCancelled(workflowID: 99)))
         await #expect(throws: CoreFailure.unexpectedCommandResult) {
             try await client.cancelAgent(workflowID: 3)
         }
         await transport.reply(with: .completes(.agentStarted(workflowID: 3)))
-        try await client.startAgent(workflowID: 3, harness: .codex, prompt: "go")
+        try await client.startAgent(workflowID: 3, harness: .codex)
         await transport.reply(with: .completes(.agentCancelled(workflowID: 3)))
         try await client.cancelAgent(workflowID: 3)
     }

@@ -463,6 +463,7 @@ mod tests {
             reviewer,
             2,
             crate::CompletionSignal {
+                task: String::new(),
                 decision: crate::Decision::RequestChanges,
                 summary: "Revise the result".into(),
                 assignments: vec![],

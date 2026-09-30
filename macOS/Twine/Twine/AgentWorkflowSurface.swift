@@ -48,5 +48,9 @@ struct AgentWorkflowSurface: View {
             let id = history.agentID ?? workflow.agents.first(where: { $0.terminalID == history.anchor.terminalID })?.id
             if let id { layout.wrappedValue.focus(id, in: workflow.agents) }
         }
+        .onAppear {
+            let active = workflow.run?.agents.filter(\.active).map(\.id) ?? []
+            layout.wrappedValue.openOnFirstStage(activeAgentIDs: active, in: workflow.agents)
+        }
     }
 }

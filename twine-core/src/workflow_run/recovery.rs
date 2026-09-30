@@ -91,6 +91,7 @@ mod tests {
 
     fn signal(decision: Decision) -> CompletionSignal {
         CompletionSignal {
+            task: String::new(),
             decision,
             summary: "Explicit feedback".into(),
             assignments: vec![],

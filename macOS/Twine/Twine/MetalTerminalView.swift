@@ -99,7 +99,11 @@ final class MetalTerminalView: TerminalView {
         didSet {
             guard automaticallyFocuses != oldValue else { return }
             focusTask?.cancel()
-            if automaticallyFocuses && isSelected { requestKeyboardFocus() }
+            if !automaticallyFocuses {
+                releaseKeyboardFocus()
+            } else if isSelected {
+                requestKeyboardFocus()
+            }
         }
     }
     var focusRequest = 0 {
@@ -112,6 +116,15 @@ final class MetalTerminalView: TerminalView {
             guard isSelected != oldValue else { return }
             focusTask?.cancel()
             if isSelected { requestKeyboardFocus() }
+        }
+    }
+
+    /// A form over the terminal owns the keyboard, so typing can't reach the shell behind it.
+    private func releaseKeyboardFocus() {
+        focusTask = Task { [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self, !automaticallyFocuses, window?.firstResponder === self else { return }
+            window?.makeFirstResponder(nil)
         }
     }
 

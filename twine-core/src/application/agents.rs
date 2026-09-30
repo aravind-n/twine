@@ -65,8 +65,8 @@ impl Application {
             .ok_or_else(|| reject("workflowNotFound", "The workflow is no longer open.")))
     }
 
-    /// Turns a draft workflow into a single agent: starts the harness with `prompt` in its own
-    /// PTY, then replaces the draft's placeholder shell with it.
+    /// Turns a draft workflow into a single agent: starts the harness in its own PTY, with
+    /// `prompt` if there is one, then replaces the draft's placeholder shell with it.
     pub(super) fn start_agent(
         &self,
         request_id: RequestId,
@@ -76,9 +76,6 @@ impl Application {
         size: TerminalSize,
     ) -> Result<CommandDisposition, ApplicationError> {
         let prompt = prompt.trim();
-        if prompt.is_empty() {
-            return Ok(reject("emptyPrompt", "Type a prompt for the agent."));
-        }
         let folder = match self.draft_folder(workflow_id)? {
             Ok(folder) => folder,
             Err(rejected) => return Ok(rejected),
@@ -489,19 +486,25 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_prompt_and_a_configured_workflow_are_rejected() {
+    fn an_agent_without_a_prompt_starts_interactively_and_only_from_a_draft() {
         let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let application = application(folder.path(), bin.path(), Some("sleep 30"));
+        let application = application(
+            folder.path(),
+            bin.path(),
+            Some(
+                "for a in \"$@\"; do [ \"$a\" = -- ] && echo SEPARATOR; done; echo ARGS-DONE; sleep 30",
+            ),
+        );
         let draft = draft(&application, folder.path());
 
-        assert!(matches!(
-            start(&application, draft.workflow_id, "   "),
-            CommandDisposition::Rejected { code, .. } if code == "emptyPrompt"
-        ));
         assert_eq!(
-            start(&application, draft.workflow_id, "go"),
+            start(&application, draft.workflow_id, "   "),
             CommandDisposition::Accepted
         );
+        // Hook flags may still be passed, but no prompt separator or prompt follows them.
+        let mut output = Vec::new();
+        wait_until(|| output_contains(&application, &mut output, "ARGS-DONE"));
+        assert!(!String::from_utf8_lossy(&output).contains("SEPARATOR"));
         assert!(matches!(
             start(&application, draft.workflow_id, "again"),
             CommandDisposition::Rejected { code, .. } if code == "workflowNotDraft"

@@ -113,6 +113,7 @@ mod tests {
                 agent_id: crate::AgentId(run.active_agents()[0].agent_id),
                 generation: run.generation,
                 signal: CompletionSignal {
+                    task: String::new(),
                     decision,
                     summary: "Explicit completion".into(),
                     assignments: vec![],

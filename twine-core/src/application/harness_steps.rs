@@ -142,7 +142,10 @@ impl Application {
                     }
                 })
         };
-        arguments.extend(harness.definition().arguments(prompt));
+        // Without a prompt the harness opens interactively and waits for the user.
+        if !prompt.is_empty() {
+            arguments.extend(harness.definition().arguments(prompt));
+        }
         (arguments, hooks)
     }
 
@@ -672,6 +675,7 @@ mod tests {
                 agent_id: agent.agent_id,
                 generation: current.run.unwrap().generation,
                 signal: CompletionSignal {
+                    task: String::new(),
                     decision: Decision::Done,
                     summary: "Ready".into(),
                     assignments: vec![],
@@ -1516,6 +1520,7 @@ mod tests {
                 agent_id: agent.agent_id,
                 generation: current.run.unwrap().generation,
                 signal: CompletionSignal {
+                    task: String::new(),
                     decision: Decision::Done,
                     summary: "Ready".into(),
                     assignments: vec![],
@@ -1709,6 +1714,7 @@ mod tests {
                 agent_id: agent.agent_id,
                 generation: current.run.unwrap().generation,
                 signal: CompletionSignal {
+                    task: String::new(),
                     decision: Decision::Done,
                     summary: "Implementation ready".into(),
                     assignments: vec![],

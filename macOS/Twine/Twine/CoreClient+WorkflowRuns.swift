@@ -2,12 +2,11 @@ import Foundation
 
 extension CoreClient {
     func startWorkflowRun(
-        workflowID: UInt64, workflowType: CoreWorkflowType.Reference,
-        prompt: String, roles: [CoreRoleLaunch]
+        workflowID: UInt64, workflowType: CoreWorkflowType.Reference, roles: [CoreRoleLaunch]
     ) async throws {
         try await sendRunCommand(
             .startWorkflowRun(
-                workflowID: workflowID, workflowType: workflowType, prompt: prompt, roles: roles,
+                workflowID: workflowID, workflowType: workflowType, roles: roles,
                 size: .init(rows: 24, columns: 80, pixelWidth: 800, pixelHeight: 480)))
     }
 

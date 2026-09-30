@@ -120,8 +120,8 @@ final class TwineUITests: XCTestCase {
         let coordinatorChoice = app.buttons["workflowChoice-Coordinator"]
         XCTAssertTrue(coordinatorChoice.waitForExistence(timeout: 10), app.debugDescription)
         coordinatorChoice.click()
-        let prompt = app.descendants(matching: .any).matching(identifier: "workflowPrompt").firstMatch
-        XCTAssertTrue(prompt.waitForExistence(timeout: 10), app.debugDescription)
+        let start = app.descendants(matching: .any).matching(identifier: "workflowStart").firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["Back"].click()
         app.typeText("printf '%s' typed > typed.txt\r")
         let typed = expectation(

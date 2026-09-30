@@ -88,7 +88,8 @@ pub enum Command {
     CloseWorkflow {
         workflow_id: WorkflowId,
     },
-    /// Runs a draft workflow as a single agent: `harness` started with `prompt`.
+    /// Runs a draft workflow as a single agent: `harness` started with `prompt`, or waiting for
+    /// the user in its terminal when `prompt` is empty.
     StartAgent {
         workflow_id: WorkflowId,
         harness: HarnessId,
@@ -99,6 +100,8 @@ pub enum Command {
     CancelAgent {
         workflow_id: WorkflowId,
     },
+    /// Starts a workflow run. With an empty `prompt`, the first stage asks the user for the task
+    /// and reports it when it completes.
     StartWorkflowRun {
         workflow_id: WorkflowId,
         workflow_type: crate::WorkflowTypeRef,

@@ -6,13 +6,11 @@ struct WorkflowLaunchForm: View {
     let type: CoreWorkflowType
     var isSelected = true
     let back: () -> Void
-    @State private var prompt = ""
     @State private var harnesses: [String: [CoreHarness]] = [:]
     @State private var isStarting = false
     @State private var failure: String?
     @State private var hasLoaded = false
     private let preferences = WorkflowLaunchPreferences()
-    @FocusState private var promptFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
@@ -22,19 +20,23 @@ struct WorkflowLaunchForm: View {
             ForEach(type.definition.roles) { role in
                 rolePickers(role)
             }
-            TextField("Prompt", text: $prompt, axis: .vertical)
-                .textFieldStyle(.roundedBorder).lineLimit(2...6).focused($promptFocused)
-                .accessibilityIdentifier("workflowPrompt")
+            if let first = firstRoleName {
+                Text("After you start, tell the \(first) what to do in its terminal.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if let failure {
                 Text(failure).font(.caption).foregroundStyle(Color.statusNeedsAttention)
                     .accessibilityIdentifier("workflowStartFailure")
             }
             HStack {
-                Button("Back", action: back).disabled(isStarting)
+                Button("Back", action: back)
+                    .keyboardShortcut(isSelected ? .cancelAction : nil)
+                    .disabled(isStarting)
                 Spacer()
                 Button("Start", action: start)
                     .buttonStyle(.borderedProminent)
-                    .disabled(isStarting || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .keyboardShortcut(isSelected ? .defaultAction : nil)
+                    .disabled(isStarting)
                     .accessibilityIdentifier("workflowStart")
             }.controlSize(.small)
         }
@@ -43,9 +45,12 @@ struct WorkflowLaunchForm: View {
                 harnesses = preferences.harnesses(for: type)
                 hasLoaded = true
             }
-            promptFocused = true
         }
-        .onChange(of: isSelected) { _, selected in if selected { promptFocused = true } }
+    }
+
+    /// The role that starts the run, which the user talks to first.
+    private var firstRoleName: String? {
+        type.definition.stages.first?.roles.first.flatMap { id in type.definition.roles.first { $0.id == id }?.name }
     }
 
     private func rolePickers(_ role: CoreWorkflowType.Role) -> some View {
@@ -90,8 +95,7 @@ struct WorkflowLaunchForm: View {
         Task {
             defer { isStarting = false }
             do {
-                try await client.startWorkflowRun(
-                    workflowID: workflowID, workflowType: type.reference, prompt: prompt, roles: roles)
+                try await client.startWorkflowRun(workflowID: workflowID, workflowType: type.reference, roles: roles)
                 preferences.remember(assignments, for: type)
             } catch { failure = error.localizedDescription }
         }

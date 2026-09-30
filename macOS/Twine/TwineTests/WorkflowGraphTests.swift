@@ -137,7 +137,8 @@ struct WorkflowGraphTests {
         let definition = definition(
             roles: ["a", "b", "c"], stages: [("one", ["a"]), ("two", ["b"]), ("three", ["c"])], handoffs: [])
         func states(_ status: String) throws -> [WorkflowStageState] {
-            let json = #"{"generation":1,"stage":"Two","status":"\#(status)","agents":[],"stageId":"two"}"#
+            let json =
+                #"{"generation":1,"stage":"Two","status":"\#(status)","needsTask":false,"agents":[],"stageId":"two"}"#
             let run = try JSONDecoder().decode(CoreWorkflowRun.self, from: Data(json.utf8))
             return definition.stages.map { WorkflowStageState.of($0.id, in: definition, run: run) }
         }
