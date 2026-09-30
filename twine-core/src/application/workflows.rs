@@ -169,6 +169,7 @@ impl Application {
             started_at: timestamp(),
             ended_at: None,
             restored: false,
+            run: None,
         };
         if let Err(error) = inner.start_trace(&workflow) {
             let terminal_ids = inner.remove_workflow_terminals(&workflow);
@@ -316,8 +317,9 @@ impl Application {
             .map(|workflow| {
                 let shells = match workflow.kind {
                     WorkflowKind::Draft | WorkflowKind::Terminal => 1,
-                    // Single-agent harnesses never restart; multi-agent workflows restore shells.
+                    // Harness runs never restart; legacy multi-agent workflows restore shells.
                     WorkflowKind::SingleAgent => 0,
+                    WorkflowKind::Agents if workflow.run.is_some() => 0,
                     WorkflowKind::Agents => workflow.agents.len(),
                 };
                 (0..shells)
@@ -375,7 +377,11 @@ impl Application {
                         .map(|agent| Agent {
                             agent_id: agent.agent_id,
                             role: agent.role,
-                            terminal_id: restart(),
+                            terminal_id: if stored.run.is_some() {
+                                TerminalId::from_value(0)
+                            } else {
+                                restart()
+                            },
                         })
                         .collect();
                     (TerminalId::from_value(0), agents)
@@ -393,8 +399,11 @@ impl Application {
                 started_at: timestamp(),
                 ended_at: None,
                 restored: true,
+                run: stored.run,
             };
-            if workflow.kind == WorkflowKind::SingleAgent {
+            if workflow.run.is_some() {
+                restore_run(&mut workflow, inner.folders.store())?;
+            } else if workflow.kind == WorkflowKind::SingleAgent {
                 // Only an agent that was still running when Twine stopped was interrupted.
                 workflow.status = match stored.agent_status {
                     Some(status) if status != WorkflowStatus::Running => status,
@@ -494,6 +503,24 @@ impl super::Inner {
         }
         Vec::new()
     }
+}
+
+fn restore_run(
+    workflow: &mut Workflow,
+    store: &mut crate::store::Store,
+) -> Result<(), ApplicationError> {
+    if let Some(run) = &mut workflow.run {
+        if run.status == crate::RunStatus::Running {
+            run.finish(
+                crate::RunStatus::Interrupted,
+                "Twine stopped while the workflow was running.",
+            );
+        }
+        workflow.status = super::runs::workflow_status(run.status);
+        workflow.ended_at = Some(workflow.started_at);
+    }
+    store.save_workflow_run(workflow)?;
+    Ok(())
 }
 
 /// The trimmed roles, if a workflow of this kind can be created with them. Single agents start from

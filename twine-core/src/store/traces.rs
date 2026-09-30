@@ -271,7 +271,7 @@ impl Store {
     }
 }
 
-fn insert_span(
+pub(super) fn insert_span(
     transaction: &Transaction<'_>,
     new: &NewTraceSpan<'_>,
 ) -> Result<TraceSpanId, StoreError> {
@@ -403,6 +403,7 @@ fn read_kind(row: &Row<'_>, index: usize) -> rusqlite::Result<TraceEventKind> {
         "processExited" => Ok(TraceEventKind::ProcessExited),
         "processFailed" => Ok(TraceEventKind::ProcessFailed),
         "processStopped" => Ok(TraceEventKind::ProcessStopped),
+        "workflowEvent" => Ok(TraceEventKind::WorkflowEvent),
         _ => Err(rusqlite::Error::InvalidQuery),
     }
 }
@@ -422,6 +423,7 @@ const fn kind_name(kind: TraceEventKind) -> &'static str {
         TraceEventKind::ProcessExited => "processExited",
         TraceEventKind::ProcessFailed => "processFailed",
         TraceEventKind::ProcessStopped => "processStopped",
+        TraceEventKind::WorkflowEvent => "workflowEvent",
     }
 }
 

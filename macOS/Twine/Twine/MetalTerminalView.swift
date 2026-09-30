@@ -61,6 +61,13 @@ final class MetalTerminalView: TerminalView {
     }
 
     private var focusTask: Task<Void, Never>?
+    var automaticallyFocuses = true {
+        didSet {
+            guard automaticallyFocuses != oldValue else { return }
+            focusTask?.cancel()
+            if automaticallyFocuses && isSelected { requestKeyboardFocus() }
+        }
+    }
     var focusRequest = 0 {
         didSet {
             if focusRequest != oldValue, isSelected { requestKeyboardFocus() }
@@ -80,7 +87,9 @@ final class MetalTerminalView: TerminalView {
             // SwiftUI changes the terminal's visibility and its host's focus in the same update.
             // Request focus after that update has returned, once the selected view is visible.
             await Task.yield()
-            guard !Task.isCancelled, let self, isSelected, !isHiddenOrHasHiddenAncestor, let window else { return }
+            guard !Task.isCancelled, let self, automaticallyFocuses, isSelected,
+                !isHiddenOrHasHiddenAncestor, let window
+            else { return }
             window.makeFirstResponder(self)
         }
     }

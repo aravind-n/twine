@@ -77,6 +77,35 @@ struct AgentWorkflowTests {
         #expect(chunk.bytes == Data("agent".utf8))
     }
 
+    @Test func stageChangesStartOnlyNewTerminalsAndRetireReplacedOnes() async throws {
+        let transport = ScriptedAgentTransport(snapshot: snapshot(terminalID: 1, kind: .draft))
+        let client = BridgeClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await waitUntil { client.connectionState == .running }
+        func stage(_ implementer: UInt64, _ reviewer: UInt64) -> BridgeWorkflow {
+            BridgeWorkflow(
+                workflowID: 3, sessionID: 1, name: "Adversarial", kind: .agents,
+                terminalID: 0,
+                agents: [
+                    .init(agentID: 1, role: "Implementer", terminalID: implementer),
+                    .init(agentID: 2, role: "Reviewer", terminalID: reviewer),
+                ], status: .running, startedAt: 1, endedAt: nil)
+        }
+        await transport.queue(event: .workflowChanged(stage(20, 0)))
+        try await waitUntil { client.terminalStatus(for: 20) == .running }
+        #expect(client.terminalStatus(for: 1) == nil)
+        let exit = BridgeTerminalExit(exitCode: 0, signal: nil)
+        await transport.queue(event: .terminalExited(terminalID: 20, exit: exit))
+        await transport.queue(event: .workflowChanged(stage(20, 21)))
+        try await waitUntil { client.terminalStatus(for: 21) == .running }
+        #expect(client.terminalStatus(for: 20) == .exited(exit))
+        await transport.queue(event: .workflowChanged(stage(22, 21)))
+        try await waitUntil { client.terminalStatus(for: 22) == .running }
+        #expect(client.terminalStatus(for: 20) == nil)
+        #expect(client.terminalStatus(for: 21) == .running)
+    }
+
     @Test @MainActor func startAndCancelRejectACompletionForADifferentWorkflow() async throws {
         let transport = ScriptedAgentTransport(snapshot: snapshot(terminalID: 1, kind: .draft))
         let client = BridgeClient(transport: transport)

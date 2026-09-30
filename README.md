@@ -16,6 +16,39 @@ Disk updates refresh clean files and never replace unsaved edits. **⌘W** close
 workflow. Binary files, larger files, deleted paths, symbolic links, and special files show
 an explanatory state. Up to 256 directories can be expanded at once.
 
+## Agent workflows
+
+Choose **Adversarial**, **Coordinator**, or a stored custom workflow type from a new tab.
+Pick a harness for each role instance and enter the workflow's prompt. Harnesses run directly
+in the open folder; parallel workers receive their own sub-task and advisory file ownership.
+Each role has a terminal subtab. A stage starts fresh harness processes, including when a review
+loop returns to an earlier role.
+
+Agents advance stages by invoking the private completion command included in their instructions.
+The command accepts JSON on stdin: `decision` is `done`, `approve`, or `requestChanges`, with
+a `summary` and, for assignment handoffs, `assignments` containing `role`, `instance`, `task`,
+and `files`. Each invocation gets a new mailbox; submissions are atomic and limited to 64 KiB.
+Rejected submissions can be corrected and resubmitted. Terminal prose and process exits never
+advance a stage.
+
+**Mark done…** is always available for an unfinished active role, including after its process
+exits. Its form also supports review decisions and worker assignments. Review loops stop at the
+type's limit; **Cancel workflow** stops all its agents. Runs restored after quitting or a crash
+are interrupted, without automatically restarting harnesses. The Traces timeline records each
+role's stage invocations. Select a span to inspect its stage changes, completions, and handoffs;
+this history survives reopening the app.
+
+The automated Rust suite uses fake harnesses for complete runs. To repeat the optional real
+Adversarial smoke test with an authenticated Codex installation:
+
+```sh
+TWINE_REAL_CODEX="$(command -v codex)" cargo test -p twine-core \
+  real_adversarial_workflow_completes -- --ignored
+```
+
+This test uses Codex's noninteractive mode in a disposable folder and verifies both agents'
+explicit completion signals.
+
 ## Configuration
 
 Twine reads `~/.config/twine/config.toml` at startup and creates a commented default file

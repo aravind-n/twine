@@ -289,6 +289,9 @@ fn ended_status(
     workflow: &Workflow,
     terminals: &HashMap<TerminalId, TerminalStatus>,
 ) -> Option<WorkflowStatus> {
+    if workflow.run.is_some() {
+        return None;
+    }
     let mut failed = false;
     for terminal_id in workflow.shells() {
         match terminals.get(&terminal_id) {
@@ -340,6 +343,7 @@ mod tests {
             started_at: 0,
             ended_at: None,
             restored: false,
+            run: None,
         }
     }
 

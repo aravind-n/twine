@@ -11,6 +11,7 @@ use twine_core::{
 use crate::error::BridgeError;
 
 pub(crate) mod files;
+mod runs;
 mod traces;
 mod workflows;
 use traces::WireTraceSummary;
@@ -90,6 +91,7 @@ struct WireSnapshot<'a> {
     terminals: Vec<WireTerminalState>,
     workflows: WireWorkflowState<'a>,
     traces: Vec<WireTraceSummary>,
+    workflow_types: &'a [twine_core::WorkflowType],
 }
 
 /// Paths serialize as strings; serde rejects a path that isn't valid UTF-8.
@@ -303,6 +305,9 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         .and_then(Value::as_str)
         .ok_or(BridgeError::MalformedCommand)?;
     let command = match command_type {
+        "startWorkflowRun" | "completeWorkflowRole" | "cancelWorkflowRun" => {
+            DecodedCommand::Known(runs::decode_command(command_type, &raw.command)?)
+        }
         "ping" => DecodedCommand::Known(Command::Ping),
         "openFolder" => DecodedCommand::Known(Command::OpenFolder {
             path: decode_path(&raw.command)?,
@@ -400,6 +405,7 @@ pub(crate) fn encode_snapshot(snapshot: &Snapshot) -> Result<Vec<u8>, serde_json
         terminals: snapshot.terminals.iter().map(wire_terminal_state).collect(),
         workflows: (&snapshot.workflows).into(),
         traces: snapshot.traces.iter().map(Into::into).collect(),
+        workflow_types: &snapshot.workflow_types,
     })
 }
 
@@ -539,8 +545,43 @@ mod tests {
                 "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null, "currentBranch": null },
                 "terminals": [],
                 "traces": [],
+                "workflowTypes": application.workflow_types().unwrap(),
                 "workflows": { "session": null, "sessions": [], "sessionsInitialized": false, "workflows": [] }
             })
+        );
+    }
+
+    #[test]
+    fn run_commands_decode_type_versions_harnesses_and_explicit_signals() {
+        let command = decode(
+            r#"{"requestId":1,"command":{"type":"startWorkflowRun","workflowId":3,
+            "workflowType":{"user":{"type_id":7,"version":2}},"prompt":"Task",
+            "roleLaunches":[{"role":"worker","harness":"codex"},{"role":"worker","harness":"claudeCode"}],
+            "size":{"rows":24,"columns":80,"pixelWidth":800,"pixelHeight":480}}}"#,
+        );
+        assert!(
+            matches!(command, Command::StartWorkflowRun { workflow_type: twine_core::WorkflowTypeRef::User { type_id: 7, version: 2 }, ref roles, .. }
+            if roles.len() == 2 && roles[1].harness == twine_core::HarnessId::ClaudeCode)
+        );
+        let command = decode(
+            r#"{"requestId":2,"command":{"type":"completeWorkflowRole","workflowId":3,
+            "agentId":4,"generation":5,"signal":{"decision":"requestChanges","summary":"Fix the edge case"}}}"#,
+        );
+        assert!(matches!(
+            command,
+            Command::CompleteWorkflowRole {
+                generation: 5,
+                signal: twine_core::CompletionSignal {
+                    decision: twine_core::Decision::RequestChanges,
+                    ..
+                },
+                ..
+            }
+        ));
+        let command =
+            decode(r#"{"requestId":3,"command":{"type":"cancelWorkflowRun","workflowId":3}}"#);
+        assert!(
+            matches!(command, Command::CancelWorkflowRun { workflow_id } if workflow_id.0 == 3)
         );
     }
 
@@ -571,6 +612,7 @@ mod tests {
             terminals: Vec::new(),
             workflows: twine_core::WorkflowState::default(),
             traces: Vec::new(),
+            workflow_types: Vec::new(),
         };
         let json: Value = serde_json::from_slice(&encode_snapshot(&snapshot).unwrap()).unwrap();
         assert_eq!(

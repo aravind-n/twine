@@ -45,6 +45,10 @@ extension BridgeClient {
     }
 
     func cancelAgent(workflowID: UInt64) async throws {
+        if snapshot?.workflows.workflows.first(where: { $0.id == workflowID })?.run != nil {
+            try await cancelWorkflowRun(workflowID: workflowID)
+            return
+        }
         let result = try await sendAndAwaitCompletion(.cancelAgent(workflowID: workflowID))
         guard case .agentCancelled(let cancelledID) = result, cancelledID == workflowID else {
             throw BridgeFailure.unexpectedCommandResult

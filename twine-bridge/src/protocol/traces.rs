@@ -117,6 +117,7 @@ impl<'a> From<&'a TraceEvent> for WireTraceEvent<'a> {
                 TraceEventKind::ProcessExited => "processExited",
                 TraceEventKind::ProcessFailed => "processFailed",
                 TraceEventKind::ProcessStopped => "processStopped",
+                TraceEventKind::WorkflowEvent => "workflowEvent",
             },
         }
     }

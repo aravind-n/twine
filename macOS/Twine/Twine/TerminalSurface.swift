@@ -13,6 +13,8 @@ struct TerminalSurface: View {
     let terminalID: UInt64
     let isSelected: Bool
     var focusRequest = 0
+    /// Prompt forms above a terminal own automatic keyboard focus until dismissed.
+    var automaticallyFocuses = true
     /// What runs in the terminal, for its exit message.
     var subject = "Shell"
     /// A cancelled agent says so instead of how its process ended.
@@ -27,6 +29,7 @@ struct TerminalSurface: View {
                     terminalID: terminalID,
                     isSelected: isSelected,
                     focusRequest: focusRequest,
+                    automaticallyFocuses: automaticallyFocuses,
                     beforeUserInput: beforeUserInput,
                     failureMessage: $failureMessage
                 )
@@ -87,6 +90,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     let terminalID: UInt64
     let isSelected: Bool
     let focusRequest: Int
+    let automaticallyFocuses: Bool
     var beforeUserInput: (() async throws -> Void)?
     @Binding var failureMessage: String?
 
@@ -100,6 +104,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> MetalTerminalView {
         let view = MetalTerminalView(frame: .zero)
+        view.automaticallyFocuses = automaticallyFocuses
         view.isSelected = isSelected
         view.focusRequest = focusRequest
         view.isHidden = !isSelected
@@ -111,6 +116,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: MetalTerminalView, context: Context) {
         context.coordinator.beforeUserInput = beforeUserInput
         nsView.isHidden = !isSelected
+        nsView.automaticallyFocuses = automaticallyFocuses
         nsView.isSelected = isSelected
         nsView.focusRequest = focusRequest
         nsView.applyTwinePalette()

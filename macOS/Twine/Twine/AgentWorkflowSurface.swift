@@ -14,6 +14,9 @@ struct AgentWorkflowSurface: View {
             if workflow.showsAgentSubtabs {
                 AgentSubtabs(agents: workflow.agents, selectedID: shownID) { selectedAgentID = $0 }
             }
+            if let run = workflow.run {
+                WorkflowRunControls(workflowID: workflow.id, run: run, selectedAgentID: shownID)
+            }
             if workflow.restored {
                 RestoredWorkflowNotice(workflow: workflow)
             }
@@ -23,10 +26,19 @@ struct AgentWorkflowSurface: View {
                     Group {
                         if agent.terminalID == 0 {
                             ContentUnavailableView(
-                                "Shell Couldn't Restart", systemImage: "terminal",
-                                description: Text("Open a new workflow to try again."))
+                                idleTitle,
+                                systemImage: "terminal",
+                                description: Text(
+                                    workflow.run != nil && workflow.status == .running
+                                        ? "This role starts when its stage begins."
+                                        : "Open a new workflow to try again."))
                         } else {
-                            TerminalSurface(terminalID: agent.terminalID, isSelected: isSelected && isShown)
+                            TerminalSurface(
+                                terminalID: agent.terminalID, isSelected: isSelected && isShown,
+                                subject: workflow.run == nil ? "Shell" : "Agent",
+                                isCancelled: workflow.status == .cancelled
+                            )
+                            .id(agent.terminalID)
                         }
                     }
                     .opacity(isShown ? 1 : 0)
@@ -36,4 +48,9 @@ struct AgentWorkflowSurface: View {
             }
         }
     }
+    private var idleTitle: String {
+        if workflow.run == nil { return "Shell Couldn't Restart" }
+        return workflow.status == .running ? "Agent Waiting" : "Agent Stopped"
+    }
+
 }

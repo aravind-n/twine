@@ -48,7 +48,7 @@ final class BridgeClient {
                     ignoredCommandResults.insert(receipt.requestID)
                 }
             case .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .nameDraftWorkflow,
-                .refreshGitBranch:
+                .refreshGitBranch, .startWorkflowRun, .completeWorkflowRole, .cancelWorkflowRun:
                 break
             }
         }
@@ -296,12 +296,11 @@ extension BridgeClient {
             snapshot.workflows.workflows.removeAll { $0.id == workflow.id }
             for terminalID in workflow.terminalIDs { markTerminalClosed(terminalID, in: &snapshot) }
         } else if let index = snapshot.workflows.workflows.firstIndex(where: { $0.id == workflow.id }) {
-            let previousTerminalID = snapshot.workflows.workflows[index].terminalID
+            let previousIDs = Set(snapshot.workflows.workflows[index].terminalIDs)
+            let currentIDs = Set(workflow.terminalIDs)
             snapshot.workflows.workflows[index] = workflow
-            // Starting an agent replaces the draft's placeholder shell with the agent's terminal.
-            guard previousTerminalID != workflow.terminalID else { return }
-            if previousTerminalID != 0 { markTerminalClosed(previousTerminalID, in: &snapshot) }
-            if workflow.terminalID != 0 { markTerminalRunning(workflow.terminalID, in: &snapshot) }
+            for id in previousIDs.subtracting(currentIDs) { markTerminalClosed(id, in: &snapshot) }
+            for id in currentIDs.subtracting(previousIDs) { markTerminalRunning(id, in: &snapshot) }
         } else {
             snapshot.workflows.workflows.append(workflow)
             for terminalID in workflow.terminalIDs { markTerminalRunning(terminalID, in: &snapshot) }

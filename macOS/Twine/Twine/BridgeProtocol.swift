@@ -21,6 +21,11 @@ nonisolated enum BridgeCommand: Sendable {
     case closeWorkflow(workflowID: UInt64)
     case startAgent(workflowID: UInt64, harness: BridgeHarness, prompt: String, size: BridgeTerminalSize)
     case cancelAgent(workflowID: UInt64)
+    case startWorkflowRun(
+        workflowID: UInt64, workflowType: BridgeWorkflowType.Reference, prompt: String,
+        roles: [BridgeRoleLaunch], size: BridgeTerminalSize)
+    case completeWorkflowRole(workflowID: UInt64, agentID: UInt64, generation: UInt64, signal: BridgeCompletionSignal)
+    case cancelWorkflowRun(workflowID: UInt64)
     case startTerminal(workingDirectory: String, size: BridgeTerminalSize)
     case closeTerminal(terminalID: UInt64)
 }
@@ -62,6 +67,7 @@ nonisolated struct BridgeSnapshot: Decodable, Equatable, Sendable {
     var terminals: [BridgeTerminalState] = []
     var workflows = BridgeWorkflowState()
     var traces: [BridgeTraceSummary] = []
+    var workflowTypes: [BridgeWorkflowType]?
 }
 
 nonisolated struct BridgeConfig: Decodable, Equatable, Sendable {

@@ -28,6 +28,11 @@ nonisolated private struct CommandPayload: Encodable {
     var name: String?
     var harness: BridgeHarness?
     var prompt: String?
+    var workflowType: BridgeWorkflowType.Reference?
+    var roleLaunches: [BridgeRoleLaunch]?
+    var agentID: UInt64?
+    var generation: UInt64?
+    var signal: BridgeCompletionSignal?
     var workingDirectory: String?
     var size: BridgeTerminalSize?
     var terminalID: UInt64?
@@ -37,12 +42,39 @@ nonisolated private struct CommandPayload: Encodable {
         case terminalID = "terminalId"
         case workflowID = "workflowId"
         case sessionID = "sessionId"
+        case workflowType, generation, signal
+        case roleLaunches = "roleLaunches"
+        case agentID = "agentId"
     }
 
     init(_ command: BridgeCommand) {
         switch command {
         case .ping:
             type = "ping"
+        case .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .refreshGitBranch:
+            type = ""
+            configureFolder(command)
+        case .createSession, .renameSession, .selectSession, .deleteSession:
+            type = ""
+            configureSession(command)
+        case .createWorkflow, .activateWorkflow, .nameDraftWorkflow, .closeWorkflow, .startAgent, .cancelAgent:
+            type = ""
+            configureWorkflow(command)
+        case .startWorkflowRun, .completeWorkflowRole, .cancelWorkflowRun:
+            type = ""
+            configureRun(command)
+        case .startTerminal(let workingDirectory, let size):
+            type = "startTerminal"
+            self.workingDirectory = workingDirectory
+            self.size = size
+        case .closeTerminal(let terminalID):
+            type = "closeTerminal"
+            self.terminalID = terminalID
+        }
+    }
+
+    private mutating func configureFolder(_ command: BridgeCommand) {
+        switch command {
         case .openFolder(let path):
             type = "openFolder"
             self.path = path
@@ -57,19 +89,29 @@ nonisolated private struct CommandPayload: Encodable {
         case .refreshGitBranch(let folder):
             type = "refreshGitBranch"
             self.folder = folder
-        case .createSession, .renameSession, .selectSession, .deleteSession:
-            type = ""
-            configureSession(command)
-        case .createWorkflow, .activateWorkflow, .nameDraftWorkflow, .closeWorkflow, .startAgent, .cancelAgent:
-            type = ""
-            configureWorkflow(command)
-        case .startTerminal(let workingDirectory, let size):
-            type = "startTerminal"
-            self.workingDirectory = workingDirectory
+        default: break
+        }
+    }
+
+    private mutating func configureRun(_ command: BridgeCommand) {
+        switch command {
+        case .startWorkflowRun(let workflowID, let workflowType, let prompt, let roles, let size):
+            type = "startWorkflowRun"
+            self.workflowID = workflowID
+            self.workflowType = workflowType
+            self.prompt = prompt
+            self.roleLaunches = roles
             self.size = size
-        case .closeTerminal(let terminalID):
-            type = "closeTerminal"
-            self.terminalID = terminalID
+        case .completeWorkflowRole(let workflowID, let agentID, let generation, let signal):
+            type = "completeWorkflowRole"
+            self.workflowID = workflowID
+            self.agentID = agentID
+            self.generation = generation
+            self.signal = signal
+        case .cancelWorkflowRun(let workflowID):
+            type = "cancelWorkflowRun"
+            self.workflowID = workflowID
+        default: break
         }
     }
 

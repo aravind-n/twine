@@ -6,7 +6,10 @@ struct RoleStyle: Equatable {
     let symbol: String
 
     init(role: String) {
-        switch role.lowercased() {
+        let parts = role.lowercased().split(separator: " ")
+        let baseRole =
+            parts.last.flatMap { Int($0) } == nil ? role.lowercased() : parts.dropLast().joined(separator: " ")
+        switch baseRole {
         case "implementer": (color, symbol) = (.roleBlue, "hammer")
         case "reviewer": (color, symbol) = (.roleOrange, "checkmark.bubble")
         case "coordinator": (color, symbol) = (.rolePurple, "flowchart")

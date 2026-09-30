@@ -14,6 +14,9 @@ struct RestoredWorkflowNotice: View {
     }
 
     private var message: String {
+        if workflow.run != nil {
+            return "Restored workflow — agents are stopped. Previous terminal contents aren't restored."
+        }
         let hasAgents = workflow.kind == .agents
         if workflow.terminalIDs.isEmpty {
             return hasAgents

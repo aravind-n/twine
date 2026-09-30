@@ -61,6 +61,7 @@ pub enum TraceEventKind {
     ProcessExited,
     ProcessFailed,
     ProcessStopped,
+    WorkflowEvent,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

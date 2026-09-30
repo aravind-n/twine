@@ -1,0 +1,99 @@
+import XCTest
+
+extension TwineUITests {
+    @MainActor
+    func testAdversarialHarnessSelectionUserCompletionReviewLoopAndTraces() throws {
+        let app = try workflowRunApp()
+        defer { app.terminate() }
+        func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        app.buttons["newWorkflow"].click()
+        XCTAssertTrue(item("workflowChoice-Adversarial").waitForExistence(timeout: 10))
+        item("workflowChoice-Adversarial").click()
+        for role in ["implementer", "reviewer"] {
+            let picker = item("roleHarness-\(role)-0")
+            XCTAssertTrue(picker.waitForExistence(timeout: 10), app.debugDescription)
+            picker.click()
+            app.menuItems["pi"].click()
+        }
+        item("workflowPrompt").click()
+        item("workflowPrompt").typeText("Build a small ")
+        app.buttons["workflowTab-1"].click()
+        app.buttons["workflowTab-2"].click()
+        XCTAssertEqual(item("workflowPrompt").value as? String, "Build a small ")
+        // macOS selects the field's contents when focus returns; continue at the end.
+        app.typeKey(.rightArrow, modifierFlags: [])
+        app.typeText("feature")
+        XCTAssertTrue(item("workflowPrompt").exists, "Returning to a launch form keeps typing out of the shell")
+        XCTAssertEqual(item("workflowPrompt").value as? String, "Build a small feature")
+        item("workflowStart").click()
+        XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["agentSubtab-1"].exists)
+        XCTAssertTrue(app.buttons["agentSubtab-2"].exists)
+
+        completeRole(in: app, summary: "Initial implementation")
+        app.buttons["agentSubtab-2"].click()
+        XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
+        completeRole(in: app, summary: "Fix the edge case", requestChanges: true)
+        app.buttons["agentSubtab-1"].click()
+        XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
+        completeRole(in: app, summary: "Fixed the edge case")
+        app.buttons["agentSubtab-2"].click()
+        XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
+        completeRole(in: app, summary: "Approved")
+        XCTAssertTrue(app.staticTexts["Completed"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(item("workflowCancel").exists)
+        item("tracesHeader").click()
+        let span = app.buttons["traceSpan-3"]
+        XCTAssertTrue(span.waitForExistence(timeout: 10), app.debugDescription)
+        span.click()
+        let log = app.scrollViews["traceEventLog"]
+        XCTAssertTrue(log.waitForExistence(timeout: 5), app.debugDescription)
+        log.scroll(byDeltaX: 0, deltaY: -400)
+        let handoff = app.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "Handoff delivered")).firstMatch
+        XCTAssertTrue(handoff.waitForExistence(timeout: 10), app.debugDescription)
+        let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        screenshot.name = "Completed Adversarial workflow and traces"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    private func completeRole(in app: XCUIApplication, summary: String, requestChanges: Bool = false) {
+        func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        item("workflowMarkDone").click()
+        XCTAssertTrue(item("completionSummary").waitForExistence(timeout: 5), app.debugDescription)
+        if requestChanges {
+            let decision = item("Request changes")
+            XCTAssertTrue(decision.waitForExistence(timeout: 5), app.debugDescription)
+            decision.click()
+        }
+        item("completionSummary").click()
+        item("completionSummary").typeText(summary)
+        item("completionSubmit").click()
+        XCTAssertTrue(item("completionSubmit").waitForNonExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
+    private func workflowRunApp() throws -> XCUIApplication {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "TwineRunUI-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let bin = folder.appending(path: "bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        // A system binary avoids macOS's restriction on executing scripts written by the
+        // sandboxed UI test runner. It exits without signaling, exercising Mark done's fallback.
+        try FileManager.default.createSymbolicLink(
+            at: bin.appending(path: "pi"),
+            withDestinationURL: URL(filePath: "/usr/bin/true"))
+        let app = try makeApp(lastOpenFolder: folder)
+        app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(folder.path)/bin:/bin:/usr/bin"
+        app.launch()
+        func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        XCTAssertTrue(item("workflowChoice-Terminal").waitForExistence(timeout: 10))
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 720))
+        item("workflowChoice-Terminal").click()
+        XCTAssertTrue(item("newTabChoices").waitForNonExistence(timeout: 10), app.debugDescription)
+        return app
+    }
+
+}

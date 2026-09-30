@@ -13,7 +13,7 @@ use crate::workflow::{WorkflowId, WorkflowKind, WorkflowStatus, timestamp};
 impl Application {
     /// Finds a harness binary. The login shell's `PATH` is looked up once in the background, so
     /// this only waits on that at the first start after launch.
-    fn locate_harness(
+    pub(super) fn locate_harness(
         &self,
         definition: &HarnessDefinition,
     ) -> Result<LocatedHarness, HarnessError> {
@@ -33,7 +33,7 @@ impl Application {
     }
 
     /// The folder of a draft workflow's session, or the rejection to send if it isn't a draft.
-    fn draft_folder(
+    pub(super) fn draft_folder(
         &self,
         workflow_id: WorkflowId,
     ) -> Result<Result<PathBuf, CommandDisposition>, ApplicationError> {

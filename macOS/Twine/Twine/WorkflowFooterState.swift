@@ -8,6 +8,7 @@ struct WorkflowFooterState {
     init(workflow: BridgeWorkflow, now: Date) {
         switch workflow.status {
         case .running: status = workflow.kind == .draft ? "Draft" : "Running"
+        case .completed: status = "Completed"
         case .exited: status = "Exited"
         case .failed: status = "Failed"
         case .cancelled: status = "Cancelled"
