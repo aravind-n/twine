@@ -72,8 +72,8 @@ extension TwineUITests {
     private func inspectTraceHandoff(in app: XCUIApplication) {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
         item("tracesHeader").click()
-        let span = app.buttons.matching(
-            NSPredicate(format: "label == %@", "Reviewer: Review · Round 1, Completed")
+        let span = item("traceOverview").buttons.matching(
+            NSPredicate(format: "label ENDSWITH %@", "Reviewer: Review · Round 1, Completed")
         ).firstMatch
         XCTAssertTrue(span.waitForExistence(timeout: 10), app.debugDescription)
         span.click()
