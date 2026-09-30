@@ -104,7 +104,11 @@ struct FolderView: View {
             while !Task.isCancelled {
                 guard coreClient.runState == .running, coreClient.snapshot?.folders.openFolder == path
                 else { return }
-                try await coreClient.refreshGitBranch(folder: path)
+                do {
+                    try await coreClient.refreshGitBranch(folder: path)
+                } catch let error as CoreFailure where error.isGitBranchReadFailure {
+                    gitLogger.error("Git branch refresh failed: \(error.localizedDescription, privacy: .public)")
+                }
                 try await Task.sleep(for: .seconds(5))
             }
         } catch is CancellationError {
