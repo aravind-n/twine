@@ -138,11 +138,14 @@ make check-rust           # Rust only: rustfmt check, Clippy, workspace tests
 make check-macos          # Swift only: swift-format lint, SwiftLint, unit tests
 make fmt                  # format Rust and Swift
 make ui-test-macos        # UI tests; they take over the desktop
+make ui-test-macos ONLY='testFolderWindowInLightAppearance testFolderWindowInDarkAppearance'
 make clean                # remove Cargo, framework, and Xcode build output
 ```
 
 The generated framework includes its C header and module map and is ignored by Git. If the framework is missing, package resolution reports the command needed to create it.
 
 `make build-macos-release` builds the universal Release app. Each build replaces the local framework with the Debug or Release profile it needs.
+
+Linting prepares the framework before resolving the app's packages. `ONLY` accepts one UI test name or a quoted, space-separated list; omitting it runs the full UI suite.
 
 SwiftLint runs the version pinned in `Package.resolved`, through `macOS/Twine/Scripts/swiftlint.sh`.

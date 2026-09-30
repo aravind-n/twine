@@ -4,7 +4,7 @@ PROJECT := macOS/Twine/Twine.xcodeproj
 XCODEBUILD := xcodebuild -project $(PROJECT) -scheme Twine -skipPackagePluginValidation
 XCODEBUILD_DEBUG := $(XCODEBUILD) -destination 'platform=macOS,arch=$(shell uname -m)'
 FRAMEWORK_BUILD := macOS/TwineCorePackage/build.sh
-UI_TEST_TARGET := TwineUITests$(if $(ONLY),/TwineUITests/$(ONLY))
+UI_TEST_TARGETS := $(if $(strip $(ONLY)),$(addprefix TwineUITests/TwineUITests/,$(ONLY)),TwineUITests)
 
 .PHONY: help fmt-rust lint-rust test-rust check-rust clean-rust \
 	framework framework-release build-macos build-macos-release fmt-macos lint-macos \
@@ -12,7 +12,7 @@ UI_TEST_TARGET := TwineUITests$(if $(ONLY),/TwineUITests/$(ONLY))
 	fmt lint test check clean
 
 help:
-	@echo 'usage: make <target> [ONLY=<test>]'
+	@echo 'usage: make <target> [ONLY="testA testB"]'
 	@echo ''
 	@echo 'Whole repository:'
 	@echo '  fmt                   Format Rust and Swift code'
@@ -34,9 +34,9 @@ help:
 	@echo '  build-macos           Build the Debug app, after the Debug framework'
 	@echo '  build-macos-release   Build the universal Release app, after the Release framework'
 	@echo '  fmt-macos             Format Swift code'
-	@echo '  lint-macos            Run strict swift-format lint and SwiftLint'
+	@echo '  lint-macos            Prepare the framework, then run swift-format lint and SwiftLint'
 	@echo '  test-macos            Run the Swift unit tests, after the Debug framework'
-	@echo '  ui-test-macos         Run the UI tests, or only ONLY=<test>; takes over the desktop'
+	@echo '  ui-test-macos         Run UI tests, or select tests with ONLY="testA testB"; takes over the desktop'
 	@echo '  check-macos           Run lint-macos and test-macos'
 	@echo '  clean-macos           Remove the framework, package caches, and Xcode build output'
 	@echo ''
@@ -72,7 +72,7 @@ build-macos-release: framework-release
 fmt-macos:
 	swift format --in-place --recursive macOS/
 
-lint-macos:
+lint-macos: framework
 	swift format lint --strict --recursive macOS/
 	macOS/Twine/Scripts/swiftlint.sh
 
@@ -80,7 +80,7 @@ test-macos: framework
 	$(XCODEBUILD_DEBUG) test -only-testing:TwineTests
 
 ui-test-macos: framework
-	$(XCODEBUILD_DEBUG) -derivedDataPath /tmp/twine-uitests test -only-testing:$(UI_TEST_TARGET)
+	$(XCODEBUILD_DEBUG) -derivedDataPath /tmp/twine-uitests test $(addprefix -only-testing:,$(UI_TEST_TARGETS))
 
 check-macos: lint-macos test-macos
 
