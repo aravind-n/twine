@@ -46,11 +46,24 @@ extension TwineUITests {
         XCTAssertTrue(app.staticTexts["Completed"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(item("workflowCancel").exists)
         inspectTraceHandoff(in: app)
+        inspectSavedHarnesses(in: app)
+    }
 
+    @MainActor
+    private func inspectSavedHarnesses(in app: XCUIApplication) {
+        func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
         app.buttons["newWorkflow"].click()
-        item("workflowChoice-Adversarial").click()
+        let choices = app.scrollViews["newTabChoices"]
+        XCTAssertTrue(choices.waitForExistence(timeout: 10), app.debugDescription)
+        // The expanded Traces panel leaves the graph cards below the first visible choices.
+        choices.scroll(byDeltaX: 0, deltaY: -400)
+        let choice = item("workflowChoice-Adversarial")
+        XCTAssertTrue(choice.waitForExistence(timeout: 10), app.debugDescription)
+        choice.click()
         for role in ["implementer", "reviewer"] {
-            XCTAssertEqual(item("roleHarness-\(role)-0").value as? String, "pi")
+            let picker = item("roleHarness-\(role)-0")
+            XCTAssertTrue(picker.waitForExistence(timeout: 10), app.debugDescription)
+            XCTAssertEqual(picker.value as? String, "pi")
         }
         attachScreenshot(of: app, named: "Adversarial graph and saved harness choices")
     }
