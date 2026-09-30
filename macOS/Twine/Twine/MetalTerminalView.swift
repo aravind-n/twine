@@ -60,6 +60,12 @@ final class MetalTerminalView: TerminalView {
         super.send(source: source, data: data)
     }
 
+    // Clicks land on SwiftTerm's Metal subview, which doesn't take the keyboard, so take it here.
+    override func mouseDown(with event: NSEvent) {
+        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        super.mouseDown(with: event)
+    }
+
     private var focusTask: Task<Void, Never>?
     var automaticallyFocuses = true {
         didSet {
