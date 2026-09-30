@@ -729,18 +729,24 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn close_cancels_reader_when_detached_descendant_keeps_slave_open() {
+        if let Some(directory) = std::env::var_os("TWINE_TEST_DETACHED_PTY_DIRECTORY") {
+            run_detached_pty_fixture(Path::new(&directory));
+            return;
+        }
         let stream = Arc::new(
             TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
-        let manager = TerminalManager::new(stream);
+        let manager = TerminalManager::new(Arc::clone(&stream));
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
-        let ready_path = unique_test_directory().with_extension("pid");
-        let mut command = CommandBuilder::new("/bin/sh");
-        command.args([
-            "-c",
-            "/usr/bin/python3 -c 'import os, signal; os.setsid(); signal.signal(signal.SIGHUP, signal.SIG_IGN); open(os.environ[\"TWINE_TEST_READY\"], \"w\").write(str(os.getpid())); os.read(0, 1)' & while [ ! -s \"$TWINE_TEST_READY\" ]; do :; done; exit 0",
-        ]);
-        command.env("TWINE_TEST_READY", &ready_path);
+        // Removing this directory also releases the descendant on failed assertions.
+        let directory = tempfile::tempdir().expect("fixture directory should be created");
+        let ready_path = directory.path().join("descendant.pid");
+        let mut command = CommandBuilder::new(std::env::current_exe().unwrap());
+        // Isolate reader cancellation from the EOF caused by a controlling session's hangup.
+        command.set_controlling_tty(false);
+        command.args(DETACHED_PTY_FIXTURE_ARGS);
+        command.env("TWINE_TEST_DETACHED_PTY_DIRECTORY", directory.path());
+        command.env("TWINE_TEST_DETACHED_PTY_ROLE", "parent");
         let terminal_id = manager
             .start_test_command(
                 command,
@@ -755,36 +761,52 @@ mod tests {
                     let _ = exit_sender.send((terminal_id, result));
                 }),
             )
-            .expect("shell with a detached descendant should start");
+            .expect("parent with a detached descendant should start");
 
-        // The shell exits once Python has started, which can take seconds on a busy CI host.
-        assert_eq!(
-            exit_receiver
-                .recv_timeout(Duration::from_secs(10))
-                .expect("supervisor should report the primary shell exit")
-                .0,
-            terminal_id
+        let descendant_id = read_process_id(&ready_path);
+        let (exited_id, result) = exit_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("supervisor should report the parent exit");
+        assert_eq!(exited_id, terminal_id);
+        assert_eq!(result.expect("parent exit should be observed").exit_code, 0);
+        assert!(
+            process_exists(descendant_id),
+            "descendant should hold the PTY open"
         );
-        let descendant_id = std::fs::read_to_string(&ready_path)
-            .expect("detached descendant should publish its process ID")
-            .parse::<libc::pid_t>()
-            .expect("detached descendant process ID should be valid");
+        // SAFETY: This probes the fixture PID published above without changing its session.
+        assert_eq!(unsafe { libc::getsid(descendant_id) }, descendant_id);
+        assert!(
+            !manager
+                .lock_sessions()
+                .unwrap()
+                .get(&terminal_id)
+                .unwrap()
+                .reader_thread
+                .as_ref()
+                .unwrap()
+                .is_finished(),
+            "reader should still be waiting on the retained slave"
+        );
 
         let started = Instant::now();
         manager
             .close(terminal_id)
             .expect("closing should cancel the PTY reader");
         assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(stream.tracks_no_terminals());
+        assert!(process_exists(descendant_id));
 
+        directory
+            .close()
+            .expect("fixture directory should be removed");
         let deadline = Instant::now() + Duration::from_secs(2);
         while process_exists(descendant_id) {
             assert!(
                 Instant::now() < deadline,
-                "detached descendant should exit after the PTY master closes"
+                "detached descendant should exit after fixture cleanup"
             );
             thread::sleep(Duration::from_millis(10));
         }
-        std::fs::remove_file(ready_path).expect("test process ID file should be removed");
     }
 
     #[test]
@@ -1120,6 +1142,55 @@ mod tests {
             columns: 80,
             pixel_width: 800,
             pixel_height: 480,
+        }
+    }
+
+    #[cfg(unix)]
+    const DETACHED_PTY_FIXTURE_ARGS: [&str; 4] = [
+        "--exact",
+        "terminal::manager::tests::close_cancels_reader_when_detached_descendant_keeps_slave_open",
+        "--nocapture",
+        "--test-threads=1",
+    ];
+
+    #[cfg(unix)]
+    fn run_detached_pty_fixture(directory: &Path) {
+        let ready_path = directory.join("descendant.pid");
+        match std::env::var("TWINE_TEST_DETACHED_PTY_ROLE")
+            .unwrap()
+            .as_str()
+        {
+            "parent" => {
+                #[expect(
+                    clippy::zombie_processes,
+                    reason = "the fixture parent exits first, reparenting its detached descendant"
+                )]
+                let child = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args(DETACHED_PTY_FIXTURE_ARGS)
+                    .env("TWINE_TEST_DETACHED_PTY_ROLE", "descendant")
+                    .spawn()
+                    .expect("Rust descendant should start");
+                assert_eq!(
+                    read_process_id(&ready_path),
+                    libc::pid_t::try_from(child.id()).unwrap()
+                );
+                // Child::drop leaves this detached process alive with the inherited PTY descriptors.
+            }
+            "descendant" => {
+                // SAFETY: This isolated helper process changes only its own signal disposition and
+                // Unix session. Its parent waits for readiness before exiting and hanging up.
+                unsafe {
+                    assert_ne!(libc::signal(libc::SIGHUP, libc::SIG_IGN), libc::SIG_ERR);
+                    assert_ne!(libc::setsid(), -1);
+                }
+                std::fs::write(&ready_path, std::process::id().to_string())
+                    .expect("descendant should publish readiness");
+                // Keep the slave open without reading it: a read can return on session hangup.
+                while directory.is_dir() {
+                    thread::sleep(Duration::from_millis(10));
+                }
+            }
+            role => panic!("unknown detached PTY fixture role: {role}"),
         }
     }
 
