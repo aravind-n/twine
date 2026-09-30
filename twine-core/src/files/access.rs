@@ -79,3 +79,18 @@ pub(super) fn entries(folder: &Path, path: &Path) -> io::Result<Vec<FileEntry>> 
     });
     Ok(entries)
 }
+
+pub(super) fn open_child(directory: &File, name: &std::ffi::OsStr) -> io::Result<File> {
+    let stat = statat(directory, name, AtFlags::SYMLINK_NOFOLLOW).map_err(io::Error::from)?;
+    if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
+    let fd = openat(
+        directory,
+        name,
+        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+        Mode::empty(),
+    )
+    .map_err(io::Error::from)?;
+    Ok(File::from(fd))
+}

@@ -30,7 +30,7 @@ extension TwineUITests {
         let text = app.textViews["fileText"]
         XCTAssertTrue(text.waitForExistence(timeout: 3), app.debugDescription)
         XCTAssertEqual(text.value as? String, "first\nsecond\nthird\n")
-        try verifyReadOnlySelection(app: app, text: text, file: file)
+        verifySelection(app: app, text: text)
         try "first\nupdated\nthird\n".write(to: file, atomically: true, encoding: .utf8)
         let updated = expectation(
             for: NSPredicate { _, _ in
@@ -38,7 +38,7 @@ extension TwineUITests {
             }, evaluatedWith: nil)
         wait(for: [updated], timeout: 2)
         let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
-        screenshot.name = "File explorer and read-only viewer"
+        screenshot.name = "File explorer and text viewer"
         screenshot.lifetime = .keepAlways
         add(screenshot)
         try verifyFileTransitions(app: app, file: file, row: row, text: text)
@@ -49,7 +49,7 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func verifyReadOnlySelection(app: XCUIApplication, text: XCUIElement, file: URL) throws {
+    private func verifySelection(app: XCUIApplication, text: XCUIElement) {
         app.buttons["goToLine"].click()
         let line = app.textFields["lineNumber"]
         XCTAssertTrue(line.waitForExistence(timeout: 3))
@@ -60,9 +60,6 @@ extension TwineUITests {
         NSPasteboard.general.clearContents()
         text.typeKey("c", modifierFlags: .command)
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "second")
-        text.typeText("must not edit")
-        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "first\nsecond\nthird\n")
-        XCTAssertEqual(text.value as? String, "first\nsecond\nthird\n")
     }
 
     @MainActor
@@ -83,7 +80,7 @@ extension TwineUITests {
         XCTAssertTrue(app.staticTexts["File Deleted or Moved"].waitForExistence(timeout: 2))
     }
     @MainActor
-    private func fileRow(_ path: URL, in app: XCUIApplication) -> XCUIElement {
+    func fileRow(_ path: URL, in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == %@", "fileRow-\(path.path)")).firstMatch
     }
 

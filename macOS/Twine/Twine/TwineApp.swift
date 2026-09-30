@@ -13,6 +13,7 @@ import SwiftUI
 struct TwineApp: App {
     @NSApplicationDelegateAdaptor(AppTerminationDelegate.self) private var terminationDelegate
     @State private var bridgeClient = BridgeClient(transport: BridgeWorker(dataDirectory: Self.dataDirectory))
+    @State private var fileEditor = FileEditorModel()
 
     init() {
         // The core has one open folder, so a new window tab could only mirror it. SwiftUI has no
@@ -35,13 +36,14 @@ struct TwineApp: App {
         WindowGroup {
             ContentView()
                 .environment(bridgeClient)
+                .environment(fileEditor)
                 .task {
-                    terminationDelegate.connect(to: bridgeClient)
+                    terminationDelegate.connect(to: bridgeClient, editor: fileEditor)
                     bridgeClient.start()
                 }
         }
         .commands {
-            FolderCommands(bridgeClient: bridgeClient)
+            FolderCommands(bridgeClient: bridgeClient, editor: fileEditor)
         }
     }
 
@@ -60,9 +62,11 @@ struct TwineApp: App {
 final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
     private var bridgeClient: BridgeClient?
     private var isTerminating = false
+    private var editor: FileEditorModel?
 
-    func connect(to bridgeClient: BridgeClient) {
+    func connect(to bridgeClient: BridgeClient, editor: FileEditorModel? = nil) {
         self.bridgeClient = bridgeClient
+        self.editor = editor
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -73,6 +77,7 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
     func beginTermination(reply: @escaping @MainActor (Bool) -> Void) -> NSApplication.TerminateReply {
         guard let bridgeClient else { return .terminateNow }
         guard !isTerminating else { return .terminateLater }
+        guard editor?.select(nil) != false else { return .terminateCancel }
         isTerminating = true
         Task {
             await bridgeClient.stopForQuit()

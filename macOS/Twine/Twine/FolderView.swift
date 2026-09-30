@@ -7,6 +7,7 @@ private let gitLogger = Logger(subsystem: "com.twineproject.Twine", category: "g
 /// The window content while a folder is open.
 struct FolderView: View {
     @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(FileEditorModel.self) private var editor
     let path: String
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var selection = WorkflowTabSelection()
@@ -29,19 +30,18 @@ struct FolderView: View {
         } detail: {
             VStack(spacing: Spacing.windowSections) {
                 ZStack {
-                    WorkflowWorkspace(folder: path, selection: $selection, isVisible: files.selectedPath == nil)
-                        .opacity(files.selectedPath == nil ? 1 : 0)
-                        .allowsHitTesting(files.selectedPath == nil)
-                        .accessibilityHidden(true, isEnabled: files.selectedPath != nil)
-                    if let selectedPath = files.selectedPath {
+                    WorkflowWorkspace(folder: path, selection: $selection, isVisible: editor.path == nil)
+                        .opacity(editor.path == nil ? 1 : 0)
+                        .allowsHitTesting(editor.path == nil)
+                        .accessibilityHidden(true, isEnabled: editor.path != nil)
+                    if let selectedPath = editor.path {
                         FileViewer(
-                            path: selectedPath, folder: path, preview: files.snapshot?.file,
-                            failure: files.failure, close: { files.selectedPath = nil }
+                            path: selectedPath, folder: path, failure: files.failure, close: { editor.select(nil) }
                         )
                         .id(selectedPath)
                     }
                 }
-                if files.selectedPath == nil { TracesHeader() }
+                if editor.path == nil { TracesHeader() }
                 StatusFooter(
                     branch: bridgeClient.snapshot?.folders.currentBranch,
                     workflow: selectedWorkflow
@@ -50,14 +50,18 @@ struct FolderView: View {
             .padding(Spacing.windowMargins)
             .background(.windowBackground)
         }
-        .background { FolderWindowLifetime(bridgeClient: bridgeClient, folder: path).frame(width: 0, height: 0) }
+        .background {
+            FolderWindowLifetime(bridgeClient: bridgeClient, folder: path, editor: editor).frame(width: 0, height: 0)
+        }
         .navigationSplitViewStyle(.balanced)
         .navigationTitle(URL(filePath: path).lastPathComponent)
         .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
         .task(id: path) { await refreshGitBranch() }
-        .task(id: files.request(folder: path)) { await files.watch(files.request(folder: path), client: bridgeClient) }
-        .onChange(of: selection.selectedID) { files.selectedPath = nil }
-        .focusedSceneValue(\.closeFile, files.selectedPath.map { _ in { files.selectedPath = nil } })
+        .task(id: files.request(folder: path, file: editor.path)) {
+            await files.watch(files.request(folder: path, file: editor.path), client: bridgeClient, editor: editor)
+        }
+        .onChange(of: selection.selectedID) { editor.select(nil) }
+        .focusedSceneValue(\.closeFile, editor.path.map { _ in { editor.select(nil) } })
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left") {

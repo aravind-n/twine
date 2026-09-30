@@ -70,6 +70,13 @@ TwineStatus twine_client_poll_files(
     TwineClient *client, const uint8_t *request_bytes, size_t request_length, TwineBuffer *out_snapshot
 );
 
+// Saves UTF-8 text through core with version checking. JSON result status is saved, conflict,
+// or failed. Allows escaped text up to the 2 MiB file limit; release JSON with twine_buffer_release.
+// Pointer rules match send_command; input is bounded to 12 MiB + 16 KiB before dereference.
+TwineStatus twine_client_save_file(
+    TwineClient *client, const uint8_t *request_bytes, size_t request_length, TwineBuffer *out_result
+);
+
 TwineStatus twine_client_events_after(
     TwineClient *client,
     uint64_t sequence,

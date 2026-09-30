@@ -69,11 +69,6 @@ final class BridgeClient {
         return terminalChunkRouter.dequeue(for: terminalID)
     }
 
-    func pollFiles(_ request: FileBrowserRequest) async throws -> FileBrowserSnapshot? {
-        guard connectionState == .running, !isStopping, !isTerminating else { throw BridgeFailure.notConnected }
-        return try await transport.pollFiles(request)
-    }
-
     func startTerminal(
         workingDirectory: URL,
         size: BridgeTerminalSize
@@ -280,7 +275,6 @@ final class BridgeClient {
             waiter.resume(throwing: error)
         }
     }
-
 }
 
 extension BridgeClient {
@@ -314,7 +308,6 @@ extension BridgeClient {
             updateTerminal(BridgeTerminalState(terminalID: workflow.terminalID, status: .running), in: &snapshot)
         }
     }
-
 }
 
 extension BridgeClient {
@@ -356,6 +349,16 @@ extension BridgeClient {
 }
 
 extension BridgeClient {
+    func pollFiles(_ request: FileBrowserRequest) async throws -> FileBrowserSnapshot? {
+        guard connectionState == .running, !isStopping, !isTerminating else { throw BridgeFailure.notConnected }
+        return try await transport.pollFiles(request)
+    }
+
+    func saveFile(_ request: FileSaveRequest) async throws -> FileSaveResult {
+        guard connectionState == .running, !isStopping, !isTerminating else { throw BridgeFailure.notConnected }
+        return try await transport.saveFile(request)
+    }
+
     /// Waits until the connection is running. Throws if it fails or the waiting task is cancelled.
     func waitUntilRunning() async throws {
         while true {

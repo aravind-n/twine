@@ -17,8 +17,8 @@ pub use application::{
 };
 pub use event::{CommandResult, Event, EventError, EventKind, StateEvent};
 pub use files::{
-    DirectoryListing, FileContent, FileEntry, FileError, FileKind, FilePreview, FileSnapshot,
-    TEXT_LIMIT,
+    DirectoryListing, FileContent, FileEntry, FileError, FileKind, FilePreview, FileSaveOutcome,
+    FileSaveRequest, FileSnapshot, FileVersion, TEXT_LIMIT,
 };
 pub use folder::{FolderState, RecentFolder, UnavailableFolder, UnavailableReason};
 pub use store::StoreError;

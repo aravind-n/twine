@@ -37,8 +37,30 @@ nonisolated struct FilePreview: Decodable, Equatable, Sendable {
     let status: Status
     let text: String?
     let message: String?
+    var version: FileVersion?
 
     enum Status: String, Decodable, Sendable {
         case text, binary, tooLarge, missing, unsupported, unavailable
     }
+}
+
+nonisolated struct FileVersion: Codable, Equatable, Sendable {
+    let fingerprint: String
+    let utf8BOM: Bool
+}
+
+nonisolated struct FileSaveRequest: Encodable, Sendable {
+    let folder: String
+    let path: String
+    let text: String
+    let expectedVersion: FileVersion
+    let overwrite: Bool
+}
+
+nonisolated struct FileSaveResult: Decodable, Sendable {
+    let status: Status
+    let file: FilePreview?
+    let message: String?
+
+    enum Status: String, Decodable, Sendable { case saved, conflict, failed }
 }

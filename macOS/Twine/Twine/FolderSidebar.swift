@@ -7,6 +7,7 @@ private let sessionLogger = Logger(subsystem: "com.twineproject.Twine", category
 
 struct FolderSidebar: View {
     @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(FileEditorModel.self) private var fileEditor
     let path: String
     @Bindable var files: FileBrowserModel
     @State private var editor: SessionEditor?
@@ -127,7 +128,7 @@ struct FolderSidebar: View {
     private func sessionRow(_ session: BridgeSession) -> some View {
         let selected = selectedSession?.id == session.id
         return Button {
-            files.selectedPath = nil
+            guard fileEditor.select(nil) else { return }
             run { try await bridgeClient.selectSession(sessionID: session.id) }
         } label: {
             HStack(spacing: 4) {

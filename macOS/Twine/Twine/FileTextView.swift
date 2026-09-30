@@ -7,29 +7,42 @@ struct FileLineRequest: Equatable {
 }
 
 struct FileTextView: NSViewRepresentable {
-    let text: String
+    @Binding var text: String
+    let loadID: UUID
+    let isEditable: Bool
     let lineRequest: FileLineRequest?
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
+        let scroll = FileEditingTextView.scrollableTextView()
         guard let view = scroll.documentView as? NSTextView else { return scroll }
-        view.isEditable = false
+        view.isEditable = isEditable
         view.isSelectable = true
         view.isRichText = false
-        view.usesFindBar = true
+        view.allowsUndo = true
+        view.isAutomaticQuoteSubstitutionEnabled = false
+        view.isAutomaticDashSubstitutionEnabled = false
+        view.isAutomaticTextReplacementEnabled = false
+        view.isAutomaticSpellingCorrectionEnabled = false
+        view.delegate = context.coordinator
         view.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         view.textColor = .textColor
         view.backgroundColor = .textBackgroundColor
         view.textContainerInset = NSSize(width: 18, height: 18)
         view.setAccessibilityIdentifier("fileText")
-        view.setAccessibilityLabel("Read-only file contents")
+        view.setAccessibilityLabel("File contents")
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? NSTextView else { return }
+        context.coordinator.text = $text
+        view.isEditable = isEditable
+        if context.coordinator.loadID != loadID {
+            view.undoManager?.removeAllActions()
+            context.coordinator.loadID = loadID
+        }
         if view.string != text {
             let selected = view.selectedRange()
             let origin = scroll.contentView.bounds.origin
@@ -50,6 +63,12 @@ struct FileTextView: NSViewRepresentable {
         }
     }
 
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        guard let view = scroll.documentView as? NSTextView else { return }
+        view.undoManager?.removeAllActions()
+        view.delegate = nil
+    }
+
     /// NSString offsets match NSTextView's UTF-16 selections, including CRLF and emoji.
     static func lineRange(in text: String, line: Int) -> NSRange? {
         guard line > 0 else { return nil }
@@ -68,7 +87,29 @@ struct FileTextView: NSViewRepresentable {
         return NSRange(location: start, length: end - start)
     }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        var loadID: UUID?
         var lastRequest: UUID?
+
+        init(text: Binding<String>) { self.text = text }
+
+        func textDidChange(_ notification: Notification) {
+            guard let view = notification.object as? NSTextView else { return }
+            text.wrappedValue = view.string
+        }
+    }
+}
+
+/// Use the window's manager so the native Edit menu works, but scope its actions to this file.
+private final class FileEditingTextView: NSTextView {
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow !== window { undoManager?.removeAllActions() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        undoManager?.removeAllActions()
     }
 }

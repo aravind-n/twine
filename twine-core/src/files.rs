@@ -1,12 +1,17 @@
 //! Lazy directory listings and a bounded text preview. A dedicated worker watches only expanded
 //! directories and the selected file, with a single latest snapshot for the client to poll.
-use std::io::{self, Read};
+use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use thiserror::Error;
 
 mod access;
+mod editing;
+mod text;
 mod watcher;
+pub(crate) use editing::save;
+pub use editing::{FileSaveOutcome, FileSaveRequest};
+use text::read_preview;
 pub(crate) use watcher::FileWatcher;
 
 pub const TEXT_LIMIT: u64 = 2 * 1024 * 1024;
@@ -47,6 +52,13 @@ pub enum FileContent {
 pub struct FilePreview {
     pub path: PathBuf,
     pub content: FileContent,
+    pub version: Option<FileVersion>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FileVersion {
+    pub fingerprint: String,
+    pub utf8_bom: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -87,10 +99,7 @@ impl FileBrowser {
                 .iter()
                 .map(|path| list_directory(folder, path))
                 .collect(),
-            file: file.map(|path| FilePreview {
-                path: path.to_owned(),
-                content: read_text(folder, path),
-            }),
+            file: file.map(|path| read_preview(folder, path)),
         };
         if self.snapshot.as_ref() != Some(&next) {
             self.revision = self
@@ -151,43 +160,6 @@ fn list_directory(folder: &Path, path: &Path) -> DirectoryListing {
     }
 }
 
-fn read_text(folder: &Path, path: &Path) -> FileContent {
-    match read_bytes(folder, path) {
-        Ok(Some(bytes)) => {
-            if bytes
-                .iter()
-                .any(|byte| *byte == 0 || (*byte < 32 && !matches!(*byte, 9..=13)))
-            {
-                return FileContent::Binary;
-            }
-            match String::from_utf8(bytes) {
-                Ok(text) => FileContent::Text(text.trim_start_matches('\u{feff}').to_owned()),
-                Err(_) => FileContent::Binary,
-            }
-        }
-        Ok(None) => FileContent::TooLarge,
-        Err(error) => match error.kind() {
-            io::ErrorKind::NotFound => FileContent::Missing,
-            io::ErrorKind::Unsupported => FileContent::Unsupported,
-            _ => FileContent::Unavailable(error.to_string()),
-        },
-    }
-}
-
-fn read_bytes(folder: &Path, path: &Path) -> io::Result<Option<Vec<u8>>> {
-    let file = access::open_file(folder, path, false)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() {
-        return Err(io::ErrorKind::Unsupported.into());
-    }
-    if metadata.len() > TEXT_LIMIT {
-        return Ok(None);
-    }
-    let mut bytes = Vec::new();
-    file.take(TEXT_LIMIT + 1).read_to_end(&mut bytes)?;
-    Ok((bytes.len() as u64 <= TEXT_LIMIT).then_some(bytes))
-}
-
 #[derive(Debug, Error)]
 pub enum FileError {
     #[error("The folder is no longer open.")]
@@ -198,12 +170,23 @@ pub enum FileError {
     InvalidRequest,
     #[error("File revision counter exhausted.")]
     RevisionOverflow,
+    #[error("The edited file exceeds the 2 MiB text limit.")]
+    TextTooLarge,
+    #[error("Only regular UTF-8 text files can be saved.")]
+    UnsupportedSave,
+    #[error("Could not save the file: {0}")]
+    Save(#[from] io::Error),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::{self, OpenOptions};
+    use std::io::Read;
+
+    fn read_text(folder: &Path, path: &Path) -> FileContent {
+        read_preview(folder, path).content
+    }
 
     #[test]
     fn replacement_links_cannot_redirect_root_or_ancestor_reads() {

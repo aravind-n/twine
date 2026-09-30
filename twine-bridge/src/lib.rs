@@ -17,13 +17,15 @@ use twine_core::TerminalSize;
 pub use client::TwineClient;
 
 const MAX_COMMAND_BYTES: usize = 1024 * 1024;
+// JSON may escape each text byte as six bytes; allow the full 2 MiB editor limit plus paths.
+const MAX_FILE_SAVE_BYTES: usize = 6 * 2 * 1024 * 1024 + 16 * 1024;
 const MAX_EVENT_BATCH: usize = 256;
 /// The longest path macOS accepts (`PATH_MAX`).
 const MAX_PATH_BYTES: usize = 1024;
 const MAX_TERMINAL_INPUT_BYTES: usize = 64 * 1024;
 
 #[unsafe(no_mangle)]
-/// Polls lazy file listings and the read-only text preview.
+/// Polls lazy file listings and versioned text previews.
 ///
 /// # Safety
 /// Uses the same pointer, length, and ownership contract as `twine_client_send_command`.
@@ -44,6 +46,35 @@ pub unsafe extern "C" fn twine_client_poll_files(
         }?;
         // SAFETY: Output was validated before allocating the response.
         unsafe { ffi::write_buffer(out_snapshot, TwineBuffer::from_vec(response)) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Saves text through core, returning a saved preview, conflict preview, or failure message as JSON.
+///
+/// # Safety
+/// Uses the same pointer, length, and ownership contract as `twine_client_send_command`, with
+/// a `MAX_FILE_SAVE_BYTES` input limit to accommodate escaped text.
+pub unsafe extern "C" fn twine_client_save_file(
+    client: *mut TwineClient,
+    request_bytes: *const u8,
+    request_length: usize,
+    out_result: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: The caller supplies writable, aligned output storage without a live allocation.
+        unsafe { ffi::initialize_buffer(out_result) }?;
+        // SAFETY: The caller guarantees readable input and a live client for this call.
+        let response = unsafe {
+            ffi::with_input_bytes(
+                request_bytes,
+                request_length,
+                MAX_FILE_SAVE_BYTES,
+                |bytes| ffi::with_client(client, |client| client.save_file(bytes)),
+            )
+        }?;
+        // SAFETY: Output was validated before allocating the response.
+        unsafe { ffi::write_buffer(out_result, TwineBuffer::from_vec(response)) }
     })
 }
 
@@ -1163,6 +1194,128 @@ mod tests {
         }
         assert!(output.data.is_null());
         assert_eq!(output.length, 0);
+        destroy(client);
+    }
+
+    #[test]
+    fn file_saves_return_versions_conflicts_failures_and_release_buffers() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let (_data, client) = create_client();
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("file");
+        std::fs::write(&path, "original").unwrap();
+        send_command(
+            client,
+            &serde_json::json!({"requestId": 1,
+            "command": {"type": "openFolder", "path": root.path()}})
+            .to_string(),
+        );
+        let query = serde_json::json!({"folder": root.path(), "directories": [], "file": path});
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let preview = loop {
+            let (status, buffer) = poll(client, query.to_string().as_bytes());
+            if status == TwineStatus::Ok {
+                break serde_json::from_slice::<serde_json::Value>(&take_buffer(buffer)).unwrap()["file"].clone();
+            }
+            assert_eq!(status, TwineStatus::Empty);
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let mut request = serde_json::json!({"folder": root.path(), "path": path,
+            "text": "edited", "expectedVersion": preview["version"], "overwrite": false});
+        let saved = save_json(client, &request);
+        assert_eq!(saved["status"], "saved");
+        assert_eq!(saved["file"]["text"], "edited");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "edited");
+        request["expectedVersion"] = saved["file"]["version"].clone();
+        std::fs::write(&path, "external").unwrap();
+        let conflict = save_json(client, &request);
+        assert_eq!(conflict["status"], "conflict");
+        assert_eq!(conflict["file"]["text"], "external");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "external");
+        request["overwrite"] = true.into();
+        // Legal control whitespace expands in JSON, and must not inherit the 1 MiB command bound.
+        request["text"] = "\u{b}".repeat(2 * 1024 * 1024).into();
+        assert_eq!(save_json(client, &request)["status"], "saved");
+        request["text"] = "x".repeat(2 * 1024 * 1024 + 1).into();
+        assert_eq!(save_json(client, &request)["status"], "failed");
+        send_command(
+            client,
+            r#"{"requestId":2,"command":{"type":"closeFolder"}}"#,
+        );
+        request["text"] = "small".into();
+        let failure = save_json(client, &request);
+        assert_eq!(failure["status"], "failed");
+        assert!(
+            failure["message"]
+                .as_str()
+                .unwrap()
+                .contains("no longer open")
+        );
+        destroy(client);
+    }
+
+    fn save_json(client: *mut TwineClient, request: &serde_json::Value) -> serde_json::Value {
+        let before = ffi::live_buffer_count();
+        let bytes = request.to_string().into_bytes();
+        let mut output = TwineBuffer::empty();
+        // SAFETY: The live test client and input outlive the call; output is empty writable storage.
+        assert_eq!(
+            unsafe { twine_client_save_file(client, bytes.as_ptr(), bytes.len(), &raw mut output) },
+            TwineStatus::Ok
+        );
+        assert_eq!(ffi::live_buffer_count(), before + 1);
+        let value = serde_json::from_slice(&take_buffer(output)).unwrap();
+        assert_eq!(ffi::live_buffer_count(), before);
+        value
+    }
+
+    #[test]
+    fn file_save_rejects_invalid_input_without_allocating() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let (_data, client) = create_client();
+        let before = ffi::live_buffer_count();
+        let mut output = TwineBuffer::empty();
+        for (bytes, expected) in [
+            (b"{".as_slice(), TwineStatus::MalformedCommand),
+            (b"{}".as_slice(), TwineStatus::MalformedCommand),
+            (&[0xff], TwineStatus::InvalidUtf8),
+        ] {
+            // SAFETY: The client and slice stay live and output is valid empty storage.
+            assert_eq!(
+                unsafe {
+                    twine_client_save_file(client, bytes.as_ptr(), bytes.len(), &raw mut output)
+                },
+                expected
+            );
+            assert!(output.data.is_null());
+        }
+        // SAFETY: Invalid pointers/lengths are rejected before dereference; output is writable.
+        unsafe {
+            assert_eq!(
+                twine_client_save_file(client, std::ptr::null(), 1, &raw mut output),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_save_file(
+                    client,
+                    std::ptr::null(),
+                    MAX_FILE_SAVE_BYTES + 1,
+                    &raw mut output
+                ),
+                TwineStatus::InvalidArgument
+            );
+            assert_eq!(
+                twine_client_save_file(client, std::ptr::null(), 0, std::ptr::null_mut()),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_save_file(std::ptr::null_mut(), b"{}".as_ptr(), 2, &raw mut output),
+                TwineStatus::NullPointer
+            );
+        }
+        assert_eq!(ffi::live_buffer_count(), before);
+        assert!(output.data.is_null());
         destroy(client);
     }
 }

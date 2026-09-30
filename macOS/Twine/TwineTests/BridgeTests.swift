@@ -204,6 +204,10 @@ private actor SuspendedOpenBridgeTransport: BridgeTransport {
         BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)
     }
 
+    func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {
+        throw BridgeFailure.invalidArgument
+    }
+
     func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
         throw BridgeFailure.invalidArgument
     }
@@ -235,6 +239,10 @@ private actor FailingOpenTransport: BridgeTransport {
 
     func send(_ command: BridgeCommand) -> BridgeCommandReceipt {
         BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)
+    }
+
+    func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {
+        throw BridgeFailure.invalidArgument
     }
 
     func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
@@ -280,6 +288,10 @@ private actor SuspendedCloseTransport: BridgeTransport {
 
     func send(_ command: BridgeCommand) -> BridgeCommandReceipt {
         BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)
+    }
+
+    func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {
+        throw BridgeFailure.invalidArgument
     }
 
     func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
