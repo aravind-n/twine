@@ -39,7 +39,7 @@ struct TraceDetailPanel: View {
             .accessibilityIdentifier("traceEventLog")
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(.secondarySurface)
+        .background(.windowBackground)
         .overlay(alignment: .leading) { Divider() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("traceDetailPanel")

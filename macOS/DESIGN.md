@@ -34,18 +34,18 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 | Start page empty-recents card | 12 |
 | Bento panes | 11 |
 | Selected workflow tab (top corners) | 10 |
-| Recent folder cards, sidebar folder header | 10 |
+| Recent folder cards | 10 |
 | Workflow choice tiles, selected agent subtab | 9 |
-| File row selection, glass icon buttons (`+`, chevron) | 8 |
+| File row selection, glass icon buttons (`+`) | 8 |
 | Trace span pills | 5 |
 
 ## Surfaces and materials
 
 - **Panel outline:** a 1pt hairline in the primary color at 12% opacity (8% for the Traces panel).
 - **Terminal panel shadow:** black at 8% opacity, radius 12, y offset 4.
-- **Glass:** Use Liquid Glass sparingly for important controls and navigation. Let native toolbars and menus adopt the system appearance; prefer the native glass button style for `+`. Sidebar section menus stay borderless on the sidebar material, and the folder label uses a subtle fill. Terminal text, trace lanes, and logs sit on solid backgrounds. Follow Apple's [Materials](https://developer.apple.com/design/human-interface-guidelines/materials) and [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass) guidance.
+- **Glass:** Use Liquid Glass sparingly for important controls and navigation. Let native toolbars and menus adopt the system appearance; prefer the native glass button style for `+`. Sidebar section menus stay borderless on the sidebar material, and the Traces toggle uses a plain chevron. Terminal text, trace lanes, and logs sit on solid backgrounds. Follow Apple's [Materials](https://developer.apple.com/design/human-interface-guidelines/materials) and [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass) guidance.
 - **Workflow tint:** a workflow with multiple agents fills its selected tab and its subtab strip with `controlBackgroundColor` plus a 12% accent wash. Terminal and single-agent workflows use the terminal background for the selected tab.
-- **Secondary surfaces:** the trace detail panel and start page cards use `controlBackgroundColor`.
+- **Secondary surfaces:** start page cards use `controlBackgroundColor`. The trace detail panel uses the same `windowBackgroundColor` as the Traces panel.
 
 ## Color
 
@@ -128,19 +128,19 @@ All ease-in-out, all tied to a user action.
 
 - A separate rounded panel below the terminal: 48pt collapsed, about 272pt expanded.
 - The panel shows the window background through its border; it has no terminal-colored fill.
-- Header, 21pt horizontal padding: "Traces" (16pt semibold) with the subtitle "Agent activity over time" when expanded, then a caption2 secondary count of spans and agents, then a 26×26 glass chevron button (11pt semibold). Clicking anywhere on the header toggles the panel.
+- Header, 21pt horizontal padding: "Traces" (16pt semibold) with the subtitle "Agent activity over time" when expanded, then a caption2 secondary count of spans and agents, then a plain chevron in a 26×26 area (11pt semibold). The chevron points up when collapsed and down when expanded. Clicking anywhere on the header toggles the panel.
 - Time axis: 18pt tall, with evenly spaced monospaced tick labels.
 - Lanes: 36pt tall, one per agent, labeled with the role's colored symbol and name in a 126pt column (104pt when the detail panel is open). Faint vertical grid lines (primary at 6%) mark the ticks. Dividers between lanes.
 - Span pills: 25pt tall, 40pt minimum width, 5pt radius, filled with the role color at 75%, with 10pt medium white text and 7pt horizontal padding. The selected span is fully opaque, with a 70% white outline and a 4pt white dot before its title.
 - A 28pt hint row at the bottom, in caption2 secondary text.
-- Detail panel: 40% of the panel width, clamped between 280 and 440pt, on `controlBackgroundColor`, separated by a divider. It has a 48pt header (role symbol, span title as subheadline semibold, role and duration as caption2), glass copy and close buttons, a status line with the state's symbol and a one-line summary, then a scrolling log. Each log row has a monospaced timestamp and kind (the kind in the role color), the message as caption text, 8pt vertical padding, and faint dividers.
+- Detail panel: 40% of the panel width, clamped between 280 and 440pt, on the same `windowBackgroundColor` as the Traces panel, separated by a divider. It has a 48pt header (role symbol, span title as subheadline semibold, role and duration as caption2), glass copy and close buttons, a status line with the state's symbol and a one-line summary, then a scrolling log. Each log row has a monospaced timestamp and kind (the kind in the role color), the message as caption text, 8pt vertical padding, and faint dividers.
 
 ### Sidebar
 
 - Hidden initially. Width 245 to 325pt, ideal 285.
 - Background: native sidebar material, with frosted translucency and a tone distinct from the window's solid content area. Follow the window's active state and system appearance.
 - Section header: 48pt tall, 17pt horizontal padding, the section label, and a trailing borderless ellipsis menu.
-- Folder header: a 36pt bar with a subtle translucent fill (10pt radius, 10pt inset), the accent app symbol, and the folder name in semibold subheadline.
+- Files is the first section. Its root directory uses the same row as other directories, starts expanded, and has its children indented one level below it. Collapsing the root clears descendant expansion; Collapse All leaves the root collapsed. Row content has a 10pt horizontal inset.
 - File rows: 27pt tall, 12.5pt text, indented 13pt plus 15pt per level, a 9pt tertiary disclosure chevron (11pt wide), a 12pt file symbol (16pt wide), and a rounded (8pt) accent-tinted selection.
 - Sessions follow the same row and header design as files.
 

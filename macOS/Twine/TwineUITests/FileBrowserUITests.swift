@@ -17,6 +17,12 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["sidebarToggle"].waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         app.buttons["sidebarToggle"].click()
+        let root = fileRow(folder, in: app)
+        XCTAssertTrue(root.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(root.label, folder.lastPathComponent)
+        XCTAssertEqual(root.value as? String, "Expanded")
+        XCTAssertEqual(root.frame.height, 27, accuracy: 1)
+        XCTAssertFalse(app.staticTexts["sidebarFolderName"].exists)
         let directory = fileRow(nested, in: app)
         XCTAssertTrue(directory.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertGreaterThanOrEqual(app.scrollViews["fileTree"].frame.width, 245)
@@ -30,6 +36,7 @@ extension TwineUITests {
         let text = app.textViews["fileText"]
         XCTAssertTrue(text.waitForExistence(timeout: 3), app.debugDescription)
         XCTAssertEqual(text.value as? String, "first\nsecond\nthird\n")
+        verifyRootExpansion(app: app, root: root, directory: directory, row: row, text: text)
         verifySelection(app: app, text: text)
         try "first\nupdated\nthird\n".write(to: file, atomically: true, encoding: .utf8)
         let updated = expectation(
@@ -46,6 +53,32 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["closeFile"].exists)
         app.terminate()
+    }
+
+    @MainActor
+    private func verifyRootExpansion(
+        app: XCUIApplication, root: XCUIElement, directory: XCUIElement, row: XCUIElement, text: XCUIElement
+    ) {
+        root.click()
+        XCTAssertEqual(root.value as? String, "Collapsed")
+        XCTAssertTrue(directory.waitForNonExistence(timeout: 3))
+        XCTAssertFalse(row.exists)
+        XCTAssertTrue(text.exists, "Collapsing the root should keep the selected file open")
+        root.click()
+        XCTAssertTrue(directory.waitForExistence(timeout: 3))
+        XCTAssertEqual(directory.value as? String, "Collapsed")
+        directory.click()
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        app.menuButtons["filesActions"].click()
+        app.menuItems["Collapse All"].click()
+        XCTAssertEqual(root.value as? String, "Collapsed")
+        XCTAssertTrue(directory.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(text.exists)
+        root.click()
+        XCTAssertTrue(directory.waitForExistence(timeout: 3))
+        XCTAssertEqual(directory.value as? String, "Collapsed")
+        directory.click()
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
     }
 
     @MainActor

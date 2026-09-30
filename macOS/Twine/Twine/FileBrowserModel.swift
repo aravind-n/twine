@@ -6,12 +6,26 @@ private let filesLogger = Logger(subsystem: "com.twineproject.Twine", category: 
 
 @Observable
 final class FileBrowserModel {
+    private(set) var isRootExpanded = true
     var expanded: Set<String> = []
     private(set) var snapshot: FileBrowserSnapshot?
     private(set) var failure: String?
 
     func request(folder: String, file: String? = nil) -> FileBrowserRequest {
         FileBrowserRequest(folder: folder, directories: expanded.sorted(), file: file)
+    }
+
+    func toggleRoot() {
+        if isRootExpanded {
+            collapseAll()
+        } else {
+            isRootExpanded = true
+        }
+    }
+
+    func collapseAll() {
+        isRootExpanded = false
+        expanded.removeAll()
     }
 
     func toggle(_ path: String) {

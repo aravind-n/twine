@@ -17,7 +17,6 @@ nonisolated enum CornerRadius {
     /// The selected workflow tab's top corners.
     static let selectedTab: CGFloat = 10
     static let recentFolderCard: CGFloat = 10
-    static let sidebarFolderHeader: CGFloat = 10
     /// The terminal panel's radius less the Bento gutter, so each pane's corners follow the panel's.
     static let bentoPane: CGFloat = 11
     static let choiceTile: CGFloat = 9
@@ -44,8 +43,7 @@ nonisolated enum SidebarLayout {
     static let minimumWidth: CGFloat = 245
     static let idealWidth: CGFloat = 285
     static let maximumWidth: CGFloat = 325
-    static let folderHeaderHeight: CGFloat = 36
-    static let folderHeaderInset: CGFloat = 10
+    static let contentInset: CGFloat = 10
     static let sectionHeaderHeight: CGFloat = 48
     static let sectionHeaderPadding: CGFloat = 17
     static let rowHeight: CGFloat = 27
@@ -143,7 +141,7 @@ extension ShapeStyle where Self == Color {
     /// The Traces panel's fainter outline.
     static var tracesPanelHairline: Color { .primary.opacity(0.08) }
 
-    /// The trace detail panel and start page cards.
+    /// Start page cards and other secondary surfaces.
     static var secondarySurface: Color { Color(nsColor: .controlBackgroundColor) }
 
     /// The selected tab and subtab strip of a workflow with more than one agent.
@@ -166,7 +164,7 @@ extension ShapeStyle where Self == Color {
 // MARK: - Symbols
 
 nonisolated enum Symbol {
-    /// Twine's app symbol, on the start page's icon tile and the sidebar's folder header.
+    /// Twine's app symbol, on the start page's icon tile.
     static let app = "point.3.filled.connected.trianglepath.dotted"
 }
 

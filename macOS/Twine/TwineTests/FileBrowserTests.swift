@@ -25,6 +25,44 @@ struct FileBrowserTests {
         #expect(model.request(folder: "/folder").directories == ["/folder/ab"])
     }
 
+    @Test func collapsingRootClearsDescendantsAndKeepsTheSelectedFileRequest() {
+        let model = FileBrowserModel()
+        #expect(model.isRootExpanded)
+        model.toggle("/folder/a")
+        model.toggle("/folder/a/b")
+        model.toggleRoot()
+        #expect(!model.isRootExpanded)
+        #expect(model.expanded.isEmpty)
+        let request = model.request(folder: "/folder", file: "/folder/a/b/file.txt")
+        #expect(request.directories.isEmpty)
+        #expect(request.file == "/folder/a/b/file.txt")
+        model.toggleRoot()
+        #expect(model.isRootExpanded)
+        #expect(model.expanded.isEmpty)
+    }
+
+    @Test func collapseAllCollapsesTheRootAndEveryDescendant() {
+        let model = FileBrowserModel()
+        model.toggle("/folder/a")
+        model.toggle("/folder/a/b")
+        model.collapseAll()
+        #expect(!model.isRootExpanded)
+        #expect(model.request(folder: "/folder").directories.isEmpty)
+        model.collapseAll()
+        #expect(!model.isRootExpanded)
+    }
+
+    @Test func rootExpansionLeavesTheFullDirectoryLimitAvailable() {
+        let model = FileBrowserModel()
+        for index in 0..<256 { model.toggle("/folder/\(index)") }
+        #expect(model.expanded.count == 256)
+        #expect(model.request(folder: "/folder").directories.count == 256)
+        #expect(model.failure == nil)
+        model.toggle("/folder/extra")
+        #expect(model.expanded.count == 256)
+        #expect(model.failure != nil)
+    }
+
     @Test func corePollsDiskChangesAndSuppressesUnchangedSnapshots() async throws {
         let data = TemporaryPath()
         let folder = TemporaryPath()
