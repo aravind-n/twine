@@ -75,5 +75,8 @@ struct MetalTerminalViewTests {
 
         #expect(terminal.isUsingMetalRenderer)
         #expect(terminal.font == font)
+        let palette = TerminalPalette.resolved(for: terminal.effectiveAppearance)
+        #expect(terminal.nativeBackgroundColor == palette.background)
+        #expect(terminal.nativeForegroundColor == palette.text)
     }
 }

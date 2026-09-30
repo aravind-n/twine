@@ -76,6 +76,8 @@ system monospace with a warning. `font_size` defaults to 13 points and accepts s
 through 72, including fractional sizes such as 13.5. Appearance settings are parsed but are
 not applied yet.
 
+Terminal colors use the Silica palette in dark mode and an adapted palette in light mode.
+
 Omitted settings use defaults. Invalid TOML, invalid values, or file errors use the complete
 defaults; unknown keys are ignored with a warning. Diagnostics include the file, line, and
 key (or `<document>` when a syntax error has no identifiable key). They appear in macOS

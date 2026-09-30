@@ -6,17 +6,7 @@ import SwiftTerm
 struct TerminalPalette {
     let background: NSColor
     let text: NSColor
-    let muted: NSColor
-    let green: NSColor
-    let blue: NSColor
-    let amber: NSColor
-
-    var ansi: [SwiftTerm.Color] {
-        [
-            background, amber, green, amber, blue, blue, blue, text,
-            muted, amber, green, amber, blue, blue, blue, text,
-        ].map(SwiftTerm.Color.init(nsColor:))
-    }
+    let ansi: [SwiftTerm.Color]
 
     static func resolved(for appearance: NSAppearance?) -> Self {
         guard let appearance else {
@@ -30,13 +20,16 @@ struct TerminalPalette {
     }
 
     private static func fixedPalette() -> Self {
-        Self(
+        let ansi: [NSColor] = [
+            .terminalBlack, .terminalTextRed, .terminalTextGreen, .terminalTextAmber,
+            .terminalTextBlue, .terminalTextMagenta, .terminalTextCyan, .terminalWhite,
+            .terminalTextMuted, .terminalBrightRed, .terminalBrightGreen, .terminalBrightAmber,
+            .terminalBrightBlue, .terminalBrightMagenta, .terminalBrightCyan, .terminalBrightWhite,
+        ]
+        return Self(
             background: fixed(.terminalBackground),
             text: fixed(.terminalText),
-            muted: fixed(.terminalTextMuted),
-            green: fixed(.terminalTextGreen),
-            blue: fixed(.terminalTextBlue),
-            amber: fixed(.terminalTextAmber)
+            ansi: ansi.map { SwiftTerm.Color(nsColor: fixed($0)) }
         )
     }
 

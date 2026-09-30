@@ -13,7 +13,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 ## Production rules
 
 - **The terminal follows the system appearance:** light in light mode, dark in dark mode, with matching text tones for each.
-- **Colors come from the asset catalog:** the terminal background, terminal text tones, and role colors are named colors with light and dark variants.
+- **Colors come from the asset catalog:** the terminal background, ANSI palette, and role colors are named colors with light and dark variants.
 - **Real content wins over fixed sizes:** tabs, names, and labels truncate cleanly, tab rows scroll, and panels keep working in small windows.
 
 ## Window
@@ -49,7 +49,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 
 ## Color
 
-- **Terminal:** a named background color with light and dark variants. The dark variant is a deep blue-gray (about RGB 19, 24, 27). Text tones are normal, muted, green, blue, and amber, each with light and dark variants. The prompt marker `❯` is green.
+- **Terminal:** Silica colors in dark mode, with a parchment background and darker versions of the same hues in light mode. Dark mode uses background `#0c1013` and text `#e5e1cf`. Light mode uses background `#f7f4e8` and text `#1a2026`. The 16 ANSI slots each have their own color. The prompt marker `❯` is green.
 - **Roles and harnesses:** each has one stable color and one SF Symbol, used everywhere it appears: subtabs, trace lanes, span pills, and log entries. Colors are muted: blue (about RGB 110, 150, 224), orange (212, 150, 110), purple (171, 133, 201), and green (102, 153, 122), plus more in the same muted range as needed.
 - **Status:** green for running, secondary for complete, orange for needs attention.
 - **File selection:** accent at 12% opacity. Folder icons use accent at 80%.
