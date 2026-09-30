@@ -632,4 +632,34 @@ mod tests {
         ));
         assert_eq!(workflow(&application).status, WorkflowStatus::Exited);
     }
+
+    #[test]
+    fn a_failed_agent_start_leaves_the_draft_and_its_shell_untouched() {
+        let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let application = application(folder.path(), bin.path(), Some("sleep 30"));
+        let draft = draft(&application, folder.path());
+        // The harness is found, but the folder is gone by the time the agent would start in it.
+        std::fs::remove_dir_all(folder.path()).unwrap();
+
+        let disposition = start(&application, draft.workflow_id, "go");
+
+        assert!(matches!(
+            disposition,
+            CommandDisposition::Rejected { code, .. } if code == "agentStartFailed"
+        ));
+        assert_eq!(workflow(&application), draft);
+        application
+            .write_terminal_input(draft.terminal_id, b"x")
+            .expect("the draft's shell should still be running");
+        let stored = application
+            .lock_inner()
+            .unwrap()
+            .folders
+            .store()
+            .workflows(folder.path())
+            .unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].kind, WorkflowKind::Draft);
+        assert_eq!(stored[0].harness, None);
+    }
 }

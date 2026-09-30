@@ -56,3 +56,10 @@ extension BridgeClient {
         }
     }
 }
+
+extension BridgeFailure {
+    /// The agent ended on its own just as it was cancelled, so there is nothing left to cancel.
+    var isAgentNotRunning: Bool {
+        if case .commandRejected(let code, _) = self { code == "agentNotRunning" } else { false }
+    }
+}

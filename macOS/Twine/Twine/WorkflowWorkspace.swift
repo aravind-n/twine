@@ -111,7 +111,7 @@ struct WorkflowWorkspace: View {
                 try await bridgeClient.cancelAgent(workflowID: id)
             } catch {
                 // The agent can end on its own just as Cancel is chosen.
-                if case BridgeFailure.commandRejected(let code, _) = error, code == "agentNotRunning" { return }
+                if (error as? BridgeFailure)?.isAgentNotRunning == true { return }
                 if !workflows.contains(where: { $0.id == id && $0.isRunningAgent }) { return }
                 failureMessage = error.localizedDescription
                 workflowLogger.error("Could not cancel agent: \(error.localizedDescription, privacy: .public)")
