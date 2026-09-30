@@ -3,12 +3,14 @@ import SwiftTerm
 import SwiftUI
 
 struct TerminalSurface: View {
-    /// Two rows of terminal text, which short panels keep by giving up vertical padding first.
-    private static let minimumTerminalHeight =
-        2 * (NSFont.terminal.ascender - NSFont.terminal.descender + NSFont.terminal.leading).rounded(.up)
-
     @Environment(CoreClient.self) private var coreClient
     @State private var failureMessage: String?
+
+    /// Two rows of terminal text, which short panels keep by giving up vertical padding first.
+    private var minimumTerminalHeight: CGFloat {
+        let font = coreClient.terminalFont
+        return 2 * (font.ascender - font.descender + font.leading).rounded(.up)
+    }
 
     let terminalID: UInt64
     /// Hidden terminals keep running without drawing.
@@ -28,10 +30,11 @@ struct TerminalSurface: View {
     var didFocus: (() -> Void)?
 
     var body: some View {
-        TerminalPadding(padding: padding, minimumContentHeight: Self.minimumTerminalHeight) {
+        TerminalPadding(padding: padding, minimumContentHeight: minimumTerminalHeight) {
             ZStack(alignment: .bottomLeading) {
                 TerminalViewRepresentable(
                     coreClient: coreClient,
+                    font: coreClient.terminalFont,
                     terminalID: terminalID,
                     isVisible: isVisible,
                     isSelected: isSelected,
@@ -99,6 +102,7 @@ nonisolated private struct TerminalPadding: Layout {
 
 struct TerminalViewRepresentable: NSViewRepresentable {
     let coreClient: CoreClient
+    let font: NSFont
     let terminalID: UInt64
     let isVisible: Bool
     let isSelected: Bool
@@ -118,6 +122,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> MetalTerminalView {
         let view = MetalTerminalView(frame: .zero)
+        view.applyTwineFont(font)
         view.automaticallyFocuses = automaticallyFocuses
         view.isSelected = isSelected
         view.focusRequest = focusRequest
@@ -129,6 +134,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MetalTerminalView, context: Context) {
+        nsView.applyTwineFont(font)
         context.coordinator.beforeUserInput = beforeUserInput
         nsView.automaticallyFocuses = automaticallyFocuses
         nsView.didFocus = didFocus

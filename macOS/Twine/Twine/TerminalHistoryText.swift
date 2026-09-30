@@ -5,12 +5,13 @@ import SwiftUI
 struct TerminalHistoryText: NSViewRepresentable {
     let text: String
     var outputStartRange: NSRange?
+    var font = NSFont.terminal
 
     func makeNSView(context: Context) -> TerminalHistoryScrollView {
-        Self.makeScrollView()
+        Self.makeScrollView(font: font)
     }
 
-    static func makeScrollView() -> TerminalHistoryScrollView {
+    static func makeScrollView(font: NSFont = .terminal) -> TerminalHistoryScrollView {
         let source = NSTextView.scrollableTextView()
         let scroll = TerminalHistoryScrollView()
         scroll.documentView = source.documentView
@@ -27,18 +28,21 @@ struct TerminalHistoryText: NSViewRepresentable {
         view.textContainer?.widthTracksTextView = false
         view.textContainer?.containerSize = view.maxSize
         view.textContainerInset = NSSize(width: Spacing.terminalContent, height: Spacing.terminalContent)
-        view.font = .terminal
+        view.font = font
         view.setAccessibilityIdentifier("terminalHistoryText")
         view.setAccessibilityLabel("Historical terminal output, read only")
         return scroll
     }
 
     func updateNSView(_ scroll: TerminalHistoryScrollView, context: Context) {
-        Self.show(text, outputStartRange: outputStartRange, in: scroll)
+        Self.show(text, outputStartRange: outputStartRange, in: scroll, font: font)
     }
 
-    static func show(_ text: String, outputStartRange: NSRange? = nil, in scroll: TerminalHistoryScrollView) {
+    static func show(
+        _ text: String, outputStartRange: NSRange? = nil, in scroll: TerminalHistoryScrollView, font: NSFont = .terminal
+    ) {
         guard let view = scroll.documentView as? NSTextView else { return }
+        if view.font != font { view.font = font }
         view.backgroundColor = .terminalBackground
         view.textColor = .terminalText
         if view.string != text || scroll.outputStartRange != outputStartRange {

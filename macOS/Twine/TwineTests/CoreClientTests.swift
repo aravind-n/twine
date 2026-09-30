@@ -9,12 +9,15 @@ struct CoreClientTests {
     func configSnapshotDecodes(colorScheme: CoreConfig.ColorScheme) throws {
         let json = """
             {"sequence":1,"state":{"status":"ready"},
-             "config":{"appearance":{"color_scheme":"\(colorScheme.rawValue)"}},
+             "config":{"appearance":{"color_scheme":"\(colorScheme.rawValue)"},
+                       "terminal":{"font_family":"Menlo","font_size":15.5}},
              "folders":{"openFolder":null,"recentFolders":[],"unavailableFolder":null},
              "terminals":[],"workflows":{"session":null,"sessions":[],"sessionsInitialized":false,"workflows":[]}}
             """
         let snapshot = try JSONDecoder().decode(CoreSnapshot.self, from: Data(json.utf8))
         #expect(snapshot.config.appearance.colorScheme == colorScheme)
+        #expect(snapshot.config.terminal.fontFamily == "Menlo")
+        #expect(snapshot.config.terminal.fontSize == 15.5)
     }
 
     @Test func coreRoundTrip() async throws {

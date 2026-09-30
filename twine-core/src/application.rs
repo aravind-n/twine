@@ -852,7 +852,11 @@ mod tests {
     fn snapshot_contains_loaded_config() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.toml");
-        std::fs::write(&path, "[appearance]\ncolor_scheme = 'dark'\n").unwrap();
+        std::fs::write(
+            &path,
+            "[appearance]\ncolor_scheme = 'dark'\n[terminal]\nfont_family = 'Menlo'\nfont_size = 15.5\n",
+        )
+        .unwrap();
         let application =
             Application::with_config(directory.path(), Config::load(&path).config).unwrap();
         assert_eq!(
@@ -864,5 +868,8 @@ mod tests {
                 .color_scheme,
             ColorScheme::Dark
         );
+        let config = application.snapshot().unwrap().config;
+        assert_eq!(config.terminal.font_family, "Menlo");
+        assert!((config.terminal.font_size.points() - 15.5).abs() < f64::EPSILON);
     }
 }

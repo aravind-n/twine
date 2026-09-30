@@ -57,12 +57,26 @@ explicit completion signals.
 ## Configuration
 
 Twine reads `~/.config/twine/config.toml` at startup and creates a commented default file
-on first launch. Settings are parsed and exposed to Swift, but do not change app behavior yet.
+on first launch. Restart Twine after editing settings.
 
 ```toml
 [appearance]
 color_scheme = "system" # "system", "light", or "dark"
+
+[terminal]
+font_family = "JetBrains Mono"
+font_size = 13.0
 ```
+
+Terminal settings apply to live shell and agent terminals, including Bento panes, and terminal
+history. Install the font in macOS and use its family name. An omitted or empty `font_family`
+uses system monospace. Twine checks that `i` and `w` have equal character widths, allowing Nerd
+Fonts whose icons are wider. An unavailable font or one that fails this check falls back to
+system monospace with a warning. `font_size` defaults to 13 points and accepts sizes from 6
+through 72, including fractional sizes such as 13.5. Appearance settings are parsed but are
+not applied yet.
+
+Terminal colors use the Silica palette in dark mode and an adapted palette in light mode.
 
 Omitted settings use defaults. Invalid TOML, invalid values, or file errors use the complete
 defaults; unknown keys are ignored with a warning. Diagnostics include the file, line, and

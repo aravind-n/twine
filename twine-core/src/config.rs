@@ -16,6 +16,48 @@ pub use diagnostics::{ConfigDiagnostic, ConfigProblem};
 #[serde(default)]
 pub struct Config {
     pub appearance: Appearance,
+    pub terminal: TerminalConfig,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct TerminalConfig {
+    /// An installed font family. Empty selects the platform's system monospace font.
+    pub font_family: String,
+    pub font_size: FontSize,
+}
+
+/// A terminal font size in points, limited to 6 through 72.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct FontSize(f64);
+
+// Deserialization and the default only construct finite, positive values, so equality is reflexive.
+impl Eq for FontSize {}
+
+impl Default for FontSize {
+    fn default() -> Self {
+        Self(13.0)
+    }
+}
+
+impl FontSize {
+    #[must_use]
+    pub const fn points(self) -> f64 {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for FontSize {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let points = f64::deserialize(deserializer)?;
+        if !(6.0..=72.0).contains(&points) {
+            return Err(serde::de::Error::custom(
+                "font size must be between 6 and 72 points",
+            ));
+        }
+        Ok(Self(points))
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -151,8 +193,11 @@ fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
     let defaults = toml::to_string_pretty(&Config::default())?;
     let mut source = String::from(
         "# Twine configuration. Uncomment settings to override their defaults.\n\
-         # Settings are loaded at startup; they do not change app behavior yet.\n\
-         # appearance.color_scheme accepts \"system\", \"light\", or \"dark\".\n\n",
+         # Restart Twine after editing settings.\n\
+         # appearance.color_scheme accepts \"system\", \"light\", or \"dark\"; it is not applied yet.\n\
+         # terminal.font_family selects an installed monospace family (for example, \"JetBrains Mono\").\n\
+         # An empty, unavailable, or proportional family uses system monospace.\n\
+         # terminal.font_size accepts 6 through 72 points, including fractional sizes.\n\n",
     );
     for line in defaults.lines() {
         if line.starts_with('[') || line.is_empty() {
@@ -200,10 +245,71 @@ mod tests {
 
     #[test]
     fn absent_fields_use_defaults() {
-        for source in ["", "# empty\n", "[appearance]\n"] {
+        for source in ["", "# empty\n", "[appearance]\n", "[terminal]\n"] {
             let loaded = Config::parse(Path::new(PATH), source);
             assert_eq!(loaded.config, Config::default());
             assert!(loaded.diagnostics.is_empty());
+        }
+    }
+
+    #[test]
+    fn terminal_settings_accept_fractional_sizes_and_toml_key_forms() {
+        for source in [
+            "[terminal]\nfont_family = 'JetBrains Mono'\nfont_size = 15.5\n",
+            "terminal.font_family = 'JetBrains Mono'\nterminal.font_size = 15.5\n",
+            "terminal = { font_family = 'JetBrains Mono', font_size = 15.5 }\n",
+        ] {
+            let loaded = Config::parse(Path::new(PATH), source);
+            assert_eq!(loaded.config.terminal.font_family, "JetBrains Mono");
+            assert_eq!(loaded.config.terminal.font_size, FontSize(15.5));
+            assert!(loaded.diagnostics.is_empty(), "{:?}", loaded.diagnostics);
+        }
+        for size in ["6", "13", "72", "6.0", "72.0"] {
+            let loaded = Config::parse(Path::new(PATH), &format!("terminal.font_size = {size}\n"));
+            assert_eq!(
+                loaded.config.terminal.font_size,
+                FontSize(size.parse::<f64>().unwrap())
+            );
+            assert!(loaded.diagnostics.is_empty());
+        }
+    }
+
+    #[test]
+    fn omitted_terminal_settings_preserve_the_other_setting() {
+        let family = Config::parse(Path::new(PATH), "terminal.font_family = 'Menlo'\n");
+        assert_eq!(family.config.terminal.font_family, "Menlo");
+        assert_eq!(family.config.terminal.font_size, FontSize::default());
+        let size = Config::parse(Path::new(PATH), "terminal.font_size = 18\n");
+        assert!(size.config.terminal.font_family.is_empty());
+        assert_eq!(size.config.terminal.font_size, FontSize(18.0));
+        assert!(family.diagnostics.is_empty());
+        assert!(size.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn invalid_terminal_values_report_the_setting_and_use_complete_defaults() {
+        for (key, values) in [
+            ("font_family", vec!["42", "true", "[]", "{}"]),
+            (
+                "font_size",
+                vec![
+                    "0", "-13", "5.99", "72.01", "nan", "inf", "-inf", "'secret'", "true", "[]",
+                    "{}",
+                ],
+            ),
+        ] {
+            for value in values {
+                let source =
+                    format!("[appearance]\ncolor_scheme = 'dark'\n[terminal]\n{key} = {value}\n");
+                let loaded = Config::parse(Path::new(PATH), &source);
+                assert_eq!(loaded.config, Config::default());
+                assert_eq!(loaded.diagnostics.len(), 1);
+                let diagnostic = &loaded.diagnostics[0];
+                assert_eq!(diagnostic.line, 4, "{source}");
+                assert_eq!(diagnostic.key, format!("terminal.{key}"));
+                assert_eq!(diagnostic.problem, ConfigProblem::InvalidValue);
+                assert!(!diagnostic.to_string().contains("secret"));
+            }
         }
     }
 
@@ -343,6 +449,9 @@ mod tests {
         let source = fs::read_to_string(&path).unwrap();
         assert!(source.contains("[appearance]"));
         assert!(source.contains("# color_scheme = \"system\""));
+        assert!(source.contains("[terminal]"));
+        assert!(source.contains("# font_family = \"\""));
+        assert!(source.contains("# font_size = 13.0"));
         assert_eq!(Config::parse(&path, &source).config, Config::default());
         let uncommented = source
             .lines()

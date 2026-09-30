@@ -100,7 +100,8 @@ struct FolderTests {
     @Test func folderStateDecodesEveryUnavailableReason() throws {
         let json = """
             {"sequence":2,"state":{"status":"ready"},
-             "config":{"appearance":{"color_scheme":"system"}},
+             "config":{"appearance":{"color_scheme":"system"},
+                       "terminal":{"font_family":"","font_size":13.0}},
              "folders":{"openFolder":null,
                         "recentFolders":[{"path":"/p/locked","isMissing":false},{"path":"/p/gone","isMissing":true}],
                         "unavailableFolder":{"path":"/p/locked","reason":"inaccessible"}},

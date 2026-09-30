@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import OSLog
 import Observation
@@ -10,6 +11,7 @@ private let commandResultCacheLimit = 256
 final class CoreClient {
     private(set) var runState = CoreRunState.idle
     private(set) var snapshot: CoreSnapshot?
+    private(set) var terminalFont = NSFont.terminal
     private(set) var traceSnapshotGeneration: UInt64 = 0
     private(set) var lastCommandCompletion: CoreCommandCompletion?
 
@@ -155,6 +157,9 @@ final class CoreClient {
     }
 
     private func apply(_ snapshot: CoreSnapshot) {
+        if self.snapshot?.config.terminal != snapshot.config.terminal {
+            terminalFont = TerminalFont.resolve(snapshot.config.terminal)
+        }
         for terminal in self.snapshot?.terminals ?? []
         where !snapshot.terminals.contains(where: { $0.terminalID == terminal.terminalID }) {
             terminalChunkRouter.markClosed(terminal.terminalID)
