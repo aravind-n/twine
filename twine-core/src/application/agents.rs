@@ -96,6 +96,7 @@ impl Application {
             Ok(id) => id,
             Err(error) => return Ok(rejection("agentStartFailed", &error)),
         };
+        let (arguments, hooks) = self.harness_arguments(harness, reserved, prompt);
         let mut inner = self.lock_inner()?;
         // Start the agent at the size its draft terminal has now, as the view has already fitted it.
         let placeholder_size = inner
@@ -109,7 +110,7 @@ impl Application {
             reserved,
             &folder,
             &located.program,
-            &definition.arguments(prompt),
+            &arguments,
             &located.path,
             placeholder_size,
             Arc::new(self.exit_callback()),
@@ -161,6 +162,11 @@ impl Application {
             result: CommandResult::AgentStarted { workflow_id },
         })?;
         drop(inner);
+        if let Some(hooks) = hooks
+            && let Err(error) = self.register_harness_steps(terminal_id, workflow_id, true, hooks)
+        {
+            warn!(%error, "couldn't register harness step hooks");
+        }
         info!(
             workflow_id = workflow_id.0,
             terminal_id = terminal_id.value(),

@@ -21,6 +21,14 @@ pub(super) struct RunProcesses {
     inboxes: HashMap<AgentId, (u64, CompletionInbox)>,
 }
 
+struct PreparedAgent {
+    agent: crate::RunAgent,
+    inbox: CompletionInbox,
+    reserved: TerminalId,
+    arguments: Vec<std::ffi::OsString>,
+    hooks: Option<crate::harness::steps::StepInbox>,
+}
+
 impl Application {
     /// Lists built-in and stored custom types for launch forms.
     ///
@@ -127,10 +135,7 @@ impl Application {
         Ok(CommandDisposition::Accepted)
     }
 
-    fn prepare_workflow_stage(
-        &self,
-        run: &mut WorkflowRun,
-    ) -> Vec<(crate::RunAgent, CompletionInbox, TerminalId)> {
+    fn prepare_workflow_stage(&self, run: &mut WorkflowRun) -> Vec<PreparedAgent> {
         let active: Vec<_> = run.active_agents().into_iter().cloned().collect();
         // Reserve every transcript outside application state locks; storage can wait on disk.
         let mut prepared = Vec::new();
@@ -140,7 +145,18 @@ impl Application {
                 break;
             };
             match self.terminals.reserve_terminal() {
-                Ok(id) => prepared.push((agent, inbox, id)),
+                Ok(reserved) => {
+                    let prompt = run.instructions(agent.agent_id, &inbox.command());
+                    let (arguments, hooks) =
+                        self.harness_arguments(agent.harness, reserved, &prompt);
+                    prepared.push(PreparedAgent {
+                        agent,
+                        inbox,
+                        reserved,
+                        arguments,
+                        hooks,
+                    });
+                }
                 Err(error) => {
                     run.finish(
                         RunStatus::Failed,
@@ -178,39 +194,41 @@ impl Application {
         let mut inner = self.lock_inner()?;
         let mut replaced = Vec::new();
         let mut unused = Vec::new();
-        for (agent, inbox, reserved) in prepared {
+        let mut step_hooks = Vec::new();
+        for PreparedAgent {
+            agent,
+            inbox,
+            reserved,
+            arguments,
+            hooks,
+        } in prepared
+        {
             if run.status != RunStatus::Running {
                 unused.push(reserved);
                 continue;
             }
-            let prompt = run.instructions(agent.agent_id, &inbox.command());
             let located = &processes.harnesses[&agent.harness];
             match self.terminals.start_program(
                 reserved,
                 &processes.folder,
                 &located.program,
-                &agent.harness.definition().arguments(&prompt),
+                &arguments,
                 &located.path,
                 processes.size,
                 Arc::new(self.exit_callback()),
             ) {
                 Ok(terminal_id) => {
-                    inner.terminals.insert(terminal_id, TerminalStatus::Running);
-                    let tab = workflow
-                        .agents
-                        .iter_mut()
-                        .find(|a| a.agent_id.0 == agent.agent_id)
-                        .expect("agent tab exists");
-                    if tab.terminal_id.value() != 0 {
-                        replaced.push(tab.terminal_id);
-                        inner.terminals.remove(&tab.terminal_id);
+                    if let Some(hooks) = hooks {
+                        step_hooks.push((terminal_id, hooks));
                     }
-                    tab.terminal_id = terminal_id;
-                    run.agents
-                        .iter_mut()
-                        .find(|a| a.agent_id == agent.agent_id)
-                        .expect("launched agent belongs to run")
-                        .status = crate::RunAgentStatus::Running;
+                    if let Some(previous) = inner.record_agent_launch(
+                        &mut workflow.agents,
+                        run,
+                        agent.agent_id,
+                        terminal_id,
+                    ) {
+                        replaced.push(previous);
+                    }
                     processes
                         .inboxes
                         .insert(AgentId(agent.agent_id), (run.generation, inbox));
@@ -245,6 +263,7 @@ impl Application {
         };
         drop(inner);
         drop(process_guard);
+        self.register_stage_steps(workflow_id, step_hooks);
         self.stop_run_terminals(&failed_terminals, "Workflow launch failed; agent stopped.");
         for id in unused {
             let _ = self.terminals.cancel_reserved_terminal(id);
@@ -260,6 +279,7 @@ impl Application {
         generation: u64,
         signal: CompletionSignal,
     ) -> Result<CommandDisposition, ApplicationError> {
+        self.poll_harness_steps()?;
         let (advance, running, terminal_ids) = {
             let mut inner = self.lock_inner()?;
             let Some(index) = inner
@@ -414,6 +434,7 @@ impl Application {
     /// The bridge polls events off the UI thread. Polling also services bounded completion
     /// mailboxes, so terminal output (including an idle or exited process) cannot starve signals.
     pub(super) fn poll_workflow_signals(&self) -> Result<(), ApplicationError> {
+        self.poll_harness_steps()?;
         // Snapshot/event reads must stay available while a lifetime command waits on transcript
         // storage. The next idle poll will service these mailboxes.
         let _guard = match self.commands.try_lock() {
@@ -502,6 +523,31 @@ impl Application {
 }
 
 impl super::Inner {
+    fn record_agent_launch(
+        &mut self,
+        tabs: &mut [Agent],
+        run: &mut WorkflowRun,
+        agent_id: u64,
+        terminal_id: TerminalId,
+    ) -> Option<TerminalId> {
+        self.terminals.insert(terminal_id, TerminalStatus::Running);
+        let tab = tabs
+            .iter_mut()
+            .find(|tab| tab.agent_id.0 == agent_id)
+            .expect("agent tab exists");
+        let previous = (tab.terminal_id.value() != 0).then_some(tab.terminal_id);
+        if let Some(previous) = previous {
+            self.terminals.remove(&previous);
+        }
+        tab.terminal_id = terminal_id;
+        run.agents
+            .iter_mut()
+            .find(|agent| agent.agent_id == agent_id)
+            .expect("launched agent belongs to run")
+            .status = crate::RunAgentStatus::Running;
+        previous
+    }
+
     fn publish_launch(
         &mut self,
         index: usize,
