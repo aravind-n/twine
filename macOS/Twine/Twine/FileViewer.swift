@@ -6,12 +6,19 @@ struct FileViewer: View {
     let path: String
     let folder: String
     let failure: String?
+    let diskFile: FilePreview?
+    let navigationURL: URL?
+    let openHTMLFile: (URL) -> Void
     let close: () -> Void
     @State private var showsGoToLine = false
     @State private var line = "1"
     @State private var lineRequest: FileLineRequest?
+    @State private var mode = Mode.preview
 
     private var current: FilePreview? { editor.baseline }
+    private var isHTML: Bool { ["html", "htm"].contains(URL(filePath: path).pathExtension.lowercased()) }
+    private var showsPreview: Bool { isHTML && mode == .preview }
+    private enum Mode { case preview, source }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,13 +27,22 @@ struct FileViewer: View {
                 Text(path.hasPrefix(folder + "/") ? String(path.dropFirst(folder.count + 1)) : path)
                     .font(.caption).lineLimit(1).truncationMode(.middle).help(path)
                 Spacer(minLength: 0)
+                if isHTML {
+                    Picker("HTML display", selection: $mode) {
+                        Text("Preview").tag(Mode.preview)
+                        Text("Source").tag(Mode.source)
+                    }
+                    .pickerStyle(.segmented).fixedSize().controlSize(.small)
+                    .help("Preview shows the saved file. Source lets you view and edit its HTML.")
+                    .accessibilityIdentifier("htmlDisplayMode")
+                }
                 if editor.isDirty { Text("Edited").sectionLabelStyle().accessibilityIdentifier("fileEdited") }
                 Button(editor.isSaving ? "Saving…" : "Save") { editor.requestSave() }
                     .font(.caption).disabled(!editor.canSave).accessibilityIdentifier("saveFile")
                 Button("Go to Line…") { showsGoToLine = true }
                     .font(.caption)
                     .keyboardShortcut("l", modifiers: .command)
-                    .disabled(current?.status != .text)
+                    .disabled(current?.status != .text || showsPreview)
                     .accessibilityIdentifier("goToLine")
                     .popover(isPresented: $showsGoToLine) { goToLineForm }
                 Button("Close File", systemImage: "xmark", action: close)
@@ -41,7 +57,25 @@ struct FileViewer: View {
                     "Couldn't Refresh File", systemImage: "exclamationmark.triangle",
                     description: Text(failure))
             } else if let current {
-                content(current)
+                ZStack {
+                    content(current)
+                        .opacity(showsPreview ? 0 : 1)
+                        .allowsHitTesting(!showsPreview)
+                        .accessibilityHidden(showsPreview)
+                    if showsPreview {
+                        if let diskFile, diskFile.path == path {
+                            if diskFile.status == .text {
+                                HTMLPreview(
+                                    file: diskFile, folder: folder, navigationURL: navigationURL, openFile: openHTMLFile
+                                )
+                            } else {
+                                content(diskFile)
+                            }
+                        } else {
+                            ProgressView("Loading preview…")
+                        }
+                    }
+                }
             } else {
                 ProgressView("Loading file…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -80,7 +114,7 @@ struct FileViewer: View {
         case .text:
             FileTextView(
                 text: Binding(get: { editor.text }, set: { editor.text = $0 }),
-                loadID: editor.loadID, isEditable: !editor.isSaving, lineRequest: lineRequest)
+                loadID: editor.loadID, isEditable: !editor.isSaving && !showsPreview, lineRequest: lineRequest)
         case .binary:
             unavailable("Binary File", "Only UTF-8 text files can be displayed.")
         case .tooLarge:

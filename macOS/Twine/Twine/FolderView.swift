@@ -12,6 +12,7 @@ struct FolderView: View {
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var selection = WorkflowTabSelection()
     @State private var files = FileBrowserModel()
+    @State private var htmlNavigationURL: URL?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
@@ -36,7 +37,9 @@ struct FolderView: View {
                         .accessibilityHidden(true, isEnabled: editor.path != nil)
                     if let selectedPath = editor.path {
                         FileViewer(
-                            path: selectedPath, folder: path, failure: files.failure, close: { editor.select(nil) }
+                            path: selectedPath, folder: path, failure: files.failure, diskFile: files.snapshot?.file,
+                            navigationURL: htmlNavigationURL, openHTMLFile: openHTMLFile,
+                            close: { editor.select(nil) }
                         )
                         .id(selectedPath)
                     }
@@ -61,6 +64,9 @@ struct FolderView: View {
             await files.watch(files.request(folder: path, file: editor.path), client: bridgeClient, editor: editor)
         }
         .onChange(of: selection.selectedID) { editor.select(nil) }
+        .onChange(of: editor.path) {
+            if htmlNavigationURL?.path != editor.path { htmlNavigationURL = nil }
+        }
         .focusedSceneValue(\.closeFile, editor.path.map { _ in { editor.select(nil) } })
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -75,6 +81,10 @@ struct FolderView: View {
     }
 
     private var sidebarIsVisible: Bool { sidebarVisibility != .detailOnly }
+
+    private func openHTMLFile(_ url: URL) {
+        if editor.select(url.path, folder: path) { htmlNavigationURL = url }
+    }
 
     private var selectedWorkflow: BridgeWorkflow? {
         guard let state = bridgeClient.snapshot?.workflows, state.session?.folder == path else { return nil }
