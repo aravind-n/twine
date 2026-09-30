@@ -79,16 +79,11 @@ struct NewTabChoices: View {
             ChoicesHeading(
                 title: "Choose a workflow", message: "Pick a workflow type, or start typing to use Terminal.")
 
-            // These two lightweight launch paths stay mounted even when a short card must scroll.
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: NewTabLayout.spacing) { quickChoices }
-                    .frame(minWidth: 2 * NewTabLayout.minimumChoiceWidth + NewTabLayout.spacing)
-                VStack(spacing: NewTabLayout.spacing) { quickChoices }
-            }
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumChoiceWidth))],
+                columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumChoiceWidth), spacing: NewTabLayout.spacing)],
                 spacing: NewTabLayout.spacing
             ) {
+                quickChoices
                 ForEach(catalog) { type in
                     Button {
                         selectedType = type
