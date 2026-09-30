@@ -334,9 +334,7 @@ impl Application {
             }
             (disposition, terminal_ids)
         };
-        for terminal_id in terminal_ids {
-            self.terminals.close(terminal_id)?;
-        }
+        self.terminals.close_all(&terminal_ids)?;
         self.files.clear();
         self.restore_workflows()?;
         Ok(disposition)
