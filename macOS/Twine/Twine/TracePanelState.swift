@@ -5,9 +5,9 @@ import Observation
 @Observable
 final class TracePanelState {
     private(set) var workflowID: UInt64?
-    private(set) var lanes: [BridgeTraceLane] = []
-    private(set) var spans: [BridgeTraceSpan] = []
-    private(set) var events: [BridgeTraceEvent] = []
+    private(set) var lanes: [CoreTraceLane] = []
+    private(set) var spans: [CoreTraceSpan] = []
+    private(set) var events: [CoreTraceEvent] = []
     private(set) var nextBefore: UInt64?
     private(set) var nextAfter: UInt64?
     private(set) var isLoading = false
@@ -18,8 +18,8 @@ final class TracePanelState {
     private var readGeneration: UInt64 = 0
     private var logGeneration: UInt64 = 0
 
-    var selectedSpan: BridgeTraceSpan? { spans.first { $0.id == selectedSpanID } }
-    var selectedLane: BridgeTraceLane? { lanes.first { $0.id == selectedSpan?.laneID } }
+    var selectedSpan: CoreTraceSpan? { spans.first { $0.id == selectedSpanID } }
+    var selectedLane: CoreTraceLane? { lanes.first { $0.id == selectedSpan?.laneID } }
 
     func reset(workflowID: UInt64?) {
         readGeneration &+= 1
@@ -37,7 +37,7 @@ final class TracePanelState {
         isLoadingEvents = false
     }
 
-    func refresh(workflowID: UInt64?, client: BridgeClient) async {
+    func refresh(workflowID: UInt64?, client: CoreClient) async {
         if self.workflowID != workflowID { reset(workflowID: workflowID) }
         guard let workflowID else { return }
         readGeneration &+= 1
@@ -46,9 +46,9 @@ final class TracePanelState {
         isLoading = true
         defer { if generation == readGeneration { isLoading = false } }
         do {
-            var loaded: [BridgeTraceSpan] = []
+            var loaded: [CoreTraceSpan] = []
             var before: UInt64?
-            var loadedLanes: [BridgeTraceLane] = []
+            var loadedLanes: [CoreTraceLane] = []
             for _ in 0..<pageCount {
                 let page = try await client.workflowTrace(workflowID: workflowID, before: before)
                 try Task.checkCancellation()
@@ -70,7 +70,7 @@ final class TracePanelState {
         }
     }
 
-    func loadOlder(client: BridgeClient) async {
+    func loadOlder(client: CoreClient) async {
         guard let workflowID, let before = nextBefore, !isLoading else { return }
         readGeneration &+= 1
         let generation = readGeneration
@@ -94,7 +94,7 @@ final class TracePanelState {
         }
     }
 
-    func loadEvents(client: BridgeClient, more: Bool = false) async {
+    func loadEvents(client: CoreClient, more: Bool = false) async {
         if more && (isLoadingEvents || nextAfter == nil) { return }
         logGeneration &+= 1
         let generation = logGeneration
@@ -130,8 +130,8 @@ final class TracePanelState {
     }
 
     /// Copy reads the entire selected span, independently of the visible log's pagination.
-    func completeLog(spanID: UInt64, client: BridgeClient) async throws -> String {
-        guard let span = spans.first(where: { $0.id == spanID }) else { throw BridgeFailure.invalidArgument }
+    func completeLog(spanID: UInt64, client: CoreClient) async throws -> String {
+        guard let span = spans.first(where: { $0.id == spanID }) else { throw CoreFailure.invalidArgument }
         let laneName = lanes.first { $0.id == span.laneID }?.name ?? "Activity"
         var lines = ["\(laneName) — \(span.title)"]
         var after: UInt64?

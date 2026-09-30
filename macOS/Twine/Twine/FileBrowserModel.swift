@@ -24,7 +24,7 @@ final class FileBrowserModel {
         }
     }
 
-    func watch(_ request: FileBrowserRequest, client: BridgeClient, editor: FileEditorModel) async {
+    func watch(_ request: FileBrowserRequest, client: CoreClient, editor: FileEditorModel) async {
         var request = request
         var lastGeneration: UUID?
         do {

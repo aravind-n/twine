@@ -6,15 +6,15 @@ import SwiftUI
 let terminalLogger = Logger(subsystem: "com.twineproject.Twine", category: "terminal")
 
 /// Feeds a retained terminal view and forwards input and size changes. Workflow shells are owned
-/// by Rust; standalone terminals used by bridge clients retain the start/close behavior.
+/// by twine-core; standalone terminals retain the start/close behavior.
 @MainActor
 final class TerminalController: NSObject, TerminalViewDelegate {
-    private let bridgeClient: BridgeClient
+    private let coreClient: CoreClient
     private let workingDirectory: URL?
     private var terminalID: UInt64?
     private var expectedOffset: UInt64 = 0
-    private var lastSize: BridgeTerminalSize?
-    private var pendingSize: BridgeTerminalSize?
+    private var lastSize: CoreTerminalSize?
+    private var pendingSize: CoreTerminalSize?
     private var pendingInput = Data()
     private var task: Task<Void, Never>?
     private var inputTask: Task<Void, Never>?
@@ -25,19 +25,19 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     var beforeUserInput: (() async throws -> Void)?
 
     init(
-        bridgeClient: BridgeClient,
+        coreClient: CoreClient,
         workingDirectory: URL,
         terminalID: Binding<UInt64?>,
         failureMessage: Binding<String?>
     ) {
-        self.bridgeClient = bridgeClient
+        self.coreClient = coreClient
         self.workingDirectory = workingDirectory
         terminalIDBinding = terminalID
         self.failureMessage = failureMessage
     }
 
-    init(bridgeClient: BridgeClient, terminalID: UInt64, failureMessage: Binding<String?>) {
-        self.bridgeClient = bridgeClient
+    init(coreClient: CoreClient, terminalID: UInt64, failureMessage: Binding<String?>) {
+        self.coreClient = coreClient
         workingDirectory = nil
         self.terminalID = terminalID
         terminalIDBinding = .constant(terminalID)
@@ -49,13 +49,13 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         task = Task { [weak self, weak view] in
             guard let self, let view else { return }
             do {
-                try await bridgeClient.waitUntilRunning()
+                try await coreClient.waitUntilRunning()
                 try Task.checkCancellation()
 
                 let size = terminalSize(for: view)
                 let terminalID: UInt64
                 if let workingDirectory {
-                    terminalID = try await bridgeClient.startTerminal(workingDirectory: workingDirectory, size: size)
+                    terminalID = try await coreClient.startTerminal(workingDirectory: workingDirectory, size: size)
                 } else if let existingID = self.terminalID {
                     terminalID = existingID
                 } else {
@@ -63,7 +63,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
                 }
                 guard !Task.isCancelled, !isStopping else {
                     if workingDirectory != nil {
-                        try await bridgeClient.closeTerminal(terminalID: terminalID)
+                        try await coreClient.closeTerminal(terminalID: terminalID)
                     }
                     return
                 }
@@ -100,11 +100,11 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         guard workingDirectory != nil else { return }
         Task {
             do {
-                try await bridgeClient.closeTerminal(terminalID: terminalID)
-            } catch BridgeFailure.commandRejected {
+                try await coreClient.closeTerminal(terminalID: terminalID)
+            } catch CoreFailure.commandRejected {
                 // A shell that has already been closed needs no further cleanup.
-            } catch BridgeFailure.notConnected {
-                // Bridge teardown also terminates all owned shells.
+            } catch CoreFailure.notRunning {
+                // Stopping twine-core also terminates all owned shells.
             } catch {
                 terminalLogger.error(
                     "Could not close terminal: \(error.localizedDescription, privacy: .public)"
@@ -139,7 +139,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
                         offsetBy: min(64 * 1024, bytes.distance(from: lowerBound, to: bytes.endIndex))
                     )
                     try Task.checkCancellation()
-                    try await bridgeClient.writeTerminalInput(
+                    try await coreClient.writeTerminalInput(
                         terminalID: terminalID,
                         bytes: bytes.subdata(in: lowerBound..<upperBound)
                     )
@@ -159,7 +159,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         enqueueResize(size, terminalID: terminalID)
     }
 
-    private func enqueueResize(_ size: BridgeTerminalSize, terminalID: UInt64) {
+    private func enqueueResize(_ size: CoreTerminalSize, terminalID: UInt64) {
         guard size != lastSize else { return }
         lastSize = size
         let precedingResize = resizeTask
@@ -167,7 +167,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
             await precedingResize?.value
             guard !Task.isCancelled else { return }
             do {
-                try await bridgeClient.resizeTerminal(terminalID: terminalID, size: size)
+                try await coreClient.resizeTerminal(terminalID: terminalID, size: size)
             } catch {
                 report(error)
             }
@@ -184,7 +184,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
 
     private func pumpOutput(for terminalID: UInt64, into view: TerminalView) async throws {
         while !Task.isCancelled {
-            if let chunk = try await bridgeClient.nextTerminalChunk(for: terminalID) {
+            if let chunk = try await coreClient.nextTerminalChunk(for: terminalID) {
                 guard chunk.offset == expectedOffset else {
                     throw TerminalControllerError.offset(
                         expected: expectedOffset,
@@ -207,10 +207,10 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         for view: TerminalView,
         columns: Int? = nil,
         rows: Int? = nil
-    ) -> BridgeTerminalSize {
+    ) -> CoreTerminalSize {
         let terminal = view.getTerminal()
         let backingSize = view.convertToBacking(view.bounds).size
-        return BridgeTerminalSize(
+        return CoreTerminalSize(
             rows: UInt16(clamping: max(rows ?? terminal.rows, 1)),
             columns: UInt16(clamping: max(columns ?? terminal.cols, 1)),
             pixelWidth: UInt16(clamping: max(Int(backingSize.width.rounded()), 1)),

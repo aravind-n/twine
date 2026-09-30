@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Trace lanes share role presentation with agent subtabs.
 enum TraceLaneStyle {
-    static func color(for lane: BridgeTraceLane) -> Color {
+    static func color(for lane: CoreTraceLane) -> Color {
         if lane.isAgent, let role = lane.role { return RoleStyle(role: role).color }
         switch identity(for: lane) {
         case "terminal", "codex": return .roleBlue
@@ -17,7 +17,7 @@ enum TraceLaneStyle {
         }
     }
 
-    static func symbol(for lane: BridgeTraceLane) -> String {
+    static func symbol(for lane: CoreTraceLane) -> String {
         if lane.isAgent, let role = lane.role { return RoleStyle(role: role).symbol }
         return switch identity(for: lane) {
         case "terminal": "terminal"
@@ -28,7 +28,7 @@ enum TraceLaneStyle {
         }
     }
 
-    private static func identity(for lane: BridgeTraceLane) -> String {
+    private static func identity(for lane: CoreTraceLane) -> String {
         lane.isAgent ? (lane.harness ?? lane.name).lowercased().replacingOccurrences(of: " ", with: "-") : "terminal"
     }
 }

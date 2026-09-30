@@ -2,7 +2,7 @@ import SwiftUI
 
 struct StatusFooter: View {
     let branch: String?
-    let workflow: BridgeWorkflow?
+    let workflow: CoreWorkflow?
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1, paused: workflow?.status != .running)) { context in
@@ -40,7 +40,7 @@ struct StatusFooter: View {
         Divider().frame(height: FooterLayout.dividerHeight)
     }
 
-    private func statusColor(for workflow: BridgeWorkflow) -> Color {
+    private func statusColor(for workflow: CoreWorkflow) -> Color {
         switch workflow.status {
         case .running: workflow.kind == .draft ? .secondary : .statusRunning
         case .failed, .interrupted: .statusNeedsAttention

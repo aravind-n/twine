@@ -1,9 +1,9 @@
 import Foundation
 
-extension BridgeClient {
+extension CoreClient {
     func startWorkflowRun(
-        workflowID: UInt64, workflowType: BridgeWorkflowType.Reference,
-        prompt: String, roles: [BridgeRoleLaunch]
+        workflowID: UInt64, workflowType: CoreWorkflowType.Reference,
+        prompt: String, roles: [CoreRoleLaunch]
     ) async throws {
         try await sendRunCommand(
             .startWorkflowRun(
@@ -12,7 +12,7 @@ extension BridgeClient {
     }
 
     func completeWorkflowRole(
-        workflowID: UInt64, agentID: UInt64, generation: UInt64, signal: BridgeCompletionSignal
+        workflowID: UInt64, agentID: UInt64, generation: UInt64, signal: CoreCompletionSignal
     ) async throws {
         try await sendRunCommand(
             .completeWorkflowRole(
@@ -23,10 +23,10 @@ extension BridgeClient {
         try await sendRunCommand(.cancelWorkflowRun(workflowID: workflowID))
     }
 
-    private func sendRunCommand(_ command: BridgeCommand) async throws {
+    private func sendRunCommand(_ command: CoreCommand) async throws {
         let receipt = try await send(command)
         if let error = receipt.error {
-            throw BridgeFailure.commandRejected(code: error.code, message: error.message)
+            throw CoreFailure.commandRejected(code: error.code, message: error.message)
         }
     }
 }

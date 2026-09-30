@@ -19,11 +19,11 @@ struct WorkflowLaunchPreferences {
         self.defaults = .standard
     }
 
-    func harnesses(for type: BridgeWorkflowType) -> [String: [BridgeHarness]] {
+    func harnesses(for type: CoreWorkflowType) -> [String: [CoreHarness]] {
         let saved = defaults.dictionary(forKey: Self.key)?[type.preferenceKey] as? [String: [String]] ?? [:]
         return Dictionary(
             uniqueKeysWithValues: type.definition.roles.map { role in
-                let choices = (saved[role.id] ?? []).compactMap(BridgeHarness.init(rawValue:))
+                let choices = (saved[role.id] ?? []).compactMap(CoreHarness.init(rawValue:))
                 let count = min(role.instances.max, max(role.instances.min, choices.count))
                 let bounded =
                     Array(choices.prefix(count)) + Array(repeating: .codex, count: max(0, count - choices.count))
@@ -31,7 +31,7 @@ struct WorkflowLaunchPreferences {
             })
     }
 
-    func remember(_ harnesses: [String: [BridgeHarness]], for type: BridgeWorkflowType) {
+    func remember(_ harnesses: [String: [CoreHarness]], for type: CoreWorkflowType) {
         var saved = defaults.dictionary(forKey: Self.key) ?? [:]
         saved[type.preferenceKey] = harnesses.mapValues { $0.map(\.rawValue) }
         defaults.set(saved, forKey: Self.key)

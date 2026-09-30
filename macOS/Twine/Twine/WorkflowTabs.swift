@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct WorkflowTabs: View {
-    let workflows: [BridgeWorkflow]
+    let workflows: [CoreWorkflow]
     let selectedID: UInt64?
     let select: (UInt64) -> Void
     let close: (UInt64) -> Void
@@ -78,7 +78,7 @@ struct WorkflowTabs: View {
 }
 
 private struct WorkflowTab: View {
-    let workflow: BridgeWorkflow
+    let workflow: CoreWorkflow
     let isSelected: Bool
     let select: () -> Void
     let close: () -> Void

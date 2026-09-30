@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct TraceTimeline: View {
-    let lanes: [BridgeTraceLane]
-    let spans: [BridgeTraceSpan]
+    let lanes: [CoreTraceLane]
+    let spans: [CoreTraceSpan]
     let selectedSpanID: UInt64?
     let now: UInt64
     let labelWidth: CGFloat
@@ -47,7 +47,7 @@ struct TraceTimeline: View {
         CGFloat(max(1, (placements.map(\.row).max() ?? 0) + 1)) * TracesLayout.laneHeight
     }
 
-    private func laneLabel(_ lane: BridgeTraceLane, height: CGFloat) -> some View {
+    private func laneLabel(_ lane: CoreTraceLane, height: CGFloat) -> some View {
         HStack(spacing: 6) {
             Image(systemName: TraceLaneStyle.symbol(for: lane)).foregroundStyle(TraceLaneStyle.color(for: lane))
                 .frame(width: 14)
@@ -76,7 +76,7 @@ struct TraceTimeline: View {
     }
 
     private func laneContent(
-        _ lane: BridgeTraceLane, placements: [TraceTimelineLayout.Placement], width: CGFloat
+        _ lane: CoreTraceLane, placements: [TraceTimelineLayout.Placement], width: CGFloat
     ) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<5) { index in
@@ -94,7 +94,7 @@ struct TraceTimeline: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
-    private func spanButton(_ span: BridgeTraceSpan, lane: BridgeTraceLane) -> some View {
+    private func spanButton(_ span: CoreTraceSpan, lane: CoreTraceLane) -> some View {
         let selected = selectedSpanID == span.id
         return Button {
             select(span.id)

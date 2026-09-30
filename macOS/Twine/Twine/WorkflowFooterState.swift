@@ -5,7 +5,7 @@ struct WorkflowFooterState {
     let status: String
     let elapsed: String
 
-    init(workflow: BridgeWorkflow, now: Date) {
+    init(workflow: CoreWorkflow, now: Date) {
         switch workflow.status {
         case .running: status = workflow.kind == .draft ? "Draft" : "Running"
         case .completed: status = "Completed"

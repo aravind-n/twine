@@ -8,11 +8,11 @@ import Testing
 struct TerminalControllerTests {
     @Test @MainActor func automaticRepliesDoNotActivateAndUserBytesWaitForActivationInOrder() async throws {
         let transport = DelayedStartTransport()
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         client.start()
         defer { Task { await client.stop() } }
         try await client.waitUntilRunning()
-        let controller = TerminalController(bridgeClient: client, terminalID: 41, failureMessage: .constant(nil))
+        let controller = TerminalController(coreClient: client, terminalID: 41, failureMessage: .constant(nil))
         let view = MetalTerminalView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         view.terminalDelegate = controller
         controller.start(view: view)
@@ -36,10 +36,10 @@ struct TerminalControllerTests {
 
     @Test @MainActor func stopDuringStartupClosesTheLateShell() async throws {
         let transport = DelayedStartTransport()
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         client.start()
         let controller = TerminalController(
-            bridgeClient: client, workingDirectory: URL(filePath: "/"),
+            coreClient: client, workingDirectory: URL(filePath: "/"),
             terminalID: .constant(nil), failureMessage: .constant(nil)
         )
         let view = MetalTerminalView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
@@ -57,11 +57,11 @@ struct TerminalControllerTests {
 
     @Test @MainActor func inputTypedBeforeTheShellStartsIsSentOnceItHas() async throws {
         let transport = DelayedStartTransport()
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         client.start()
         defer { Task { await client.stop() } }
         let controller = TerminalController(
-            bridgeClient: client,
+            coreClient: client,
             workingDirectory: URL(filePath: "/"),
             terminalID: .constant(nil),
             failureMessage: .constant(nil)
@@ -80,14 +80,14 @@ struct TerminalControllerTests {
 
     @Test @MainActor func terminalAppliesResizeReceivedDuringStartup() async throws {
         let transport = DelayedStartTransport()
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         client.start()
-        try await waitUntil { client.connectionState == .running }
+        try await waitUntil { client.runState == .running }
 
         var boundTerminalID: UInt64?
         var failureMessage: String?
         let controller = TerminalController(
-            bridgeClient: client,
+            coreClient: client,
             workingDirectory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
             terminalID: Binding(
                 get: { boundTerminalID },
@@ -117,12 +117,12 @@ struct TerminalControllerTests {
         await client.stop()
     }
 
-    @Test @MainActor func shellWaitsForTheBridgeConnection() async throws {
+    @Test @MainActor func shellWaitsForCoreToStart() async throws {
         let transport = DelayedStartTransport()
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         defer { Task { await client.stop() } }
         let controller = TerminalController(
-            bridgeClient: client,
+            coreClient: client,
             workingDirectory: URL(filePath: "/"),
             terminalID: .constant(nil),
             failureMessage: .constant(nil)
@@ -132,7 +132,7 @@ struct TerminalControllerTests {
 
         controller.start(view: view)
         try await Task.sleep(for: .milliseconds(50))
-        #expect(client.connectionState == .idle)
+        #expect(client.runState == .idle)
         #expect(await !transport.hasStartRequest)
 
         client.start()

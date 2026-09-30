@@ -14,12 +14,12 @@ struct MultiAgentWorkflowTests {
                         {"agentId": 6, "role": "Reviewer", "terminalId": 0}],
              "status": "running", "startedAt": 10, "endedAt": null, "restored": true}
             """
-        var workflow = try JSONDecoder().decode(BridgeWorkflow.self, from: Data(json.utf8))
+        var workflow = try JSONDecoder().decode(CoreWorkflow.self, from: Data(json.utf8))
         #expect(workflow.kind == .agents)
         #expect(
             workflow.agents == [
-                BridgeAgent(agentID: 5, role: "Implementer", terminalID: 8),
-                BridgeAgent(agentID: 6, role: "Reviewer", terminalID: 0),
+                CoreAgent(agentID: 5, role: "Implementer", terminalID: 8),
+                CoreAgent(agentID: 6, role: "Reviewer", terminalID: 0),
             ])
         #expect(workflow.terminalIDs == [8])
         #expect(workflow.showsAgentSubtabs)
@@ -48,8 +48,8 @@ struct MultiAgentWorkflowTests {
     }
 
     @Test func createWorkflowSendsRolesOnlyWhenThereAreSome() throws {
-        let size = BridgeTerminalSize(rows: 24, columns: 80, pixelWidth: 800, pixelHeight: 480)
-        func payload(_ command: BridgeCommand) throws -> [String: Any] {
+        let size = CoreTerminalSize(rows: 24, columns: 80, pixelWidth: 800, pixelHeight: 480)
+        func payload(_ command: CoreCommand) throws -> [String: Any] {
             let data = try JSONEncoder().encode(CommandEnvelope(requestID: 1, command: command))
             let envelope = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
             return try #require(envelope["command"] as? [String: Any])
@@ -81,7 +81,7 @@ struct MultiAgentWorkflowTests {
             try await waitForShells {
                 workflow.agents.dropLast().enumerated().allSatisfy { offset, agent in
                     client.terminalStatus(for: agent.terminalID)
-                        == .exited(BridgeTerminalExit(exitCode: UInt32(offset + 3), signal: nil))
+                        == .exited(CoreTerminalExit(exitCode: UInt32(offset + 3), signal: nil))
                 }
             }
             #expect(client.snapshot?.workflows.workflows.first?.status == .running)
@@ -90,7 +90,7 @@ struct MultiAgentWorkflowTests {
             try await client.writeTerminalInput(terminalID: last.terminalID, bytes: Data("exit 5\n".utf8))
             try await waitForShells { client.snapshot?.workflows.workflows.first?.status == .exited }
             #expect(
-                client.terminalStatus(for: last.terminalID) == .exited(BridgeTerminalExit(exitCode: 5, signal: nil)))
+                client.terminalStatus(for: last.terminalID) == .exited(CoreTerminalExit(exitCode: 5, signal: nil)))
             #expect(client.snapshot?.workflows.workflows.first?.endedAt != nil)
 
             try await client.closeWorkflow(workflowID: id)
@@ -110,7 +110,7 @@ struct MultiAgentWorkflowTests {
             do {
                 _ = try await client.createWorkflow(folder: folder, kind: .agents)
                 Issue.record("An agents workflow without roles should be rejected")
-            } catch BridgeFailure.commandRejected(let code, _) {
+            } catch CoreFailure.commandRejected(let code, _) {
                 #expect(code == "invalidAgents")
             }
             #expect(client.snapshot?.workflows.workflows.isEmpty == true)
@@ -175,10 +175,10 @@ struct MultiAgentWorkflowTests {
     }
 
     /// A running client with a fresh folder open. The folder lasts as long as the returned path.
-    private func openFolder() async throws -> (BridgeClient, TemporaryPath) {
+    private func openFolder() async throws -> (CoreClient, TemporaryPath) {
         let directory = TemporaryPath()
         try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: true)
-        let client = BridgeClient(transport: BridgeWorker(dataDirectory: directory.url.appending(path: ".twine")))
+        let client = CoreClient(transport: CoreWorker(dataDirectory: directory.url.appending(path: ".twine")))
         client.start()
         do {
             try await client.waitUntilRunning()

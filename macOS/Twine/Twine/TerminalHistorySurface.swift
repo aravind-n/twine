@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct TerminalHistorySurface: View {
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     let target: TraceTerminalTarget
     let returnToLive: () -> Void
     @State private var state = TerminalHistoryState()
@@ -40,7 +40,7 @@ struct TerminalHistorySurface: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.terminalBackground)
-        .task(id: target.id) { await state.load(target, client: bridgeClient) }
+        .task(id: target.id) { await state.load(target, client: coreClient) }
     }
 }
 
@@ -50,6 +50,6 @@ struct TerminalHistorySurface: View {
             workflowID: 1, agentID: nil, anchor: .init(terminalID: 1, byteOffset: 0),
             timestamp: 0, message: "Shell started"), returnToLive: {}
     )
-    .environment(BridgeClient(transport: BridgeWorker(dataDirectory: URL(filePath: NSTemporaryDirectory()))))
+    .environment(CoreClient(transport: CoreWorker(dataDirectory: URL(filePath: NSTemporaryDirectory()))))
     .environment(TraceTerminalNavigation())
 }

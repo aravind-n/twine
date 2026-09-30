@@ -5,7 +5,7 @@ import SwiftUI
 /// so switching modes, panes, or window sizes only moves and resizes them. No shell starts or stops,
 /// and no terminal loses its screen.
 struct AgentPanes: View {
-    let workflow: BridgeWorkflow
+    let workflow: CoreWorkflow
     @Binding var layout: WorkflowLayout
     let isSelected: Bool
     /// The panel's size, which decides how many Bento panes fit.
@@ -103,8 +103,8 @@ struct AgentPanes: View {
 private struct AgentPane: View {
     @Environment(TraceTerminalNavigation.self) private var navigation
     @Environment(\.appearsActive) private var appearsActive
-    let agent: BridgeAgent
-    let workflow: BridgeWorkflow
+    let agent: CoreAgent
+    let workflow: CoreWorkflow
     let isShown: Bool
     let isTiled: Bool
     /// Whether this agent has the keyboard when its workflow is selected.

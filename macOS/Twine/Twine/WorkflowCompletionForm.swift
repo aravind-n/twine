@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct WorkflowCompletionForm: View {
-    @Environment(BridgeClient.self) private var client
+    @Environment(CoreClient.self) private var client
     @Environment(\.dismiss) private var dismiss
     let workflowID: UInt64
     let generation: UInt64
-    let agent: BridgeWorkflowRun.Agent
-    @State private var decision = BridgeCompletionSignal.Decision.approve
+    let agent: CoreWorkflowRun.Agent
+    @State private var decision = CoreCompletionSignal.Decision.approve
     @State private var summary = ""
     @State private var tasks: [String: String] = [:]
     @State private var files: [String: String] = [:]
@@ -20,8 +20,8 @@ struct WorkflowCompletionForm: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if agent.reviewer {
                         Picker("Review decision", selection: $decision) {
-                            Text("Approve").tag(BridgeCompletionSignal.Decision.approve)
-                            Text("Request changes").tag(BridgeCompletionSignal.Decision.requestChanges)
+                            Text("Approve").tag(CoreCompletionSignal.Decision.approve)
+                            Text("Request changes").tag(CoreCompletionSignal.Decision.requestChanges)
                         }.pickerStyle(.segmented)
                     }
                     TextField(agent.reviewer ? "Review feedback" : "Result summary", text: $summary, axis: .vertical)
@@ -56,7 +56,7 @@ struct WorkflowCompletionForm: View {
 
     private func submit() {
         guard !isSubmitting else { return }
-        let signal = BridgeCompletionSignal(
+        let signal = CoreCompletionSignal(
             decision: agent.reviewer ? decision : .done, summary: summary,
             assignments: agent.targets.map { target in
                 .init(
@@ -88,5 +88,5 @@ struct WorkflowCompletionForm: View {
                 .init(role: "worker", instance: 2, label: "Worker 2"),
             ])
     )
-    .environment(BridgeClient(transport: BridgeWorker(dataDirectory: .temporaryDirectory)))
+    .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
 }

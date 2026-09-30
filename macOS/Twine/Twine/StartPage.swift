@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The window content when no folder is open: an Open Folder button and the recent folders.
 struct StartPage: View {
-    let folders: BridgeFolderState
+    let folders: CoreFolderState
     let chooseFolder: () -> Void
     let openFolder: (String) -> Void
     let removeRecentFolder: (String) -> Void
@@ -102,7 +102,7 @@ struct StartPage: View {
 
 /// A recent folder that opens when clicked. A missing folder is marked and has a remove button.
 private struct RecentFolderCard: View {
-    let folder: BridgeRecentFolder
+    let folder: CoreRecentFolder
     let open: () -> Void
     let remove: () -> Void
 
@@ -170,14 +170,14 @@ extension View {
 }
 
 #if DEBUG
-    private let previewFolders = BridgeFolderState(
+    private let previewFolders = CoreFolderState(
         openFolder: nil,
         recentFolders: [
-            BridgeRecentFolder(path: NSHomeDirectory() + "/Developer/twine", isMissing: false),
-            BridgeRecentFolder(path: NSHomeDirectory() + "/Developer/agents-playground", isMissing: false),
-            BridgeRecentFolder(path: "/Volumes/Archive/2025/prototype", isMissing: true),
+            CoreRecentFolder(path: NSHomeDirectory() + "/Developer/twine", isMissing: false),
+            CoreRecentFolder(path: NSHomeDirectory() + "/Developer/agents-playground", isMissing: false),
+            CoreRecentFolder(path: "/Volumes/Archive/2025/prototype", isMissing: true),
         ],
-        unavailableFolder: BridgeUnavailableFolder(path: "/Volumes/Archive/2025/prototype", reason: .missing)
+        unavailableFolder: CoreUnavailableFolder(path: "/Volumes/Archive/2025/prototype", reason: .missing)
     )
 
     #Preview("Recent folders") {
@@ -187,7 +187,7 @@ extension View {
 
     #Preview("First launch") {
         StartPage(
-            folders: BridgeFolderState(openFolder: nil, recentFolders: [], unavailableFolder: nil),
+            folders: CoreFolderState(openFolder: nil, recentFolders: [], unavailableFolder: nil),
             chooseFolder: {},
             openFolder: { _ in },
             removeRecentFolder: { _ in }

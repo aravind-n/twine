@@ -3,7 +3,7 @@ import Foundation
 /// Geometry only. Overlap packing uses displayed pill widths, including the minimum hit area.
 nonisolated struct TraceTimelineLayout {
     struct Placement: Identifiable, Equatable {
-        let span: BridgeTraceSpan
+        let span: CoreTraceSpan
         let offset: CGFloat
         let width: CGFloat
         let row: Int
@@ -13,13 +13,13 @@ nonisolated struct TraceTimelineLayout {
     let origin: UInt64
     let duration: Double
 
-    init(spans: [BridgeTraceSpan], now: UInt64) {
+    init(spans: [CoreTraceSpan], now: UInt64) {
         origin = spans.map(\.startedAt).min() ?? now
         let end = spans.map { $0.end(at: now) }.max() ?? origin
         duration = max(1_000, Double(end - origin))
     }
 
-    func placements(spans: [BridgeTraceSpan], width: CGFloat, now: UInt64) -> [Placement] {
+    func placements(spans: [CoreTraceSpan], width: CGFloat, now: UInt64) -> [Placement] {
         let width = max(40, width)
         var rowEnds: [CGFloat] = []
         return spans.sorted {

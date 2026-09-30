@@ -2,10 +2,10 @@ import AppKit
 import SwiftUI
 
 struct TraceDetailPanel: View {
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     @Environment(TraceTerminalNavigation.self) private var navigation
-    let span: BridgeTraceSpan
-    let lane: BridgeTraceLane
+    let span: CoreTraceSpan
+    let lane: CoreTraceLane
     @Bindable var state: TracePanelState
     let now: UInt64
     let close: () -> Void
@@ -47,7 +47,7 @@ struct TraceDetailPanel: View {
             guard let id = copyRequested else { return }
             defer { copyRequested = nil }
             do {
-                let log = try await state.completeLog(spanID: id, client: bridgeClient)
+                let log = try await state.completeLog(spanID: id, client: coreClient)
                 try Task.checkCancellation()
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(log, forType: .string)
@@ -60,7 +60,7 @@ struct TraceDetailPanel: View {
         }
         .task(id: moreRequested) {
             if moreRequested {
-                await state.loadEvents(client: bridgeClient, more: true)
+                await state.loadEvents(client: coreClient, more: true)
                 moreRequested = false
             }
         }
@@ -98,7 +98,7 @@ struct TraceDetailPanel: View {
         .frame(height: TracesLayout.collapsedHeight)
     }
 
-    private func logRow(_ event: BridgeTraceEvent) -> some View {
+    private func logRow(_ event: CoreTraceEvent) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Text(TraceFormatting.timestamp(event.timestamp)).foregroundStyle(.secondary)

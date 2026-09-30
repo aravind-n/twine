@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct BridgeTraceSummary: Decodable, Equatable, Sendable {
+nonisolated struct CoreTraceSummary: Decodable, Equatable, Sendable {
     let workflowID: UInt64
     let revision: UInt64
     let spanCount: UInt64
@@ -12,7 +12,7 @@ nonisolated struct BridgeTraceSummary: Decodable, Equatable, Sendable {
     }
 }
 
-nonisolated struct BridgeTraceLane: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct CoreTraceLane: Decodable, Equatable, Identifiable, Sendable {
     let laneID: UInt64
     let workflowID: UInt64
     let name: String
@@ -30,7 +30,7 @@ nonisolated struct BridgeTraceLane: Decodable, Equatable, Identifiable, Sendable
     }
 }
 
-nonisolated struct BridgeTraceSpan: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct CoreTraceSpan: Decodable, Equatable, Identifiable, Sendable {
     let spanID: UInt64
     let laneID: UInt64
     let title: String
@@ -75,14 +75,14 @@ nonisolated struct BridgeTraceSpan: Decodable, Equatable, Identifiable, Sendable
     }
 }
 
-nonisolated struct BridgeTraceEvent: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct CoreTraceEvent: Decodable, Equatable, Identifiable, Sendable {
     let eventID: UInt64
     let workflowID: UInt64
     let spanID: UInt64?
     let timestamp: UInt64
     let kind: Kind
     let message: String
-    let anchor: BridgeTraceAnchor?
+    let anchor: CoreTraceAnchor?
     var id: UInt64 { eventID }
 
     enum Kind: String, Decodable, Sendable {
@@ -107,18 +107,18 @@ nonisolated struct BridgeTraceEvent: Decodable, Equatable, Identifiable, Sendabl
     }
 }
 
-nonisolated struct BridgeWorkflowTracePage: Decodable, Equatable, Sendable {
-    let summary: BridgeTraceSummary
-    let lanes: [BridgeTraceLane]
-    let spans: [BridgeTraceSpan]
+nonisolated struct CoreWorkflowTracePage: Decodable, Equatable, Sendable {
+    let summary: CoreTraceSummary
+    let lanes: [CoreTraceLane]
+    let spans: [CoreTraceSpan]
     let nextBefore: UInt64?
 }
 
-nonisolated struct BridgeTraceEventsPage: Decodable, Equatable, Sendable {
+nonisolated struct CoreTraceEventsPage: Decodable, Equatable, Sendable {
     let workflowID: UInt64
     let spanID: UInt64
     let revision: UInt64
-    let events: [BridgeTraceEvent]
+    let events: [CoreTraceEvent]
     let nextAfter: UInt64?
 
     private enum CodingKeys: String, CodingKey {
@@ -128,10 +128,10 @@ nonisolated struct BridgeTraceEventsPage: Decodable, Equatable, Sendable {
     }
 }
 
-nonisolated struct BridgeTraceAnchor: Decodable, Equatable, Sendable {
+nonisolated struct CoreTraceAnchor: Decodable, Equatable, Sendable {
     let terminalID: UInt64
     let byteOffset: UInt64
-    var boundarySizes: [BridgeTraceSize]? = []
+    var boundarySizes: [CoreTraceSize]? = []
     private enum CodingKeys: String, CodingKey {
         case terminalID = "terminalId"
         case byteOffset
@@ -139,7 +139,7 @@ nonisolated struct BridgeTraceAnchor: Decodable, Equatable, Sendable {
     }
 }
 
-nonisolated struct BridgeTraceSize: Decodable, Equatable, Sendable {
+nonisolated struct CoreTraceSize: Decodable, Equatable, Sendable {
     let rows: Int
     let columns: Int
 }

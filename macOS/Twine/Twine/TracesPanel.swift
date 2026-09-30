@@ -2,19 +2,19 @@ import AppKit
 import SwiftUI
 
 struct TracesPanel: View {
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let workflow: BridgeWorkflow?
+    let workflow: CoreWorkflow?
     @State private var isExpanded = false
     @State private var state = TracePanelState()
     @State private var loadOlderRequested = false
 
-    private var summary: BridgeTraceSummary? {
-        bridgeClient.snapshot?.traces.first { $0.workflowID == workflow?.id }
+    private var summary: CoreTraceSummary? {
+        coreClient.snapshot?.traces.first { $0.workflowID == workflow?.id }
     }
 
     private var readKey: String {
-        "\(workflow?.id ?? 0):\(summary?.revision ?? 0):\(bridgeClient.traceSnapshotGeneration):\(isExpanded)"
+        "\(workflow?.id ?? 0):\(summary?.revision ?? 0):\(coreClient.traceSnapshotGeneration):\(isExpanded)"
     }
 
     private var logKey: String {
@@ -42,14 +42,14 @@ struct TracesPanel: View {
                 .allowsHitTesting(false)
         }
         .task(id: readKey) {
-            if isExpanded { await state.refresh(workflowID: workflow?.id, client: bridgeClient) }
+            if isExpanded { await state.refresh(workflowID: workflow?.id, client: coreClient) }
         }
         .task(id: logKey) {
-            if isExpanded { await state.loadEvents(client: bridgeClient) }
+            if isExpanded { await state.loadEvents(client: coreClient) }
         }
         .task(id: loadOlderRequested) {
             if loadOlderRequested {
-                await state.loadOlder(client: bridgeClient)
+                await state.loadOlder(client: coreClient)
                 loadOlderRequested = false
             }
         }

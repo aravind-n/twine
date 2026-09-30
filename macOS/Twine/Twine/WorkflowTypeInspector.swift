@@ -3,8 +3,8 @@ import SwiftUI
 /// A running workflow keeps the core's pinned definition. Inspection offers no type selector.
 struct WorkflowTypeInspector: View {
     @Environment(\.dismiss) private var dismiss
-    let type: BridgeWorkflowType
-    let run: BridgeWorkflowRun
+    let type: CoreWorkflowType
+    let run: CoreWorkflowRun
 
     var body: some View {
         ScrollView {

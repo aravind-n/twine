@@ -12,17 +12,17 @@ import UniformTypeIdentifiers
 
 private let folderLogger = Logger(subsystem: "com.twineproject.Twine", category: "folders")
 
-/// What the window shows for the bridge's state.
+/// What the window shows for the twine-core state.
 enum WindowContent: Equatable {
     /// Waiting for the core's first snapshot. The window stays empty rather than flash the start page
     /// before the last folder reopens.
     case loading
     case failed(String)
-    case startPage(BridgeFolderState)
+    case startPage(CoreFolderState)
     case folder(path: String)
 
-    init(connectionState: BridgeConnectionState, snapshot: BridgeSnapshot?) {
-        if case .failed(let message) = connectionState {
+    init(runState: CoreRunState, snapshot: CoreSnapshot?) {
+        if case .failed(let message) = runState {
             self = .failed(message)
         } else if let folders = snapshot?.folders {
             self = if let path = folders.openFolder { .folder(path: path) } else { .startPage(folders) }
@@ -33,7 +33,7 @@ enum WindowContent: Equatable {
 }
 
 struct ContentView: View {
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     @Environment(FileEditorModel.self) private var fileEditor
     @State private var isChoosingFolder = false
 
@@ -59,7 +59,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch WindowContent(connectionState: bridgeClient.connectionState, snapshot: bridgeClient.snapshot) {
+        switch WindowContent(runState: coreClient.runState, snapshot: coreClient.snapshot) {
         case .loading:
             Color.clear
         case .failed(let message):
@@ -82,7 +82,7 @@ struct ContentView: View {
         }
     }
 
-    private func perform(_ command: BridgeCommand) {
-        Task { await bridgeClient.perform(command) }
+    private func perform(_ command: CoreCommand) {
+        Task { await coreClient.perform(command) }
     }
 }

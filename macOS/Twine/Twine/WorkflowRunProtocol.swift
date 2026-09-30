@@ -1,11 +1,11 @@
 import Foundation
 
-nonisolated struct BridgeRoleLaunch: Codable, Equatable, Sendable {
+nonisolated struct CoreRoleLaunch: Codable, Equatable, Sendable {
     let role: String
-    let harness: BridgeHarness
+    let harness: CoreHarness
 }
 
-nonisolated struct BridgeCompletionSignal: Codable, Equatable, Sendable {
+nonisolated struct CoreCompletionSignal: Codable, Equatable, Sendable {
     var decision: Decision
     var summary: String
     var assignments: [Assignment] = []
@@ -19,14 +19,14 @@ nonisolated struct BridgeCompletionSignal: Codable, Equatable, Sendable {
     }
 }
 
-nonisolated struct BridgeWorkflowRun: Decodable, Equatable, Sendable {
+nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
     let generation: UInt64
     let stage: String
     let status: Status
     let message: String?
     let agents: [Agent]
     var stageID: String?
-    var workflowType: BridgeWorkflowType?
+    var workflowType: CoreWorkflowType?
 
     private enum CodingKeys: String, CodingKey {
         case generation, stage, status, message, agents, workflowType
@@ -40,7 +40,7 @@ nonisolated struct BridgeWorkflowRun: Decodable, Equatable, Sendable {
         let active: Bool
         let done: Bool
         let reviewer: Bool
-        let harness: BridgeHarness
+        let harness: CoreHarness
         let targets: [Target]
         var role: String?
         var instance: Int?
@@ -56,7 +56,7 @@ nonisolated struct BridgeWorkflowRun: Decodable, Equatable, Sendable {
 
 }
 
-nonisolated struct BridgeUserWorkflowVersion: Codable, Equatable, Sendable {
+nonisolated struct CoreUserWorkflowVersion: Codable, Equatable, Sendable {
     let typeID: UInt64
     let version: UInt32
     private enum CodingKeys: String, CodingKey {

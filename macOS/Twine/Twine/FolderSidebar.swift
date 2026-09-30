@@ -6,18 +6,18 @@ import SwiftUI
 private let sessionLogger = Logger(subsystem: "com.twineproject.Twine", category: "sessions")
 
 struct FolderSidebar: View {
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     @Environment(FileEditorModel.self) private var fileEditor
     let path: String
     @Bindable var files: FileBrowserModel
     @State private var editor: SessionEditor?
-    @State private var pendingDeletion: BridgeSession?
+    @State private var pendingDeletion: CoreSession?
     @State private var failureMessage: String?
 
-    private var sessions: [BridgeSession] {
-        bridgeClient.snapshot?.workflows.sessions.filter { $0.folder == path } ?? []
+    private var sessions: [CoreSession] {
+        coreClient.snapshot?.workflows.sessions.filter { $0.folder == path } ?? []
     }
-    private var selectedSession: BridgeSession? { bridgeClient.snapshot?.workflows.session }
+    private var selectedSession: CoreSession? { coreClient.snapshot?.workflows.session }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,9 +60,9 @@ struct FolderSidebar: View {
             SessionNameForm(editor: editor) { name in
                 run {
                     if let sessionID = editor.sessionID {
-                        try await bridgeClient.renameSession(sessionID: sessionID, name: name)
+                        try await coreClient.renameSession(sessionID: sessionID, name: name)
                     } else {
-                        _ = try await bridgeClient.createSession(folder: path, name: name)
+                        _ = try await coreClient.createSession(folder: path, name: name)
                     }
                 }
             }
@@ -75,7 +75,7 @@ struct FolderSidebar: View {
             Button("Delete", role: .destructive) {
                 guard let session = pendingDeletion else { return }
                 pendingDeletion = nil
-                run { try await bridgeClient.deleteSession(sessionID: session.id) }
+                run { try await coreClient.deleteSession(sessionID: session.id) }
             }
         } message: {
             Text("Deleting “\(pendingDeletion?.name ?? "")” stops its shells and removes its workflows.")
@@ -125,11 +125,11 @@ struct FolderSidebar: View {
         .padding(.horizontal, SidebarLayout.sectionHeaderPadding)
     }
 
-    private func sessionRow(_ session: BridgeSession) -> some View {
+    private func sessionRow(_ session: CoreSession) -> some View {
         let selected = selectedSession?.id == session.id
         return Button {
             guard fileEditor.select(nil) else { return }
-            run { try await bridgeClient.selectSession(sessionID: session.id) }
+            run { try await coreClient.selectSession(sessionID: session.id) }
         } label: {
             HStack(spacing: 4) {
                 Color.clear.frame(width: 11)
@@ -155,7 +155,7 @@ struct FolderSidebar: View {
     }
 
     private func create() { editor = SessionEditor(sessionID: nil, name: "Session \(sessions.count + 1)") }
-    private func rename(_ session: BridgeSession) { editor = SessionEditor(sessionID: session.id, name: session.name) }
+    private func rename(_ session: CoreSession) { editor = SessionEditor(sessionID: session.id, name: session.name) }
 
     private func run(_ operation: @escaping @MainActor () async throws -> Void) {
         Task {

@@ -25,13 +25,13 @@ struct FileBrowserTests {
         #expect(model.request(folder: "/folder").directories == ["/folder/ab"])
     }
 
-    @Test func bridgePollsDiskChangesAndSuppressesUnchangedSnapshots() async throws {
+    @Test func corePollsDiskChangesAndSuppressesUnchangedSnapshots() async throws {
         let data = TemporaryPath()
         let folder = TemporaryPath()
         try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
         let file = folder.url.appending(path: "hello.txt")
         try "hello".write(to: file, atomically: true, encoding: .utf8)
-        let worker = BridgeWorker(dataDirectory: data.url)
+        let worker = CoreWorker(dataDirectory: data.url)
         _ = try await worker.open()
         _ = try await worker.send(.openFolder(path: folder.url.path))
         var request = FileBrowserRequest(folder: folder.url.path, directories: [], file: file.path)
@@ -51,7 +51,7 @@ struct FileBrowserTests {
         await worker.close()
     }
     private func pollSnapshot(
-        _ worker: BridgeWorker, request: FileBrowserRequest
+        _ worker: CoreWorker, request: FileBrowserRequest
     ) async throws -> FileBrowserSnapshot? {
         for _ in 0..<200 {
             if let snapshot = try await worker.pollFiles(request) { return snapshot }

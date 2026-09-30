@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct WorkflowLayoutTests {
     private static let agents = ["Implementer", "Reviewer", "Coordinator", "Worker", "Tester"].enumerated().map {
-        BridgeAgent(agentID: UInt64($0.offset + 1), role: $0.element, terminalID: UInt64($0.offset + 11))
+        CoreAgent(agentID: UInt64($0.offset + 1), role: $0.element, terminalID: UInt64($0.offset + 11))
     }
 
     @Test func panesKeepTheSavedOrderThenFillInRoleOrder() {
@@ -204,13 +204,13 @@ struct WorkflowLayoutTests {
 }
 
 /// A folder's workflow state as the core publishes it, with one session.
-private func workflowState(folder: String, workflowIDs: [UInt64] = [], isLoaded: Bool = true) -> BridgeWorkflowState {
-    BridgeWorkflowState(
+private func workflowState(folder: String, workflowIDs: [UInt64] = [], isLoaded: Bool = true) -> CoreWorkflowState {
+    CoreWorkflowState(
         sessionsInitialized: isLoaded,
-        session: BridgeSession(
+        session: CoreSession(
             sessionID: 1, name: "Session", folder: folder, status: .active, startedAt: 0, endedAt: nil),
         workflows: workflowIDs.map {
-            BridgeWorkflow(
+            CoreWorkflow(
                 workflowID: $0, sessionID: 1, name: "Agents", kind: .agents, terminalID: 0, status: .running,
                 startedAt: 0, endedAt: nil)
         })

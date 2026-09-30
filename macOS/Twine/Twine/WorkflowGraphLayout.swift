@@ -6,7 +6,7 @@ import Foundation
 nonisolated struct WorkflowGraphLayout {
     struct Node: Identifiable {
         let stageID: String
-        let role: BridgeWorkflowType.Role
+        let role: CoreWorkflowType.Role
         let instance: Int
         let count: Int
         let frame: CGRect
@@ -15,7 +15,7 @@ nonisolated struct WorkflowGraphLayout {
     }
 
     struct Row: Identifiable {
-        let stage: BridgeWorkflowType.Stage
+        let stage: CoreWorkflowType.Stage
         let nodes: [Node]
         let titleY: CGFloat
         var id: String { stage.id }
@@ -24,7 +24,7 @@ nonisolated struct WorkflowGraphLayout {
     struct Edge {
         let from: Node
         let destination: Node
-        let content: BridgeWorkflowType.HandoffContent
+        let content: CoreWorkflowType.HandoffContent
         let laneX: CGFloat?
     }
 
@@ -41,7 +41,7 @@ nonisolated struct WorkflowGraphLayout {
         }
     }
 
-    init(definition: BridgeWorkflowType.Definition, counts: [String: Int] = [:], width: CGFloat, compact: Bool) {
+    init(definition: CoreWorkflowType.Definition, counts: [String: Int] = [:], width: CGFloat, compact: Bool) {
         let spacing: CGFloat = compact ? 6 : 12
         let nodeWidth: CGFloat = compact ? 72 : 132
         let nodeHeight: CGFloat = compact ? 28 : 50
@@ -88,7 +88,7 @@ nonisolated struct WorkflowGraphLayout {
     }
 
     private static func connections(
-        handoffs: [BridgeWorkflowType.Handoff], nodes: [Node], backward: [BridgeWorkflowType.Handoff],
+        handoffs: [CoreWorkflowType.Handoff], nodes: [Node], backward: [CoreWorkflowType.Handoff],
         laneWidth: CGFloat, inset: CGFloat
     ) -> [Edge] {
         handoffs.flatMap { handoff in

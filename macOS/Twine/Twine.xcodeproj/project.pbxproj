@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		F2DDC765306A85810066E501 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F2DDC767306A85810066E501 /* SwiftTerm */; };
-		F2DDC768306B00010066E501 /* TwineBridge in Frameworks */ = {isa = PBXBuildFile; productRef = F2DDC76A306B00010066E501 /* TwineBridge */; };
+		F2DDC768306B00010066E501 /* TwineCore in Frameworks */ = {isa = PBXBuildFile; productRef = F2DDC76A306B00010066E501 /* TwineCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,7 +56,7 @@
 		F266A3E43068BD6000C1232B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				F2DDC768306B00010066E501 /* TwineBridge in Frameworks */,
+				F2DDC768306B00010066E501 /* TwineCore in Frameworks */,
 				F2DDC765306A85810066E501 /* SwiftTerm in Frameworks */,
 			);
 		};
@@ -113,7 +113,7 @@
 			);
 			name = Twine;
 			packageProductDependencies = (
-				F2DDC76A306B00010066E501 /* TwineBridge */,
+				F2DDC76A306B00010066E501 /* TwineCore */,
 				F2DDC767306A85810066E501 /* SwiftTerm */,
 			);
 			productName = Twine;
@@ -195,7 +195,7 @@
 			mainGroup = F266A3DE3068BD6000C1232B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineBridgePackage" */,
+				F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineCorePackage" */,
 				F2DDC75D306A855C0066E501 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */,
 				F2DDC766306A85810066E501 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
@@ -553,9 +553,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineBridgePackage" */ = {
+		F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineCorePackage" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../TwineBridgePackage;
+			relativePath = ../../TwineCorePackage;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -579,10 +579,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		F2DDC76A306B00010066E501 /* TwineBridge */ = {
+		F2DDC76A306B00010066E501 /* TwineCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineBridgePackage" */;
-			productName = TwineBridge;
+			package = F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineCorePackage" */;
+			productName = TwineCore;
 		};
 		F2DDC767306A85810066E501 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -5,15 +5,15 @@ import Testing
 
 nonisolated private func traceSpan(
     id: UInt64 = 1, laneID: UInt64 = 1, start: UInt64 = 0, end: UInt64? = 100,
-    status: BridgeTraceSpan.Status = .exited, live: Bool = false
-) -> BridgeTraceSpan {
-    BridgeTraceSpan(
+    status: CoreTraceSpan.Status = .exited, live: Bool = false
+) -> CoreTraceSpan {
+    CoreTraceSpan(
         spanID: id, laneID: laneID, title: "Shell", startedAt: start,
         endedAt: end, status: status, terminalID: id, isLive: live)
 }
 
-nonisolated private func tracePage(workflowID: UInt64, spanID: UInt64) -> BridgeWorkflowTracePage {
-    BridgeWorkflowTracePage(
+nonisolated private func tracePage(workflowID: UInt64, spanID: UInt64) -> CoreWorkflowTracePage {
+    CoreWorkflowTracePage(
         summary: .init(workflowID: workflowID, revision: 2, spanCount: 1, agentCount: 0),
         lanes: [
             .init(
@@ -79,7 +79,7 @@ struct TraceTimelineTests {
                 {"eventId":9,"workflowId":4,"spanId":5,"timestamp":124,"kind":"processStopped",
                  "message":"Stopped","anchor":null}]}
             """.utf8)
-        let page = try JSONDecoder().decode(BridgeTraceEventsPage.self, from: data)
+        let page = try JSONDecoder().decode(CoreTraceEventsPage.self, from: data)
         #expect(page.events[0].anchor?.terminalID == 90)
         #expect(page.events[0].anchor?.byteOffset == 42)
         #expect(page.events[1].anchor == nil)
@@ -91,9 +91,9 @@ struct TraceTimelineTests {
 struct TraceStateTests {
     @Test func lateReadCannotReplaceTheSelectedWorkflowsTraces() async throws {
         let transport = TraceTestTransport()
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         client.start()
-        try await waitUntil { client.connectionState == .running }
+        try await waitUntil { client.runState == .running }
         let state = TracePanelState()
         await transport.hold(workflowID: 1)
         let previous = Task { await state.refresh(workflowID: 1, client: client) }
@@ -109,9 +109,9 @@ struct TraceStateTests {
 
     @Test func copyIncludesEventsBeyondTheLoadedLogPage() async throws {
         let transport = TraceTestTransport()
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         client.start()
-        try await waitUntil { client.connectionState == .running }
+        try await waitUntil { client.runState == .running }
         let state = TracePanelState()
         await state.refresh(workflowID: 2, client: client)
         state.selectedSpanID = 20
@@ -130,9 +130,9 @@ struct TraceStateTests {
 
     @Test func replacingTheLogCannotUseThePreviousSpansCursor() async throws {
         let transport = TraceTestTransport()
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         client.start()
-        try await waitUntil { client.connectionState == .running }
+        try await waitUntil { client.runState == .running }
         let state = TracePanelState()
         await state.refresh(workflowID: 2, client: client)
         state.selectedSpanID = 20
@@ -160,9 +160,9 @@ struct TraceStateTests {
         let data = TemporaryPath()
         let folder = TemporaryPath()
         try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
-        let client = BridgeClient(transport: BridgeWorker(dataDirectory: data.url))
+        let client = CoreClient(transport: CoreWorker(dataDirectory: data.url))
         client.start()
-        try await waitUntil { client.connectionState == .running }
+        try await waitUntil { client.runState == .running }
         _ = try await client.send(.openFolder(path: folder.path))
         try await waitUntil { client.snapshot?.folders.openFolder == folder.path }
         let id = try await client.createWorkflow(folder: folder.path)
@@ -185,7 +185,7 @@ struct TraceStateTests {
 
 private actor TraceTestTransport {
     private var heldSpan: UInt64?
-    private var pendingEvents: CheckedContinuation<BridgeTraceEventsPage, Never>?
+    private var pendingEvents: CheckedContinuation<CoreTraceEventsPage, Never>?
     private(set) var eventReadCursors: [UInt64?] = []
     var hasPendingEventRead: Bool { pendingEvents != nil }
     func holdEvents(spanID: UInt64) { heldSpan = spanID }
@@ -195,7 +195,7 @@ private actor TraceTestTransport {
         heldSpan = nil
     }
     private var heldWorkflow: UInt64?
-    private var pending: CheckedContinuation<BridgeWorkflowTracePage, Never>?
+    private var pending: CheckedContinuation<CoreWorkflowTracePage, Never>?
     var hasPendingRead: Bool { pending != nil }
     func hold(workflowID: UInt64) { heldWorkflow = workflowID }
     func release() {
@@ -203,32 +203,32 @@ private actor TraceTestTransport {
         pending = nil
         heldWorkflow = nil
     }
-    func open() -> BridgeSnapshot { .testReady() }
+    func open() -> CoreSnapshot { .testReady() }
     func close() {}
-    func snapshot() -> BridgeSnapshot { .testReady() }
+    func snapshot() -> CoreSnapshot { .testReady() }
     func pollFiles(_ request: FileBrowserRequest) -> FileBrowserSnapshot? { nil }
-    func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult { throw BridgeFailure.unexpectedCommandResult }
-    func send(_ command: BridgeCommand) -> BridgeCommandReceipt {
-        BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)
+    func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult { throw CoreFailure.unexpectedCommandResult }
+    func send(_ command: CoreCommand) -> CoreCommandReceipt {
+        CoreCommandReceipt(requestID: 1, status: .accepted, error: nil)
     }
-    func events(after sequence: UInt64, limit: UInt32) -> [BridgeEvent] { [] }
-    func nextTerminalChunk() -> BridgeTerminalChunk? { nil }
+    func events(after sequence: UInt64, limit: UInt32) -> [CoreEvent] { [] }
+    func nextTerminalChunk() -> CoreTerminalChunk? { nil }
     func writeTerminalInput(terminalID: UInt64, bytes: Data) {}
-    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) {}
-    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async -> BridgeWorkflowTracePage {
+    func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) {}
+    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async -> CoreWorkflowTracePage {
         if heldWorkflow == workflowID {
             return await withCheckedContinuation { pending = $0 }
         }
         return tracePage(workflowID: workflowID, spanID: workflowID * 10)
     }
-    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async -> BridgeTraceEventsPage {
+    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async -> CoreTraceEventsPage {
         eventReadCursors.append(after)
         if heldSpan == spanID { return await withCheckedContinuation { pendingEvents = $0 } }
         return eventPage(spanID: spanID, after: after)
     }
-    private func eventPage(spanID: UInt64, after: UInt64?) -> BridgeTraceEventsPage {
+    private func eventPage(spanID: UInt64, after: UInt64?) -> CoreTraceEventsPage {
         let first = after == nil
-        return BridgeTraceEventsPage(
+        return CoreTraceEventsPage(
             workflowID: spanID / 10, spanID: spanID, revision: 2,
             events: [
                 .init(
@@ -239,4 +239,4 @@ private actor TraceTestTransport {
     }
 }
 
-extension TraceTestTransport: BridgeTransport {}
+extension TraceTestTransport: CoreTransport {}

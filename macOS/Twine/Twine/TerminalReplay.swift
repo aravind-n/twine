@@ -8,8 +8,8 @@ final class TerminalReplay: TerminalDelegate {
     private(set) lazy var terminal = Terminal(delegate: self)
     private(set) var offset: UInt64 = 0
 
-    func append(_ page: BridgeTranscriptPage) throws {
-        guard page.offset == offset else { throw BridgeFailure.unexpectedCommandResult }
+    func append(_ page: CoreTranscriptPage) throws {
+        guard page.offset == offset else { throw CoreFailure.unexpectedCommandResult }
         var position = page.offset
         for resize in page.sizes {
             feed(page.bytes, from: position - page.offset, to: resize.offset - page.offset)
@@ -28,9 +28,9 @@ final class TerminalReplay: TerminalDelegate {
         String(data: terminal.getBufferAsData(), encoding: .utf8) ?? ""
     }
 
-    func applyBoundarySizes(_ sizes: [BridgeTraceSize]) throws {
+    func applyBoundarySizes(_ sizes: [CoreTraceSize]) throws {
         for size in sizes {
-            guard size.rows > 0, size.columns > 0 else { throw BridgeFailure.unexpectedCommandResult }
+            guard size.rows > 0, size.columns > 0 else { throw CoreFailure.unexpectedCommandResult }
             terminal.resize(cols: size.columns, rows: size.rows)
         }
     }

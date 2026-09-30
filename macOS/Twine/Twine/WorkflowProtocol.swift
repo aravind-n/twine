@@ -1,13 +1,13 @@
 import Foundation
 
-nonisolated struct BridgeWorkflowState: Decodable, Equatable, Sendable {
+nonisolated struct CoreWorkflowState: Decodable, Equatable, Sendable {
     var sessionsInitialized = false
-    var session: BridgeSession?
-    var sessions: [BridgeSession] = []
-    var workflows: [BridgeWorkflow] = []
+    var session: CoreSession?
+    var sessions: [CoreSession] = []
+    var workflows: [CoreWorkflow] = []
 }
 
-nonisolated struct BridgeSession: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct CoreSession: Decodable, Equatable, Identifiable, Sendable {
     var id: UInt64 { sessionID }
     let sessionID: UInt64
     let name: String
@@ -28,7 +28,7 @@ nonisolated struct BridgeSession: Decodable, Equatable, Identifiable, Sendable {
 }
 
 /// A built-in harness, named as the core's protocol names it.
-nonisolated enum BridgeHarness: String, CaseIterable, Codable, Identifiable, Sendable {
+nonisolated enum CoreHarness: String, CaseIterable, Codable, Identifiable, Sendable {
     case codex
     case claudeCode
     case piAgent = "pi"
@@ -44,22 +44,22 @@ nonisolated enum BridgeHarness: String, CaseIterable, Codable, Identifiable, Sen
     }
 }
 
-nonisolated struct BridgeWorkflow: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct CoreWorkflow: Decodable, Equatable, Identifiable, Sendable {
     let workflowID: UInt64
     let sessionID: UInt64
     let name: String
     let kind: Kind
-    var harness: BridgeHarness?
+    var harness: CoreHarness?
     /// The workflow's own shell. Zero when it couldn't restart, and for agents workflows, whose agents
     /// have the terminals instead.
     let terminalID: UInt64
     /// In role order. Empty unless the kind is `agents`.
-    var agents: [BridgeAgent] = []
+    var agents: [CoreAgent] = []
     let status: Status
     let startedAt: UInt64
     let endedAt: UInt64?
     var restored = false
-    var run: BridgeWorkflowRun?
+    var run: CoreWorkflowRun?
 
     var id: UInt64 { workflowID }
 
@@ -97,7 +97,7 @@ nonisolated struct BridgeWorkflow: Decodable, Equatable, Identifiable, Sendable 
 }
 
 /// One process filling one role in a workflow, shown as one of its subtabs.
-nonisolated struct BridgeAgent: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct CoreAgent: Decodable, Equatable, Identifiable, Sendable {
     let agentID: UInt64
     let role: String
     /// Zero when the agent's shell couldn't restart.
@@ -112,7 +112,7 @@ nonisolated struct BridgeAgent: Decodable, Equatable, Identifiable, Sendable {
     }
 }
 
-extension BridgeWorkflow {
+extension CoreWorkflow {
     var tabSymbol: String {
         switch kind {
         case .draft: "square.dashed"

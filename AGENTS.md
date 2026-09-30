@@ -11,7 +11,7 @@ Use the terms defined in [CONTEXT.md](CONTEXT.md) when naming folder, session, w
 - Keep the three layers independent:
   - `twine-core` exposes a plain Rust API with no knowledge of FFI or UI. Every core feature is testable in Rust without the app.
   - `twine-bridge` only translates between the core API and the C ABI. It holds no domain logic or state.
-  - Swift talks to Rust only through its bridge client wrapper.
+  - Swift talks to `twine-core` only through `CoreClient`.
 - Domain state (folders, sessions, workflows, traces, transcripts, config) lives in core. Presentation state (selected tabs, pane layouts, form prefills) lives in Swift.
 - Model workflow types as ways to coordinate agents. The workflow graph is not a general DAG executor.
 

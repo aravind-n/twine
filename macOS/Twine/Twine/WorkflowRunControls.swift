@@ -1,15 +1,15 @@
 import SwiftUI
 
 struct WorkflowRunControls: View {
-    @Environment(BridgeClient.self) private var client
+    @Environment(CoreClient.self) private var client
     let workflowID: UInt64
-    let run: BridgeWorkflowRun
+    let run: CoreWorkflowRun
     let selectedAgentID: UInt64?
     @State private var showsCompletion = false
     @State private var failure: String?
     @State private var showsGraph = false
 
-    private var agent: BridgeWorkflowRun.Agent? { run.agents.first { $0.id == selectedAgentID } }
+    private var agent: CoreWorkflowRun.Agent? { run.agents.first { $0.id == selectedAgentID } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -66,6 +66,6 @@ struct WorkflowRunControls: View {
             agents: [.init(agentId: 1, active: true, done: false, reviewer: true, harness: .codex, targets: [])]),
         selectedAgentID: 1
     )
-    .environment(BridgeClient(transport: BridgeWorker(dataDirectory: .temporaryDirectory)))
+    .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
     .frame(width: 650)
 }

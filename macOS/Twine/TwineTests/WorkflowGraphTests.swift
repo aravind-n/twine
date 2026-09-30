@@ -63,7 +63,7 @@ struct WorkflowGraphTests {
     }
 
     @Test func handoffDescriptionsUseCustomRoleAndStageNames() {
-        let definition = BridgeWorkflowType.Definition(
+        let definition = CoreWorkflowType.Definition(
             name: "Writing", description: "",
             roles: [
                 .init(id: "author", name: "Writer", instances: .init(min: 1, max: 1)),
@@ -82,9 +82,9 @@ struct WorkflowGraphTests {
         #expect(graph.handoffDescriptions == ["Writer in Draft words sends result to Analyst in Edit words."])
     }
 
-    private func catalog() async throws -> [BridgeWorkflowType] {
+    private func catalog() async throws -> [CoreWorkflowType] {
         let directory = FileManager.default.temporaryDirectory.appending(path: "TwineGraphTests-\(UUID())")
-        let worker = BridgeWorker(dataDirectory: directory)
+        let worker = CoreWorker(dataDirectory: directory)
         do {
             let snapshot = try await worker.open()
             let types = try #require(snapshot.workflowTypes)

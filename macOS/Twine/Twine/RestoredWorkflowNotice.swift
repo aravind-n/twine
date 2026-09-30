@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Explains that a workflow restored after relaunch runs fresh shells, without its old output.
 struct RestoredWorkflowNotice: View {
-    let workflow: BridgeWorkflow
+    let workflow: CoreWorkflow
 
     var body: some View {
         Label(message, systemImage: "arrow.clockwise")

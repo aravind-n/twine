@@ -3,7 +3,7 @@ import SwiftUI
 /// The strip at the top of a multi-agent workflow's terminal panel, with a subtab for each agent and
 /// a picker between tab mode and Bento mode.
 struct AgentSubtabs: View {
-    let agents: [BridgeAgent]
+    let agents: [CoreAgent]
     /// The agent with the keyboard: the one tab mode shows, or the focused Bento pane's.
     let selectedID: UInt64?
     @Binding var mode: WorkflowLayout.Mode
@@ -63,7 +63,7 @@ struct AgentSubtabs: View {
 }
 
 private struct AgentSubtab: View {
-    let agent: BridgeAgent
+    let agent: CoreAgent
     let isSelected: Bool
     let select: () -> Void
 

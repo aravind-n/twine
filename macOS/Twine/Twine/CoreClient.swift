@@ -2,43 +2,43 @@ import Foundation
 import OSLog
 import Observation
 
-private let bridgeLogger = Logger(subsystem: "com.twineproject.Twine", category: "bridge")
+private let coreLogger = Logger(subsystem: "com.twineproject.Twine", category: "core")
 private let commandResultCacheLimit = 256
 
 @MainActor
 @Observable
-final class BridgeClient {
-    private(set) var connectionState = BridgeConnectionState.idle
-    private(set) var snapshot: BridgeSnapshot?
+final class CoreClient {
+    private(set) var runState = CoreRunState.idle
+    private(set) var snapshot: CoreSnapshot?
     private(set) var traceSnapshotGeneration: UInt64 = 0
-    private(set) var lastCommandCompletion: BridgeCommandCompletion?
+    private(set) var lastCommandCompletion: CoreCommandCompletion?
 
-    let transport: any BridgeTransport
+    let transport: any CoreTransport
     private var eventTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
     private(set) var isStopping = false
     private(set) var isTerminating = false
-    private var commandResults: [UInt64: BridgeCommandResult] = [:]
+    private var commandResults: [UInt64: CoreCommandResult] = [:]
     private var ignoredCommandResults: Set<UInt64> = []
-    private var commandWaiters: [UInt64: CheckedContinuation<BridgeCommandResult, any Error>] = [:]
+    private var commandWaiters: [UInt64: CheckedContinuation<CoreCommandResult, any Error>] = [:]
     var terminalChunkRouter = TerminalChunkRouter(capacityBytes: 1024 * 1024)
     private var isFetchingTerminalChunk = false
 
-    init(transport: any BridgeTransport) {
+    init(transport: any CoreTransport) {
         self.transport = transport
     }
 
     func start() {
         guard eventTask == nil, !isStopping, !isTerminating else { return }
 
-        connectionState = .starting
+        runState = .starting
         eventTask = Task { [weak self] in
             await self?.openAndRun()
         }
     }
 
-    func send(_ command: BridgeCommand) async throws -> BridgeCommandReceipt {
-        guard !isStopping, !isTerminating else { throw BridgeFailure.notConnected }
+    func send(_ command: CoreCommand) async throws -> CoreCommandReceipt {
+        guard !isStopping, !isTerminating else { throw CoreFailure.notRunning }
         let receipt = try await transport.send(command)
         if receipt.status == .accepted {
             switch command {
@@ -55,8 +55,8 @@ final class BridgeClient {
         return receipt
     }
 
-    func nextTerminalChunk(for terminalID: UInt64) async throws -> BridgeTerminalChunk? {
-        guard connectionState == .running else { throw BridgeFailure.notConnected }
+    func nextTerminalChunk(for terminalID: UInt64) async throws -> CoreTerminalChunk? {
+        guard runState == .running else { throw CoreFailure.notRunning }
         if let chunk = terminalChunkRouter.dequeue(for: terminalID) {
             return chunk
         }
@@ -64,7 +64,7 @@ final class BridgeClient {
         isFetchingTerminalChunk = true
         defer { isFetchingTerminalChunk = false }
         guard let chunk = try await transport.nextTerminalChunk() else { return nil }
-        guard connectionState == .running, !isStopping else { throw BridgeFailure.notConnected }
+        guard runState == .running, !isStopping else { throw CoreFailure.notRunning }
         terminalChunkRouter.enqueue(chunk)
         try Task.checkCancellation()
         return terminalChunkRouter.dequeue(for: terminalID)
@@ -72,13 +72,13 @@ final class BridgeClient {
 
     func startTerminal(
         workingDirectory: URL,
-        size: BridgeTerminalSize
+        size: CoreTerminalSize
     ) async throws -> UInt64 {
         let result = try await sendAndAwaitCompletion(
             .startTerminal(workingDirectory: workingDirectory.path, size: size)
         )
         guard case .terminalStarted(let terminalID) = result else {
-            throw BridgeFailure.unexpectedCommandResult
+            throw CoreFailure.unexpectedCommandResult
         }
         return terminalID
     }
@@ -86,19 +86,19 @@ final class BridgeClient {
     func closeTerminal(terminalID: UInt64) async throws {
         let result = try await sendAndAwaitCompletion(.closeTerminal(terminalID: terminalID))
         guard case .terminalClosed(let closedID) = result, closedID == terminalID else {
-            throw BridgeFailure.unexpectedCommandResult
+            throw CoreFailure.unexpectedCommandResult
         }
         terminalChunkRouter.markClosed(terminalID)
     }
 
-    func sendAndAwaitCompletion(_ command: BridgeCommand) async throws -> BridgeCommandResult {
-        guard connectionState == .running, !isStopping, !isTerminating else {
-            throw BridgeFailure.notConnected
+    func sendAndAwaitCompletion(_ command: CoreCommand) async throws -> CoreCommandResult {
+        guard runState == .running, !isStopping, !isTerminating else {
+            throw CoreFailure.notRunning
         }
         let receipt = try await transport.send(command)
-        guard connectionState == .running else { throw BridgeFailure.notConnected }
+        guard runState == .running else { throw CoreFailure.notRunning }
         guard receipt.status == .accepted else {
-            throw BridgeFailure.commandRejected(
+            throw CoreFailure.commandRejected(
                 code: receipt.error?.code ?? "unknown",
                 message: receipt.error?.message ?? "The command was rejected."
             )
@@ -116,7 +116,7 @@ final class BridgeClient {
             let initialSnapshot = try await transport.open()
             guard !Task.isCancelled else { return }
             apply(initialSnapshot)
-            connectionState = .running
+            runState = .running
             await runEventPump()
         } catch is CancellationError {
             return
@@ -138,7 +138,7 @@ final class BridgeClient {
                 } else {
                     apply(try await transport.snapshot())
                 }
-            } catch BridgeFailure.cursorExpired {
+            } catch CoreFailure.cursorExpired {
                 do {
                     apply(try await transport.snapshot())
                 } catch {
@@ -154,7 +154,7 @@ final class BridgeClient {
         }
     }
 
-    private func apply(_ snapshot: BridgeSnapshot) {
+    private func apply(_ snapshot: CoreSnapshot) {
         for terminal in self.snapshot?.terminals ?? []
         where !snapshot.terminals.contains(where: { $0.terminalID == terminal.terminalID }) {
             terminalChunkRouter.markClosed(terminal.terminalID)
@@ -163,7 +163,7 @@ final class BridgeClient {
         traceSnapshotGeneration &+= 1
     }
 
-    private func apply(_ events: [BridgeEvent]) -> Bool {
+    private func apply(_ events: [CoreEvent]) -> Bool {
         guard var current = snapshot else { return false }
 
         for event in events {
@@ -171,7 +171,7 @@ final class BridgeClient {
                 continue
             }
             guard event.sequence == current.sequence + 1 else {
-                bridgeLogger.warning(
+                coreLogger.warning(
                     "Event sequence gap: expected \(current.sequence + 1), received \(event.sequence)"
                 )
                 return false
@@ -185,13 +185,13 @@ final class BridgeClient {
         return true
     }
 
-    private func apply(_ event: BridgeEvent.Kind, to snapshot: inout BridgeSnapshot) {
+    private func apply(_ event: CoreEvent.Kind, to snapshot: inout CoreSnapshot) {
         switch event {
         case .traceChanged(let summary):
             snapshot.traces.removeAll { $0.workflowID == summary.workflowID }
             snapshot.traces.append(summary)
         case .applicationReady:
-            snapshot.state = BridgeApplicationState(status: .ready)
+            snapshot.state = CoreApplicationState(status: .ready)
         case .commandCompleted(let requestID, let result):
             applyCommandCompletion(requestID: requestID, result: result, to: &snapshot)
         case .workflowsChanged(let state):
@@ -204,12 +204,12 @@ final class BridgeClient {
             markTerminalClosed(terminalID, in: &snapshot)
         case .terminalExited(let terminalID, let exit):
             updateTerminal(
-                BridgeTerminalState(terminalID: terminalID, status: .exited(exit)),
+                CoreTerminalState(terminalID: terminalID, status: .exited(exit)),
                 in: &snapshot
             )
         case .terminalFailed(let terminalID, let message):
             updateTerminal(
-                BridgeTerminalState(terminalID: terminalID, status: .failed(message: message)),
+                CoreTerminalState(terminalID: terminalID, status: .failed(message: message)),
                 in: &snapshot
             )
         }
@@ -217,10 +217,10 @@ final class BridgeClient {
 
     private func applyCommandCompletion(
         requestID: UInt64,
-        result: BridgeCommandResult,
-        to snapshot: inout BridgeSnapshot
+        result: CoreCommandResult,
+        to snapshot: inout CoreSnapshot
     ) {
-        lastCommandCompletion = BridgeCommandCompletion(requestID: requestID, result: result)
+        lastCommandCompletion = CoreCommandCompletion(requestID: requestID, result: result)
         switch result {
         case .terminalStarted(let terminalID):
             markTerminalRunning(terminalID, in: &snapshot)
@@ -239,7 +239,7 @@ final class BridgeClient {
         }
     }
 
-    private func cacheCommandResult(_ result: BridgeCommandResult, requestID: UInt64) {
+    private func cacheCommandResult(_ result: CoreCommandResult, requestID: UInt64) {
         commandResults[requestID] = result
         if commandResults.count > commandResultCacheLimit {
             if let oldestRequestID = commandResults.keys.min() {
@@ -249,8 +249,8 @@ final class BridgeClient {
     }
 
     private func fail(_ error: any Error) {
-        bridgeLogger.error("Bridge failed: \(error.localizedDescription, privacy: .public)")
-        connectionState = .failed(error.localizedDescription)
+        coreLogger.error("twine-core failed: \(error.localizedDescription, privacy: .public)")
+        runState = .failed(error.localizedDescription)
         eventTask?.cancel()
         eventTask = nil
         commandResults.removeAll()
@@ -259,7 +259,7 @@ final class BridgeClient {
         failCommandWaiters(with: error)
     }
 
-    func updateTerminal(_ terminal: BridgeTerminalState, in snapshot: inout BridgeSnapshot) {
+    func updateTerminal(_ terminal: CoreTerminalState, in snapshot: inout CoreSnapshot) {
         if let index = snapshot.terminals.firstIndex(where: { $0.terminalID == terminal.terminalID }) {
             snapshot.terminals[index] = terminal
         } else {
@@ -276,8 +276,8 @@ final class BridgeClient {
     }
 }
 
-extension BridgeClient {
-    private func applyWorkflowState(_ state: BridgeWorkflowState, to snapshot: inout BridgeSnapshot) {
+extension CoreClient {
+    private func applyWorkflowState(_ state: CoreWorkflowState, to snapshot: inout CoreSnapshot) {
         for workflow in snapshot.workflows.workflows
         where !state.workflows.contains(where: { $0.id == workflow.id }) {
             for terminalID in workflow.terminalIDs { markTerminalClosed(terminalID, in: &snapshot) }
@@ -290,7 +290,7 @@ extension BridgeClient {
         snapshot.traces.removeAll { summary in !state.workflows.contains { $0.id == summary.workflowID } }
     }
 
-    private func applyWorkflow(_ workflow: BridgeWorkflow, to snapshot: inout BridgeSnapshot) {
+    private func applyWorkflow(_ workflow: CoreWorkflow, to snapshot: inout CoreSnapshot) {
         if workflow.status == .closed {
             snapshot.traces.removeAll { $0.workflowID == workflow.id }
             snapshot.workflows.workflows.removeAll { $0.id == workflow.id }
@@ -308,7 +308,7 @@ extension BridgeClient {
     }
 }
 
-extension BridgeClient {
+extension CoreClient {
     func stop() async {
         if let stopTask {
             await stopTask.value
@@ -324,7 +324,7 @@ extension BridgeClient {
         await stopTask.value
     }
 
-    /// Permanently closes the app's bridge connection before AppKit finishes quitting.
+    /// Permanently stops twine-core before AppKit finishes quitting.
     func stopForQuit() async {
         isTerminating = true
         await stop()
@@ -341,21 +341,21 @@ extension BridgeClient {
         commandResults.removeAll()
         ignoredCommandResults.removeAll()
         terminalChunkRouter.removeAll()
-        failCommandWaiters(with: BridgeFailure.notConnected)
-        connectionState = .idle
+        failCommandWaiters(with: CoreFailure.notRunning)
+        runState = .idle
     }
 }
 
-extension BridgeClient {
-    /// Waits until the connection is running. Throws if it fails or the waiting task is cancelled.
+extension CoreClient {
+    /// Waits until twine-core is running. Throws if it fails or the waiting task is cancelled.
     func waitUntilRunning() async throws {
         while true {
             try Task.checkCancellation()
-            switch connectionState {
+            switch runState {
             case .running:
                 return
             case .failed(let message):
-                throw BridgeFailure.connectionFailed(message)
+                throw CoreFailure.failed(message)
             case .idle, .starting:
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -363,14 +363,14 @@ extension BridgeClient {
     }
 
     /// Sends a command whose outcome arrives as state events, logging a rejection or failure.
-    func perform(_ command: BridgeCommand) async {
+    func perform(_ command: CoreCommand) async {
         do {
             let receipt = try await send(command)
             if let rejection = receipt.error {
-                bridgeLogger.notice("Command rejected: \(rejection.code, privacy: .public)")
+                coreLogger.notice("Command rejected: \(rejection.code, privacy: .public)")
             }
         } catch {
-            bridgeLogger.error("Command failed: \(error.localizedDescription, privacy: .public)")
+            coreLogger.error("Command failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

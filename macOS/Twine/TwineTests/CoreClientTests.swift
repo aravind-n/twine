@@ -4,22 +4,22 @@ import Testing
 
 @testable import Twine
 
-struct BridgeTests {
-    @Test(arguments: [BridgeConfig.ColorScheme.system, .light, .dark])
-    func configSnapshotDecodes(colorScheme: BridgeConfig.ColorScheme) throws {
+struct CoreClientTests {
+    @Test(arguments: [CoreConfig.ColorScheme.system, .light, .dark])
+    func configSnapshotDecodes(colorScheme: CoreConfig.ColorScheme) throws {
         let json = """
             {"sequence":1,"state":{"status":"ready"},
              "config":{"appearance":{"color_scheme":"\(colorScheme.rawValue)"}},
              "folders":{"openFolder":null,"recentFolders":[],"unavailableFolder":null},
              "terminals":[],"workflows":{"session":null,"sessions":[],"sessionsInitialized":false,"workflows":[]}}
             """
-        let snapshot = try JSONDecoder().decode(BridgeSnapshot.self, from: Data(json.utf8))
+        let snapshot = try JSONDecoder().decode(CoreSnapshot.self, from: Data(json.utf8))
         #expect(snapshot.config.appearance.colorScheme == colorScheme)
     }
 
-    @Test func bridgeRoundTrip() async throws {
+    @Test func coreRoundTrip() async throws {
         let dataDirectory = TemporaryPath()
-        let worker = BridgeWorker(dataDirectory: dataDirectory.url)
+        let worker = CoreWorker(dataDirectory: dataDirectory.url)
         let snapshot = try await worker.open()
         let receipt = try await worker.send(.ping)
         let events = try await worker.events(after: snapshot.sequence, limit: 16)
@@ -34,8 +34,8 @@ struct BridgeTests {
     }
 
     @Test @MainActor func concurrentStartOpensOneTransport() async throws {
-        let transport = SuspendedOpenBridgeTransport()
-        let client = BridgeClient(transport: transport)
+        let transport = SuspendedOpenCoreTransport()
+        let client = CoreClient(transport: transport)
 
         client.start()
         client.start()
@@ -44,27 +44,27 @@ struct BridgeTests {
         try await waitUntil { await transport.openCount > 0 }
 
         #expect(await transport.openCount == 1)
-        #expect(client.connectionState == .starting)
+        #expect(client.runState == .starting)
 
         await client.stop()
-        #expect(client.connectionState == .idle)
+        #expect(client.runState == .idle)
 
         client.start()
-        try await waitUntil { client.connectionState == .running }
+        try await waitUntil { client.runState == .running }
         #expect(await transport.openCount == 2)
         await client.stop()
     }
 
-    @Test @MainActor func heavyBridgeTrafficYieldsMainActor() async throws {
+    @Test @MainActor func heavyCoreTrafficYieldsMainActor() async throws {
         let dataDirectory = TemporaryPath()
-        let client = BridgeClient(transport: BridgeWorker(dataDirectory: dataDirectory.url))
+        let client = CoreClient(transport: CoreWorker(dataDirectory: dataDirectory.url))
         client.start()
         var heartbeat = 0
         var heartbeatTask: Task<Void, Never>?
         var heartbeatAdvancedWithEvents = false
 
         do {
-            try await waitUntil { client.connectionState == .running }
+            try await waitUntil { client.runState == .running }
 
             let initialSequence = try #require(client.snapshot?.sequence)
             var observedSequence = initialSequence
@@ -114,19 +114,19 @@ struct BridgeTests {
         #expect(heartbeatAdvancedWithEvents)
     }
 
-    @Test @MainActor func waitingForAFailedConnectionThrowsItsMessage() async throws {
-        let client = BridgeClient(transport: FailingOpenTransport())
+    @Test @MainActor func waitingForAFailedCoreThrowsItsMessage() async throws {
+        let client = CoreClient(transport: FailingOpenTransport())
         client.start()
 
-        await #expect(throws: BridgeFailure.connectionFailed(BridgeFailure.internalError.localizedDescription)) {
+        await #expect(throws: CoreFailure.failed(CoreFailure.internalError.localizedDescription)) {
             try await client.waitUntilRunning()
         }
-        let message = BridgeFailure.connectionFailed("no database").localizedDescription
-        #expect(message == "Could not connect to the terminal core: no database")
+        let message = CoreFailure.failed("no database").localizedDescription
+        #expect(message == "twine-core failed: no database")
     }
 
-    @Test @MainActor func waitingForAnIdleConnectionEndsWhenItStartsOrIsCancelled() async throws {
-        let client = BridgeClient(transport: DelayedStartTransport())
+    @Test @MainActor func waitingWhileIdleEndsWhenCoreStartsOrIsCancelled() async throws {
+        let client = CoreClient(transport: DelayedStartTransport())
         defer { Task { await client.stop() } }
 
         let cancelled = Task { try await client.waitUntilRunning() }
@@ -139,17 +139,17 @@ struct BridgeTests {
         try await Task.sleep(for: .milliseconds(50))
         client.start()
         try await waiting.value
-        #expect(client.connectionState == .running)
+        #expect(client.runState == .running)
     }
 
-    @Test @MainActor func appQuitWaitsForBridgeTeardownAndStartsItOnce() async throws {
+    @Test @MainActor func appQuitWaitsForCoreTeardownAndStartsItOnce() async throws {
         let transport = SuspendedCloseTransport()
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         client.start()
-        try await waitUntil { client.connectionState == .running }
+        try await waitUntil { client.runState == .running }
 
         let delegate = AppTerminationDelegate()
-        delegate.connect(to: client)
+        delegate.attach(to: client)
         var replies: [Bool] = []
         let first = delegate.beginTermination { replies.append($0) }
         let second = delegate.beginTermination { replies.append($0) }
@@ -162,15 +162,15 @@ struct BridgeTests {
         await transport.completeClose()
         try await waitUntil { replies == [true] }
         #expect(await transport.closeCount == 1)
-        #expect(client.connectionState == .idle)
+        #expect(client.runState == .idle)
 
         client.start()
-        #expect(client.connectionState == .idle)
+        #expect(client.runState == .idle)
     }
 
     @MainActor
     private func recordConcurrentProgress(
-        client: BridgeClient,
+        client: CoreClient,
         heartbeat: Int,
         observedSequence: inout UInt64,
         heartbeatAtLastProgress: inout Int,
@@ -187,10 +187,10 @@ struct BridgeTests {
 
 /// A transport whose first open never finishes on its own; only cancellation ends it. Later opens
 /// finish at once.
-private actor SuspendedOpenBridgeTransport: BridgeTransport {
+private actor SuspendedOpenCoreTransport: CoreTransport {
     private(set) var openCount = 0
 
-    func open() async throws -> BridgeSnapshot {
+    func open() async throws -> CoreSnapshot {
         openCount += 1
         if openCount == 1 {
             try await Task.sleep(for: .seconds(3_600))
@@ -200,77 +200,77 @@ private actor SuspendedOpenBridgeTransport: BridgeTransport {
 
     func close() {}
 
-    func send(_ command: BridgeCommand) -> BridgeCommandReceipt {
-        BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)
+    func send(_ command: CoreCommand) -> CoreCommandReceipt {
+        CoreCommandReceipt(requestID: 1, status: .accepted, error: nil)
     }
 
     func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {
-        throw BridgeFailure.invalidArgument
+        throw CoreFailure.invalidArgument
     }
 
     func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
-        throw BridgeFailure.invalidArgument
+        throw CoreFailure.invalidArgument
     }
 
-    func snapshot() -> BridgeSnapshot {
+    func snapshot() -> CoreSnapshot {
         .testReady()
     }
 
-    func events(after sequence: UInt64, limit: UInt32) -> [BridgeEvent] {
+    func events(after sequence: UInt64, limit: UInt32) -> [CoreEvent] {
         []
     }
 
-    func nextTerminalChunk() -> BridgeTerminalChunk? {
+    func nextTerminalChunk() -> CoreTerminalChunk? {
         nil
     }
 
     func writeTerminalInput(terminalID: UInt64, bytes: Data) {}
 
-    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) {}
+    func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) {}
 }
 
 /// A transport whose open always fails.
-private actor FailingOpenTransport: BridgeTransport {
-    func open() throws -> BridgeSnapshot {
-        throw BridgeFailure.internalError
+private actor FailingOpenTransport: CoreTransport {
+    func open() throws -> CoreSnapshot {
+        throw CoreFailure.internalError
     }
 
     func close() {}
 
-    func send(_ command: BridgeCommand) -> BridgeCommandReceipt {
-        BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)
+    func send(_ command: CoreCommand) -> CoreCommandReceipt {
+        CoreCommandReceipt(requestID: 1, status: .accepted, error: nil)
     }
 
     func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {
-        throw BridgeFailure.invalidArgument
+        throw CoreFailure.invalidArgument
     }
 
     func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
-        throw BridgeFailure.invalidArgument
+        throw CoreFailure.invalidArgument
     }
 
-    func snapshot() -> BridgeSnapshot {
+    func snapshot() -> CoreSnapshot {
         .testReady()
     }
 
-    func events(after sequence: UInt64, limit: UInt32) -> [BridgeEvent] {
+    func events(after sequence: UInt64, limit: UInt32) -> [CoreEvent] {
         []
     }
 
-    func nextTerminalChunk() -> BridgeTerminalChunk? {
+    func nextTerminalChunk() -> CoreTerminalChunk? {
         nil
     }
 
     func writeTerminalInput(terminalID: UInt64, bytes: Data) {}
 
-    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) {}
+    func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) {}
 }
 
-private actor SuspendedCloseTransport: BridgeTransport {
+private actor SuspendedCloseTransport: CoreTransport {
     private(set) var closeCount = 0
     private var closeContinuation: CheckedContinuation<Void, Never>?
 
-    func open() -> BridgeSnapshot {
+    func open() -> CoreSnapshot {
         .testReady()
     }
 
@@ -286,31 +286,31 @@ private actor SuspendedCloseTransport: BridgeTransport {
         closeContinuation = nil
     }
 
-    func send(_ command: BridgeCommand) -> BridgeCommandReceipt {
-        BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)
+    func send(_ command: CoreCommand) -> CoreCommandReceipt {
+        CoreCommandReceipt(requestID: 1, status: .accepted, error: nil)
     }
 
     func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {
-        throw BridgeFailure.invalidArgument
+        throw CoreFailure.invalidArgument
     }
 
     func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
-        throw BridgeFailure.invalidArgument
+        throw CoreFailure.invalidArgument
     }
 
-    func snapshot() -> BridgeSnapshot {
+    func snapshot() -> CoreSnapshot {
         .testReady()
     }
 
-    func events(after sequence: UInt64, limit: UInt32) -> [BridgeEvent] {
+    func events(after sequence: UInt64, limit: UInt32) -> [CoreEvent] {
         []
     }
 
-    func nextTerminalChunk() -> BridgeTerminalChunk? {
+    func nextTerminalChunk() -> CoreTerminalChunk? {
         nil
     }
 
     func writeTerminalInput(terminalID: UInt64, bytes: Data) {}
 
-    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) {}
+    func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) {}
 }
