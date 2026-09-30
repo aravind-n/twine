@@ -38,6 +38,13 @@ are interrupted, without automatically restarting harnesses. The Traces timeline
 role's stage invocations. Select a span to inspect its stage changes, completions, and handoffs;
 this history survives reopening the app.
 
+Claude Code and Codex also report prompts, tool calls, and responses through launch-only hooks.
+Single-agent runs show a span for each prompt; multi-agent steps stay under the role's assignment.
+Select a step to jump to its recorded terminal position. Hook payloads are bounded and recording
+is best effort. If hooks are unavailable or disabled, the ordinary agent span remains. User and
+project harness config files are never edited. Codex hook compatibility is verified with CLI
+0.159; Twine trusts only its own invocation hooks and preserves existing hook policy.
+
 Startup recovers interrupted work across all folders before publishing state. Agents retain their
 individual lifecycle status, and unfinished trace spans gain a stopped event without changing
 earlier events or transcript anchors. Completed and cancelled runs keep their outcomes. Recovery
@@ -53,6 +60,15 @@ TWINE_REAL_CODEX="$(command -v codex)" cargo test -p twine-core \
 
 This test uses Codex's noninteractive mode in a disposable folder and verifies both agents'
 explicit completion signals.
+
+To verify the installed Codex's actual prompt/tool/response hooks and terminal anchors:
+
+```sh
+TWINE_REAL_CODEX="$(command -v codex)" make test-rust \
+  RUST_TEST_ARGS='real_codex_records_tool_steps -- --ignored'
+```
+
+This opt-in test uses interactive, authenticated Codex in a disposable folder with a read-only sandbox.
 
 ## Configuration
 

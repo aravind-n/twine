@@ -1717,7 +1717,7 @@ mod tests {
         let wrapper = bin.path().join("codex");
         let quoted = codex.replace('\'', "'\\''");
         std::fs::write(&wrapper, format!(
-            "#!/bin/sh\nexec '{quoted}' exec --ephemeral --skip-git-repo-check --sandbox workspace-write --ignore-user-config -- \"$2\"\n"
+            "#!/bin/sh\nexec '{quoted}' exec --ephemeral --skip-git-repo-check --sandbox workspace-write --ignore-user-config \"$@\"\n"
         )).unwrap();
         std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
         let app = application(folder.path(), bin.path(), "exit 1");

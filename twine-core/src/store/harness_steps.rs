@@ -22,23 +22,6 @@ impl Store {
             |row| row.get(0),
         )?)
     }
-    pub(crate) fn activate_harness_trace(
-        &mut self,
-        terminal_id: TerminalId,
-    ) -> Result<(), StoreError> {
-        let transaction = self.connection.transaction()?;
-        transaction.execute(
-            "UPDATE trace_events SET span_id = NULL WHERE span_id IN
-            (SELECT id FROM trace_spans WHERE terminal_id = ?1)",
-            [sql_integer(terminal_id.value())?],
-        )?;
-        transaction.execute(
-            "DELETE FROM trace_spans WHERE terminal_id = ?1",
-            [sql_integer(terminal_id.value())?],
-        )?;
-        transaction.commit()?;
-        Ok(())
-    }
     pub(crate) fn has_harness_turn(
         &self,
         terminal_id: TerminalId,
@@ -53,11 +36,15 @@ impl Store {
         &mut self,
         workflow_id: WorkflowId,
         single_agent: bool,
+        activate: bool,
         step: &HarnessStep,
         observed_at: u64,
         anchor: &TraceAnchor,
     ) -> Result<Option<TraceSpanId>, StoreError> {
         let transaction = self.connection.transaction()?;
+        if activate {
+            activate_harness_trace(&transaction, anchor.terminal_id)?;
+        }
         let current: Option<TraceSpanId> = transaction
             .query_row(
                 "SELECT s.id FROM trace_spans s JOIN trace_lanes l ON l.id = s.lane_id
@@ -141,6 +128,22 @@ impl Store {
         transaction.commit()?;
         Ok(())
     }
+}
+
+fn activate_harness_trace(
+    transaction: &rusqlite::Transaction<'_>,
+    terminal_id: TerminalId,
+) -> Result<(), StoreError> {
+    transaction.execute(
+        "UPDATE trace_events SET span_id = NULL WHERE span_id IN
+        (SELECT id FROM trace_spans WHERE terminal_id = ?1)",
+        [sql_integer(terminal_id.value())?],
+    )?;
+    transaction.execute(
+        "DELETE FROM trace_spans WHERE terminal_id = ?1",
+        [sql_integer(terminal_id.value())?],
+    )?;
+    Ok(())
 }
 
 fn start_prompt_span(

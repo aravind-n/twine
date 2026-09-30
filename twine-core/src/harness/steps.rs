@@ -120,6 +120,14 @@ impl StepInbox {
     pub(crate) fn take(&self, limit: usize) -> Vec<ObservedStep> {
         self.received.try_iter().take(limit).collect()
     }
+
+    /// Hooks are observers only: bounded input and runtime, no output, and no failure status.
+    pub(crate) fn hook_command(&self) -> String {
+        format!(
+            "{{ /usr/bin/head -c 4194305 | /usr/bin/curl --silent --max-time 1 --output /dev/null --header 'Expect:' --unix-socket '{}' --data-binary @- http://localhost/; }} >/dev/null 2>&1 || true",
+            self.socket_path.to_string_lossy().replace('\'', "'\\''")
+        )
+    }
 }
 
 impl Drop for StepInbox {
