@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Shared role/harness presentation for trace lanes and future agent subtabs.
+/// Trace lanes share role presentation with agent subtabs.
 enum TraceLaneStyle {
     static func color(for lane: BridgeTraceLane) -> Color {
+        if lane.isAgent, let role = lane.role { return RoleStyle(role: role).color }
         switch identity(for: lane) {
-        case "terminal", "implementer", "codex": return .roleBlue
-        case "reviewer", "claude", "claude-code": return .roleOrange
-        case "coordinator", "pi": return .rolePurple
-        case "worker": return .roleGreen
+        case "terminal", "codex": return .roleBlue
+        case "claude", "claude-code": return .roleOrange
+        case "pi": return .rolePurple
         default:
             let colors: [Color] = [.roleBlue, .roleOrange, .rolePurple, .roleGreen]
             let hash = identity(for: lane).utf8.reduce(UInt64(1_469_598_103_934_665_603)) {
@@ -18,12 +18,9 @@ enum TraceLaneStyle {
     }
 
     static func symbol(for lane: BridgeTraceLane) -> String {
-        switch identity(for: lane) {
+        if lane.isAgent, let role = lane.role { return RoleStyle(role: role).symbol }
+        return switch identity(for: lane) {
         case "terminal": "terminal"
-        case "implementer": "hammer"
-        case "reviewer": "checkmark.shield"
-        case "coordinator": "arrow.triangle.branch"
-        case "worker": "person"
         case "codex": "terminal.fill"
         case "claude", "claude-code": "sparkle"
         case "pi": "circle.grid.2x2"
@@ -32,6 +29,6 @@ enum TraceLaneStyle {
     }
 
     private static func identity(for lane: BridgeTraceLane) -> String {
-        lane.isAgent ? (lane.role ?? lane.harness ?? lane.name).lowercased() : "terminal"
+        lane.isAgent ? (lane.harness ?? lane.name).lowercased().replacingOccurrences(of: " ", with: "-") : "terminal"
     }
 }
