@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import OSLog
 
 /// Resolves the core's terminal settings once per config, shared by live terminals and history.
@@ -12,10 +13,22 @@ enum TerminalFont {
             terminalLogger.warning("terminal.font_family: font unavailable; using system monospace")
             return fallback
         }
-        guard font.isFixedPitch || font.fontDescriptor.symbolicTraits.contains(.monoSpace) else {
-            terminalLogger.warning("terminal.font_family: font is proportional; using system monospace")
+        guard hasMatchingCharacterWidths(font) else {
+            terminalLogger.warning("terminal.font_family: font failed i/w width check; using system monospace")
             return fallback
         }
         return font
+    }
+
+    private static func hasMatchingCharacterWidths(_ font: NSFont) -> Bool {
+        let characters = Array("iw".utf16)
+        let ctFont = font as CTFont
+        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+        guard CTFontGetGlyphsForCharacters(ctFont, characters, &glyphs, characters.count) else { return false }
+        var advances = [CGSize](repeating: .zero, count: glyphs.count)
+        CTFontGetAdvancesForGlyphs(ctFont, .horizontal, glyphs, &advances, glyphs.count)
+        // Compare character advances, not ink bounds or traits affected by wider Nerd Font icons.
+        let width = advances[0].width
+        return width.isFinite && width > 0 && width == advances[1].width
     }
 }

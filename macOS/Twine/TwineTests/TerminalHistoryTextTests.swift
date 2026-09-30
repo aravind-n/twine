@@ -6,17 +6,19 @@ import Testing
 @MainActor
 struct TerminalHistoryTextTests {
     @Test func commandViewportStartsAtItsFirstOutputRow() throws {
-        let scroll = TerminalHistoryText.makeScrollView()
+        let font = try #require(NSFont(name: "Menlo-Regular", size: 18))
+        let scroll = TerminalHistoryText.makeScrollView(font: font)
         let prefix = String(repeating: "previous output\n", count: 40)
         let text = prefix + "FIRST_COMMAND_OUTPUT\n" + String(repeating: "command output\n", count: 80)
         TerminalHistoryText.show(
-            text, outputStartRange: NSRange(location: (prefix as NSString).length, length: 1), in: scroll)
+            text, outputStartRange: NSRange(location: (prefix as NSString).length, length: 1), in: scroll, font: font)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 160), styleMask: [.borderless], backing: .buffered,
             defer: false)
         window.contentView = scroll
         scroll.layoutSubtreeIfNeeded()
         let view = try #require(scroll.documentView as? NSTextView)
+        #expect(view.font == font)
         let layout = try #require(view.layoutManager)
         let container = try #require(view.textContainer)
         let glyphs = layout.glyphRange(

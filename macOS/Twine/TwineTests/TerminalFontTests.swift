@@ -5,18 +5,29 @@ import Testing
 
 @MainActor
 struct TerminalFontTests {
-    @Test(arguments: ["", " \n\t", "TwineMissingFontForTest", "Helvetica"])
-    func defaultUnavailableAndProportionalFamiliesUseSystemMonospace(family: String) {
-        let font = TerminalFont.resolve(.init(fontFamily: family, fontSize: 17.5))
-        #expect(font == NSFont.monospacedSystemFont(ofSize: 17.5, weight: .regular))
+    @Test(arguments: ["", " \n\t", "TwineMissingFontForTest", "Helvetica", "Arial"], [6.0, 17.5, 72.0])
+    func defaultUnavailableAndUnequalWidthFamiliesUseSystemMonospace(family: String, size: Double) {
+        let font = TerminalFont.resolve(.init(fontFamily: family, fontSize: size))
+        #expect(font == NSFont.monospacedSystemFont(ofSize: size, weight: .regular))
     }
 
-    @Test(arguments: ["Menlo", "Courier New", " Menlo "])
-    func installedMonospaceFamiliesResolveAtTheConfiguredSize(family: String) {
-        let font = TerminalFont.resolve(.init(fontFamily: family, fontSize: 15.5))
+    @Test(arguments: ["Menlo", "Courier New", " Menlo "], [6.0, 15.5, 72.0])
+    func installedEqualWidthFamiliesResolveAtTheConfiguredSize(family: String, size: Double) {
+        let font = TerminalFont.resolve(.init(fontFamily: family, fontSize: size))
         #expect(font.familyName == family.trimmingCharacters(in: .whitespacesAndNewlines))
-        #expect(font.pointSize == 15.5)
-        #expect(font.isFixedPitch || font.fontDescriptor.symbolicTraits.contains(.monoSpace))
+        #expect(font.pointSize == CGFloat(size))
+    }
+
+    @Test(
+        .enabled("Requires an installed Hack Nerd Font") {
+            await MainActor.run { NSFontManager.shared.availableFontFamilies.contains("Hack Nerd Font") }
+        }, arguments: [6.0, 15.5, 72.0])
+    func installedNerdFontResolvesUsingCharacterWidths(size: Double) throws {
+        let expected = try #require(
+            NSFontManager.shared.font(withFamily: "Hack Nerd Font", traits: [], weight: 5, size: size))
+        let font = TerminalFont.resolve(.init(fontFamily: "Hack Nerd Font", fontSize: size))
+        #expect(font == expected)
+        #expect(font.pointSize == CGFloat(size))
     }
 
     @Test func clientResolvesTerminalSettingsFromTheCoreSnapshot() async throws {
