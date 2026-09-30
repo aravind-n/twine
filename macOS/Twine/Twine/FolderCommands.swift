@@ -5,7 +5,8 @@ extension FocusedValues {
     /// Whether the focused window shows the folder picker.
     @Entry var isChoosingFolder: Binding<Bool>?
     @Entry var workflowActions: WorkflowActions?
-    @Entry var closeFile: (() -> Void)?
+    /// The path of the file open in the focused window.
+    @Entry var openFilePath: String?
 }
 
 struct WorkflowActions {
@@ -32,7 +33,7 @@ struct FolderCommands: Commands {
     let editor: FileEditorModel
     @FocusedBinding(\.isChoosingFolder) private var isChoosingFolder
     @FocusedValue(\.workflowActions) private var workflowActions
-    @FocusedValue(\.closeFile) private var closeFile
+    @FocusedValue(\.openFilePath) private var openFilePath
 
     var body: some Commands {
         let isRunning = coreClient.runState == .running
@@ -86,8 +87,8 @@ struct FolderCommands: Commands {
                 .keyboardShortcut("s")
                 .disabled(!editor.canSave || !isRunning)
             Button(closeTitle) {
-                if let closeFile {
-                    closeFile()
+                if openFilePath != nil {
+                    editor.select(nil)
                 } else if let close = workflowActions?.close {
                     close()
                 } else {
@@ -100,7 +101,7 @@ struct FolderCommands: Commands {
     }
 
     private var closeTitle: String {
-        if closeFile != nil { return "Close File" }
+        if openFilePath != nil { return "Close File" }
         return workflowActions?.close == nil ? "Close Window" : "Close Workflow"
     }
 }
