@@ -101,6 +101,8 @@ pub enum TerminalError {
     OffsetOverflow,
     #[error("terminal {terminal_id:?} is not open")]
     NotOpen { terminal_id: TerminalId },
+    #[error("terminal {terminal_id:?} is no longer running")]
+    NotRunning { terminal_id: TerminalId },
     #[error("failed to {operation}: {message}")]
     Pty {
         operation: &'static str,

@@ -20,6 +20,7 @@ typedef enum TwineStatus {
     TWINE_STATUS_CURSOR_EXPIRED = 6,
     TWINE_STATUS_INTERNAL_ERROR = 7,
     TWINE_STATUS_PANIC = 8,
+    TWINE_STATUS_TERMINAL_NOT_RUNNING = 9,
 } TwineStatus;
 
 typedef struct TwineBuffer {
@@ -115,6 +116,8 @@ TwineStatus twine_transcript_request_destroy(TwineTranscriptRequest *request);
 
 // Sends raw user input to a live terminal. Inputs larger than 64 KiB are rejected without reading
 // input_bytes. A null input pointer is valid only when input_length is zero.
+// Writes and resizes return TWINE_STATUS_TERMINAL_NOT_RUNNING after the process stops;
+// its remaining output and transcript stay readable until the terminal is closed.
 TwineStatus twine_client_write_terminal_input(
     TwineClient *client,
     uint64_t terminal_id,

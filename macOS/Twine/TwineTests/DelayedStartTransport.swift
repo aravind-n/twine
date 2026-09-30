@@ -9,6 +9,9 @@ actor DelayedStartTransport {
     private(set) var input = Data()
     private(set) var closedTerminalIDs: Set<UInt64> = []
     private(set) var lastResize: CoreTerminalSize?
+    private(set) var inputAttempts = 0
+    private var inputFailure: CoreFailure?
+    private var output: [CoreTerminalChunk] = []
     private var startRequestID: UInt64?
     private var nextRequestID: UInt64 = 1
     private var eventsToDeliver: [CoreEvent] = []
@@ -68,11 +71,25 @@ actor DelayedStartTransport {
     }
 
     func nextTerminalChunk() -> CoreTerminalChunk? {
-        nil
+        output.isEmpty ? nil : output.removeFirst()
     }
 
-    func writeTerminalInput(terminalID: UInt64, bytes: Data) {
+    func writeTerminalInput(terminalID: UInt64, bytes: Data) throws {
+        inputAttempts += 1
+        if let inputFailure { throw inputFailure }
         input.append(bytes)
+    }
+
+    func failInput(with failure: CoreFailure) {
+        inputFailure = failure
+    }
+
+    func enqueueOutput(_ chunk: CoreTerminalChunk) {
+        output.append(chunk)
+    }
+
+    func exitTerminal(_ terminalID: UInt64) {
+        deliver(.terminalExited(terminalID: terminalID, exit: .init(exitCode: 0, signal: nil)))
     }
 
     func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) {

@@ -20,6 +20,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     private var inputTask: Task<Void, Never>?
     private var resizeTask: Task<Void, Never>?
     private var isStopping = false
+    private var isTerminalStopped = false
     private let terminalIDBinding: Binding<UInt64?>
     private let failureMessage: Binding<String?>
     var beforeUserInput: (() async throws -> Void)?
@@ -114,7 +115,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     }
 
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        guard !data.isEmpty, !isStopping else { return }
+        guard !data.isEmpty, !isStopping, !isTerminalStopped else { return }
         guard let terminalID else {
             // The terminal takes focus before its shell starts, so hold typing until it has.
             pendingInput.append(contentsOf: data)
@@ -128,8 +129,11 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         let precedingWrite = inputTask
         inputTask = Task {
             await precedingWrite?.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !isStopping, !isTerminalStopped else { return }
             do {
+                guard coreClient.terminalStatus(for: terminalID) == .running else {
+                    throw CoreFailure.terminalNotRunning
+                }
                 if isUserInput { try await beforeUserInput?() }
                 try Task.checkCancellation()
                 var lowerBound = bytes.startIndex
@@ -139,12 +143,17 @@ final class TerminalController: NSObject, TerminalViewDelegate {
                         offsetBy: min(64 * 1024, bytes.distance(from: lowerBound, to: bytes.endIndex))
                     )
                     try Task.checkCancellation()
+                    guard !isStopping, !isTerminalStopped else { return }
                     try await coreClient.writeTerminalInput(
                         terminalID: terminalID,
                         bytes: bytes.subdata(in: lowerBound..<upperBound)
                     )
                     lowerBound = upperBound
                 }
+            } catch CoreFailure.terminalNotRunning {
+                markTerminalStopped()
+            } catch is CancellationError {
+                return
             } catch {
                 report(error)
             }
@@ -152,6 +161,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     }
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        guard !isStopping, !isTerminalStopped else { return }
         let size = terminalSize(for: source, columns: newCols, rows: newRows)
         pendingSize = size
         guard let terminalID else { return }
@@ -160,14 +170,18 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     }
 
     private func enqueueResize(_ size: CoreTerminalSize, terminalID: UInt64) {
-        guard size != lastSize else { return }
+        guard size != lastSize, !isStopping, !isTerminalStopped else { return }
         lastSize = size
         let precedingResize = resizeTask
         resizeTask = Task {
             await precedingResize?.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !isStopping, !isTerminalStopped else { return }
             do {
                 try await coreClient.resizeTerminal(terminalID: terminalID, size: size)
+            } catch CoreFailure.terminalNotRunning {
+                markTerminalStopped()
+            } catch is CancellationError {
+                return
             } catch {
                 report(error)
             }
@@ -222,6 +236,12 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         guard !isStopping else { return }
         terminalLogger.error("Terminal failed: \(error.localizedDescription, privacy: .public)")
         failureMessage.wrappedValue = error.localizedDescription
+    }
+
+    private func markTerminalStopped() {
+        guard !isTerminalStopped else { return }
+        isTerminalStopped = true
+        terminalLogger.debug("Stopped forwarding input and resizes to terminal \(self.terminalID ?? 0)")
     }
 }
 

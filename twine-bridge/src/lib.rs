@@ -1127,6 +1127,20 @@ mod tests {
         assert_eq!(events[exited]["event"]["terminalId"], terminal_id);
         assert_eq!(events[exited]["event"]["exitCode"], 3);
 
+        let input = b"late input";
+        assert_eq!(
+            // SAFETY: The client and input are live; the exited terminal is still retained.
+            unsafe {
+                twine_client_write_terminal_input(client, terminal_id, input.as_ptr(), input.len())
+            },
+            TwineStatus::TerminalNotRunning
+        );
+        assert_eq!(
+            // SAFETY: The client is live and the exited terminal is still retained.
+            unsafe { twine_client_resize_terminal(client, terminal_id, 24, 80, 800, 480) },
+            TwineStatus::TerminalNotRunning
+        );
+
         // SAFETY: The live test client is destroyed exactly once after all operations finish.
         assert_eq!(unsafe { twine_client_destroy(client) }, TwineStatus::Ok);
         std::fs::remove_file(shell_path).expect("test shell should be removed");

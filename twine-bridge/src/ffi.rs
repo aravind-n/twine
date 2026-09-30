@@ -23,6 +23,7 @@ pub enum TwineStatus {
     CursorExpired = 6,
     InternalError = 7,
     Panic = 8,
+    TerminalNotRunning = 9,
 }
 
 #[repr(C)]
@@ -89,7 +90,7 @@ pub(crate) fn catch_status(operation: impl FnOnce() -> Result<(), BridgeError>) 
             Ok(Ok(())) => TwineStatus::Ok,
             Ok(Err(error)) => {
                 let status = status_for_error(&error);
-                if !matches!(status, TwineStatus::Empty) {
+                if !matches!(status, TwineStatus::Empty | TwineStatus::TerminalNotRunning) {
                     error!(error = %describe(&error), ?status, "bridge operation failed");
                 }
                 status
@@ -257,6 +258,9 @@ pub(crate) unsafe fn write_terminal_chunk(
 
 fn status_for_error(error: &BridgeError) -> TwineStatus {
     match error {
+        BridgeError::Application(twine_core::ApplicationError::Terminal(
+            twine_core::TerminalError::NotRunning { .. },
+        )) => TwineStatus::TerminalNotRunning,
         BridgeError::Application(twine_core::ApplicationError::Event(
             twine_core::EventError::CursorExpired { .. },
         )) => TwineStatus::CursorExpired,
@@ -325,6 +329,12 @@ mod tests {
                 terminal_id: TerminalId::from_value(1),
             }));
         assert_eq!(status_for_error(&not_open), TwineStatus::InvalidArgument);
+
+        let stopped =
+            BridgeError::Application(ApplicationError::Terminal(TerminalError::NotRunning {
+                terminal_id: TerminalId::from_value(1),
+            }));
+        assert_eq!(status_for_error(&stopped), TwineStatus::TerminalNotRunning);
 
         let other = BridgeError::Application(ApplicationError::Event(EventError::SequenceOverflow));
         assert_eq!(status_for_error(&other), TwineStatus::InternalError);

@@ -18,6 +18,7 @@ nonisolated enum CoreFailure: Error, Equatable, LocalizedError, Sendable {
     case malformedCommand
     case nullPointer
     case notRunning
+    case terminalNotRunning
     case panic
     case requestIDOverflow
     case unexpectedCommandResult
@@ -45,6 +46,8 @@ nonisolated enum CoreFailure: Error, Equatable, LocalizedError, Sendable {
             "twine-core received a null pointer."
         case .notRunning:
             "twine-core isn't running."
+        case .terminalNotRunning:
+            "The terminal process has ended."
         case .panic:
             "twine-core panicked."
         case .requestIDOverflow:
