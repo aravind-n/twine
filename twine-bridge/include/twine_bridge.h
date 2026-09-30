@@ -64,6 +64,12 @@ TwineStatus twine_client_send_command(
 
 TwineStatus twine_client_snapshot(TwineClient *client, TwineBuffer *out_snapshot);
 
+// Poll expanded directories and a selected file. Same input and ownership rules as send_command.
+// Returns EMPTY while a scan is pending or the supplied revision is current (no owned buffer).
+TwineStatus twine_client_poll_files(
+    TwineClient *client, const uint8_t *request_bytes, size_t request_length, TwineBuffer *out_snapshot
+);
+
 TwineStatus twine_client_events_after(
     TwineClient *client,
     uint64_t sequence,

@@ -23,6 +23,31 @@ const MAX_PATH_BYTES: usize = 1024;
 const MAX_TERMINAL_INPUT_BYTES: usize = 64 * 1024;
 
 #[unsafe(no_mangle)]
+/// Polls lazy file listings and the read-only text preview.
+///
+/// # Safety
+/// Uses the same pointer, length, and ownership contract as `twine_client_send_command`.
+pub unsafe extern "C" fn twine_client_poll_files(
+    client: *mut TwineClient,
+    request_bytes: *const u8,
+    request_length: usize,
+    out_snapshot: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: The caller supplies writable, aligned output storage without a live allocation.
+        unsafe { ffi::initialize_buffer(out_snapshot) }?;
+        // SAFETY: The caller guarantees readable input and a live client for this call.
+        let response = unsafe {
+            ffi::with_input_bytes(request_bytes, request_length, MAX_COMMAND_BYTES, |bytes| {
+                ffi::with_client(client, |client| client.poll_files(bytes))
+            })
+        }?;
+        // SAFETY: Output was validated before allocating the response.
+        unsafe { ffi::write_buffer(out_snapshot, TwineBuffer::from_vec(response)) }
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Creates a bridge client whose core keeps its database in `data_directory`.
 ///
 /// # Safety
@@ -1033,5 +1058,111 @@ mod tests {
         let relaunched = create_client_in(data.path());
         assert_eq!(snapshot(relaunched)["folders"]["openFolder"], path);
         destroy(relaunched);
+    }
+    fn poll(client: *mut TwineClient, bytes: &[u8]) -> (TwineStatus, TwineBuffer) {
+        let mut output = TwineBuffer::empty();
+        // SAFETY: The test client and byte slice stay live; output is writable and owns no allocation.
+        let status = unsafe {
+            twine_client_poll_files(client, bytes.as_ptr(), bytes.len(), &raw mut output)
+        };
+        (status, output)
+    }
+
+    #[test]
+    fn file_snapshots_release_buffers_and_unchanged_polls_are_empty() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let (_data, client) = create_client();
+        let folder = tempfile::tempdir().unwrap();
+        let file = folder.path().join("readme.txt");
+        std::fs::write(&file, "hello").unwrap();
+        send_command(
+            client,
+            &serde_json::json!({"requestId": 1, "command": {
+                "type": "openFolder", "path": folder.path()
+            }})
+            .to_string(),
+        );
+        let mut request =
+            serde_json::json!({"folder": folder.path(), "directories": [], "file": file});
+        let baseline = ffi::live_buffer_count();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let snapshot = loop {
+            let (status, buffer) = poll(client, request.to_string().as_bytes());
+            if status == TwineStatus::Ok {
+                assert_eq!(ffi::live_buffer_count(), baseline + 1);
+                break serde_json::from_slice::<serde_json::Value>(&take_buffer(buffer)).unwrap();
+            }
+            assert_eq!(status, TwineStatus::Empty);
+            assert!(buffer.data.is_null());
+            assert_eq!(buffer.length, 0);
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(ffi::live_buffer_count(), baseline);
+        assert_eq!(snapshot["file"]["text"], "hello");
+        assert_eq!(snapshot["textLimit"], 2 * 1024 * 1024);
+        request["revision"] = snapshot["revision"].clone();
+        let (status, buffer) = poll(client, request.to_string().as_bytes());
+        assert_eq!(status, TwineStatus::Empty);
+        assert!(buffer.data.is_null());
+        assert_eq!(buffer.length, 0);
+        send_command(
+            client,
+            r#"{"requestId":2,"command":{"type":"closeFolder"}}"#,
+        );
+        assert_eq!(
+            poll(client, request.to_string().as_bytes()).0,
+            TwineStatus::InvalidArgument
+        );
+        destroy(client);
+    }
+
+    #[test]
+    fn file_poll_rejects_invalid_input_without_allocating() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let (_data, client) = create_client();
+        for (bytes, expected) in [
+            (b"{".as_slice(), TwineStatus::MalformedCommand),
+            (&[0xff], TwineStatus::InvalidUtf8),
+        ] {
+            let (status, output) = poll(client, bytes);
+            assert_eq!(status, expected);
+            assert!(output.data.is_null());
+            assert_eq!(output.length, 0);
+        }
+        let mut output = TwineBuffer::empty();
+        // SAFETY: Invalid inputs are rejected before dereference; output is valid writable storage.
+        unsafe {
+            assert_eq!(
+                twine_client_poll_files(client, std::ptr::null(), 1, &raw mut output),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_poll_files(
+                    client,
+                    std::ptr::null(),
+                    MAX_COMMAND_BYTES + 1,
+                    &raw mut output
+                ),
+                TwineStatus::InvalidArgument
+            );
+            assert_eq!(
+                twine_client_poll_files(client, std::ptr::null(), 0, std::ptr::null_mut()),
+                TwineStatus::NullPointer
+            );
+            let request = b"{}";
+            assert_eq!(
+                twine_client_poll_files(
+                    std::ptr::null_mut(),
+                    request.as_ptr(),
+                    request.len(),
+                    &raw mut output
+                ),
+                TwineStatus::NullPointer
+            );
+        }
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
+        destroy(client);
     }
 }

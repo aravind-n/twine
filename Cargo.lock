@@ -582,6 +582,7 @@ dependencies = [
  "libc",
  "portable-pty",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_ignored",
  "serde_path_to_error",

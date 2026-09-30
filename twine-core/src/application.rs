@@ -16,6 +16,7 @@ use crate::terminal::{
 
 use crate::workflow::{SessionId, WorkflowId, WorkflowKind, WorkflowState};
 
+mod files;
 mod git;
 mod sessions;
 mod terminals;
@@ -124,6 +125,7 @@ struct Inner {
 }
 
 pub struct Application {
+    files: crate::files::FileWatcher,
     // Serialize lifetime commands without holding state while joining terminal supervisors.
     commands: Mutex<()>,
     inner: Arc<Mutex<Inner>>,
@@ -190,6 +192,7 @@ impl Application {
             terminals
         };
         let application = Self {
+            files: crate::files::FileWatcher::new()?,
             commands: Mutex::new(()),
             config,
             inner: Arc::new(Mutex::new(Inner {
@@ -377,6 +380,8 @@ fn rejection(code: &str, error: &dyn std::error::Error) -> CommandDisposition {
 
 #[derive(Debug, Error)]
 pub enum ApplicationError {
+    #[error(transparent)]
+    Files(#[from] crate::files::FileError),
     #[error(transparent)]
     Event(#[from] EventError),
     #[error("session or workflow identifiers exhausted")]

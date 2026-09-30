@@ -3,6 +3,7 @@
 mod application;
 pub mod config;
 mod event;
+mod files;
 mod folder;
 mod git;
 mod store;
@@ -14,6 +15,10 @@ pub use application::{
     RequestId, Snapshot,
 };
 pub use event::{CommandResult, Event, EventError, EventKind, StateEvent};
+pub use files::{
+    DirectoryListing, FileContent, FileEntry, FileError, FileKind, FilePreview, FileSnapshot,
+    TEXT_LIMIT,
+};
 pub use folder::{FolderState, RecentFolder, UnavailableFolder, UnavailableReason};
 pub use store::StoreError;
 pub use terminal::{

@@ -5,13 +5,6 @@ import Observation
 private let bridgeLogger = Logger(subsystem: "com.twineproject.Twine", category: "bridge")
 private let commandResultCacheLimit = 256
 
-enum BridgeConnectionState: Equatable {
-    case idle
-    case starting
-    case running
-    case failed(String)
-}
-
 @MainActor
 @Observable
 final class BridgeClient {
@@ -74,6 +67,11 @@ final class BridgeClient {
         terminalChunkRouter.enqueue(chunk)
         try Task.checkCancellation()
         return terminalChunkRouter.dequeue(for: terminalID)
+    }
+
+    func pollFiles(_ request: FileBrowserRequest) async throws -> FileBrowserSnapshot? {
+        guard connectionState == .running, !isStopping, !isTerminating else { throw BridgeFailure.notConnected }
+        return try await transport.pollFiles(request)
     }
 
     func startTerminal(

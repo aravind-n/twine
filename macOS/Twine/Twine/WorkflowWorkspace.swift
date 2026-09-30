@@ -8,6 +8,7 @@ struct WorkflowWorkspace: View {
     @Environment(BridgeClient.self) private var bridgeClient
     let folder: String
     @Binding var selection: WorkflowTabSelection
+    var isVisible = true
     @State private var failureMessage: String?
 
     private var allWorkflows: [BridgeWorkflow] {
@@ -37,7 +38,7 @@ struct WorkflowWorkspace: View {
                     )
                 }
                 ForEach(allWorkflows) { workflow in
-                    let isSelected = workflow.sessionID == sessionID && workflow.id == selection.selectedID
+                    let isSelected = isVisible && workflow.sessionID == sessionID && workflow.id == selection.selectedID
                     WorkflowTerminalSurface(
                         workflow: workflow, isSelected: isSelected,
                         reportFailure: { failureMessage = $0 }

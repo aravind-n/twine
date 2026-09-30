@@ -1,5 +1,12 @@
 import Foundation
 
+enum BridgeConnectionState: Equatable {
+    case idle
+    case starting
+    case running
+    case failed(String)
+}
+
 nonisolated enum BridgeFailure: Error, Equatable, LocalizedError, Sendable {
     case commandRejected(code: String, message: String)
     case connectionFailed(String)
@@ -55,6 +62,7 @@ nonisolated protocol BridgeTransport: Sendable {
     func close() async
     func send(_ command: BridgeCommand) async throws -> BridgeCommandReceipt
     func snapshot() async throws -> BridgeSnapshot
+    func pollFiles(_ request: FileBrowserRequest) async throws -> FileBrowserSnapshot?
     func events(after sequence: UInt64, limit: UInt32) async throws -> [BridgeEvent]
     func nextTerminalChunk() async throws -> BridgeTerminalChunk?
     func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws
