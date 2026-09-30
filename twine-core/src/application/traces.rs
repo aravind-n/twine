@@ -48,11 +48,33 @@ impl Application {
             .read_store()
             .workflow_trace(workflow_id, before, limit)?;
         for span in &mut page.spans {
-            span.is_live = span.status == TraceSpanStatus::Running
-                && span.terminal_id.is_some_and(|id| {
-                    inner.trace_spans.get(&id) == Some(&span.span_id)
-                        && inner.terminals.get(&id) == Some(&TerminalStatus::Running)
+            let live_assignment = page
+                .lanes
+                .iter()
+                .find(|lane| lane.lane_id == span.lane_id)
+                .and_then(|lane| lane.agent_id)
+                .is_some_and(|agent_id| {
+                    inner.workflows.workflows.iter().any(|workflow| {
+                        workflow.workflow_id == workflow_id
+                            && workflow.run.as_ref().is_some_and(|run| {
+                                run.status == crate::RunStatus::Running
+                                    && run
+                                        .active_agents()
+                                        .iter()
+                                        .any(|agent| agent.agent_id == agent_id.0)
+                            })
+                            && workflow.agents.iter().any(|agent| {
+                                agent.agent_id == agent_id
+                                    && span.terminal_id.is_none_or(|id| agent.terminal_id == id)
+                            })
+                    })
                 });
+            span.is_live = span.status == TraceSpanStatus::Running
+                && (live_assignment
+                    || span.terminal_id.is_some_and(|id| {
+                        inner.trace_spans.get(&id) == Some(&span.span_id)
+                            && inner.terminals.get(&id) == Some(&TerminalStatus::Running)
+                    }));
         }
         Ok(page)
     }

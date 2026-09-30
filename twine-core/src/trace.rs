@@ -29,6 +29,7 @@ pub struct TraceLane {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TraceSpanStatus {
     Running,
+    Completed,
     Exited,
     Failed,
     Stopped,
@@ -44,12 +45,12 @@ pub struct TraceSpan {
     pub ended_at: Option<u64>,
     pub status: TraceSpanStatus,
     pub terminal_id: Option<TerminalId>,
-    /// True only while this application owns the corresponding running process.
+    /// True while this application owns the active assignment or corresponding running process.
     /// A historical open span has an unrecorded ending, rather than an invented completion.
     pub is_live: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct TraceAnchor {
     pub terminal_id: TerminalId,
     /// The exclusive boundary after output observed when the event happened.

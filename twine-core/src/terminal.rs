@@ -19,7 +19,7 @@ pub use transcript::TranscriptRequest;
 pub use transcript::TranscriptSize;
 pub use transcript::{MAX_TRANSCRIPT_READ_BYTES, TranscriptError, TranscriptPage, TranscriptRead};
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct TerminalId(u64);
 
 impl TerminalId {
@@ -34,7 +34,7 @@ impl TerminalId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct TerminalSize {
     pub rows: u16,
     pub columns: u16,

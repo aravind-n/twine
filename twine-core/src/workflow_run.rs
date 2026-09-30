@@ -97,6 +97,9 @@ pub struct WorkflowTrace {
     pub agent_id: Option<u64>,
     pub target_agent_id: Option<u64>,
     pub message: String,
+    /// Missing in older run records and when no terminal boundary was observed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<crate::TraceAnchor>,
 }
 
 /// Serializable run state. A run pins both its type reference and definition. Processes and
@@ -331,11 +334,15 @@ impl WorkflowRun {
             "roleCompleted",
             Some(agent_id),
             None,
-            match signal.decision {
-                Decision::Done => "Marked done",
-                Decision::Approve => "Approved",
-                Decision::RequestChanges => "Requested changes",
-            },
+            &format!(
+                "{}: {}",
+                match signal.decision {
+                    Decision::Done => "Marked done",
+                    Decision::Approve => "Approved",
+                    Decision::RequestChanges => "Requested changes",
+                },
+                signal.summary
+            ),
         );
         let decision = signal.decision;
         self.completions.insert(agent_id, signal);
@@ -387,13 +394,18 @@ impl WorkflowRun {
                         sender.label,
                         handoff.content
                     );
-                    deliveries.push((sender.agent_id, target.agent_id));
+                    deliveries.push((sender.agent_id, target.agent_id, content));
                 }
             }
         }
         self.incoming = incoming;
-        for (from, to) in deliveries {
-            self.trace("handoff", Some(from), Some(to), "Handoff delivered");
+        for (from, to, content) in deliveries {
+            self.trace(
+                "handoff",
+                Some(from),
+                Some(to),
+                &format!("Handoff delivered: {content}"),
+            );
         }
     }
 
@@ -473,6 +485,7 @@ impl WorkflowRun {
             agent_id,
             target_agent_id,
             message: message.to_owned(),
+            anchor: None,
         });
     }
 

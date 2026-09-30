@@ -42,7 +42,7 @@ nonisolated struct CoreTraceSpan: Decodable, Equatable, Identifiable, Sendable {
     var id: UInt64 { spanID }
 
     enum Status: String, Decodable, Sendable {
-        case running, exited, failed, stopped
+        case running, completed, exited, failed, stopped
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -59,6 +59,7 @@ nonisolated struct CoreTraceSpan: Decodable, Equatable, Identifiable, Sendable {
     var statusLabel: String {
         switch status {
         case .running: isLive ? "Running" : "End not recorded"
+        case .completed: "Completed"
         case .exited: "Exited"
         case .failed: "Failed"
         case .stopped: "Stopped"
@@ -68,6 +69,7 @@ nonisolated struct CoreTraceSpan: Decodable, Equatable, Identifiable, Sendable {
     var statusSymbol: String {
         switch status {
         case .running: isLive ? "circle.fill" : "questionmark.circle"
+        case .completed: "checkmark.circle"
         case .exited: "stop.circle"
         case .failed: "exclamationmark.circle"
         case .stopped: "stop.circle"
