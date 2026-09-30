@@ -228,6 +228,10 @@ private actor InterleavedTerminalBridgeTransport: BridgeTransport {
         BridgeCommandReceipt(requestID: 1, status: .accepted, error: nil)
     }
 
+    func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
+        throw BridgeFailure.invalidArgument
+    }
+
     func snapshot() -> BridgeSnapshot {
         .testReady()
     }
@@ -277,6 +281,10 @@ private actor SuspendedTerminalOutputTransport: BridgeTransport {
             )
         }
         return BridgeCommandReceipt(requestID: requestID, status: .accepted, error: nil)
+    }
+
+    func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
+        throw BridgeFailure.invalidArgument
     }
 
     func snapshot() -> BridgeSnapshot {

@@ -2,6 +2,17 @@
 
 Twine is an agent workspace for coordinating your agents
 
+## Files
+
+Show the sidebar to browse the open folder. Expanding a directory loads only its children;
+empty directories remain visible. The Rust file watcher checks expanded directories and the
+selected file every 500 ms, including changes made by shells and agents.
+
+Select a file to open its read-only text viewer. It supports UTF-8 text up to **2 MiB**, text
+selection and copying, and **⌘L** to go to a line. **⌘W** closes the file and returns to the
+workflow. Binary files, larger files, deleted paths, symbolic links, and special files show
+an explanatory state. Up to 256 directories can be expanded at once.
+
 ## Configuration
 
 Twine reads `~/.config/twine/config.toml` at startup and creates a commented default file

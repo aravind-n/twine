@@ -10,6 +10,7 @@ use twine_core::{
 
 use crate::error::BridgeError;
 
+pub(crate) mod files;
 mod workflows;
 use workflows::{WireWorkflow, WireWorkflowState};
 

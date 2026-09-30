@@ -45,6 +45,10 @@ actor DelayedStartTransport {
         return BridgeCommandReceipt(requestID: requestID, status: .accepted, error: nil)
     }
 
+    func pollFiles(_ request: FileBrowserRequest) throws -> FileBrowserSnapshot? {
+        throw BridgeFailure.invalidArgument
+    }
+
     func snapshot() -> BridgeSnapshot {
         .testReady()
     }

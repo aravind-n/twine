@@ -10,10 +10,16 @@ struct FolderView: View {
     let path: String
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var selection = WorkflowTabSelection()
+    @State private var files = FileBrowserModel()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            FolderSidebar(path: path)
+            FolderSidebar(path: path, files: files)
+                .frame(
+                    minWidth: SidebarLayout.minimumWidth,
+                    idealWidth: SidebarLayout.idealWidth,
+                    maxWidth: SidebarLayout.maximumWidth
+                )
                 .navigationSplitViewColumnWidth(
                     min: SidebarLayout.minimumWidth,
                     ideal: SidebarLayout.idealWidth,
@@ -22,8 +28,20 @@ struct FolderView: View {
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             VStack(spacing: Spacing.windowSections) {
-                WorkflowWorkspace(folder: path, selection: $selection)
-                TracesHeader()
+                ZStack {
+                    WorkflowWorkspace(folder: path, selection: $selection, isVisible: files.selectedPath == nil)
+                        .opacity(files.selectedPath == nil ? 1 : 0)
+                        .allowsHitTesting(files.selectedPath == nil)
+                        .accessibilityHidden(true, isEnabled: files.selectedPath != nil)
+                    if let selectedPath = files.selectedPath {
+                        FileViewer(
+                            path: selectedPath, folder: path, preview: files.snapshot?.file,
+                            failure: files.failure, close: { files.selectedPath = nil }
+                        )
+                        .id(selectedPath)
+                    }
+                }
+                if files.selectedPath == nil { TracesHeader() }
                 StatusFooter(
                     branch: bridgeClient.snapshot?.folders.currentBranch,
                     workflow: selectedWorkflow
@@ -37,6 +55,9 @@ struct FolderView: View {
         .navigationTitle(URL(filePath: path).lastPathComponent)
         .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
         .task(id: path) { await refreshGitBranch() }
+        .task(id: files.request(folder: path)) { await files.watch(files.request(folder: path), client: bridgeClient) }
+        .onChange(of: selection.selectedID) { files.selectedPath = nil }
+        .focusedSceneValue(\.closeFile, files.selectedPath.map { _ in { files.selectedPath = nil } })
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left") {

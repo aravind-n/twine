@@ -260,10 +260,15 @@ fn status_for_error(error: &BridgeError) -> TwineStatus {
         BridgeError::Application(twine_core::ApplicationError::Event(
             twine_core::EventError::CursorExpired { .. },
         )) => TwineStatus::CursorExpired,
-        BridgeError::Application(twine_core::ApplicationError::Terminal(
-            twine_core::TerminalError::InvalidSize { .. }
-            | twine_core::TerminalError::NotOpen { .. },
-        ))
+        BridgeError::Application(
+            twine_core::ApplicationError::Terminal(
+                twine_core::TerminalError::InvalidSize { .. }
+                | twine_core::TerminalError::NotOpen { .. },
+            )
+            | twine_core::ApplicationError::Files(
+                twine_core::FileError::InvalidRequest | twine_core::FileError::FolderChanged,
+            ),
+        )
         | BridgeError::InputTooLarge
         | BridgeError::InvalidArgument => TwineStatus::InvalidArgument,
         BridgeError::Empty => TwineStatus::Empty,

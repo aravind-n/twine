@@ -12,7 +12,7 @@ extension TwineUITests {
         app.typeText("exec /bin/sh\r")
         app.typeText("TWINE_SESSION_VALUE=original; echo $$ > original.pid\r")
         app.buttons["sidebarToggle"].click()
-        XCTAssertTrue(app.staticTexts["filesPlaceholder"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.scrollViews["fileTree"].waitForExistence(timeout: 5))
         let firstSession = app.buttons["sessionRow-1"]
         XCTAssertTrue(firstSession.exists)
         sessionAction("Rename Session", app: app)

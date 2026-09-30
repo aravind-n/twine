@@ -8,6 +8,7 @@ private let sessionLogger = Logger(subsystem: "com.twineproject.Twine", category
 struct FolderSidebar: View {
     @Environment(BridgeClient.self) private var bridgeClient
     let path: String
+    @Bindable var files: FileBrowserModel
     @State private var editor: SessionEditor?
     @State private var pendingDeletion: BridgeSession?
     @State private var failureMessage: String?
@@ -20,14 +21,10 @@ struct FolderSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             folderHeader
-            sectionHeader("Files") { Text("File explorer coming soon") }
-            Text("Files will appear here.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, SidebarLayout.sectionHeaderPadding)
-                .padding(.bottom, 12)
-                .accessibilityIdentifier("filesPlaceholder")
+            sectionHeader("Files") {
+                Button("Collapse All", systemImage: "arrow.up.left.and.arrow.down.right") { files.expanded.removeAll() }
+            }
+            FileTree(folder: path, model: files)
             Divider().padding(.horizontal, SidebarLayout.folderHeaderInset)
             sectionHeader("Sessions") {
                 Button("New Session", systemImage: "plus") { create() }
@@ -130,6 +127,7 @@ struct FolderSidebar: View {
     private func sessionRow(_ session: BridgeSession) -> some View {
         let selected = selectedSession?.id == session.id
         return Button {
+            files.selectedPath = nil
             run { try await bridgeClient.selectSession(sessionID: session.id) }
         } label: {
             HStack(spacing: 4) {

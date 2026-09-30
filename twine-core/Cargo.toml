@@ -11,6 +11,7 @@ workspace = true
 libc = "0.2"
 portable-pty = "0.9"
 rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
+rustix = { version = "1.1", features = ["fs"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_ignored = "0.1"
 serde_path_to_error = "0.1"

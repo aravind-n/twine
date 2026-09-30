@@ -12,6 +12,22 @@ pub struct TwineClient {
 }
 
 impl TwineClient {
+    pub(crate) fn poll_files(&self, bytes: &[u8]) -> Result<Vec<u8>, BridgeError> {
+        let text = std::str::from_utf8(bytes).map_err(|_| BridgeError::InvalidUtf8)?;
+        let request: protocol::files::FileRequest =
+            serde_json::from_str(text).map_err(|_| BridgeError::MalformedCommand)?;
+        let snapshot = self
+            .application
+            .poll_files(
+                &request.folder,
+                &request.directories,
+                request.file.as_deref(),
+                request.revision,
+            )?
+            .ok_or(BridgeError::Empty)?;
+        Ok(protocol::files::encode_files(&snapshot)?)
+    }
+
     pub(crate) fn new(data_directory: &Path) -> Result<Self, BridgeError> {
         Ok(Self {
             application: Application::new(data_directory)?,
