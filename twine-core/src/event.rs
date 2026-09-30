@@ -10,6 +10,7 @@ use crate::workflow::{SessionId, Workflow, WorkflowId, WorkflowState};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateEvent {
     ApplicationReady,
+    TraceChanged(crate::TraceSummary),
     WorkflowsChanged(WorkflowState),
     WorkflowChanged(Workflow),
     /// The open folder or the recent folders changed. Carries the complete new folder state.

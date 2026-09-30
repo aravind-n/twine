@@ -141,7 +141,7 @@ impl Store {
         let mut statement = self.connection.prepare(
             "SELECT a.id, a.workflow_id, a.role FROM agents a
              JOIN workflows w ON w.id = a.workflow_id JOIN sessions s ON s.id = w.session_id
-             WHERE s.folder = ?1 ORDER BY a.id",
+             WHERE s.folder = ?1 AND w.closed_at IS NULL ORDER BY a.id",
         )?;
         for agent in statement.query_map([folder.as_ref()], |row| {
             Ok((
@@ -157,7 +157,7 @@ impl Store {
         }
         let mut statement = self.connection.prepare(
             "SELECT w.id, w.session_id, w.name, w.kind, w.harness, w.agent_status FROM workflows w
-             JOIN sessions s ON s.id = w.session_id WHERE s.folder = ?1 ORDER BY w.id",
+             JOIN sessions s ON s.id = w.session_id WHERE s.folder = ?1 AND w.closed_at IS NULL ORDER BY w.id",
         )?;
         Ok(statement
             .query_map([folder.as_ref()], |row| {
@@ -254,9 +254,11 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn delete_workflow(&self, id: WorkflowId) -> Result<(), StoreError> {
-        self.connection
-            .execute("DELETE FROM workflows WHERE id = ?1", [sql_integer(id.0)?])?;
+    pub(crate) fn close_workflow(&self, id: WorkflowId, closed_at: u64) -> Result<(), StoreError> {
+        self.connection.execute(
+            "UPDATE workflows SET closed_at = ?2 WHERE id = ?1",
+            params![sql_integer(id.0)?, sql_integer(closed_at)?],
+        )?;
         Ok(())
     }
 }
@@ -290,7 +292,7 @@ fn status_from_name(name: &str) -> Option<WorkflowStatus> {
     }
 }
 
-fn harness_name(harness: HarnessId) -> &'static str {
+pub(super) fn harness_name(harness: HarnessId) -> &'static str {
     match harness {
         HarnessId::Codex => "codex",
         HarnessId::ClaudeCode => "claude_code",

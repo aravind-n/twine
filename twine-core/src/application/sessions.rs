@@ -127,6 +127,8 @@ impl Application {
                 .collect();
             for terminal_id in &terminal_ids {
                 inner.terminals.remove(terminal_id);
+                inner.trace_spans.remove(terminal_id);
+                inner.pending_trace_endings.remove(terminal_id);
                 inner
                     .events
                     .append(EventKind::State(StateEvent::TerminalClosed {

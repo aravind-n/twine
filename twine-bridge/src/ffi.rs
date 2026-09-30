@@ -267,6 +267,11 @@ fn status_for_error(error: &BridgeError) -> TwineStatus {
             )
             | twine_core::ApplicationError::Files(
                 twine_core::FileError::InvalidRequest | twine_core::FileError::FolderChanged,
+            )
+            | twine_core::ApplicationError::Trace(
+                twine_core::TraceError::InvalidLimit
+                | twine_core::TraceError::WorkflowNotFound
+                | twine_core::TraceError::SpanNotFound,
             ),
         )
         | BridgeError::InputTooLarge

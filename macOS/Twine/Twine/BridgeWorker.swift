@@ -102,6 +102,24 @@ actor BridgeWorker: BridgeTransport {
         return try decoder.decode(BridgeEventBatch.self, from: consume(&response)).events
     }
 
+    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) throws -> BridgeWorkflowTracePage {
+        var response = TwineBuffer()
+        let status = try withClient { client in
+            twine_client_workflow_trace(client, workflowID, before ?? 0, limit, &response)
+        }
+        try check(status)
+        return try decoder.decode(BridgeWorkflowTracePage.self, from: consume(&response))
+    }
+
+    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) throws -> BridgeTraceEventsPage {
+        var response = TwineBuffer()
+        let status = try withClient { client in
+            twine_client_trace_events(client, spanID, after ?? 0, limit, &response)
+        }
+        try check(status)
+        return try decoder.decode(BridgeTraceEventsPage.self, from: consume(&response))
+    }
+
     func nextTerminalChunk() throws -> BridgeTerminalChunk? {
         var chunk = TwineTerminalChunk()
         let status = try withClient { client in

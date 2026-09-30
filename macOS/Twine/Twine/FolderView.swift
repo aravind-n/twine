@@ -44,7 +44,7 @@ struct FolderView: View {
                         .id(selectedPath)
                     }
                 }
-                if editor.path == nil { TracesHeader() }
+                if editor.path == nil { TracesPanel(workflow: selectedWorkflow) }
                 StatusFooter(
                     branch: bridgeClient.snapshot?.folders.currentBranch,
                     workflow: selectedWorkflow

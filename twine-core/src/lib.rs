@@ -9,6 +9,7 @@ mod git;
 mod harness;
 mod store;
 mod terminal;
+mod trace;
 mod workflow;
 mod workflow_type;
 
@@ -38,4 +39,10 @@ pub use workflow_type::{
     MAX_PARALLEL_AGENTS, MAX_REVIEW_ROUNDS, ReviewLoop, Role, RoleId, Stage, StageId, StageRole,
     ValidationIssue, ValidationProblem, WorkflowType, WorkflowTypeDefinition, WorkflowTypeRef,
     validate,
+};
+
+pub use trace::{
+    MAX_TRACE_PAGE_SIZE, TraceAnchor, TraceError, TraceEvent, TraceEventId, TraceEventKind,
+    TraceEventsPage, TraceLane, TraceLaneId, TraceSpan, TraceSpanId, TraceSpanStatus, TraceSummary,
+    WorkflowTracePage,
 };

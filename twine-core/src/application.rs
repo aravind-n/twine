@@ -22,6 +22,7 @@ mod files;
 mod git;
 mod sessions;
 mod terminals;
+mod traces;
 mod workflows;
 
 const DATABASE_FILE_NAME: &str = "twine.db";
@@ -128,6 +129,7 @@ pub struct Snapshot {
     pub folders: FolderState,
     pub terminals: Vec<TerminalState>,
     pub workflows: WorkflowState,
+    pub traces: Vec<crate::TraceSummary>,
 }
 
 #[derive(Debug)]
@@ -137,6 +139,8 @@ struct Inner {
     events: EventJournal,
     terminals: HashMap<TerminalId, TerminalStatus>,
     workflows: WorkflowState,
+    trace_spans: HashMap<TerminalId, crate::TraceSpanId>,
+    pending_trace_endings: HashMap<TerminalId, traces::PendingTraceEnding>,
 }
 
 pub struct Application {
@@ -229,6 +233,8 @@ impl Application {
                 events,
                 terminals: HashMap::new(),
                 workflows: WorkflowState::default(),
+                trace_spans: HashMap::new(),
+                pending_trace_endings: HashMap::new(),
             })),
             terminal_output: Arc::clone(&terminal_output),
             terminals,
@@ -261,6 +267,7 @@ impl Application {
             .commands
             .lock()
             .map_err(|_| ApplicationError::Poisoned)?;
+        self.lock_inner()?.retry_trace_endings();
         let disposition = match command {
             Command::Ping => {
                 let mut inner = self.lock_inner()?;
@@ -359,6 +366,10 @@ impl Application {
             folders: inner.folders.state().clone(),
             terminals,
             workflows: inner.workflows.clone(),
+            traces: match &inner.folders.state().open_folder {
+                Some(folder) => inner.folders.read_store().trace_summaries(folder)?,
+                None => Vec::new(),
+            },
         })
     }
 
@@ -410,8 +421,18 @@ impl Inner {
 
 impl Drop for Application {
     fn drop(&mut self) {
-        // Processes that Twine stops on the way out didn't finish, so their exits aren't recorded.
         if let Ok(mut inner) = self.inner.lock() {
+            inner.retry_trace_endings();
+            let ids = inner.trace_spans.keys().copied().collect::<Vec<_>>();
+            for id in ids {
+                if let Ok(observation) = self.terminals.observe(id)
+                    && let Err(error) =
+                        inner.stop_trace(id, observation, "Process stopped when Twine quit.")
+                {
+                    tracing::warn!(%error, "failed to persist trace during shutdown");
+                }
+            }
+            // Exit callbacks are ignored after explicit shutdown takes ownership of stopping.
             inner.terminals.clear();
         }
         self.terminals.shutdown();
@@ -442,6 +463,8 @@ pub enum ApplicationError {
     Terminal(#[from] TerminalError),
     #[error(transparent)]
     Transcript(#[from] TranscriptError),
+    #[error(transparent)]
+    Trace(#[from] crate::TraceError),
 }
 
 #[cfg(test)]
@@ -546,6 +569,7 @@ mod tests {
                 folders: folders.clone(),
                 terminals: Vec::new(),
                 workflows: WorkflowState::default(),
+                traces: Vec::new(),
             }
         );
     }

@@ -67,6 +67,34 @@ impl TwineClient {
         )?)
     }
 
+    pub(crate) fn workflow_trace(
+        &self,
+        workflow_id: u64,
+        before: u64,
+        limit: usize,
+    ) -> Result<Vec<u8>, BridgeError> {
+        let page = self.application.workflow_trace(
+            twine_core::WorkflowId(workflow_id),
+            (before != 0).then_some(twine_core::TraceSpanId(before)),
+            limit,
+        )?;
+        Ok(protocol::encode_workflow_trace(&page)?)
+    }
+
+    pub(crate) fn trace_events(
+        &self,
+        span_id: u64,
+        after: u64,
+        limit: usize,
+    ) -> Result<Vec<u8>, BridgeError> {
+        let page = self.application.trace_events(
+            twine_core::TraceSpanId(span_id),
+            (after != 0).then_some(twine_core::TraceEventId(after)),
+            limit,
+        )?;
+        Ok(protocol::encode_trace_events(&page)?)
+    }
+
     pub(crate) fn next_terminal_chunk(&self) -> Result<Option<TerminalChunk>, BridgeError> {
         Ok(self.application.next_terminal_chunk()?)
     }

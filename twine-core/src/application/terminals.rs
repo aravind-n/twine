@@ -7,9 +7,10 @@ use tracing::{debug, warn};
 use super::{Application, ApplicationError, CommandDisposition, Inner, RequestId, rejection};
 use crate::event::{CommandResult, EventKind, StateEvent};
 use crate::terminal::{
-    TerminalChunk, TerminalExit, TerminalId, TerminalSize, TerminalStatus, TranscriptRead,
+    TerminalChunk, TerminalExit, TerminalId, TerminalObservation, TerminalSize, TerminalStatus,
+    TranscriptRead,
 };
-use crate::workflow::{Workflow, WorkflowKind, WorkflowStatus, timestamp};
+use crate::workflow::{Workflow, WorkflowKind, WorkflowStatus};
 
 impl Application {
     /// Starts a shell and records it as running, or rejects the command if the shell can't start.
@@ -159,9 +160,10 @@ impl Application {
     /// Records a terminal's process exit in application state.
     pub(super) fn exit_callback(
         &self,
-    ) -> impl Fn(TerminalId, Result<TerminalExit, String>) + Send + Sync + 'static {
+    ) -> impl Fn(TerminalId, Result<TerminalExit, String>, TerminalObservation) + Send + Sync + 'static
+    {
         let inner = Arc::downgrade(&self.inner);
-        move |terminal_id, result| {
+        move |terminal_id, result, observation| {
             let Some(inner) = inner.upgrade() else { return };
             let Ok(mut inner) = inner.lock() else {
                 warn!(
@@ -170,7 +172,7 @@ impl Application {
                 );
                 return;
             };
-            inner.record_terminal_exit(terminal_id, result);
+            inner.record_terminal_exit_at(terminal_id, result, observation);
         }
     }
 }
@@ -178,12 +180,29 @@ impl Application {
 impl Inner {
     /// Records how a shell ended, in the terminal's status and as an event, and ends the workflow
     /// that owns it once all of that workflow's shells have ended.
+    #[cfg(test)]
     pub(super) fn record_terminal_exit(
         &mut self,
         terminal_id: TerminalId,
         result: Result<TerminalExit, String>,
     ) {
-        if !self.terminals.contains_key(&terminal_id) {
+        self.record_terminal_exit_at(
+            terminal_id,
+            result,
+            TerminalObservation {
+                observed_at: crate::workflow::timestamp(),
+                byte_offset: 0,
+            },
+        );
+    }
+
+    pub(super) fn record_terminal_exit_at(
+        &mut self,
+        terminal_id: TerminalId,
+        result: Result<TerminalExit, String>,
+        observation: TerminalObservation,
+    ) {
+        if self.terminals.get(&terminal_id) != Some(&TerminalStatus::Running) {
             return;
         }
         let (status, event) = match result {
@@ -201,6 +220,31 @@ impl Inner {
                 },
             ),
         };
+        let (trace_status, trace_kind, trace_message) = match &status {
+            TerminalStatus::Exited(exit) => (
+                crate::TraceSpanStatus::Exited,
+                crate::TraceEventKind::ProcessExited,
+                match &exit.signal {
+                    Some(signal) => format!("Process exited with signal {signal}."),
+                    None => format!("Process exited with code {}.", exit.exit_code),
+                },
+            ),
+            TerminalStatus::Failed { message } => (
+                crate::TraceSpanStatus::Failed,
+                crate::TraceEventKind::ProcessFailed,
+                format!("Process failed: {message}"),
+            ),
+            TerminalStatus::Running => return,
+        };
+        if let Err(error) = self.end_trace(
+            terminal_id,
+            observation,
+            trace_status,
+            trace_kind,
+            &trace_message,
+        ) {
+            warn!(%error, "failed to persist process trace");
+        }
         self.terminals.insert(terminal_id, status);
         if let Some(workflow) = self.workflows.workflows.iter_mut().find(|workflow| {
             workflow.status == WorkflowStatus::Running
@@ -210,7 +254,7 @@ impl Inner {
             // Only a running workflow ends here, so a cancelled agent keeps its cancelled status. An
             // exit only means the processes ended, never that the work succeeded.
             workflow.status = status;
-            workflow.ended_at = Some(timestamp().max(workflow.started_at));
+            workflow.ended_at = Some(observation.observed_at.max(workflow.started_at));
             if workflow.kind == WorkflowKind::SingleAgent {
                 if let Err(error) = self
                     .folders
@@ -219,7 +263,6 @@ impl Inner {
                 {
                     warn!(%error, "failed to record the agent's exit");
                 }
-                // Recording the trace exit event belongs here once traces exist (TWINE-23).
                 tracing::info!(
                     workflow_id = workflow.workflow_id.0,
                     status = ?workflow.status,

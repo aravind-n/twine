@@ -11,7 +11,10 @@ use twine_core::{
 use crate::error::BridgeError;
 
 pub(crate) mod files;
+mod traces;
 mod workflows;
+use traces::WireTraceSummary;
+pub(crate) use traces::{encode_trace_events, encode_workflow_trace};
 use workflows::{WireWorkflow, WireWorkflowState};
 
 #[derive(Debug)]
@@ -86,6 +89,7 @@ struct WireSnapshot<'a> {
     folders: WireFolderState<'a>,
     terminals: Vec<WireTerminalState>,
     workflows: WireWorkflowState<'a>,
+    traces: Vec<WireTraceSummary>,
 }
 
 /// Paths serialize as strings; serde rejects a path that isn't valid UTF-8.
@@ -203,6 +207,9 @@ enum WireEventKind<'a> {
         workflow: WireWorkflow<'a>,
     },
     ApplicationReady,
+    TraceChanged {
+        summary: WireTraceSummary,
+    },
     TerminalClosed {
         terminal_id: u64,
     },
@@ -392,6 +399,7 @@ pub(crate) fn encode_snapshot(snapshot: &Snapshot) -> Result<Vec<u8>, serde_json
         folders: (&snapshot.folders).into(),
         terminals: snapshot.terminals.iter().map(wire_terminal_state).collect(),
         workflows: (&snapshot.workflows).into(),
+        traces: snapshot.traces.iter().map(Into::into).collect(),
     })
 }
 
@@ -432,6 +440,11 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
                     WireEventKind::CommandCompleted {
                         request_id: request_id.0,
                         result: result.into(),
+                    }
+                }
+                EventKind::State(StateEvent::TraceChanged(summary)) => {
+                    WireEventKind::TraceChanged {
+                        summary: summary.into(),
                     }
                 }
                 EventKind::State(StateEvent::ApplicationReady) => WireEventKind::ApplicationReady,
@@ -525,6 +538,7 @@ mod tests {
                 "config": { "appearance": { "color_scheme": "dark" } },
                 "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null, "currentBranch": null },
                 "terminals": [],
+                "traces": [],
                 "workflows": { "session": null, "sessions": [], "sessionsInitialized": false, "workflows": [] }
             })
         );
@@ -556,6 +570,7 @@ mod tests {
             },
             terminals: Vec::new(),
             workflows: twine_core::WorkflowState::default(),
+            traces: Vec::new(),
         };
         let json: Value = serde_json::from_slice(&encode_snapshot(&snapshot).unwrap()).unwrap();
         assert_eq!(

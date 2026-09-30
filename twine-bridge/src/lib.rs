@@ -228,6 +228,66 @@ pub unsafe extern "C" fn twine_client_events_after(
 }
 
 #[unsafe(no_mangle)]
+/// Returns a page of durable spans; a zero `before_span_id` reads the newest page.
+///
+/// # Safety
+/// The client must be live and exclusively owned during this call. The output must identify aligned,
+/// writable storage without a live bridge allocation. Null pointers are rejected before use.
+pub unsafe extern "C" fn twine_client_workflow_trace(
+    client: *mut TwineClient,
+    workflow_id: u64,
+    before_span_id: u64,
+    limit: u32,
+    out_page: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: Guaranteed by this function's output contract.
+        unsafe { ffi::initialize_buffer(out_page) }?;
+        if limit == 0 || limit as usize > twine_core::MAX_TRACE_PAGE_SIZE {
+            return Err(BridgeError::InvalidArgument);
+        }
+        // SAFETY: Guaranteed by this function's client contract.
+        let page = unsafe {
+            ffi::with_client(client, |client| {
+                client.workflow_trace(workflow_id, before_span_id, limit as usize)
+            })
+        }?;
+        // SAFETY: Guaranteed by this function's output contract.
+        unsafe { ffi::write_buffer(out_page, TwineBuffer::from_vec(page)) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Returns a page of span events; a zero `after_event_id` reads from the beginning.
+///
+/// # Safety
+/// The client must be live and exclusively owned during this call. The output must identify aligned,
+/// writable storage without a live bridge allocation. Null pointers are rejected before use.
+pub unsafe extern "C" fn twine_client_trace_events(
+    client: *mut TwineClient,
+    span_id: u64,
+    after_event_id: u64,
+    limit: u32,
+    out_page: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: Guaranteed by this function's output contract.
+        unsafe { ffi::initialize_buffer(out_page) }?;
+        if limit == 0 || limit as usize > twine_core::MAX_TRACE_PAGE_SIZE {
+            return Err(BridgeError::InvalidArgument);
+        }
+        // SAFETY: Guaranteed by this function's client contract.
+        let page = unsafe {
+            ffi::with_client(client, |client| {
+                client.trace_events(span_id, after_event_id, limit as usize)
+            })
+        }?;
+        // SAFETY: Guaranteed by this function's output contract.
+        unsafe { ffi::write_buffer(out_page, TwineBuffer::from_vec(page)) }
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Removes and returns the next binary terminal-output chunk.
 ///
 /// # Safety
@@ -529,6 +589,81 @@ mod tests {
                     .flatten()
             })
             .expect("start event should include the terminal ID")
+    }
+
+    #[test]
+    fn trace_reads_validate_limits_pointers_and_release_their_buffers() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let (data, client) = create_client();
+        let folder = tempfile::tempdir().unwrap();
+        send_json_command(
+            client,
+            &serde_json::json!({"requestId":1,"command":{"type":"openFolder", "path":folder.path()}}),
+        );
+        send_json_command(
+            client,
+            &serde_json::json!({"requestId":2,"command":{"type":"createWorkflow", "folder":folder.path(), "kind":"terminal", "size":{"rows":24,"columns":80,"pixelWidth":800,"pixelHeight":480}}}),
+        );
+        let workflow_id = snapshot(client)["workflows"]["workflows"][0]["workflowId"]
+            .as_u64()
+            .unwrap();
+        let mut buffer = TwineBuffer::empty();
+        // SAFETY: All output storage and client handles are valid, except intentional null tests.
+        unsafe {
+            assert_eq!(
+                twine_client_workflow_trace(client, workflow_id, 0, 0, &raw mut buffer),
+                TwineStatus::InvalidArgument
+            );
+            assert!(buffer.data.is_null());
+            assert_eq!(
+                twine_client_workflow_trace(
+                    std::ptr::null_mut(),
+                    workflow_id,
+                    0,
+                    10,
+                    &raw mut buffer
+                ),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_workflow_trace(client, workflow_id, 0, 10, std::ptr::null_mut()),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_workflow_trace(client, workflow_id, 0, 10, &raw mut buffer),
+                TwineStatus::Ok
+            );
+        }
+        let page: serde_json::Value = serde_json::from_slice(&take_buffer(buffer)).unwrap();
+        let span_id = page["spans"][0]["spanId"].as_u64().unwrap();
+        assert_eq!(page["summary"]["agentCount"], 0);
+        assert_eq!(page["spans"][0]["isLive"], true);
+        let mut buffer = TwineBuffer::empty();
+        // SAFETY: Live client and initialized writable output buffer.
+        unsafe {
+            assert_eq!(
+                twine_client_trace_events(client, span_id, 0, 10, &raw mut buffer),
+                TwineStatus::Ok
+            );
+        }
+        let page: serde_json::Value = serde_json::from_slice(&take_buffer(buffer)).unwrap();
+        assert_eq!(page["events"][0]["kind"], "processStarted");
+        assert_eq!(page["events"][0]["anchor"]["byteOffset"], 0);
+        let mut buffer = TwineBuffer::empty();
+        // SAFETY: Invalid limits/IDs must return initialized empty outputs.
+        unsafe {
+            assert_eq!(
+                twine_client_trace_events(client, span_id, 0, 201, &raw mut buffer),
+                TwineStatus::InvalidArgument
+            );
+            assert_eq!(
+                twine_client_trace_events(client, u64::MAX, 0, 10, &raw mut buffer),
+                TwineStatus::InternalError
+            );
+        }
+        destroy(client);
+        drop(data);
+        assert_eq!(ffi::live_buffer_count(), 0);
     }
 
     #[test]

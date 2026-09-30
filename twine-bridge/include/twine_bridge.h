@@ -84,6 +84,17 @@ TwineStatus twine_client_events_after(
     TwineBuffer *out_events
 );
 
+// Trace pages contain JSON metadata, never terminal bytes. Limits are 1..200.
+// A zero cursor starts at the newest spans or the first events, respectively.
+TwineStatus twine_client_workflow_trace(
+    TwineClient *client, uint64_t workflow_id, uint64_t before_span_id,
+    uint32_t limit, TwineBuffer *out_page
+);
+TwineStatus twine_client_trace_events(
+    TwineClient *client, uint64_t span_id, uint64_t after_event_id,
+    uint32_t limit, TwineBuffer *out_page
+);
+
 TwineStatus twine_client_next_terminal_chunk(
     TwineClient *client,
     TwineTerminalChunk *out_chunk

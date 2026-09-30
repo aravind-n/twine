@@ -170,6 +170,14 @@ impl Application {
             ended_at: None,
             restored: false,
         };
+        if let Err(error) = inner.start_trace(&workflow) {
+            let terminal_ids = inner.remove_workflow_terminals(&workflow);
+            let store = inner.folders.store();
+            let _ = store.close_workflow(workflow_id, timestamp());
+            drop(inner);
+            let _ = self.terminals.close_all(&terminal_ids);
+            return Err(error);
+        }
         inner.workflows.workflows.push(workflow.clone());
         inner
             .events
@@ -245,7 +253,16 @@ impl Application {
                     "The workflow is no longer open.",
                 ));
             };
-            inner.folders.store().delete_workflow(workflow_id)?;
+            let observations = inner.workflows.workflows[index]
+                .terminal_ids()
+                .into_iter()
+                .map(|id| {
+                    self.terminals
+                        .observe(id)
+                        .map(|observation| (id, observation))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            inner.close_workflow_trace(workflow_id, &observations)?;
             let mut workflow = inner.workflows.workflows.remove(index);
             workflow.status = WorkflowStatus::Closed;
             workflow
@@ -319,6 +336,7 @@ impl Application {
             sessions,
             workflows: Vec::new(),
         };
+        let mut failed_terminals = Vec::new();
         for (stored, reserved) in stored.into_iter().zip(reserved) {
             let mut reserved = reserved.into_iter();
             let mut restart = || match reserved
@@ -387,9 +405,13 @@ impl Application {
                 workflow.status = WorkflowStatus::Failed;
                 workflow.ended_at = Some(workflow.started_at);
             }
+            failed_terminals.extend(inner.record_restored_trace(&mut workflow));
             inner.workflows.workflows.push(workflow);
         }
-        inner.publish_workflows()?;
+        let published = inner.publish_workflows();
+        drop(inner);
+        self.terminals.close_all(&failed_terminals)?;
+        published?;
         Ok(())
     }
 
@@ -408,6 +430,22 @@ impl Application {
                 return Ok(disposition);
             }
             let terminal_ids = inner.terminals.keys().copied().collect::<Vec<_>>();
+            for terminal_id in &terminal_ids {
+                match self.terminals.observe(*terminal_id) {
+                    Ok(observation) => {
+                        if let Err(error) = inner.stop_trace(
+                            *terminal_id,
+                            observation,
+                            "Process stopped when its folder was closed.",
+                        ) {
+                            tracing::warn!(%error, "failed to persist trace while closing folder; cleanup continues");
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "failed to observe terminal during folder cleanup");
+                    }
+                }
+            }
             inner.terminals.clear();
             for terminal_id in &terminal_ids {
                 inner
@@ -427,6 +465,34 @@ impl Application {
         self.files.clear();
         self.restore_workflows()?;
         Ok(disposition)
+    }
+}
+
+impl super::Inner {
+    fn remove_workflow_terminals(&mut self, workflow: &Workflow) -> Vec<TerminalId> {
+        let ids = workflow.terminal_ids();
+        for id in &ids {
+            self.terminals.remove(id);
+        }
+        ids
+    }
+
+    fn record_restored_trace(&mut self, workflow: &mut Workflow) -> Vec<TerminalId> {
+        if workflow.terminal_ids().is_empty() {
+            return Vec::new();
+        }
+        if let Err(error) = self.start_trace(workflow) {
+            tracing::warn!(%error, "failed to record restored workflow starts; stopping its shells");
+            let ids = self.remove_workflow_terminals(workflow);
+            workflow.terminal_id = TerminalId::from_value(0);
+            for agent in &mut workflow.agents {
+                agent.terminal_id = TerminalId::from_value(0);
+            }
+            workflow.status = WorkflowStatus::Failed;
+            workflow.ended_at = Some(timestamp().max(workflow.started_at));
+            return ids;
+        }
+        Vec::new()
     }
 }
 

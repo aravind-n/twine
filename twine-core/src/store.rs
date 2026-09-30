@@ -5,8 +5,10 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use thiserror::Error;
 use tracing::info;
 
+mod traces;
 mod workflow_types;
 mod workflows;
+pub(crate) use traces::{NewTraceSpan, TraceEnding};
 
 pub(crate) use workflow_types::StoredWorkflowType;
 
@@ -91,6 +93,44 @@ const MIGRATIONS: &[&str] = &[
         role TEXT NOT NULL
     ) STRICT;
     CREATE INDEX agents_workflow ON agents(workflow_id)",
+    // 6: Trace history, including closed tabs.
+    "ALTER TABLE workflows ADD COLUMN closed_at INTEGER;
+    CREATE TABLE trace_lanes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+        lane_key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        is_agent INTEGER NOT NULL CHECK (is_agent IN (0, 1)),
+        role TEXT,
+        harness TEXT,
+        UNIQUE (workflow_id, lane_key)
+    ) STRICT;
+    CREATE TABLE trace_spans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lane_id INTEGER NOT NULL REFERENCES trace_lanes(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        started_at INTEGER NOT NULL CHECK (started_at >= 0),
+        ended_at INTEGER CHECK (ended_at >= started_at),
+        status TEXT NOT NULL CHECK (status IN ('running', 'exited', 'failed', 'stopped')),
+        terminal_id INTEGER
+    ) STRICT;
+    CREATE INDEX trace_spans_lane ON trace_spans(lane_id, id);
+    CREATE INDEX trace_spans_terminal ON trace_spans(terminal_id);
+    CREATE TABLE trace_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+        span_id INTEGER REFERENCES trace_spans(id) ON DELETE CASCADE,
+        timestamp INTEGER NOT NULL CHECK (timestamp >= 0),
+        kind TEXT NOT NULL CHECK (kind IN ('processStarted', 'processExited', 'processFailed', 'processStopped')),
+        message TEXT NOT NULL,
+        terminal_id INTEGER,
+        byte_offset INTEGER,
+        CHECK ((terminal_id IS NULL) = (byte_offset IS NULL)),
+        CHECK (terminal_id IS NULL OR terminal_id > 0),
+        CHECK (byte_offset IS NULL OR byte_offset >= 0)
+    ) STRICT;
+    CREATE INDEX trace_events_workflow ON trace_events(workflow_id, id);
+    CREATE INDEX trace_events_span ON trace_events(span_id, id)"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
@@ -126,6 +166,13 @@ impl Store {
             source,
         })?;
         Self::with_connection(connection)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn execute_test_sql(&self, sql: &str) {
+        self.connection
+            .execute_batch(sql)
+            .expect("test SQL should execute");
     }
 
     #[cfg(test)]
@@ -487,7 +534,13 @@ mod tests {
                 .all(|workflow| workflow.agents.is_empty())
         );
 
-        store.delete_workflow(workflow_id).unwrap();
+        store
+            .connection
+            .execute(
+                "DELETE FROM workflows WHERE id = ?1",
+                [sql_integer(workflow_id.0).unwrap()],
+            )
+            .unwrap();
         let remaining: i64 = store
             .connection
             .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get(0))
@@ -501,6 +554,169 @@ mod tests {
                     [],
                 )
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn migration_from_version_three_preserves_types_sessions_and_workflows() {
+        let connection = Connection::open_in_memory().unwrap();
+        for migration in &MIGRATIONS[..3] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 3).unwrap();
+        connection.execute_batch(
+            "INSERT INTO sessions (id, folder, name, started_at) VALUES (1, '/folder', 'Kept session', 123);
+             INSERT INTO workflows (id, session_id, name, kind) VALUES (1, 1, 'Kept workflow', 'terminal');
+             INSERT INTO folder_selection (folder, session_id) VALUES ('/folder', 1);
+             INSERT INTO workflow_types (id) VALUES (1);
+             INSERT INTO workflow_type_versions (type_id, version, definition, created_at)
+             VALUES (1, 1, 'kept definition', 123);"
+        ).unwrap();
+        let mut store = Store::with_connection(connection).unwrap();
+        assert_eq!(
+            usize::try_from(schema_version(&store.connection)).unwrap(),
+            MIGRATIONS.len()
+        );
+        assert_eq!(
+            store.sessions(Path::new("/folder")).unwrap()[0].name,
+            "Kept session"
+        );
+        assert_eq!(
+            store.selected_session(Path::new("/folder")).unwrap(),
+            Some(crate::SessionId(1))
+        );
+        let workflows = store.workflows(Path::new("/folder")).unwrap();
+        assert_eq!(workflows.len(), 1);
+        assert_eq!(workflows[0].name, "Kept workflow");
+        assert_eq!(
+            store.workflow_type_version(1, 1).unwrap().as_deref(),
+            Some("kept definition")
+        );
+        assert_eq!(
+            store
+                .add_workflow_type_version(1, "new definition", 124)
+                .unwrap(),
+            Some(2)
+        );
+        let summary = store.trace_summary(crate::WorkflowId(1)).unwrap();
+        assert_eq!(summary.span_count, 0);
+        let span = store
+            .start_trace_span(&NewTraceSpan {
+                workflow_id: crate::WorkflowId(1),
+                lane_key: "terminal",
+                lane_name: "Terminal",
+                is_agent: false,
+                role: None,
+                harness: None,
+                title: "Shell",
+                started_at: 124,
+                anchor: None,
+            })
+            .unwrap();
+        assert_eq!(
+            store
+                .trace_summary(crate::WorkflowId(1))
+                .unwrap()
+                .span_count,
+            1
+        );
+        assert_eq!(store.trace_events(span, None, 10).unwrap().events.len(), 1);
+        store.close_workflow(crate::WorkflowId(1), 125).unwrap();
+        assert!(store.workflows(Path::new("/folder")).unwrap().is_empty());
+        assert_eq!(
+            store
+                .workflow_trace(crate::WorkflowId(1), None, 10)
+                .unwrap()
+                .spans
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn migration_from_version_four_keeps_agent_harness_status_and_adds_traces() {
+        let connection = Connection::open_in_memory().unwrap();
+        for migration in &MIGRATIONS[..4] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 4).unwrap();
+        connection.execute_batch(
+            "INSERT INTO sessions (id, folder, name, started_at) VALUES (1, '/folder', 'Session', 123);
+             INSERT INTO workflows (id, session_id, name, kind, harness, agent_status)
+             VALUES (1, 1, 'Claude Code', 'single_agent', 'claude_code', 'cancelled');"
+        ).unwrap();
+        let mut store = Store::with_connection(connection).unwrap();
+        assert_eq!(
+            usize::try_from(schema_version(&store.connection)).unwrap(),
+            MIGRATIONS.len()
+        );
+        let workflows = store.workflows(Path::new("/folder")).unwrap();
+        assert_eq!(workflows.len(), 1);
+        assert_eq!(workflows[0].kind, crate::WorkflowKind::SingleAgent);
+        assert_eq!(workflows[0].harness, Some(crate::HarnessId::ClaudeCode));
+        assert_eq!(
+            workflows[0].agent_status,
+            Some(crate::WorkflowStatus::Cancelled)
+        );
+        let span = store
+            .start_trace_span(&NewTraceSpan {
+                workflow_id: workflows[0].workflow_id,
+                lane_key: "agent",
+                lane_name: "Agent",
+                is_agent: true,
+                role: Some("agent"),
+                harness: Some("Claude Code"),
+                title: "Claude Code",
+                started_at: 124,
+                anchor: None,
+            })
+            .unwrap();
+        assert_eq!(store.trace_events(span, None, 10).unwrap().events.len(), 1);
+        store.close_workflow(workflows[0].workflow_id, 125).unwrap();
+        assert!(store.workflows(Path::new("/folder")).unwrap().is_empty());
+        assert_eq!(
+            store
+                .workflow_trace(workflows[0].workflow_id, None, 10)
+                .unwrap()
+                .spans
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn migration_from_version_five_preserves_agent_identity_and_role_order() {
+        let connection = Connection::open_in_memory().unwrap();
+        for migration in &MIGRATIONS[..5] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 5).unwrap();
+        connection.execute_batch(
+            "INSERT INTO sessions (id, folder, name, started_at) VALUES (1, '/folder', 'Session', 123);
+             INSERT INTO workflows (id, session_id, name, kind) VALUES (1, 1, 'Agents', 'agents');
+             INSERT INTO agents (id, workflow_id, role) VALUES (7, 1, 'Reviewer'), (8, 1, 'Implementer');"
+        ).unwrap();
+        let store = Store::with_connection(connection).unwrap();
+        let workflows = store.workflows(Path::new("/folder")).unwrap();
+        assert_eq!(workflows[0].kind, crate::WorkflowKind::Agents);
+        assert_eq!(
+            workflows[0]
+                .agents
+                .iter()
+                .map(|agent| (agent.agent_id.0, agent.role.as_str()))
+                .collect::<Vec<_>>(),
+            [(7, "Reviewer"), (8, "Implementer")]
+        );
+        assert_eq!(
+            store
+                .trace_summary(workflows[0].workflow_id)
+                .unwrap()
+                .span_count,
+            0
+        );
+        assert_eq!(
+            usize::try_from(schema_version(&store.connection)).unwrap(),
+            MIGRATIONS.len()
         );
     }
 

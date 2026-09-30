@@ -65,6 +65,8 @@ nonisolated protocol BridgeTransport: Sendable {
     func pollFiles(_ request: FileBrowserRequest) async throws -> FileBrowserSnapshot?
     func saveFile(_ request: FileSaveRequest) async throws -> FileSaveResult
     func events(after sequence: UInt64, limit: UInt32) async throws -> [BridgeEvent]
+    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async throws -> BridgeWorkflowTracePage
+    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> BridgeTraceEventsPage
     func nextTerminalChunk() async throws -> BridgeTerminalChunk?
     func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws
     func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) async throws

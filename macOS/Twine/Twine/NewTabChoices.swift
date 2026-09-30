@@ -46,18 +46,22 @@ struct NewTabChoices: View {
         [WorkflowChoice.adversarial, .coordinator].contains { $0.rawValue == name }
     }
 
+    // A prompt form owns keyboard input, so it can use the space reserved for the shell prompt.
+    private var promptClearance: CGFloat { harness == nil ? NewTabLayout.promptClearance : 0 }
+
     private var verticalPadding: CGFloat {
-        min(
+        let minimumHeight = harness == nil ? NewTabLayout.minimumChoiceHeight : 2 * NewTabLayout.minimumChoiceHeight
+        return min(
             NewTabLayout.padding,
-            max(0, (availableHeight - NewTabLayout.promptClearance - NewTabLayout.minimumChoiceHeight) / 2))
+            max(0, (availableHeight - promptClearance - minimumHeight) / 2))
     }
 
     private var viewportHeight: CGFloat {
-        min(contentHeight, max(0, availableHeight - NewTabLayout.promptClearance - 2 * verticalPadding))
+        min(contentHeight, max(0, availableHeight - promptClearance - 2 * verticalPadding))
     }
 
     private var verticalOffset: CGFloat {
-        max(0, NewTabLayout.promptClearance - (availableHeight - viewportHeight - 2 * verticalPadding) / 2)
+        max(0, promptClearance - (availableHeight - viewportHeight - 2 * verticalPadding) / 2)
     }
 
     var body: some View {
@@ -78,6 +82,8 @@ struct NewTabChoices: View {
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { contentHeight = $0 })
             }
         }
+        // Short forms keep the prompt and actions visible; their introductory text can scroll.
+        .defaultScrollAnchor(harness == nil ? .top : .bottom)
         .scrollBounceBehavior(.basedOnSize)
         .frame(height: viewportHeight)
         .padding(.horizontal, NewTabLayout.padding)
