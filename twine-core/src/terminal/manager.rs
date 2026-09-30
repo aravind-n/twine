@@ -37,6 +37,7 @@ struct TerminalSession {
     master: Box<dyn MasterPty + Send>,
     size: TerminalSize,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    input_closed: Arc<AtomicBool>,
     child: SharedChild,
     output_position: Arc<super::ReplayPosition>,
     reader_cancelled: Arc<AtomicBool>,
@@ -208,13 +209,14 @@ impl TerminalManager {
 
     /// Stops the process but keeps the terminal open, so its output stays readable until closed.
     pub(crate) fn terminate(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
-        let child = Arc::clone(
-            &self
-                .lock_sessions()?
+        let child = {
+            let sessions = self.lock_sessions()?;
+            let session = sessions
                 .get(&terminal_id)
-                .ok_or(TerminalError::NotOpen { terminal_id })?
-                .child,
-        );
+                .ok_or(TerminalError::NotOpen { terminal_id })?;
+            session.input_closed.store(true, Ordering::Release);
+            Arc::clone(&session.child)
+        };
         terminate_child(&child);
         Ok(())
     }
@@ -266,10 +268,12 @@ impl TerminalManager {
         };
 
         let exit_reporting = Arc::new(AtomicU8::new(EXIT_REPORT_PENDING));
+        let input_closed = Arc::new(AtomicBool::new(false));
         let supervisor_thread = match spawn_terminal_supervisor(
             terminal_id,
             &child,
             &exit_reporting,
+            Arc::clone(&input_closed),
             Arc::clone(&output_position),
             on_exit,
         ) {
@@ -283,6 +287,7 @@ impl TerminalManager {
                         master,
                         size,
                         writer,
+                        input_closed,
                         child,
                         output_position,
                         reader_cancelled,
@@ -298,6 +303,7 @@ impl TerminalManager {
             master,
             size,
             writer,
+            input_closed,
             child,
             output_position,
             reader_cancelled,
@@ -331,24 +337,36 @@ impl TerminalManager {
         if bytes.is_empty() {
             return Ok(());
         }
-        let writer = Arc::clone(
-            &self
-                .lock_sessions()?
+        let (writer, input_closed) = {
+            let sessions = self.lock_sessions()?;
+            let session = sessions
                 .get(&terminal_id)
-                .ok_or(TerminalError::NotOpen { terminal_id })?
-                .writer,
-        );
+                .ok_or(TerminalError::NotOpen { terminal_id })?;
+            (
+                Arc::clone(&session.writer),
+                Arc::clone(&session.input_closed),
+            )
+        };
         let mut writer = writer.lock().map_err(|_| TerminalError::Poisoned)?;
+        if input_closed.load(Ordering::Acquire) {
+            return Err(TerminalError::NotRunning { terminal_id });
+        }
         writer
             .write_all(bytes)
-            .map_err(|error| TerminalError::Pty {
-                operation: "write terminal input",
-                message: error.to_string(),
+            .and_then(|()| writer.flush())
+            .map_err(|error| {
+                // The PTY can hang up before the supervisor publishes the process exit.
+                if terminal_input_closed(&error) {
+                    input_closed.store(true, Ordering::Release);
+                    TerminalError::NotRunning { terminal_id }
+                } else {
+                    TerminalError::Pty {
+                        operation: "write terminal input",
+                        message: error.to_string(),
+                    }
+                }
             })?;
-        writer.flush().map_err(|error| TerminalError::Pty {
-            operation: "flush terminal input",
-            message: error.to_string(),
-        })
+        Ok(())
     }
 
     pub(crate) fn resize(
@@ -361,6 +379,9 @@ impl TerminalManager {
         let session = sessions
             .get_mut(&terminal_id)
             .ok_or(TerminalError::NotOpen { terminal_id })?;
+        if session.input_closed.load(Ordering::Acquire) {
+            return Err(TerminalError::NotRunning { terminal_id });
+        }
         self.output.change_size(terminal_id, size, || {
             session
                 .master
@@ -485,6 +506,7 @@ fn spawn_terminal_supervisor(
     terminal_id: TerminalId,
     child: &SharedChild,
     exit_reporting: &Arc<AtomicU8>,
+    input_closed: Arc<AtomicBool>,
     output_position: Arc<super::ReplayPosition>,
     on_exit: ExitCallback,
 ) -> Result<JoinHandle<()>, TerminalError> {
@@ -494,6 +516,7 @@ fn spawn_terminal_supervisor(
         format!("terminal-{}-supervisor", terminal_id.value()),
         move || {
             let result = wait_for_child(&child);
+            input_closed.store(true, Ordering::Release);
             let observation = output_position
                 .observe()
                 .unwrap_or_else(|_| TerminalObservation {
@@ -552,12 +575,14 @@ fn stop_session(terminal_id: TerminalId, session: TerminalSession) {
         master,
         size: _,
         writer,
+        input_closed,
         child,
         output_position: _,
         reader_cancelled,
         reader_thread,
         supervisor_thread,
     } = session;
+    input_closed.store(true, Ordering::Release);
     reader_cancelled.store(true, Ordering::Release);
     if let Some(thread) = reader_thread
         && thread.join().is_err()
@@ -583,6 +608,17 @@ fn stop_session(terminal_id: TerminalId, session: TerminalSession) {
     }
 }
 
+fn terminal_input_closed(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::BrokenPipe {
+        return true;
+    }
+    #[cfg(unix)]
+    if error.raw_os_error() == Some(libc::EIO) {
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
@@ -591,6 +627,68 @@ mod tests {
     use super::super::launcher::shell_launcher_command;
     use super::super::pty::READ_CHUNK_BYTES;
     use super::*;
+
+    #[test]
+    fn stopped_terminals_reject_input_and_resize_but_keep_final_output() {
+        for terminate in [false, true] {
+            let stream = Arc::new(TerminalStream::for_test(64 * 1024, 256).unwrap());
+            let manager = TerminalManager::new(Arc::clone(&stream));
+            let (sender, receiver) = mpsc::sync_channel(1);
+            let mut command = CommandBuilder::new("/bin/sh");
+            command.args(["-c", "printf final-output; read line"]);
+            let terminal_id = manager
+                .start_test_command(
+                    command,
+                    test_terminal_size(),
+                    None,
+                    Arc::new(move |_, exit, _| sender.send(exit).unwrap()),
+                )
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while manager.observe(terminal_id).unwrap().byte_offset < 12 {
+                assert!(Instant::now() < deadline, "final output was not recorded");
+                thread::sleep(Duration::from_millis(5));
+            }
+            if terminate {
+                manager.terminate(terminal_id).unwrap();
+            } else {
+                manager.write_input(terminal_id, b"\n").unwrap();
+            }
+            receiver
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+            assert!(matches!(
+                manager.write_input(terminal_id, b"late input"),
+                Err(TerminalError::NotRunning { terminal_id: id }) if id == terminal_id
+            ));
+            assert!(matches!(
+                manager.resize(terminal_id, test_terminal_size()),
+                Err(TerminalError::NotRunning { terminal_id: id }) if id == terminal_id
+            ));
+            let mut output = Vec::new();
+            drain_output(&stream, terminal_id, &mut 0, &mut output);
+            assert!(String::from_utf8_lossy(&output).contains("final-output"));
+            manager.close(terminal_id).unwrap();
+        }
+    }
+
+    #[test]
+    fn only_pty_hangups_are_classified_as_stopped_input() {
+        assert!(terminal_input_closed(
+            &std::io::ErrorKind::BrokenPipe.into()
+        ));
+        #[cfg(unix)]
+        assert!(terminal_input_closed(&std::io::Error::from_raw_os_error(
+            libc::EIO
+        )));
+        for kind in [
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::Other,
+        ] {
+            assert!(!terminal_input_closed(&kind.into()));
+        }
+    }
 
     #[test]
     fn shell_output_is_ordered_and_has_absolute_byte_offsets() {

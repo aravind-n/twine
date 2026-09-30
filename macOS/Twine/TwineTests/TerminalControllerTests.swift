@@ -7,7 +7,9 @@ import Testing
 
 struct TerminalControllerTests {
     @Test @MainActor func automaticRepliesDoNotActivateAndUserBytesWaitForActivationInOrder() async throws {
-        let transport = DelayedStartTransport()
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.terminals = [.init(terminalID: 41, status: .running)]
+        let transport = DelayedStartTransport(snapshot: snapshot)
         let client = CoreClient(transport: transport)
         client.start()
         defer { Task { await client.stop() } }
@@ -32,6 +34,104 @@ struct TerminalControllerTests {
         #expect(await transport.input == automaticReply)
         try await waitUntil { await transport.input == automaticReply + Data("firstsecond".utf8) }
         #expect(activationCount == 2)
+    }
+
+    @Test(arguments: [
+        CoreTerminalState.Status.exited(.init(exitCode: 0, signal: nil)),
+        .failed(message: "Process stopped"), nil,
+    ])
+    @MainActor func endedTerminalsKeepOutputWithoutForwardingInputOrResizes(
+        status: CoreTerminalState.Status?
+    ) async throws {
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.terminals = status.map { [.init(terminalID: 41, status: $0)] } ?? []
+        let transport = DelayedStartTransport(snapshot: snapshot)
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await client.waitUntilRunning()
+        var failure: String?
+        var activations = 0
+        let controller = TerminalController(
+            coreClient: client, terminalID: 41,
+            failureMessage: Binding(get: { failure }, set: { failure = $0 })
+        )
+        controller.beforeUserInput = { activations += 1 }
+        let view = MetalTerminalView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        view.terminalDelegate = controller
+        controller.start(view: view)
+        defer { controller.stop() }
+        await transport.enqueueOutput(
+            CoreTerminalChunk(terminalID: 41, offset: 0, bytes: Data("final-output\u{1B}[6n".utf8))
+        )
+        view.insertText("late input", replacementRange: NSRange(location: NSNotFound, length: 0))
+        controller.sizeChanged(source: view, newCols: 100, newRows: 30)
+        try await waitUntil {
+            String(data: view.getTerminal().getBufferAsData(), encoding: .utf8)?.contains("final-output") == true
+        }
+        #expect(await transport.inputAttempts == 0)
+        #expect(await transport.lastResize == nil)
+        #expect(activations == 0)
+        #expect(failure == nil)
+    }
+
+    @Test @MainActor func exitDuringInputActivationDropsQueuedInput() async throws {
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.terminals = [.init(terminalID: 41, status: .running)]
+        let transport = DelayedStartTransport(snapshot: snapshot)
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await client.waitUntilRunning()
+        var failure: String?
+        let controller = TerminalController(
+            coreClient: client, terminalID: 41,
+            failureMessage: Binding(get: { failure }, set: { failure = $0 })
+        )
+        defer { controller.stop() }
+        var activated = false
+        controller.beforeUserInput = {
+            await transport.exitTerminal(41)
+            try await waitUntil { client.terminalStatus(for: 41) != .running }
+            activated = true
+        }
+        let view = MetalTerminalView(frame: .zero)
+        controller.send(source: view, data: Array("first".utf8)[...])
+        controller.send(source: view, data: Array("second".utf8)[...])
+        try await waitUntil { activated }
+        // Let both queued writes resume after activation.
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(await transport.inputAttempts == 0)
+        #expect(failure == nil)
+    }
+
+    @Test(arguments: [CoreFailure.terminalNotRunning, .internalError])
+    @MainActor func inputFailureDistinguishesProcessExitFromInternalError(error: CoreFailure) async throws {
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.terminals = [.init(terminalID: 41, status: .running)]
+        let transport = DelayedStartTransport(snapshot: snapshot)
+        await transport.failInput(with: error)
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await client.waitUntilRunning()
+        var failure: String?
+        let controller = TerminalController(
+            coreClient: client, terminalID: 41,
+            failureMessage: Binding(get: { failure }, set: { failure = $0 })
+        )
+        defer { controller.stop() }
+        let view = MetalTerminalView(frame: .zero)
+        controller.send(source: view, data: Array("first".utf8)[...])
+        controller.send(source: view, data: Array("second".utf8)[...])
+        try await waitUntil { await transport.inputAttempts > 0 }
+        try await Task.sleep(for: .milliseconds(30))
+        if error == .terminalNotRunning {
+            #expect(await transport.inputAttempts == 1)
+            #expect(failure == nil)
+        } else {
+            #expect(failure == error.localizedDescription)
+        }
     }
 
     @Test @MainActor func stopDuringStartupClosesTheLateShell() async throws {

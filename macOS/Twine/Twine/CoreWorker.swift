@@ -170,7 +170,7 @@ actor CoreWorker: CoreTransport {
                 )
             }
         }
-        try check(status)
+        try checkTerminalStatus(status)
     }
 
     func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) throws {
@@ -184,6 +184,11 @@ actor CoreWorker: CoreTransport {
                 size.pixelHeight
             )
         }
+        try checkTerminalStatus(status)
+    }
+
+    private func checkTerminalStatus(_ status: TwineStatus) throws {
+        if status == TWINE_STATUS_TERMINAL_NOT_RUNNING { throw CoreFailure.terminalNotRunning }
         try check(status)
     }
 
