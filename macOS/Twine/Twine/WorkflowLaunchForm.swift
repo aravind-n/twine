@@ -10,12 +10,15 @@ struct WorkflowLaunchForm: View {
     @State private var harnesses: [String: [BridgeHarness]] = [:]
     @State private var isStarting = false
     @State private var failure: String?
+    @State private var hasLoaded = false
+    private let preferences = WorkflowLaunchPreferences()
     @FocusState private var promptFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
             Text(type.definition.name).font(.system(size: 14, weight: .bold))
             Text(type.definition.description).font(.caption).foregroundStyle(.secondary)
+            WorkflowGraph(type: type, counts: harnesses.mapValues(\.count))
             ForEach(type.definition.roles) { role in
                 rolePickers(role)
             }
@@ -36,8 +39,9 @@ struct WorkflowLaunchForm: View {
             }.controlSize(.small)
         }
         .onAppear {
-            for role in type.definition.roles {
-                harnesses[role.id] = Array(repeating: .codex, count: role.instances.min)
+            if !hasLoaded {
+                harnesses = preferences.harnesses(for: type)
+                hasLoaded = true
             }
             promptFocused = true
         }
@@ -59,13 +63,18 @@ struct WorkflowLaunchForm: View {
             }
             ForEach(0..<(harnesses[role.id]?.count ?? 0), id: \.self) { index in
                 Picker(
-                    role.instances.max > 1 ? "\(role.name) \(index + 1)" : role.name,
                     selection: Binding(
                         get: { harnesses[role.id]?[index] ?? .codex },
                         set: { harnesses[role.id]?[index] = $0 })
                 ) {
                     ForEach(BridgeHarness.allCases) { Text($0.displayName).tag($0) }
-                }.accessibilityIdentifier("roleHarness-\(role.id)-\(index)")
+                } label: {
+                    Label(
+                        role.instances.max > 1 ? "\(role.name) \(index + 1)" : role.name,
+                        systemImage: RoleStyle(role: role.name).symbol
+                    ).foregroundStyle(RoleStyle(role: role.name).color)
+                }
+                .accessibilityIdentifier("roleHarness-\(role.id)-\(index)")
             }
         }.font(.caption).disabled(isStarting)
     }
@@ -75,6 +84,7 @@ struct WorkflowLaunchForm: View {
         let roles = type.definition.roles.flatMap { role in
             (harnesses[role.id] ?? []).map { BridgeRoleLaunch(role: role.id, harness: $0) }
         }
+        let assignments = harnesses
         isStarting = true
         failure = nil
         Task {
@@ -82,6 +92,7 @@ struct WorkflowLaunchForm: View {
             do {
                 try await client.startWorkflowRun(
                     workflowID: workflowID, workflowType: type.reference, prompt: prompt, roles: roles)
+                preferences.remember(assignments, for: type)
             } catch { failure = error.localizedDescription }
         }
     }

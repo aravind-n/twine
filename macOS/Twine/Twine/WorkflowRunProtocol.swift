@@ -1,33 +1,5 @@
 import Foundation
 
-nonisolated struct BridgeWorkflowType: Decodable, Equatable, Identifiable, Sendable {
-    let reference: Reference
-    let definition: Definition
-    var id: String { reference.builtin ?? "custom-\(reference.user?.typeID ?? 0)-\(reference.user?.version ?? 0)" }
-
-    struct Reference: Codable, Equatable, Sendable {
-        var builtin: String?
-        var user: BridgeUserWorkflowVersion?
-    }
-
-    struct Definition: Decodable, Equatable, Sendable {
-        let name: String
-        let description: String
-        let roles: [Role]
-    }
-
-    struct Role: Decodable, Equatable, Identifiable, Sendable {
-        let id: String
-        let name: String
-        let instances: Instances
-    }
-
-    struct Instances: Decodable, Equatable, Sendable {
-        let min: Int
-        let max: Int
-    }
-}
-
 nonisolated struct BridgeRoleLaunch: Codable, Equatable, Sendable {
     let role: String
     let harness: BridgeHarness
@@ -53,6 +25,13 @@ nonisolated struct BridgeWorkflowRun: Decodable, Equatable, Sendable {
     let status: Status
     let message: String?
     let agents: [Agent]
+    var stageID: String?
+    var workflowType: BridgeWorkflowType?
+
+    private enum CodingKeys: String, CodingKey {
+        case generation, stage, status, message, agents, workflowType
+        case stageID = "stageId"
+    }
 
     enum Status: String, Decodable, Sendable { case running, completed, limitReached, cancelled, failed, interrupted }
 
@@ -63,6 +42,8 @@ nonisolated struct BridgeWorkflowRun: Decodable, Equatable, Sendable {
         let reviewer: Bool
         let harness: BridgeHarness
         let targets: [Target]
+        var role: String?
+        var instance: Int?
         var id: UInt64 { agentId }
     }
 

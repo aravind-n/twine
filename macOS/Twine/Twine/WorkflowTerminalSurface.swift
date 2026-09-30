@@ -76,7 +76,7 @@ struct WorkflowTerminalSurface: View {
             GeometryReader { geometry in
                 if workflow.kind == .draft && showsChoices {
                     NewTabChoices(
-                        workflowID: workflow.id, name: workflow.name, availableHeight: geometry.size.height,
+                        workflowID: workflow.id, availableHeight: geometry.size.height,
                         isSelected: isSelected,
                         choose: choose, startAgent: startAgent, focusTerminal: { focusRequest += 1 },
                         harness: $selectedHarness, selectedType: $selectedType
@@ -113,8 +113,6 @@ struct WorkflowTerminalSurface: View {
             do {
                 if choice == .terminal {
                     try await draft.activate(client: bridgeClient, workflowID: workflow.id)
-                } else if choice != .singleAgent {
-                    try await bridgeClient.nameDraftWorkflow(workflowID: workflow.id, name: choice.rawValue)
                 }
                 focusRequest += 1
             } catch {

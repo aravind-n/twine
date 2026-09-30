@@ -7,6 +7,7 @@ struct WorkflowRunControls: View {
     let selectedAgentID: UInt64?
     @State private var showsCompletion = false
     @State private var failure: String?
+    @State private var showsGraph = false
 
     private var agent: BridgeWorkflowRun.Agent? { run.agents.first { $0.id == selectedAgentID } }
 
@@ -16,6 +17,17 @@ struct WorkflowRunControls: View {
                 Text(run.stage).fontWeight(.semibold)
                 if let agent { Text(agent.harness.displayName).foregroundStyle(.secondary) }
                 Spacer(minLength: 8)
+                if let type = run.workflowType {
+                    Button {
+                        showsGraph.toggle()
+                    } label: {
+                        Label(type.definition.name, systemImage: "flowchart")
+                    }
+                    .accessibilityIdentifier("inspectWorkflowType")
+                    .popover(isPresented: $showsGraph) {
+                        WorkflowTypeInspector(type: type, run: run)
+                    }
+                }
                 if let agent, agent.active && !agent.done {
                     Button("Mark done…") { showsCompletion = true }
                         .accessibilityIdentifier("workflowMarkDone")

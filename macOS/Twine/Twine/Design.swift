@@ -82,7 +82,8 @@ nonisolated enum NewTabLayout {
     static let sectionSpacing: CGFloat = 14
     static let headingSpacing: CGFloat = 10
     static let choiceTextSpacing: CGFloat = 4
-    static let minimumChoiceWidth: CGFloat = 160
+    /// Graph previews need room for two readable parallel role names.
+    static let minimumGraphChoiceWidth: CGFloat = 240
     static let minimumChoiceHeight: CGFloat = 64
     static let choicePadding: CGFloat = 10
     static let symbolWidth: CGFloat = 16
