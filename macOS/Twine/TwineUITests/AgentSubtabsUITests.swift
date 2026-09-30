@@ -85,7 +85,8 @@ extension TwineUITests {
         // The title bar adds 52 points to the 400 × 250 minimum content size.
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 400, height: 302))
         XCTAssertTrue(coordinator.isHittable, "The selected subtab should scroll into view\n\(app.debugDescription)")
-        app.typeText("exec /bin/sh\r")
+        // This command works in the login shell too. Replacing it here can consume typing while
+        // the new shell initializes, which would obscure the terminal's minimum-size check.
         app.typeText("stty size > rows.txt\r")
         let rowsFile = folder.appending(path: "rows.txt")
         waitForFile(rowsFile, containing: " ", in: app)
