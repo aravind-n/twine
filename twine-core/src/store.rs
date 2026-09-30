@@ -5,7 +5,10 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use thiserror::Error;
 use tracing::info;
 
+mod workflow_types;
 mod workflows;
+
+pub(crate) use workflow_types::StoredWorkflowType;
 
 /// Schema migrations in the order they apply. `PRAGMA user_version` counts the ones already applied,
 /// so append new migrations and never change or reorder one that has shipped.
@@ -34,6 +37,17 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE folder_selection (
         folder TEXT PRIMARY KEY NOT NULL,
         session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL
+    ) STRICT",
+    // 3: User-made workflow types. Versions are only ever added, so running workflows keep theirs.
+    "CREATE TABLE workflow_types (
+        id INTEGER PRIMARY KEY AUTOINCREMENT
+    ) STRICT;
+    CREATE TABLE workflow_type_versions (
+        type_id INTEGER NOT NULL REFERENCES workflow_types(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL CHECK (version > 0),
+        definition TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (type_id, version)
     ) STRICT",
 ];
 
@@ -185,6 +199,15 @@ fn migrate(connection: &mut Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+fn sql_integer(value: u64) -> Result<i64, StoreError> {
+    i64::try_from(value).map_err(|_| StoreError::InvalidIdentifier)
+}
+
+fn unsigned_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
+    let value: i64 = row.get(index)?;
+    u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(index, value))
+}
+
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("database returned an invalid identifier")]
@@ -270,6 +293,39 @@ mod tests {
             Some(id)
         );
         assert_eq!(store.workflows(Path::new("/folder")).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migration_from_version_two_preserves_sessions_and_adds_workflow_types() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(MIGRATIONS[0]).unwrap();
+        connection.execute_batch(MIGRATIONS[1]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO sessions (folder, name, started_at) VALUES ('/folder', 'Kept', 1)",
+                [],
+            )
+            .unwrap();
+        connection.pragma_update(None, "user_version", 2).unwrap();
+        migrate(&mut connection).unwrap();
+        let mut store = Store::with_connection(connection).unwrap();
+        assert_eq!(
+            store.sessions(Path::new("/folder")).unwrap()[0].name,
+            "Kept"
+        );
+        let type_id = store.create_workflow_type("definition", 1).unwrap();
+        assert_eq!(
+            store
+                .add_workflow_type_version(type_id, "edited", 2)
+                .unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            store
+                .add_workflow_type_version(type_id + 1, "missing", 3)
+                .unwrap(),
+            None
+        );
     }
 
     #[test]

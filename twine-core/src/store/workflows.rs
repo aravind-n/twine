@@ -2,7 +2,7 @@ use std::path::Path;
 
 use rusqlite::{OptionalExtension, params};
 
-use super::{Store, StoreError};
+use super::{Store, StoreError, sql_integer, unsigned_column};
 use crate::workflow::{Session, SessionId, SessionStatus, WorkflowId, WorkflowKind};
 
 pub(crate) struct StoredWorkflow {
@@ -184,13 +184,4 @@ fn kind_name(kind: WorkflowKind) -> &'static str {
         WorkflowKind::Draft => "draft",
         WorkflowKind::Terminal => "terminal",
     }
-}
-
-fn sql_integer(value: u64) -> Result<i64, StoreError> {
-    i64::try_from(value).map_err(|_| StoreError::InvalidIdentifier)
-}
-
-fn unsigned_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
-    let value: i64 = row.get(index)?;
-    u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(index, value))
 }
