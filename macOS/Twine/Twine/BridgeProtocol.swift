@@ -61,6 +61,7 @@ nonisolated struct BridgeSnapshot: Decodable, Equatable, Sendable {
     var folders: BridgeFolderState
     var terminals: [BridgeTerminalState] = []
     var workflows = BridgeWorkflowState()
+    var traces: [BridgeTraceSummary] = []
 }
 
 nonisolated struct BridgeConfig: Decodable, Equatable, Sendable {
@@ -131,6 +132,7 @@ nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
 
     enum Kind: Equatable, Sendable {
         case applicationReady
+        case traceChanged(BridgeTraceSummary)
         case workflowsChanged(BridgeWorkflowState)
         case workflowChanged(BridgeWorkflow)
         case commandCompleted(requestID: UInt64, result: BridgeCommandResult)
@@ -241,6 +243,7 @@ nonisolated private struct EventPayload: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case folders
+        case summary
         case workflows
         case workflow
         case exitCode
@@ -254,6 +257,7 @@ nonisolated private struct EventPayload: Decodable {
 
     private enum EventType: String, Decodable {
         case applicationReady
+        case traceChanged
         case commandCompleted
         case foldersChanged
         case workflowsChanged
@@ -266,6 +270,8 @@ nonisolated private struct EventPayload: Decodable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(EventType.self, forKey: .type) {
+        case .traceChanged:
+            kind = .traceChanged(try container.decode(BridgeTraceSummary.self, forKey: .summary))
         case .applicationReady:
             kind = .applicationReady
         case .commandCompleted:
@@ -358,5 +364,23 @@ nonisolated private struct CommandResultPayload: Decodable {
                 terminalID: try container.decode(UInt64.self, forKey: .terminalID)
             )
         }
+    }
+}
+
+// Trace metadata was added after the original state protocol; tolerate snapshots without it.
+extension BridgeSnapshot {
+    nonisolated private enum CodingKeys: String, CodingKey {
+        case sequence, state, config, folders, terminals, workflows, traces
+    }
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            sequence: try container.decode(UInt64.self, forKey: .sequence),
+            state: try container.decode(BridgeApplicationState.self, forKey: .state),
+            config: try container.decode(BridgeConfig.self, forKey: .config),
+            folders: try container.decode(BridgeFolderState.self, forKey: .folders),
+            terminals: try container.decodeIfPresent([BridgeTerminalState].self, forKey: .terminals) ?? [],
+            workflows: try container.decodeIfPresent(BridgeWorkflowState.self, forKey: .workflows) ?? .init(),
+            traces: try container.decodeIfPresent([BridgeTraceSummary].self, forKey: .traces) ?? [])
     }
 }

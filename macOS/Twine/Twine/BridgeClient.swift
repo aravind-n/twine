@@ -10,13 +10,14 @@ private let commandResultCacheLimit = 256
 final class BridgeClient {
     private(set) var connectionState = BridgeConnectionState.idle
     private(set) var snapshot: BridgeSnapshot?
+    private(set) var traceSnapshotGeneration: UInt64 = 0
     private(set) var lastCommandCompletion: BridgeCommandCompletion?
 
-    private let transport: any BridgeTransport
+    let transport: any BridgeTransport
     private var eventTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
-    private var isStopping = false
-    private var isTerminating = false
+    private(set) var isStopping = false
+    private(set) var isTerminating = false
     private var commandResults: [UInt64: BridgeCommandResult] = [:]
     private var ignoredCommandResults: Set<UInt64> = []
     private var commandWaiters: [UInt64: CheckedContinuation<BridgeCommandResult, any Error>] = [:]
@@ -159,6 +160,7 @@ final class BridgeClient {
             terminalChunkRouter.markClosed(terminal.terminalID)
         }
         self.snapshot = snapshot
+        traceSnapshotGeneration &+= 1
     }
 
     private func apply(_ events: [BridgeEvent]) -> Bool {
@@ -185,6 +187,9 @@ final class BridgeClient {
 
     private func apply(_ event: BridgeEvent.Kind, to snapshot: inout BridgeSnapshot) {
         switch event {
+        case .traceChanged(let summary):
+            snapshot.traces.removeAll { $0.workflowID == summary.workflowID }
+            snapshot.traces.append(summary)
         case .applicationReady:
             snapshot.state = BridgeApplicationState(status: .ready)
         case .commandCompleted(let requestID, let result):
@@ -282,10 +287,12 @@ extension BridgeClient {
             for terminalID in workflow.terminalIDs { markTerminalRunning(terminalID, in: &snapshot) }
         }
         snapshot.workflows = state
+        snapshot.traces.removeAll { summary in !state.workflows.contains { $0.id == summary.workflowID } }
     }
 
     private func applyWorkflow(_ workflow: BridgeWorkflow, to snapshot: inout BridgeSnapshot) {
         if workflow.status == .closed {
+            snapshot.traces.removeAll { $0.workflowID == workflow.id }
             snapshot.workflows.workflows.removeAll { $0.id == workflow.id }
             for terminalID in workflow.terminalIDs { markTerminalClosed(terminalID, in: &snapshot) }
         } else if let index = snapshot.workflows.workflows.firstIndex(where: { $0.id == workflow.id }) {
@@ -341,16 +348,6 @@ extension BridgeClient {
 }
 
 extension BridgeClient {
-    func pollFiles(_ request: FileBrowserRequest) async throws -> FileBrowserSnapshot? {
-        guard connectionState == .running, !isStopping, !isTerminating else { throw BridgeFailure.notConnected }
-        return try await transport.pollFiles(request)
-    }
-
-    func saveFile(_ request: FileSaveRequest) async throws -> FileSaveResult {
-        guard connectionState == .running, !isStopping, !isTerminating else { throw BridgeFailure.notConnected }
-        return try await transport.saveFile(request)
-    }
-
     /// Waits until the connection is running. Throws if it fails or the waiting task is cancelled.
     func waitUntilRunning() async throws {
         while true {
@@ -378,15 +375,4 @@ extension BridgeClient {
         }
     }
 
-    func terminalStatus(for terminalID: UInt64) -> BridgeTerminalState.Status? {
-        snapshot?.terminals.first { $0.terminalID == terminalID }?.status
-    }
-
-    func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws {
-        try await transport.writeTerminalInput(terminalID: terminalID, bytes: bytes)
-    }
-
-    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) async throws {
-        try await transport.resizeTerminal(terminalID: terminalID, size: size)
-    }
 }

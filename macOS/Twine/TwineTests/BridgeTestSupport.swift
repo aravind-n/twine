@@ -32,3 +32,13 @@ func waitUntil(
     let holds = await condition()
     try #require(holds, sourceLocation: sourceLocation)
 }
+
+// Existing terminal-only doubles do not service trace reads. Trace tests supply their own reads.
+extension BridgeTransport {
+    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async throws -> BridgeWorkflowTracePage {
+        throw BridgeFailure.unexpectedCommandResult
+    }
+    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> BridgeTraceEventsPage {
+        throw BridgeFailure.unexpectedCommandResult
+    }
+}
