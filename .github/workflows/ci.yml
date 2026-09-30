@@ -45,6 +45,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/**'
+              - 'Makefile'
             lockfile:
               - 'Cargo.lock'
               - '.github/workflows/_cargo-audit.yml'
@@ -55,8 +56,10 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/**'
+              - 'Makefile'
             workflows:
               - '.github/**'
+              - 'Makefile'
 
   library-checks:
     needs: changes
@@ -203,10 +206,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Lint workflows
-        run: |
-          docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.12 \
-            -color -ignore 'label "xcode-27" is unknown'
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: actionlint@1.7.12,shellcheck
+      - name: Check release tooling and workflows
+        run: make check-release
 
   ci-gate:
     needs: [changes, library-checks, library-build, cargo-audit, app-checks, actionlint]
