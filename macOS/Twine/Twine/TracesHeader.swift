@@ -31,6 +31,7 @@ struct TracesHeader: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(isExpanded ? "Traces, expanded" : "Traces, collapsed")
         .accessibilityHint("Toggle the activity timeline")
         .accessibilityIdentifier("tracesHeader")

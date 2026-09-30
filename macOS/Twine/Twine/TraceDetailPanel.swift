@@ -40,6 +40,7 @@ struct TraceDetailPanel: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(.secondarySurface)
         .overlay(alignment: .leading) { Divider() }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("traceDetailPanel")
         .task(id: copyRequested) {
             guard let id = copyRequested else { return }
