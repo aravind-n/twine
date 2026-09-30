@@ -376,7 +376,7 @@ nonisolated private struct CommandResultPayload: Decodable {
 // Trace metadata was added after the original state protocol; tolerate snapshots without it.
 extension BridgeSnapshot {
     nonisolated private enum CodingKeys: String, CodingKey {
-        case sequence, state, config, folders, terminals, workflows, traces
+        case sequence, state, config, folders, terminals, workflows, traces, workflowTypes
     }
     nonisolated init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -387,6 +387,7 @@ extension BridgeSnapshot {
             folders: try container.decode(BridgeFolderState.self, forKey: .folders),
             terminals: try container.decodeIfPresent([BridgeTerminalState].self, forKey: .terminals) ?? [],
             workflows: try container.decodeIfPresent(BridgeWorkflowState.self, forKey: .workflows) ?? .init(),
-            traces: try container.decodeIfPresent([BridgeTraceSummary].self, forKey: .traces) ?? [])
+            traces: try container.decodeIfPresent([BridgeTraceSummary].self, forKey: .traces) ?? [],
+            workflowTypes: try container.decodeIfPresent([BridgeWorkflowType].self, forKey: .workflowTypes))
     }
 }
