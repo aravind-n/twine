@@ -6,3 +6,9 @@ extension CoreClient {
         }
     }
 }
+
+extension CoreFailure {
+    var isGitBranchReadFailure: Bool {
+        if case .commandRejected(let code, _) = self { code == "gitBranchReadFailed" } else { false }
+    }
+}

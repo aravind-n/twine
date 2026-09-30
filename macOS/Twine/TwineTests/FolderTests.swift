@@ -25,6 +25,27 @@ struct FolderTests {
             try await Self.refreshBranch("main", folder: folder.path, client: client, worker: worker)
             try "ref: refs/heads/feature\n".write(to: head, atomically: true, encoding: .utf8)
             try await Self.refreshBranch("feature", folder: folder.path, client: client, worker: worker)
+
+            // A real process-launch failure must reach Swift without clearing the known branch.
+            let beforeFailure = try await worker.snapshot()
+            try FileManager.default.removeItem(at: folder.url)
+            let failure = await #expect(throws: CoreFailure.self) {
+                try await client.refreshGitBranch(folder: folder.path)
+            }
+            #expect(failure?.isGitBranchReadFailure == true)
+            let afterFailure = try await worker.snapshot()
+            #expect(afterFailure.folders == beforeFailure.folders)
+            #expect(afterFailure.sequence == beforeFailure.sequence)
+            #expect(client.snapshot?.folders.currentBranch == "feature")
+
+            try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
+            try await Self.refreshBranch(nil, folder: folder.path, client: client, worker: worker)
+            for directory in [".git/objects", ".git/refs/heads"] {
+                try FileManager.default.createDirectory(
+                    at: folder.url.appending(path: directory), withIntermediateDirectories: true)
+            }
+            try "ref: refs/heads/recovered\n".write(to: head, atomically: true, encoding: .utf8)
+            try await Self.refreshBranch("recovered", folder: folder.path, client: client, worker: worker)
             await client.perform(.openFolder(path: other.path))
             try await waitUntil { client.snapshot?.folders.openFolder == other.path }
             #expect(client.snapshot?.folders.currentBranch == nil)
@@ -35,26 +56,28 @@ struct FolderTests {
         }
     }
 
-    /// A refresh can be accepted without a branch when Git times out. Retry as the app does,
-    /// then independently verify that the client receives the successful core state change. A busy
-    /// CI runner can keep Git past the core's one-second timeout for several seconds in a row.
+    /// Retry only explicit Git read failures under load, then check both core and client state.
     private static func refreshBranch(
-        _ expected: String,
+        _ expected: String?,
         folder: String,
         client: CoreClient,
         worker: CoreWorker
     ) async throws {
         let clock = ContinuousClock()
         let deadline = clock.now + .seconds(30)
-        var branch: String?
-        repeat {
-            try await client.refreshGitBranch(folder: folder)
-            branch = try await worker.snapshot().folders.currentBranch
-            if branch == expected { break }
-            try await clock.sleep(for: .milliseconds(50))
-        } while clock.now < deadline
-        try #require(branch == expected)
-        try await waitUntil { client.snapshot?.folders.currentBranch == expected }
+        while true {
+            do {
+                try await client.refreshGitBranch(folder: folder)
+            } catch let error as CoreFailure where error.isGitBranchReadFailure {
+                guard clock.now < deadline else { throw error }
+                try await clock.sleep(for: .milliseconds(50))
+                continue
+            }
+            let branch = try await worker.snapshot().folders.currentBranch
+            try #require(branch == expected)
+            try await waitUntil { client.snapshot?.folders.currentBranch == expected }
+            return
+        }
     }
 
     private static let noFolders = CoreFolderState(openFolder: nil, recentFolders: [], unavailableFolder: nil)
