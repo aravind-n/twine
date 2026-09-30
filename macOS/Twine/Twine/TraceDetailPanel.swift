@@ -3,6 +3,7 @@ import SwiftUI
 
 struct TraceDetailPanel: View {
     @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(TraceTerminalNavigation.self) private var navigation
     let span: BridgeTraceSpan
     let lane: BridgeTraceLane
     @Bindable var state: TracePanelState
@@ -104,7 +105,22 @@ struct TraceDetailPanel: View {
                 Text(event.kind.label).foregroundStyle(TraceLaneStyle.color(for: lane))
             }
             .logMetadataStyle()
-            Text(event.message).font(.caption).textSelection(.enabled)
+            if event.anchor != nil {
+                Button {
+                    navigation.jump(to: event, lane: lane)
+                } label: {
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(event.message).font(.caption).multilineTextAlignment(.leading)
+                        Image(systemName: "arrow.up.forward").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Show terminal output at this event")
+                .accessibilityLabel("Show output: \(event.message)")
+                .accessibilityIdentifier("traceJump-\(event.id)")
+            } else {
+                Text(event.message).font(.caption).textSelection(.enabled)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12).padding(.vertical, 8)

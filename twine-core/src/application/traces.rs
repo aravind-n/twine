@@ -25,6 +25,7 @@ impl PendingTraceEnding {
             anchor: Some(TraceAnchor {
                 terminal_id,
                 byte_offset: self.observation.byte_offset,
+                boundary_sizes: self.observation.boundary_sizes.clone(),
             }),
         }
     }
@@ -99,12 +100,13 @@ impl Inner {
                     anchor: Some(TraceAnchor {
                         terminal_id: agent.terminal_id,
                         byte_offset: 0,
+                        boundary_sizes: Some(Vec::new()),
                     }),
                 })
                 .collect::<Vec<_>>();
             let ids = self.folders.store().start_trace_spans(&spans)?;
             for (span, id) in spans.iter().zip(ids) {
-                if let Some(anchor) = span.anchor {
+                if let Some(anchor) = &span.anchor {
                     self.trace_spans.insert(anchor.terminal_id, id);
                 }
             }
@@ -210,7 +212,7 @@ impl Inner {
                         .get(terminal_id)
                         .cloned()
                         .unwrap_or_else(|| PendingTraceEnding {
-                            observation: *observation,
+                            observation: observation.clone(),
                             status: TraceSpanStatus::Stopped,
                             kind: TraceEventKind::ProcessStopped,
                             message: "Process stopped when its workflow was closed.".to_owned(),
@@ -275,6 +277,7 @@ fn new_span(workflow: &Workflow) -> NewTraceSpan<'_> {
         anchor: Some(TraceAnchor {
             terminal_id: workflow.terminal_id,
             byte_offset: 0,
+            boundary_sizes: Some(Vec::new()),
         }),
     }
 }
@@ -394,6 +397,7 @@ mod tests {
             TerminalObservation {
                 observed_at: workflow.started_at + 10,
                 byte_offset: 42,
+                boundary_sizes: Some(Vec::new()),
             },
         );
         assert_eq!(
@@ -414,7 +418,7 @@ mod tests {
             .trace_events(span.span_id, None, 10)
             .unwrap()
             .events;
-        assert_eq!(events[1].anchor.unwrap().byte_offset, 42);
+        assert_eq!(events[1].anchor.as_ref().unwrap().byte_offset, 42);
         application.lock_inner().unwrap().record_terminal_exit_at(
             second,
             Ok(crate::TerminalExit {
@@ -424,6 +428,7 @@ mod tests {
             TerminalObservation {
                 observed_at: workflow.started_at + 20,
                 byte_offset: 70,
+                boundary_sizes: Some(Vec::new()),
             },
         );
         let snapshot = application.snapshot().unwrap();
@@ -767,6 +772,7 @@ mod tests {
             TerminalObservation {
                 observed_at: at,
                 byte_offset: 42,
+                boundary_sizes: Some(Vec::new()),
             },
         );
         assert_eq!(
@@ -797,7 +803,7 @@ mod tests {
         assert_eq!(events[1].kind, TraceEventKind::ProcessExited);
         assert!(events[1].message.contains("code 7"));
         assert_eq!(events[1].timestamp, at);
-        assert_eq!(events[1].anchor.unwrap().byte_offset, 42);
+        assert_eq!(events[1].anchor.as_ref().unwrap().byte_offset, 42);
     }
 
     #[test]
@@ -981,7 +987,7 @@ mod tests {
             let span_id = trace.spans[0].span_id;
             let events = application.trace_events(span_id, None, 10).unwrap().events;
             assert_eq!(events.len(), 2);
-            let anchor = events[1].anchor.unwrap();
+            let anchor = events[1].anchor.as_ref().unwrap().clone();
             assert_eq!(anchor.terminal_id, workflow.terminal_id);
             assert!(anchor.byte_offset > 0);
             let expected = application
@@ -1077,8 +1083,8 @@ mod tests {
         assert!(!page.spans[0].is_live);
         let events = application.trace_events(span_id, None, 10).unwrap().events;
         assert_eq!(events.len(), 2);
-        assert!(events[1].anchor.unwrap().byte_offset >= observation.byte_offset);
-        assert!(events[1].anchor.unwrap().byte_offset > 0);
+        assert!(events[1].anchor.as_ref().unwrap().byte_offset >= observation.byte_offset);
+        assert!(events[1].anchor.as_ref().unwrap().byte_offset > 0);
     }
 
     #[test]

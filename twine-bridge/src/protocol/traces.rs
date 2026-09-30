@@ -29,6 +29,7 @@ impl From<&TraceSummary> for WireTraceSummary {
 struct WireLane<'a> {
     lane_id: u64,
     workflow_id: u64,
+    agent_id: Option<u64>,
     name: &'a str,
     is_agent: bool,
     role: Option<&'a str>,
@@ -40,6 +41,7 @@ impl<'a> From<&'a TraceLane> for WireLane<'a> {
         Self {
             lane_id: lane.lane_id.0,
             workflow_id: lane.workflow_id.0,
+            agent_id: lane.agent_id.map(|id| id.0),
             name: &lane.name,
             is_agent: lane.is_agent,
             role: lane.role.as_deref(),
@@ -86,6 +88,13 @@ impl<'a> From<&'a TraceSpan> for WireSpan<'a> {
 struct WireAnchor {
     terminal_id: u64,
     byte_offset: u64,
+    boundary_sizes: Option<Vec<WireSize>>,
+}
+
+#[derive(Serialize)]
+struct WireSize {
+    rows: u16,
+    columns: u16,
 }
 
 #[derive(Serialize)]
@@ -108,9 +117,18 @@ impl<'a> From<&'a TraceEvent> for WireTraceEvent<'a> {
             span_id: event.span_id.map(|id| id.0),
             timestamp: event.timestamp,
             message: &event.message,
-            anchor: event.anchor.map(|anchor| WireAnchor {
+            anchor: event.anchor.as_ref().map(|anchor| WireAnchor {
                 terminal_id: anchor.terminal_id.value(),
                 byte_offset: anchor.byte_offset,
+                boundary_sizes: anchor.boundary_sizes.as_ref().map(|sizes| {
+                    sizes
+                        .iter()
+                        .map(|size| WireSize {
+                            rows: size.rows,
+                            columns: size.columns,
+                        })
+                        .collect()
+                }),
             }),
             kind: match event.kind {
                 TraceEventKind::ProcessStarted => "processStarted",
@@ -185,6 +203,7 @@ mod tests {
                 anchor: Some(TraceAnchor {
                     terminal_id: TerminalId::from_value(99),
                     byte_offset: 42,
+                    boundary_sizes: Some(Vec::new()),
                 }),
             }],
         };
@@ -192,7 +211,7 @@ mod tests {
             serde_json::from_slice(&encode_trace_events(&page).unwrap()).unwrap();
         assert_eq!(
             json["events"][0]["anchor"],
-            serde_json::json!({"terminalId": 99, "byteOffset": 42})
+            serde_json::json!({"terminalId": 99, "byteOffset": 42, "boundarySizes": []})
         );
         assert_eq!(json["nextAfter"], 7);
         page.events[0].anchor = None;

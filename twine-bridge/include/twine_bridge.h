@@ -100,6 +100,19 @@ TwineStatus twine_client_next_terminal_chunk(
     TwineTerminalChunk *out_chunk
 );
 
+// Nonblocking transcript requests. Empty from start means the bounded queue is full; Empty from
+// poll means the read is pending. Continue servicing live I/O between attempts. Destroy each request
+// once, even when canceled. Poll returns a binary buffer released with twine_buffer_release.
+// Little-endian u64 flags: 1 = expired (no other fields), 2 = complete replay prefix available.
+// Otherwise u64 offset, next_offset, end_offset, resize_count; then resize_count records of
+// u64 byte_offset and u16 rows, columns, pixel_width, pixel_height; then the raw output bytes.
+typedef struct TwineTranscriptRequest TwineTranscriptRequest;
+TwineStatus twine_client_request_transcript(
+    TwineClient *client, uint64_t terminal_id, uint64_t offset, uint32_t limit, TwineTranscriptRequest **out_request
+);
+TwineStatus twine_transcript_request_poll(TwineTranscriptRequest *request, TwineBuffer *out_page);
+TwineStatus twine_transcript_request_destroy(TwineTranscriptRequest *request);
+
 // Sends raw user input to a live terminal. Inputs larger than 64 KiB are rejected without reading
 // input_bytes. A null input pointer is valid only when input_length is zero.
 TwineStatus twine_client_write_terminal_input(

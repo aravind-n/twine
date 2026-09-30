@@ -101,6 +101,7 @@ struct AgentPanes: View {
 /// One agent's terminal: filling the panel, or in Bento mode a rounded pane under a header whose
 /// menu picks the pane's agent.
 private struct AgentPane: View {
+    @Environment(TraceTerminalNavigation.self) private var navigation
     @Environment(\.appearsActive) private var appearsActive
     let agent: BridgeAgent
     let workflow: BridgeWorkflow
@@ -112,6 +113,12 @@ private struct AgentPane: View {
     let focusRequest: Int
     let focus: () -> Void
     let place: (UInt64) -> Void
+    private var history: TraceTerminalTarget? {
+        navigation.target.flatMap { target in
+            target.agentID == agent.id || (target.agentID == nil && target.anchor.terminalID == agent.terminalID)
+                ? target : nil
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -128,14 +135,23 @@ private struct AgentPane: View {
                 .onTapGesture(perform: focus)
             } else {
                 TerminalSurface(
-                    terminalID: agent.terminalID, isVisible: isWorkflowSelected && isShown,
-                    isSelected: isWorkflowSelected && isFocused, focusRequest: focusRequest,
+                    terminalID: agent.terminalID, isVisible: isWorkflowSelected && isShown && history == nil,
+                    isSelected: isWorkflowSelected && isFocused && history == nil, focusRequest: focusRequest,
                     padding: isTiled ? BentoLayout.terminalPadding : Spacing.terminalContent,
                     subject: workflow.run == nil ? "Shell" : "Agent", isCancelled: workflow.status == .cancelled,
                     didFocus: focus
                 )
                 // A stage that starts the agent gives it a new terminal, so the emulator must be rebuilt for it.
                 .id(agent.terminalID)
+            }
+        }
+        .overlay {
+            if let history {
+                TerminalHistorySurface(target: history) {
+                    focus()
+                    navigation.target = nil
+                }
+                .id(history.id)
             }
         }
         .background(.terminalBackground)

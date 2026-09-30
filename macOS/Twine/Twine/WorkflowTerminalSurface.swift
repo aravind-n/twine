@@ -3,6 +3,7 @@ import SwiftUI
 /// Keeps the live terminal mounted while its draft choices appear and disappear above it.
 struct WorkflowTerminalSurface: View {
     @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(TraceTerminalNavigation.self) private var navigation
     let folder: String
     let workflow: BridgeWorkflow
     let isSelected: Bool
@@ -12,6 +13,9 @@ struct WorkflowTerminalSurface: View {
     @State private var focusRequest = 0
     @State private var selectedHarness: BridgeHarness?
     @State private var selectedType: BridgeWorkflowType?
+    private var history: TraceTerminalTarget? {
+        navigation.target.flatMap { $0.workflowID == workflow.id ? $0 : nil }
+    }
 
     var body: some View {
         if workflow.kind == .agents {
@@ -33,6 +37,15 @@ struct WorkflowTerminalSurface: View {
                     terminal
                 }
             }
+            .overlay {
+                if let history {
+                    TerminalHistorySurface(target: history) {
+                        navigation.target = nil
+                        focusRequest += 1
+                    }
+                    .id(history.id)
+                }
+            }
         }
     }
 
@@ -50,7 +63,8 @@ struct WorkflowTerminalSurface: View {
 
     private var terminal: some View {
         TerminalSurface(
-            terminalID: workflow.terminalID, isVisible: isSelected, isSelected: isSelected, focusRequest: focusRequest,
+            terminalID: workflow.terminalID, isVisible: isSelected && history == nil,
+            isSelected: isSelected && history == nil, focusRequest: focusRequest,
             automaticallyFocuses: workflow.kind != .draft || (selectedHarness == nil && selectedType == nil),
             subject: workflow.kind == .singleAgent ? "Agent" : "Shell", isCancelled: workflow.status == .cancelled
         ) {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -21,10 +21,11 @@ const EXIT_REPORT_PENDING: u8 = 0;
 const EXIT_REPORT_ENABLED: u8 = 1;
 const EXIT_REPORT_SUPPRESSED: u8 = 2;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct TerminalObservation {
     pub observed_at: u64,
     pub byte_offset: u64,
+    pub boundary_sizes: Option<Vec<TerminalSize>>,
 }
 
 type ExitCallback = Arc<
@@ -36,7 +37,7 @@ struct TerminalSession {
     size: TerminalSize,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: SharedChild,
-    output_position: Arc<AtomicU64>,
+    output_position: Arc<super::ReplayPosition>,
     reader_cancelled: Arc<AtomicBool>,
     reader_thread: Option<JoinHandle<()>>,
     supervisor_thread: Option<JoinHandle<()>>,
@@ -180,7 +181,14 @@ impl TerminalManager {
         working_directory_handshake: Option<PathBuf>,
         on_exit: ExitCallback,
     ) -> Result<TerminalId, TerminalError> {
-        let output_position = self.output.output_position(terminal_id)?;
+        let output_position = self.output.replay_position(terminal_id)?;
+        if let Err(error) = size
+            .validate()
+            .and_then(|size| self.output.record_size(terminal_id, size))
+        {
+            let _ = self.output.cancel(terminal_id);
+            return Err(error);
+        }
         let starting = match spawn_terminal_process(command, size, working_directory_handshake) {
             Ok(starting) => starting,
             Err(error) => {
@@ -307,13 +315,15 @@ impl TerminalManager {
         let session = sessions
             .get_mut(&terminal_id)
             .ok_or(TerminalError::NotOpen { terminal_id })?;
-        session
-            .master
-            .resize(size.into())
-            .map_err(|error| TerminalError::Pty {
-                operation: "resize PTY",
-                message: error.to_string(),
-            })?;
+        self.output.change_size(terminal_id, size, || {
+            session
+                .master
+                .resize(size.into())
+                .map_err(|error| TerminalError::Pty {
+                    operation: "resize PTY",
+                    message: error.to_string(),
+                })
+        })?;
         session.size = size;
         Ok(())
     }
@@ -326,10 +336,7 @@ impl TerminalManager {
         let session = sessions
             .get(&terminal_id)
             .ok_or(TerminalError::NotOpen { terminal_id })?;
-        Ok(TerminalObservation {
-            observed_at: crate::workflow::timestamp(),
-            byte_offset: session.output_position.load(Ordering::Acquire),
-        })
+        session.output_position.observe()
     }
 
     pub(crate) fn close(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
@@ -417,7 +424,7 @@ fn spawn_terminal_supervisor(
     terminal_id: TerminalId,
     child: &SharedChild,
     exit_reporting: &Arc<AtomicU8>,
-    output_position: Arc<AtomicU64>,
+    output_position: Arc<super::ReplayPosition>,
     on_exit: ExitCallback,
 ) -> Result<JoinHandle<()>, TerminalError> {
     let child = Arc::clone(child);
@@ -426,10 +433,13 @@ fn spawn_terminal_supervisor(
         .name(format!("terminal-{}-supervisor", terminal_id.value()))
         .spawn(move || {
             let result = wait_for_child(&child);
-            let observation = TerminalObservation {
-                observed_at: crate::workflow::timestamp(),
-                byte_offset: output_position.load(Ordering::Acquire),
-            };
+            let observation = output_position
+                .observe()
+                .unwrap_or_else(|_| TerminalObservation {
+                    observed_at: crate::workflow::timestamp(),
+                    byte_offset: 0,
+                    boundary_sizes: None,
+                });
             while exit_reporting.load(Ordering::Acquire) == EXIT_REPORT_PENDING {
                 thread::sleep(Duration::from_millis(1));
             }

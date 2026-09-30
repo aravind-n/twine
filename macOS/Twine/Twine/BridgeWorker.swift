@@ -136,6 +136,29 @@ actor BridgeWorker: BridgeTransport {
         )
     }
 
+    func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async throws -> BridgeTranscriptPage? {
+        var request: OpaquePointer?
+        while request == nil {
+            try Task.checkCancellation()
+            let status = try withClient { client in
+                twine_client_request_transcript(client, terminalID, offset, limit, &request)
+            }
+            if status == TWINE_STATUS_EMPTY { try await Task.sleep(for: .milliseconds(10)) } else { try check(status) }
+        }
+        defer { _ = twine_transcript_request_destroy(request) }
+        while true {
+            try Task.checkCancellation()
+            var response = TwineBuffer()
+            let status = twine_transcript_request_poll(request, &response)
+            if status == TWINE_STATUS_EMPTY {
+                try await Task.sleep(for: .milliseconds(10))
+            } else {
+                try check(status)
+                return try BridgeTranscriptPage.decode(consume(&response))
+            }
+        }
+    }
+
     func writeTerminalInput(terminalID: UInt64, bytes: Data) throws {
         let status = try withClient { client in
             bytes.withUnsafeBytes { input in

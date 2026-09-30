@@ -117,6 +117,22 @@ impl Application {
             .read_transcript(terminal_id, offset, limit)?)
     }
 
+    /// Begins a transcript read without waiting for recording or storage. `None` means the bounded
+    /// request queue is full; callers may retry while continuing to service live terminals.
+    ///
+    /// # Errors
+    /// Returns an invalid limit, cancellation, or a recording failure.
+    pub fn request_terminal_transcript(
+        &self,
+        terminal_id: TerminalId,
+        offset: u64,
+        limit: usize,
+    ) -> Result<Option<crate::TranscriptRequest>, ApplicationError> {
+        Ok(self
+            .terminal_output
+            .request_transcript(terminal_id, offset, limit)?)
+    }
+
     /// Writes binary user input to a live terminal.
     ///
     /// # Errors
@@ -192,6 +208,7 @@ impl Inner {
             TerminalObservation {
                 observed_at: crate::workflow::timestamp(),
                 byte_offset: 0,
+                boundary_sizes: Some(Vec::new()),
             },
         );
     }
@@ -236,6 +253,7 @@ impl Inner {
             ),
             TerminalStatus::Running => return,
         };
+        let observed_at = observation.observed_at;
         if let Err(error) = self.end_trace(
             terminal_id,
             observation,
@@ -254,7 +272,7 @@ impl Inner {
             // Only a running workflow ends here, so a cancelled agent keeps its cancelled status. An
             // exit only means the processes ended, never that the work succeeded.
             workflow.status = status;
-            workflow.ended_at = Some(observation.observed_at.max(workflow.started_at));
+            workflow.ended_at = Some(observed_at.max(workflow.started_at));
             if workflow.kind == WorkflowKind::SingleAgent {
                 if let Err(error) = self
                     .folders

@@ -160,6 +160,9 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE trace_events_v7 RENAME TO trace_events;
     CREATE INDEX trace_events_workflow ON trace_events(workflow_id, id);
     CREATE INDEX trace_events_span ON trace_events(span_id, id)",
+    // 8: Ordered terminal sizes at an anchored trace event's byte boundary.
+    "ALTER TABLE trace_events ADD COLUMN boundary_sizes BLOB CHECK
+        (boundary_sizes IS NULL OR (length(boundary_sizes) <= 2048 AND length(boundary_sizes) % 8 = 0))"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
