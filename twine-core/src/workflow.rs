@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::harness::HarnessId;
 use crate::terminal::TerminalId;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -15,6 +16,7 @@ pub struct WorkflowId(pub u64);
 pub enum WorkflowKind {
     Draft,
     Terminal,
+    SingleAgent,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,6 +24,10 @@ pub enum WorkflowStatus {
     Running,
     Exited,
     Failed,
+    /// The user stopped the agent.
+    Cancelled,
+    /// Twine quit or crashed while the work was running; it did not finish.
+    Interrupted,
     Closed,
 }
 
@@ -48,6 +54,8 @@ pub struct Workflow {
     pub session_id: SessionId,
     pub name: String,
     pub kind: WorkflowKind,
+    /// The harness filling a single-agent workflow's role.
+    pub harness: Option<HarnessId>,
     pub terminal_id: TerminalId,
     pub status: WorkflowStatus,
     pub started_at: u64,

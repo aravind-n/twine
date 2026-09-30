@@ -49,6 +49,23 @@ const MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL,
         PRIMARY KEY (type_id, version)
     ) STRICT",
+    // 4: Single-agent workflows record their harness and how the agent last ended.
+    "CREATE TABLE workflows_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('draft', 'terminal', 'single_agent')),
+        harness TEXT CHECK (harness IN ('codex', 'claude_code', 'pi')),
+        agent_status TEXT CHECK (agent_status IN ('running', 'exited', 'failed', 'cancelled'))
+    ) STRICT;
+    INSERT INTO workflows_new (id, session_id, name, kind)
+        SELECT id, session_id, name, kind FROM workflows;
+    UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE(
+        (SELECT seq FROM sqlite_sequence WHERE name = 'workflows'), 0))
+        WHERE name = 'workflows_new';
+    DROP TABLE workflows;
+    ALTER TABLE workflows_new RENAME TO workflows;
+    CREATE INDEX workflows_session ON workflows(session_id)",
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
@@ -239,6 +256,7 @@ pub enum StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workflow::SessionId;
 
     fn schema_version(connection: &Connection) -> i64 {
         connection
@@ -326,6 +344,52 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn migration_from_version_two_keeps_workflows_and_stores_a_harness() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        connection.execute_batch(MIGRATIONS[0]).unwrap();
+        connection.execute_batch(MIGRATIONS[1]).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO sessions VALUES (1, '/folder', 'Session', 1);
+                 INSERT INTO workflows VALUES (1, 1, 'Terminal', 'terminal');
+                 INSERT INTO workflows VALUES (2, 1, 'Terminal', 'terminal');
+                 INSERT INTO workflows VALUES (3, 1, 'Terminal', 'terminal');
+                 DELETE FROM workflows WHERE id IN (2, 3)",
+            )
+            .unwrap();
+        connection.pragma_update(None, "user_version", 2).unwrap();
+        migrate(&mut connection).unwrap();
+        let store = Store::with_connection(connection).unwrap();
+
+        // Workflow 3 was deleted before the migration, and its ID must not come back.
+        let id = store
+            .create_workflow(SessionId(1), "New workflow", crate::WorkflowKind::Draft)
+            .unwrap();
+        assert!(
+            id.0 > 3,
+            "deleted workflow IDs must not be reused, got {id:?}"
+        );
+        store
+            .update_workflow(
+                id,
+                "Single agent",
+                crate::WorkflowKind::SingleAgent,
+                Some(crate::HarnessId::ClaudeCode),
+            )
+            .unwrap();
+
+        let workflows = store.workflows(Path::new("/folder")).unwrap();
+        assert_eq!(workflows.len(), 2);
+        assert_eq!(workflows[0].kind, crate::WorkflowKind::Terminal);
+        assert_eq!(workflows[0].harness, None);
+        assert_eq!(workflows[1].kind, crate::WorkflowKind::SingleAgent);
+        assert_eq!(workflows[1].harness, Some(crate::HarnessId::ClaudeCode));
     }
 
     #[test]

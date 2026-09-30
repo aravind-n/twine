@@ -8,6 +8,8 @@ mod process;
 mod pty;
 mod stream;
 
+#[cfg(not(test))]
+pub(crate) use launcher::login_shell;
 pub(crate) use manager::TerminalManager;
 pub(crate) use stream::TerminalStream;
 

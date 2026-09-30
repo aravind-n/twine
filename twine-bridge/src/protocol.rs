@@ -238,6 +238,8 @@ enum WireCommandResult {
     WorkflowCreated { workflow_id: u64 },
     WorkflowActivated { workflow_id: u64 },
     WorkflowClosed { workflow_id: u64 },
+    AgentStarted { workflow_id: u64 },
+    AgentCancelled { workflow_id: u64 },
     Pong,
     TerminalStarted { terminal_id: u64 },
     TerminalClosed { terminal_id: u64 },
@@ -265,6 +267,12 @@ impl From<&CommandResult> for WireCommandResult {
                 workflow_id: workflow_id.0,
             },
             CommandResult::WorkflowClosed { workflow_id } => Self::WorkflowClosed {
+                workflow_id: workflow_id.0,
+            },
+            CommandResult::AgentStarted { workflow_id } => Self::AgentStarted {
+                workflow_id: workflow_id.0,
+            },
+            CommandResult::AgentCancelled { workflow_id } => Self::AgentCancelled {
                 workflow_id: workflow_id.0,
             },
             CommandResult::Pong => Self::Pong,
@@ -310,7 +318,8 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
             })
         }
         "createSession" | "renameSession" | "selectSession" | "deleteSession"
-        | "createWorkflow" | "activateWorkflow" | "nameDraftWorkflow" | "closeWorkflow" => {
+        | "createWorkflow" | "activateWorkflow" | "nameDraftWorkflow" | "closeWorkflow"
+        | "startAgent" | "cancelAgent" => {
             DecodedCommand::Known(workflows::decode_command(command_type, &raw.command)?)
         }
         "startTerminal" => {
@@ -461,6 +470,38 @@ mod tests {
     use super::*;
     use twine_core::config::{Appearance, ColorScheme, Config};
     use twine_core::{RecentFolder, UnavailableFolder};
+
+    fn decode(json: &str) -> Command {
+        match decode_command(json.as_bytes()).unwrap().command {
+            DecodedCommand::Known(command) => command,
+            DecodedCommand::Unsupported(kind) => panic!("unsupported command {kind}"),
+        }
+    }
+
+    #[test]
+    fn agent_commands_decode_their_harness_prompt_and_size() {
+        let size = r#""size": {"rows": 24, "columns": 80, "pixelWidth": 800, "pixelHeight": 480}"#;
+        let start = decode(&format!(
+            r#"{{"requestId": 1, "command": {{"type": "startAgent", "workflowId": 7,
+                "harness": "claudeCode", "prompt": "-fix it", {size}}}}}"#
+        ));
+        assert!(matches!(
+            start,
+            Command::StartAgent { workflow_id, harness: twine_core::HarnessId::ClaudeCode, ref prompt, .. }
+                if workflow_id.0 == 7 && prompt == "-fix it"
+        ));
+        let cancel =
+            decode(r#"{"requestId": 2, "command": {"type": "cancelAgent", "workflowId": 7}}"#);
+        assert!(matches!(cancel, Command::CancelAgent { workflow_id } if workflow_id.0 == 7));
+        let unknown = decode_command(
+            format!(
+                r#"{{"requestId": 3, "command": {{"type": "startAgent", "workflowId": 7,
+                    "harness": "nope", "prompt": "x", {size}}}}}"#
+            )
+            .as_bytes(),
+        );
+        assert!(matches!(unknown, Err(BridgeError::MalformedCommand)));
+    }
 
     #[test]
     fn snapshot_serializes_validated_config() {
