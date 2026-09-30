@@ -98,8 +98,8 @@
                     .tabTitleStyle(isSelected: false)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "Traces").panelTitleStyle()
-                    Text(verbatim: "Agent activity over time").panelSubtitleStyle()
+                    Text(verbatim: "Activity").panelTitleStyle()
+                    Text(verbatim: "Steps in start order").panelSubtitleStyle()
                 }
             }
         }

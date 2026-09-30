@@ -86,7 +86,7 @@ extension TwineUITests {
         XCTAssertFalse(root.exists, "The sidebar should start hidden")
         let traces = app.descendants(matching: .any).matching(identifier: "tracesHeader").firstMatch
         XCTAssertTrue(traces.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(traces.label, "Traces, collapsed")
+        XCTAssertEqual(traces.label, "Activity, collapsed")
         XCTAssertEqual(traces.frame.height, 48, accuracy: 1)
 
         // The terminal takes typing on open; the subsequent checks also type without clicking it.

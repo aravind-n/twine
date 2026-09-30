@@ -51,36 +51,12 @@ struct TraceTimelineTests {
         #expect(TracePanelLayout(width: 1_500, showsDetails: true).detailWidth == 440)
     }
 
-    @Test func minimumWidthCollisionsArePackedEvenWhenTimeIntervalsDoNotOverlap() {
-        let spans = [
-            traceSpan(id: 1, start: 0, end: 10), traceSpan(id: 2, start: 20, end: 30),
-            traceSpan(id: 3, start: 200, end: 210),
-        ]
-        let layout = TraceTimelineLayout(spans: spans, now: 1_000)
-        let placements = layout.placements(spans: spans, width: 500, now: 1_000)
-        #expect(placements.map(\.row) == [0, 1, 0])
-        #expect(placements.allSatisfy { $0.width >= 40 && $0.offset >= 0 && $0.offset + $0.width <= 500 })
-    }
-
-    @Test func simultaneousSpansRemainDistinctAndLanesArePackedIndependently() {
-        let first = traceSpan(id: 1, laneID: 1, start: 100, end: 1_100)
-        let second = traceSpan(id: 2, laneID: 1, start: 100, end: 1_100)
-        let otherLane = traceSpan(id: 3, laneID: 2, start: 100, end: 1_100)
-        let layout = TraceTimelineLayout(spans: [first, second, otherLane], now: 1_100)
-        #expect(layout.placements(spans: [second, first], width: 400, now: 1_100).map(\.row) == [0, 1])
-        #expect(layout.placements(spans: [otherLane], width: 400, now: 1_100)[0].row == 0)
-    }
-
     @Test func unrecordedEndDoesNotExtendHistoricalActivity() {
         let historical = traceSpan(start: 100, end: nil, status: .running)
         let live = traceSpan(id: 2, start: 100, end: nil, status: .running, live: true)
         #expect(historical.end(at: 5_000) == 100)
         #expect(historical.statusLabel == "End not recorded")
         #expect(live.end(at: 5_000) == 5_000)
-        let layout = TraceTimelineLayout(spans: [historical], now: 5_000)
-        let placement = layout.placements(spans: [historical], width: 0, now: 5_000)[0]
-        #expect(placement.width == 40)
-        #expect(placement.offset.isFinite)
     }
 
     @Test func unfinishedOwnedAssignmentContinuesAfterItsProcessExit() throws {

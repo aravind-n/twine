@@ -79,7 +79,7 @@ struct TracesPanel: View {
         GeometryReader { geometry in
             let layout = TracePanelLayout(width: geometry.size.width, showsDetails: state.selectedSpan != nil)
             HStack(spacing: 0) {
-                timelineContent(now: now, labelWidth: layout.labelWidth)
+                sequenceContent(now: now, labelWidth: layout.labelWidth)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if let span = state.selectedSpan, let lane = state.selectedLane {
                     TraceDetailPanel(span: span, lane: lane, state: state, now: now) {
@@ -93,24 +93,24 @@ struct TracesPanel: View {
     }
 
     @ViewBuilder
-    private func timelineContent(now: UInt64, labelWidth: CGFloat) -> some View {
+    private func sequenceContent(now: UInt64, labelWidth: CGFloat) -> some View {
         if state.spans.isEmpty {
             if state.isLoading {
-                ProgressView("Loading traces…").controlSize(.small)
+                ProgressView("Loading activity…").controlSize(.small)
             } else if let failure = state.failureMessage {
                 ContentUnavailableView(
-                    "Traces Couldn't Load", systemImage: "exclamationmark.triangle",
+                    "Activity Couldn't Load", systemImage: "exclamationmark.triangle",
                     description: Text(failure))
             } else {
                 ContentUnavailableView(
-                    "No traces yet", systemImage: "waveform.path",
+                    "No activity yet", systemImage: "waveform.path",
                     description: Text("Activity appears here when a workflow runs.")
                 )
                 .accessibilityIdentifier("tracesEmptyState")
             }
         } else {
             VStack(spacing: 0) {
-                TraceTimeline(
+                TraceSequence(
                     lanes: state.lanes, spans: state.spans,
                     selectedSpanID: state.selectedSpanID, now: now,
                     labelWidth: labelWidth
@@ -120,7 +120,7 @@ struct TracesPanel: View {
                     withAnimation(reduceMotion ? nil : Motion.traceDetailPanel) { state.selectedSpanID = id }
                 }
                 HStack {
-                    Text(state.failureMessage ?? "Select a span to inspect its events.")
+                    Text(state.failureMessage ?? "Steps are spaced by start order.")
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     if state.nextBefore != nil {
