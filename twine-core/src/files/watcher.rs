@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use super::{FileBrowser, FileError, FileSnapshot, validate_request};
@@ -31,30 +31,28 @@ impl FileWatcher {
     pub(crate) fn new() -> Result<Self, FileError> {
         let state = Arc::new((Mutex::new(State::default()), Condvar::new()));
         let shared = Arc::clone(&state);
-        let thread = thread::Builder::new()
-            .name("twine-files".into())
-            .spawn(move || {
-                let mut browser = FileBrowser::default();
-                watch(&shared, |request| {
-                    let Some(request) = request else {
-                        browser.clear();
-                        return None;
-                    };
-                    match browser.poll(
-                        &request.folder,
-                        &request.directories,
-                        request.file.as_deref(),
-                        None,
-                    ) {
-                        Ok(snapshot) => snapshot,
-                        Err(error) => {
-                            tracing::error!(%error, "file scan failed");
-                            None
-                        }
+        let thread = crate::blocking_worker::spawn("twine-files".into(), move || {
+            let mut browser = FileBrowser::default();
+            watch(&shared, |request| {
+                let Some(request) = request else {
+                    browser.clear();
+                    return None;
+                };
+                match browser.poll(
+                    &request.folder,
+                    &request.directories,
+                    request.file.as_deref(),
+                    None,
+                ) {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => {
+                        tracing::error!(%error, "file scan failed");
+                        None
                     }
-                });
-            })
-            .map_err(FileError::StartWatcher)?;
+                }
+            });
+        })
+        .map_err(FileError::StartWatcher)?;
         Ok(Self {
             state,
             thread: Some(thread),
@@ -169,6 +167,7 @@ fn watch(
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
+    use std::thread;
     use std::time::Instant;
 
     use super::*;

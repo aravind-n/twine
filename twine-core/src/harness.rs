@@ -138,10 +138,7 @@ enum LoginPathState {
 
 impl LoginPath {
     pub(crate) fn spawn(shell: PathBuf) -> Self {
-        match thread::Builder::new()
-            .name("login-path".to_owned())
-            .spawn(move || login_shell_path(&shell))
-        {
+        match crate::blocking_worker::spawn("login-path".into(), move || login_shell_path(&shell)) {
             Ok(handle) => Self(Mutex::new(LoginPathState::Pending(handle))),
             Err(error) => {
                 debug!(%error, "failed to start the login PATH lookup");

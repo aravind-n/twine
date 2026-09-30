@@ -2,7 +2,9 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
-use std::thread::{self, JoinHandle};
+#[cfg(test)]
+use std::thread;
+use std::thread::JoinHandle;
 
 use thiserror::Error;
 use tracing::warn;
@@ -216,9 +218,9 @@ impl TranscriptRecorder {
             limits,
         });
         let worker_shared = Arc::clone(&shared);
-        let worker = thread::Builder::new()
-            .name("terminal-transcripts".into())
-            .spawn(move || run_worker(storage, &worker_shared))?;
+        let worker = crate::blocking_worker::spawn("terminal-transcripts".into(), move || {
+            run_worker(storage, &worker_shared);
+        })?;
         Ok(Self {
             shared,
             worker: Mutex::new(Some(worker)),
