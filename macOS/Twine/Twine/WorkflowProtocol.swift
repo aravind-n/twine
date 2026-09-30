@@ -59,6 +59,7 @@ nonisolated struct BridgeWorkflow: Decodable, Equatable, Identifiable, Sendable 
     let startedAt: UInt64
     let endedAt: UInt64?
     var restored = false
+    var run: BridgeWorkflowRun?
 
     var id: UInt64 { workflowID }
 
@@ -84,6 +85,7 @@ nonisolated struct BridgeWorkflow: Decodable, Equatable, Identifiable, Sendable 
 
     enum Status: String, Decodable, Sendable {
         case running
+        case completed
         case exited
         case failed
         case cancelled
@@ -95,7 +97,7 @@ nonisolated struct BridgeWorkflow: Decodable, Equatable, Identifiable, Sendable 
         case workflowID = "workflowId"
         case sessionID = "sessionId"
         case terminalID = "terminalId"
-        case name, kind, harness, agents, status, startedAt, endedAt, restored
+        case name, kind, harness, agents, status, startedAt, endedAt, restored, run
     }
 }
 
@@ -125,5 +127,5 @@ extension BridgeWorkflow {
         }
     }
 
-    var isRunningAgent: Bool { kind == .singleAgent && status == .running }
+    var isRunningAgent: Bool { (kind == .singleAgent || run != nil) && status == .running }
 }

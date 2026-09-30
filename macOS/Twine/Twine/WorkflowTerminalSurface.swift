@@ -9,6 +9,8 @@ struct WorkflowTerminalSurface: View {
     @State private var draft = WorkflowDraftPresentation()
     @State private var showsChoices = false
     @State private var focusRequest = 0
+    @State private var selectedHarness: BridgeHarness?
+    @State private var selectedType: BridgeWorkflowType?
 
     var body: some View {
         if workflow.kind == .agents {
@@ -48,6 +50,7 @@ struct WorkflowTerminalSurface: View {
     private var terminal: some View {
         TerminalSurface(
             terminalID: workflow.terminalID, isSelected: isSelected, focusRequest: focusRequest,
+            automaticallyFocuses: workflow.kind != .draft || (selectedHarness == nil && selectedType == nil),
             subject: workflow.kind == .singleAgent ? "Agent" : "Shell", isCancelled: workflow.status == .cancelled
         ) {
             try await draft.activate(client: bridgeClient, workflowID: workflow.id)
@@ -58,8 +61,10 @@ struct WorkflowTerminalSurface: View {
             GeometryReader { geometry in
                 if workflow.kind == .draft && showsChoices {
                     NewTabChoices(
-                        name: workflow.name, availableHeight: geometry.size.height, isSelected: isSelected,
-                        choose: choose, startAgent: startAgent, focusTerminal: { focusRequest += 1 }
+                        workflowID: workflow.id, name: workflow.name, availableHeight: geometry.size.height,
+                        isSelected: isSelected,
+                        choose: choose, startAgent: startAgent, focusTerminal: { focusRequest += 1 },
+                        harness: $selectedHarness, selectedType: $selectedType
                     )
                     .frame(
                         maxWidth: min(

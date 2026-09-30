@@ -24,13 +24,15 @@ enum WorkflowChoice: String, CaseIterable, Identifiable {
         switch self {
         case .terminal: "An interactive shell"
         case .singleAgent: "One agent runs your prompt"
-        case .adversarial: "Agents review each other — coming soon"
-        case .coordinator: "A coordinator directs agents — coming soon"
+        case .adversarial: "An implementer and reviewer collaborate"
+        case .coordinator: "A coordinator directs parallel workers"
         }
     }
 }
 
 struct NewTabChoices: View {
+    @Environment(BridgeClient.self) private var client
+    let workflowID: UInt64
     let name: String
     let availableHeight: CGFloat
     let isSelected: Bool
@@ -40,17 +42,18 @@ struct NewTabChoices: View {
     /// Gives the keyboard back to the terminal, which nothing else in the card can take.
     let focusTerminal: () -> Void
     @State private var contentHeight: CGFloat = 0
-    @State private var harness: BridgeHarness?
-
-    private var showsComingSoon: Bool {
-        [WorkflowChoice.adversarial, .coordinator].contains { $0.rawValue == name }
+    @Binding var harness: BridgeHarness?
+    @Binding var selectedType: BridgeWorkflowType?
+    private var customTypes: [BridgeWorkflowType] {
+        client.snapshot?.workflowTypes?.filter { $0.reference.user != nil } ?? []
     }
 
     // A prompt form owns keyboard input, so it can use the space reserved for the shell prompt.
-    private var promptClearance: CGFloat { harness == nil ? NewTabLayout.promptClearance : 0 }
+    private var showsPrompt: Bool { harness != nil || selectedType != nil }
+    private var promptClearance: CGFloat { showsPrompt ? 0 : NewTabLayout.promptClearance }
 
     private var verticalPadding: CGFloat {
-        let minimumHeight = harness == nil ? NewTabLayout.minimumChoiceHeight : 2 * NewTabLayout.minimumChoiceHeight
+        let minimumHeight = showsPrompt ? 2 * NewTabLayout.minimumChoiceHeight : NewTabLayout.minimumChoiceHeight
         return min(
             NewTabLayout.padding,
             max(0, (availableHeight - promptClearance - minimumHeight) / 2))
@@ -66,7 +69,14 @@ struct NewTabChoices: View {
 
     var body: some View {
         ScrollView {
-            if let harness {
+            if let selectedType {
+                WorkflowLaunchForm(workflowID: workflowID, type: selectedType, isSelected: isSelected) {
+                    self.selectedType = nil
+                    focusTerminal()
+                }
+                .id(selectedType.id)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { contentHeight = $0 })
+            } else if let harness {
                 AgentPromptForm(
                     harness: Binding(get: { harness }, set: { self.harness = $0 }),
                     isSelected: isSelected,
@@ -83,7 +93,7 @@ struct NewTabChoices: View {
             }
         }
         // Short forms keep the prompt and actions visible; their introductory text can scroll.
-        .defaultScrollAnchor(harness == nil ? .top : .bottom)
+        .defaultScrollAnchor(showsPrompt ? .bottom : .top)
         .scrollBounceBehavior(.basedOnSize)
         .frame(height: viewportHeight)
         .padding(.horizontal, NewTabLayout.padding)
@@ -100,10 +110,7 @@ struct NewTabChoices: View {
     private var choices: some View {
         VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
             ChoicesHeading(
-                title: showsComingSoon ? "Coming soon" : "Choose a workflow",
-                message: showsComingSoon
-                    ? "\(name) workflows are coming soon. Start typing to use Terminal."
-                    : "Pick a workflow type, or start typing to use Terminal.")
+                title: "Choose a workflow", message: "Pick a workflow type, or start typing to use Terminal.")
 
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumChoiceWidth))],
@@ -126,7 +133,13 @@ struct NewTabChoices: View {
                         .accessibilityIdentifier("workflowChoice-\(choice.rawValue)")
                     } else {
                         Button {
-                            choose(choice)
+                            if choice == .adversarial || choice == .coordinator {
+                                selectedType = client.snapshot?.workflowTypes?.first {
+                                    $0.definition.name == choice.rawValue
+                                }
+                            } else {
+                                choose(choice)
+                            }
                         } label: {
                             ChoiceTile(choice: choice)
                         }
@@ -135,6 +148,12 @@ struct NewTabChoices: View {
                         .accessibilityIdentifier("workflowChoice-\(choice.rawValue)")
                     }
                 }
+            }
+            if !customTypes.isEmpty {
+                Menu("Custom workflow") {
+                    ForEach(customTypes) { type in Button(type.definition.name) { selectedType = type } }
+                }
+                .accessibilityIdentifier("customWorkflowChoice")
             }
         }
     }

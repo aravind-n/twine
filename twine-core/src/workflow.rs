@@ -32,6 +32,7 @@ pub enum WorkflowKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WorkflowStatus {
     Running,
+    Completed,
     Exited,
     Failed,
     /// The user stopped the agent.
@@ -76,6 +77,8 @@ pub struct Workflow {
     pub ended_at: Option<u64>,
     /// Restored workflow metadata now backed by fresh shells and new terminal transcripts.
     pub restored: bool,
+    /// Present for a workflow executing a pinned type.
+    pub run: Option<Box<crate::WorkflowRun>>,
 }
 
 /// One process filling one role in a workflow.

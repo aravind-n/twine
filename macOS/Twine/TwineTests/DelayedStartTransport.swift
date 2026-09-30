@@ -39,7 +39,8 @@ actor DelayedStartTransport {
             deliver(.commandCompleted(requestID: requestID, result: .terminalClosed(terminalID: terminalID)))
         case .ping, .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .createWorkflow,
             .activateWorkflow, .closeWorkflow, .startAgent, .cancelAgent, .nameDraftWorkflow, .refreshGitBranch,
-            .createSession, .renameSession, .selectSession, .deleteSession:
+            .createSession, .renameSession, .selectSession, .deleteSession,
+            .startWorkflowRun, .completeWorkflowRole, .cancelWorkflowRun:
             break
         }
         return BridgeCommandReceipt(requestID: requestID, status: .accepted, error: nil)

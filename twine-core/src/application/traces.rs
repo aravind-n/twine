@@ -253,7 +253,7 @@ impl Inner {
         }
     }
 
-    fn publish_trace(&mut self, id: WorkflowId) -> Result<(), ApplicationError> {
+    pub(super) fn publish_trace(&mut self, id: WorkflowId) -> Result<(), ApplicationError> {
         let summary = self.folders.store().trace_summary(id)?;
         self.events
             .append(EventKind::State(StateEvent::TraceChanged(summary)))?;

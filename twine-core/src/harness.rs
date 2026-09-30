@@ -19,7 +19,8 @@ const MAX_LOGIN_SHELL_OUTPUT: u64 = 64 * 1024;
 const PATH_START: &[u8] = b"__TWINE_PATH__";
 const PATH_END: &[u8] = b"__TWINE_END__";
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum HarnessId {
     Codex,
     ClaudeCode,

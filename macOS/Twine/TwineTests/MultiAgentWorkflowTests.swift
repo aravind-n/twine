@@ -39,6 +39,7 @@ struct MultiAgentWorkflowTests {
         #expect(RoleStyle(role: "Reviewer").color == .roleOrange)
         #expect(RoleStyle(role: "Coordinator").color == .rolePurple)
         #expect(RoleStyle(role: "Worker").color == .roleGreen)
+        #expect(RoleStyle(role: "Worker 2") == RoleStyle(role: "Worker"))
         // Other roles stay neutral rather than borrow a built-in role's color.
         #expect(RoleStyle(role: "Tester") == RoleStyle(role: "Designer"))
         #expect(RoleStyle(role: "Tester").color == .secondary)

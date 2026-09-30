@@ -44,3 +44,5 @@ struct TracesHeader: View {
     }
 
 }
+
+#Preview { TracesHeader(isExpanded: false, summary: nil) {} }

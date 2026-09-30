@@ -14,7 +14,8 @@ use crate::store::{Store, StoreError, StoredWorkflowType};
 use crate::workflow::timestamp;
 
 /// One exact workflow type. A workflow keeps the reference it started with.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum WorkflowTypeRef {
     /// Built-in types change only with Twine itself, so they follow the running app.
     Builtin(BuiltinType),
@@ -22,7 +23,7 @@ pub enum WorkflowTypeRef {
     User { type_id: u64, version: u32 },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WorkflowType {
     pub reference: WorkflowTypeRef,
     pub definition: WorkflowTypeDefinition,

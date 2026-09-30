@@ -20,6 +20,7 @@ use crate::workflow::{SessionId, WorkflowId, WorkflowKind, WorkflowState};
 mod agents;
 mod files;
 mod git;
+mod runs;
 mod sessions;
 mod terminals;
 mod traces;
@@ -95,6 +96,22 @@ pub enum Command {
     CancelAgent {
         workflow_id: WorkflowId,
     },
+    StartWorkflowRun {
+        workflow_id: WorkflowId,
+        workflow_type: crate::WorkflowTypeRef,
+        prompt: String,
+        roles: Vec<crate::RoleLaunch>,
+        size: TerminalSize,
+    },
+    CompleteWorkflowRole {
+        workflow_id: WorkflowId,
+        agent_id: crate::AgentId,
+        generation: u64,
+        signal: crate::CompletionSignal,
+    },
+    CancelWorkflowRun {
+        workflow_id: WorkflowId,
+    },
     StartTerminal {
         working_directory: PathBuf,
         size: TerminalSize,
@@ -130,6 +147,7 @@ pub struct Snapshot {
     pub terminals: Vec<TerminalState>,
     pub workflows: WorkflowState,
     pub traces: Vec<crate::TraceSummary>,
+    pub workflow_types: Vec<crate::WorkflowType>,
 }
 
 #[derive(Debug)]
@@ -155,6 +173,7 @@ pub struct Application {
     #[cfg(test)]
     harness_path: Option<std::ffi::OsString>,
     config: Config,
+    run_processes: Mutex<HashMap<WorkflowId, runs::RunProcesses>>,
 }
 
 impl Application {
@@ -225,6 +244,7 @@ impl Application {
         };
         let application = Self {
             files: crate::files::FileWatcher::new()?,
+            run_processes: Mutex::new(HashMap::new()),
             commands: Mutex::new(()),
             config,
             inner: Arc::new(Mutex::new(Inner {
@@ -323,6 +343,20 @@ impl Application {
                 size,
             } => self.start_agent(request_id, workflow_id, harness, &prompt, size)?,
             Command::CancelAgent { workflow_id } => self.cancel_agent(request_id, workflow_id)?,
+            Command::StartWorkflowRun {
+                workflow_id,
+                workflow_type,
+                prompt,
+                roles,
+                size,
+            } => self.start_workflow_run(workflow_id, workflow_type, prompt, &roles, size)?,
+            Command::CompleteWorkflowRole {
+                workflow_id,
+                agent_id,
+                generation,
+                signal,
+            } => self.complete_workflow_role(workflow_id, agent_id, generation, signal)?,
+            Command::CancelWorkflowRun { workflow_id } => self.cancel_workflow_run(workflow_id)?,
             Command::StartTerminal {
                 working_directory,
                 size,
@@ -331,6 +365,7 @@ impl Application {
                 self.close_terminal_command(request_id, terminal_id)?
             }
         };
+        self.prune_run_processes()?;
         match &disposition {
             CommandDisposition::Accepted => debug!(request_id = request_id.0, "command accepted"),
             CommandDisposition::Rejected { code, .. } => {
@@ -349,7 +384,10 @@ impl Application {
     ///
     /// Returns an error if application state cannot be accessed.
     pub fn snapshot(&self) -> Result<Snapshot, ApplicationError> {
-        let inner = self.lock_inner()?;
+        self.poll_workflow_signals()?;
+        let mut inner = self.lock_inner()?;
+        let workflow_types =
+            crate::workflow_type::WorkflowCatalog::new(inner.folders.store()).list()?;
         let mut terminals = inner
             .terminals
             .iter()
@@ -370,6 +408,7 @@ impl Application {
                 Some(folder) => inner.folders.read_store().trace_summaries(folder)?,
                 None => Vec::new(),
             },
+            workflow_types,
         })
     }
 
@@ -384,6 +423,7 @@ impl Application {
         sequence: u64,
         limit: usize,
     ) -> Result<Vec<Event>, ApplicationError> {
+        self.poll_workflow_signals()?;
         Ok(self.lock_inner()?.events.after(sequence, limit)?)
     }
 
@@ -449,6 +489,8 @@ fn rejection(code: &str, error: &dyn std::error::Error) -> CommandDisposition {
 
 #[derive(Debug, Error)]
 pub enum ApplicationError {
+    #[error(transparent)]
+    Catalog(#[from] crate::CatalogError),
     #[error(transparent)]
     Files(#[from] crate::files::FileError),
     #[error(transparent)]
@@ -570,6 +612,7 @@ mod tests {
                 terminals: Vec::new(),
                 workflows: WorkflowState::default(),
                 traces: Vec::new(),
+                workflow_types: application.workflow_types().unwrap(),
             }
         );
     }

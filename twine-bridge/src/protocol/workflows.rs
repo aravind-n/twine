@@ -60,6 +60,7 @@ impl<'a> From<&'a Session> for WireSession<'a> {
 #[serde(rename_all = "camelCase")]
 pub(super) struct WireWorkflow<'a> {
     restored: bool,
+    run: Option<super::runs::WireRun<'a>>,
     workflow_id: u64,
     session_id: u64,
     name: &'a str,
@@ -84,6 +85,7 @@ impl<'a> From<&'a Workflow> for WireWorkflow<'a> {
     fn from(workflow: &'a Workflow) -> Self {
         Self {
             restored: workflow.restored,
+            run: workflow.run.as_deref().map(Into::into),
             workflow_id: workflow.workflow_id.0,
             session_id: workflow.session_id.0,
             name: &workflow.name,
@@ -110,6 +112,7 @@ impl<'a> From<&'a Workflow> for WireWorkflow<'a> {
                 .collect(),
             status: match workflow.status {
                 WorkflowStatus::Running => "running",
+                WorkflowStatus::Completed => "completed",
                 WorkflowStatus::Exited => "exited",
                 WorkflowStatus::Failed => "failed",
                 WorkflowStatus::Cancelled => "cancelled",
@@ -301,6 +304,7 @@ mod tests {
             started_at: 1,
             ended_at: None,
             restored: false,
+            run: None,
         };
         for (harness, status, harness_name, status_name) in [
             (
@@ -392,11 +396,13 @@ mod tests {
             started_at: 10,
             ended_at: None,
             restored: true,
+            run: None,
         };
         assert_eq!(
             serde_json::to_value(WireWorkflow::from(&workflow)).unwrap(),
             json!({
                 "restored": true,
+                "run": null,
                 "workflowId": 3,
                 "sessionId": 1,
                 "name": "Agents",

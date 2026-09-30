@@ -13,6 +13,7 @@ mod catalog;
 mod validation;
 
 pub use builtin::BuiltinType;
+pub(crate) use catalog::WorkflowCatalog;
 pub use catalog::{CatalogError, WorkflowType, WorkflowTypeRef};
 pub use validation::{ElementPath, ValidationIssue, ValidationProblem, validate};
 

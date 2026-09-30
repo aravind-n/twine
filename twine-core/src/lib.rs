@@ -11,7 +11,12 @@ mod store;
 mod terminal;
 mod trace;
 mod workflow;
+mod workflow_run;
 mod workflow_type;
+pub use workflow_run::{
+    Assignment, CompletionSignal, Decision, RoleLaunch, RunAgent, RunError, RunStatus, WorkflowRun,
+    WorkflowTrace,
+};
 
 pub use application::{
     Application, ApplicationError, ApplicationState, Command, CommandDisposition, CommandReceipt,

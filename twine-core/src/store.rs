@@ -5,6 +5,7 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use thiserror::Error;
 use tracing::info;
 
+mod run_traces;
 mod traces;
 mod workflow_types;
 mod workflows;
@@ -130,7 +131,35 @@ const MIGRATIONS: &[&str] = &[
         CHECK (byte_offset IS NULL OR byte_offset >= 0)
     ) STRICT;
     CREATE INDEX trace_events_workflow ON trace_events(workflow_id, id);
-    CREATE INDEX trace_events_span ON trace_events(span_id, id)"
+    CREATE INDEX trace_events_span ON trace_events(span_id, id)",
+    // 7: Pinned workflow executions and durable events for each stage invocation.
+    "CREATE TABLE workflow_runs (
+        workflow_id INTEGER PRIMARY KEY REFERENCES workflows(id) ON DELETE CASCADE,
+        state TEXT NOT NULL,
+        trace_sequence INTEGER NOT NULL DEFAULT 0
+    ) STRICT;
+    ALTER TABLE trace_spans ADD COLUMN run_generation INTEGER;
+    CREATE TABLE trace_events_v7 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+        span_id INTEGER REFERENCES trace_spans(id) ON DELETE CASCADE,
+        timestamp INTEGER NOT NULL CHECK (timestamp >= 0),
+        kind TEXT NOT NULL CHECK (kind IN ('processStarted', 'processExited', 'processFailed', 'processStopped', 'workflowEvent')),
+        message TEXT NOT NULL,
+        terminal_id INTEGER,
+        byte_offset INTEGER,
+        CHECK ((terminal_id IS NULL) = (byte_offset IS NULL)),
+        CHECK (terminal_id IS NULL OR terminal_id > 0),
+        CHECK (byte_offset IS NULL OR byte_offset >= 0)
+    ) STRICT;
+    INSERT INTO trace_events_v7 SELECT * FROM trace_events;
+    DELETE FROM sqlite_sequence WHERE name = 'trace_events_v7';
+    INSERT INTO sqlite_sequence (name, seq)
+        SELECT 'trace_events_v7', seq FROM sqlite_sequence WHERE name = 'trace_events';
+    DROP TABLE trace_events;
+    ALTER TABLE trace_events_v7 RENAME TO trace_events;
+    CREATE INDEX trace_events_workflow ON trace_events(workflow_id, id);
+    CREATE INDEX trace_events_span ON trace_events(span_id, id)",
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
@@ -299,6 +328,8 @@ fn unsigned_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u6
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("failed to encode workflow run state")]
+    RunEncoding(#[from] serde_json::Error),
     #[error("database returned an invalid identifier")]
     InvalidIdentifier,
     #[error("failed to create the data directory {}", path.display())]
@@ -718,6 +749,33 @@ mod tests {
             usize::try_from(schema_version(&store.connection)).unwrap(),
             MIGRATIONS.len()
         );
+    }
+
+    #[test]
+    fn migration_from_version_six_keeps_trace_ids_and_accepts_workflow_events() {
+        let connection = Connection::open_in_memory().unwrap();
+        for migration in &MIGRATIONS[..6] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 6).unwrap();
+        connection.execute_batch(
+            "INSERT INTO sessions (id, folder, name, started_at) VALUES (1, '/folder', 'Work', 123);
+             INSERT INTO workflows (id, session_id, name, kind) VALUES (1, 1, 'Shell', 'terminal');
+             INSERT INTO trace_events (id, workflow_id, timestamp, kind, message)
+             VALUES (80, 1, 123, 'processStarted', 'Earlier event');
+             DELETE FROM trace_events WHERE id = 80;"
+        ).unwrap();
+        let store = Store::with_connection(connection).unwrap();
+        store
+            .connection
+            .execute(
+                "INSERT INTO trace_events (workflow_id, timestamp, kind, message)
+             VALUES (1, 124, 'workflowEvent', 'Stage started')",
+                [],
+            )
+            .unwrap();
+        assert_eq!(store.connection.last_insert_rowid(), 81);
+        assert_eq!(store.workflows(Path::new("/folder")).unwrap().len(), 1);
     }
 
     #[test]

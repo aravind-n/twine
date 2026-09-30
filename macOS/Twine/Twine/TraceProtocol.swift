@@ -84,7 +84,7 @@ nonisolated struct BridgeTraceEvent: Decodable, Equatable, Identifiable, Sendabl
     var id: UInt64 { eventID }
 
     enum Kind: String, Decodable, Sendable {
-        case processStarted, processExited, processFailed, processStopped
+        case processStarted, processExited, processFailed, processStopped, workflowEvent
 
         var label: String {
             switch self {
@@ -92,6 +92,7 @@ nonisolated struct BridgeTraceEvent: Decodable, Equatable, Identifiable, Sendabl
             case .processExited: "exit"
             case .processFailed: "failure"
             case .processStopped: "stop"
+            case .workflowEvent: "workflow"
             }
         }
     }

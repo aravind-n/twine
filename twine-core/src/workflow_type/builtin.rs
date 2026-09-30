@@ -4,7 +4,8 @@ use super::{
 };
 
 /// Built-in types ship with Twine and can be copied but not edited.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum BuiltinType {
     Adversarial,
     Coordinator,

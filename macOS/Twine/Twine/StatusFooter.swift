@@ -44,7 +44,7 @@ struct StatusFooter: View {
         switch workflow.status {
         case .running: workflow.kind == .draft ? .secondary : .statusRunning
         case .failed, .interrupted: .statusNeedsAttention
-        case .exited, .cancelled, .closed: .statusComplete
+        case .completed, .exited, .cancelled, .closed: .statusComplete
         }
     }
 }

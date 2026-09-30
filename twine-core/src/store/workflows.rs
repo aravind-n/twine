@@ -19,6 +19,7 @@ pub(crate) struct StoredWorkflow {
     pub agent_status: Option<WorkflowStatus>,
     /// In role order.
     pub agents: Vec<StoredAgent>,
+    pub run: Option<Box<crate::WorkflowRun>>,
 }
 
 pub(crate) struct StoredAgent {
@@ -156,7 +157,8 @@ impl Store {
             agents.entry(workflow_id).or_default().push(agent);
         }
         let mut statement = self.connection.prepare(
-            "SELECT w.id, w.session_id, w.name, w.kind, w.harness, w.agent_status FROM workflows w
+            "SELECT w.id, w.session_id, w.name, w.kind, w.harness, w.agent_status, r.state FROM workflows w
+             LEFT JOIN workflow_runs r ON r.workflow_id = w.id
              JOIN sessions s ON s.id = w.session_id WHERE s.folder = ?1 AND w.closed_at IS NULL ORDER BY w.id",
         )?;
         Ok(statement
@@ -185,6 +187,18 @@ impl Store {
                     harness: harness.as_deref().and_then(harness_from_name),
                     agent_status: agent_status.as_deref().and_then(status_from_name),
                     agents: agents.remove(&workflow_id).unwrap_or_default(),
+                    run: row
+                        .get::<_, Option<String>>(6)?
+                        .map(|value| {
+                            serde_json::from_str(&value).map_err(|error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    6,
+                                    rusqlite::types::Type::Text,
+                                    Box::new(error),
+                                )
+                            })
+                        })
+                        .transpose()?,
                 })
             })?
             .collect::<Result<_, _>>()?)
@@ -261,6 +275,32 @@ impl Store {
         )?;
         Ok(())
     }
+
+    pub(crate) fn start_workflow_run(
+        &mut self,
+        id: WorkflowId,
+        run: &mut crate::WorkflowRun,
+    ) -> Result<(), StoreError> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
+            "UPDATE workflows SET kind = 'agents', name = ?2 WHERE id = ?1",
+            params![sql_integer(id.0)?, run.workflow_type.definition.name],
+        )?;
+        for agent in &mut run.agents {
+            transaction.execute(
+                "INSERT INTO agents (workflow_id, role) VALUES (?1, ?2)",
+                params![sql_integer(id.0)?, agent.label],
+            )?;
+            agent.agent_id = u64::try_from(transaction.last_insert_rowid())
+                .map_err(|_| StoreError::InvalidIdentifier)?;
+        }
+        transaction.execute(
+            "INSERT INTO workflow_runs (workflow_id, state) VALUES (?1, ?2)",
+            params![sql_integer(id.0)?, serde_json::to_string(run)?],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
 }
 
 fn kind_name(kind: WorkflowKind) -> &'static str {
@@ -278,7 +318,7 @@ fn status_name(status: WorkflowStatus) -> Option<&'static str> {
         WorkflowStatus::Exited => Some("exited"),
         WorkflowStatus::Failed => Some("failed"),
         WorkflowStatus::Cancelled => Some("cancelled"),
-        WorkflowStatus::Interrupted | WorkflowStatus::Closed => None,
+        WorkflowStatus::Interrupted | WorkflowStatus::Closed | WorkflowStatus::Completed => None,
     }
 }
 
