@@ -68,9 +68,8 @@ Twine runs locally, but it launches processes and touches the filesystem. Check:
 Check whether tests cover the changed behavior, its important failure paths and edge values (empty, zero, maximum, off-by-one), existing behavior the change could break, and boundaries such as bridge round-trips, PTY lifecycle, and migrations. A test-gap finding must name the defect the missing test would let through. Don't ask for tests just to raise coverage.
 
 Run, and report the outcome of each:
-- `cargo fmt --all --check`
-- `cargo clippy --workspace --all-targets --locked -- -D warnings`
-- `cargo test --workspace --locked`
+- `make lint-rust` (rustfmt check and Clippy with warnings denied)
+- `make test-rust`
 
 These may write to `target/`, which is fine. Say which checks you couldn't run and why.
 

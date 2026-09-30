@@ -18,6 +18,7 @@ Preserve the distinction between a role in a workflow type and the harness assig
 - **Modules:** Use file-named modules (`foo.rs` next to a `foo/` directory for submodules), never `mod.rs`.
 - **Errors:** Define typed errors with `thiserror`, one error enum per module or subsystem rather than one global enum.
 - **Logging:** Emit diagnostics with `tracing` macros and spans, never `println!` or `eprintln!`. Only emit events; never install a subscriber. Never log secrets, file contents, or terminal output.
+- **Formatting and checks:** Run `make fmt-rust` before committing, then `make check-rust`. It runs the rustfmt check, Clippy with warnings denied, and the workspace tests, and must pass.
 
 ## Review
 

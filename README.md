@@ -125,25 +125,24 @@ error. The ownership lock is released after the recording worker has flushed and
 - Install Xcode 27.0 and point the developer tools at it: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. The SwiftTerm build plugin and SwiftLint both require Xcode rather than the Command Line Tools.
 - Install Xcode's Metal Toolchain if it is missing: `xcodebuild -downloadComponent MetalToolchain`.
 - To build the library, install the latest stable Rust with `rustup`, then install both macOS targets: `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
-- Build the local binary package once from the repository root: `macOS/TwineCorePackage/build.sh debug`.
+- Build the framework once from the repository root: `make framework`.
 - Open `macOS/Twine/Twine.xcodeproj`, select the `Twine` scheme, and build. Trust the SwiftTerm build plugin when Xcode prompts. Xcode consumes the prebuilt `TwineCore.xcframework` and does not invoke Cargo.
 
-From the repository root, the same build works from the command line:
+From the repository root, the root `Makefile` runs the same builds and checks from the command line. `make` lists every target:
 
 ```sh
-cargo test --workspace --locked
-macOS/TwineCorePackage/build.sh debug
-xcodebuild -project macOS/Twine/Twine.xcodeproj -scheme Twine -configuration Debug \
-  -destination "platform=macOS,arch=$(uname -m)" -skipPackagePluginValidation \
-  CODE_SIGNING_ALLOWED=NO build
+make build-macos          # build the Debug framework, then the Debug app
+make build-macos-release  # build the Release framework, then the universal Release app
+make check                # Rust and Swift lint plus unit tests
+make check-rust           # Rust only: rustfmt check, Clippy, workspace tests
+make check-macos          # Swift only: swift-format lint, SwiftLint, unit tests
+make fmt                  # format Rust and Swift
+make ui-test-macos        # UI tests; they take over the desktop
+make clean                # remove Cargo, framework, and Xcode build output
 ```
 
-The generated framework includes its C header and module map and is ignored by Git. App-only work needs neither Cargo nor a Rust rebuild while the matching framework is present. If the framework is missing, package resolution reports the command needed to create it.
+The generated framework includes its C header and module map and is ignored by Git. If the framework is missing, package resolution reports the command needed to create it.
 
-For a universal Release build, first run `macOS/TwineCorePackage/build.sh release`, then use `-configuration Release -destination 'generic/platform=macOS'`. The explicit profile switch replaces the local framework with the requested Debug or Release build.
+`make build-macos-release` builds the universal Release app. Each build replaces the local framework with the Debug or Release profile it needs.
 
-Lint the Swift code with the SwiftLint version pinned in `Package.resolved`:
-
-```sh
-macOS/Twine/Scripts/swiftlint.sh
-```
+SwiftLint runs the version pinned in `Package.resolved`, through `macOS/Twine/Scripts/swiftlint.sh`.
