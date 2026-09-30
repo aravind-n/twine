@@ -11,10 +11,7 @@ use crate::terminal::ReplayPosition;
 
 pub(crate) fn prepare(position: Arc<ReplayPosition>) -> io::Result<(StepInbox, Vec<OsString>)> {
     let inbox = StepInbox::new(position, parse)?;
-    let command = format!(
-        "{{ /usr/bin/head -c 4194305 | /usr/bin/curl --silent --max-time 1 --output /dev/null --header 'Expect:' --unix-socket '{}' --data-binary @- http://localhost/; }} >/dev/null 2>&1 || true",
-        inbox.socket_path.to_string_lossy().replace('\'', "'\\''")
-    );
+    let command = inbox.hook_command();
     let mut hooks = serde_json::Map::new();
     for event in [
         "UserPromptSubmit",

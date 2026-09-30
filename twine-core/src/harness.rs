@@ -14,6 +14,7 @@ use thiserror::Error;
 use tracing::debug;
 
 pub(crate) mod claude;
+pub(crate) mod codex;
 pub(crate) mod steps;
 
 /// How long to wait for the login shell to report its `PATH`.

@@ -24,7 +24,7 @@ help:
 	@echo 'Rust workspace (twine-core, twine-bridge):'
 	@echo '  fmt-rust              Format Rust code'
 	@echo '  lint-rust             Check Rust formatting and run Clippy with warnings denied'
-	@echo '  test-rust             Run the Rust workspace tests'
+	@echo '  test-rust             Run the Rust workspace tests (optional RUST_TEST_ARGS)'
 	@echo '  check-rust            Run lint-rust and test-rust'
 	@echo '  clean-rust            Remove Cargo build output'
 	@echo ''
@@ -50,7 +50,7 @@ lint-rust:
 	cargo clippy --workspace --all-targets --locked -- -D warnings
 
 test-rust:
-	cargo test --workspace --locked
+	cargo test --workspace --locked $(RUST_TEST_ARGS)
 
 check-rust: lint-rust test-rust
 

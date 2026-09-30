@@ -9,6 +9,7 @@ use crate::{HarnessId, TerminalId, TraceAnchor, WorkflowId};
 pub(super) struct HarnessRecording {
     workflow_id: WorkflowId,
     single_agent: bool,
+    active: bool,
     inbox: StepInbox,
     pending: VecDeque<ObservedStep>,
     open_tools: HashMap<String, Option<String>>,
@@ -42,7 +43,10 @@ impl HarnessRecording {
             if step.kind == StepKind::Prompt {
                 return Ok(Some(index));
             }
-            if self.single_agent && !store.has_harness_turn(terminal_id, step.turn_id.as_deref())? {
+            if self.single_agent
+                && (!self.active
+                    || !store.has_harness_turn(terminal_id, step.turn_id.as_deref())?)
+            {
                 if let Some(prompt) = self.pending.iter().position(|other| {
                     other.step.kind == StepKind::Prompt && other.step.turn_id == step.turn_id
                 }) {
@@ -117,18 +121,24 @@ impl Application {
         prompt: &str,
     ) -> (Vec<OsString>, Option<StepInbox>) {
         let mut arguments = Vec::new();
-        let hooks = if harness == HarnessId::ClaudeCode {
+        let hooks = if matches!(harness, HarnessId::ClaudeCode | HarnessId::Codex) {
             self.terminal_output
                 .replay_position(terminal_id)
                 .ok()
-                .and_then(|position| match crate::harness::claude::prepare(position) {
-                    Ok((inbox, flags)) => {
-                        arguments = flags;
-                        Some(inbox)
-                    }
-                    Err(error) => {
-                        tracing::warn!(%error, "couldn't prepare harness step hooks");
-                        None
+                .and_then(|position| {
+                    match match harness {
+                        HarnessId::ClaudeCode => crate::harness::claude::prepare(position),
+                        HarnessId::Codex => crate::harness::codex::prepare(position),
+                        HarnessId::Pi => unreachable!(),
+                    } {
+                        Ok((inbox, flags)) => {
+                            arguments = flags;
+                            Some(inbox)
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "couldn't prepare harness step hooks");
+                            None
+                        }
                     }
                 })
         } else {
@@ -149,18 +159,12 @@ impl Application {
             .harness_steps
             .lock()
             .map_err(|_| ApplicationError::Poisoned)?;
-        let mut inner = self.lock_inner()?;
-        if single_agent {
-            inner.folders.store().activate_harness_trace(terminal_id)?;
-            inner.trace_spans.remove(&terminal_id);
-            inner.step_terminals.insert(terminal_id, workflow_id);
-            inner.publish_trace(workflow_id)?;
-        }
         recordings.insert(
             terminal_id,
             HarnessRecording {
                 workflow_id,
                 single_agent,
+                active: !single_agent,
                 inbox,
                 pending: VecDeque::new(),
                 open_tools: HashMap::new(),
@@ -196,6 +200,12 @@ impl Application {
             );
             while let Some(index) = recording.next_ready(inner.folders.store(), terminal_id)? {
                 let item = &recording.pending[index];
+                // Keep the fallback until a prompt is durably recorded. Unavailable hooks
+                // and failed first-prompt writes must leave the ordinary agent trace intact.
+                if !recording.active && item.step.kind != StepKind::Prompt {
+                    recording.acknowledge(index);
+                    continue;
+                }
                 let anchor = TraceAnchor {
                     terminal_id,
                     byte_offset: item.observation.byte_offset,
@@ -204,11 +214,19 @@ impl Application {
                 match inner.folders.store().record_harness_step(
                     recording.workflow_id,
                     recording.single_agent,
+                    !recording.active,
                     &item.step,
                     item.observation.observed_at,
                     &anchor,
                 ) {
                     Ok(span) => {
+                        if !recording.active && span.is_some() {
+                            inner.trace_spans.remove(&terminal_id);
+                            inner
+                                .step_terminals
+                                .insert(terminal_id, recording.workflow_id);
+                            recording.active = true;
+                        }
                         if recording.single_agent {
                             inner.track_harness_step(terminal_id, &item.step, span)?;
                         }
@@ -330,7 +348,8 @@ mod tests {
             .replace('\'', "'\\''");
         let binary = bin.join("claude");
         std::fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{args_file}'\nprintf 'READY\\n'\nwhile read line; do printf 'OUTPUT:%s\\n' \"$line\"; done\n")).unwrap();
-        std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::copy(&binary, bin.join("codex")).unwrap();
         app.harness_path = Some(OsString::from(format!("{}:/usr/bin:/bin", bin.display())));
         accepted(
             app,
@@ -368,6 +387,10 @@ mod tests {
     }
 
     fn start_adversarial(app: &Application, id: WorkflowId) {
+        start_adversarial_with_harness(app, id, HarnessId::ClaudeCode);
+    }
+
+    fn start_adversarial_with_harness(app: &Application, id: WorkflowId, harness: HarnessId) {
         let builtin = BuiltinType::Adversarial;
         let roles = builtin
             .definition()
@@ -376,7 +399,7 @@ mod tests {
             .flat_map(|role| {
                 (0..role.instances.min).map(|_| RoleLaunch {
                     role: role.id.0.clone(),
-                    harness: HarnessId::ClaudeCode,
+                    harness,
                 })
             })
             .collect();
@@ -396,11 +419,7 @@ mod tests {
         let command = {
             let recordings = app.harness_steps.lock().unwrap();
             let recording = &recordings[&terminal_id];
-            let settings: Value = serde_json::from_slice(
-                &std::fs::read(recording.inbox.directory.path().join("settings.json")).unwrap(),
-            )
-            .unwrap();
-            settings["hooks"][payload["hook_event_name"].as_str().unwrap()][0]["hooks"][0]["command"].as_str().unwrap().to_owned()
+            recording.inbox.hook_command()
         };
         let mut child = ProcessCommand::new("/bin/sh")
             .args(["-c", &command])
@@ -764,6 +783,413 @@ mod tests {
             assert!(Instant::now() < deadline, "stub output timed out");
             thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    fn assert_codex_arguments(app: &Application, terminal: TerminalId, bin: &Path) {
+        let arguments = std::fs::read_to_string(bin.join("arguments")).unwrap();
+        assert!(arguments.starts_with("-c\nhooks="));
+        assert!(arguments.ends_with("\n--\n-initial prompt\n"));
+        let config: toml::Value = toml::from_str(arguments.lines().nth(1).unwrap()).unwrap();
+        let command = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            command,
+            app.harness_steps.lock().unwrap()[&terminal]
+                .inbox
+                .hook_command()
+        );
+    }
+
+    fn start_codex(app: &Application, id: WorkflowId) -> TerminalId {
+        accepted(
+            app,
+            Command::StartAgent {
+                workflow_id: id,
+                harness: HarnessId::Codex,
+                prompt: "-initial prompt".into(),
+                size: SIZE,
+            },
+        );
+        let terminal = workflow(app, id).terminal_id;
+        wait_for_output(app, terminal, b"READY");
+        terminal
+    }
+
+    fn trace_for_terminal(
+        app: &Application,
+        id: WorkflowId,
+        terminal: TerminalId,
+    ) -> crate::WorkflowTracePage {
+        let mut page = app.workflow_trace(id, None, 20).unwrap();
+        page.spans.retain(|span| span.terminal_id == Some(terminal));
+        page
+    }
+
+    #[test]
+    fn codex_turns_have_ordered_steps_anchors_and_durable_history() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let user_config = folder.path().join(".codex/config.toml");
+        std::fs::create_dir(user_config.parent().unwrap()).unwrap();
+        std::fs::write(&user_config, "model = 'custom'\n[hooks]\nStop = []\n").unwrap();
+        let before = std::fs::read(&user_config).unwrap();
+        let mut app = Application::with_config(data.path(), Config::default()).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        let terminal = start_codex(&app, id);
+        assert_codex_arguments(&app, terminal, bin.path());
+        // No activity yet: retain the ordinary agent span.
+        assert_eq!(trace_for_terminal(&app, id, terminal).spans.len(), 1);
+        // Async hooks can arrive out of order, including before their prompt.
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PreToolUse","turn_id":"first","tool_use_id":"edit","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Update File: src/main.rs\n"}}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit","turn_id":"first","prompt":"Fix src/main.rs"}),
+        );
+        app.write_terminal_input(terminal, b"edited file\n")
+            .unwrap();
+        wait_for_output(&app, terminal, b"OUTPUT:edited file");
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PostToolUse","turn_id":"first","tool_use_id":"edit","tool_name":"apply_patch","tool_input":{"command":"*** Update File: src/main.rs"},"tool_response":"updated"}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PreToolUse","turn_id":"first","tool_use_id":"test","tool_name":"Bash","tool_input":{"command":"make test"}}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PostToolUse","turn_id":"first","tool_use_id":"test","tool_name":"Bash","tool_input":{"command":"make test"},"tool_response":"☃".repeat(20_000)}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"Stop","turn_id":"first","last_assistant_message":"Fixed and tested."}),
+        );
+        let page = trace_for_terminal(&app, id, terminal);
+        assert_eq!(page.spans.len(), 1);
+        let span = &page.spans[0];
+        assert_eq!(span.title, "Fix src/main.rs");
+        assert_eq!(span.status, TraceSpanStatus::Completed);
+        let span_id = span.span_id;
+        let events = app.trace_events(span_id, None, 20).unwrap().events;
+        assert_eq!(events.len(), 7);
+        assert!(events[1].message.starts_with("Fix src/main.rs"));
+        assert!(events[2].message.starts_with("Edit src/main.rs"));
+        assert!(events[3].message.starts_with("Finished: Edit src/main.rs"));
+        assert!(events[4].message.starts_with("Run make test"));
+        assert!(events[5].message.contains("[truncated]"));
+        assert!(events[6].message.starts_with("Finished responding"));
+        assert!(
+            events
+                .iter()
+                .all(|event| event.anchor.as_ref().unwrap().terminal_id == terminal)
+        );
+        assert!(
+            events[3].anchor.as_ref().unwrap().byte_offset
+                > events[2].anchor.as_ref().unwrap().byte_offset
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit","turn_id":"second","prompt":"Follow up"}),
+        );
+        // A delayed stop belongs to the first turn, never the current turn.
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"Stop","turn_id":"first"}),
+        );
+        let page = trace_for_terminal(&app, id, terminal);
+        assert_eq!(page.spans.len(), 2);
+        assert_eq!(page.spans[0].title, "Follow up");
+        assert_eq!(page.spans[0].status, TraceSpanStatus::Running);
+        accepted(&app, Command::CancelAgent { workflow_id: id });
+        let events = app.trace_events(span_id, None, 20).unwrap().events;
+        assert_eq!(std::fs::read(user_config).unwrap(), before);
+        drop(app);
+        let reopened = Application::with_config(data.path(), Config::default()).unwrap();
+        assert_eq!(
+            reopened.trace_events(span_id, None, 20).unwrap().events,
+            events
+        );
+        assert_eq!(
+            reopened.workflow_trace(id, None, 20).unwrap().spans[0].status,
+            TraceSpanStatus::Stopped
+        );
+    }
+
+    #[test]
+    fn codex_without_activity_keeps_the_agent_span_and_terminal() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let mut app = Application::with_event_capacity(4096).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        accepted(
+            &app,
+            Command::StartAgent {
+                workflow_id: id,
+                harness: HarnessId::Codex,
+                prompt: "Work without hooks".into(),
+                size: SIZE,
+            },
+        );
+        let terminal = workflow(&app, id).terminal_id;
+        wait_for_output(&app, terminal, b"READY");
+        let original = trace_for_terminal(&app, id, terminal).spans[0].span_id;
+        // Malformed activity and a missing prompt do not activate prompt tracing.
+        send_hook(&app, terminal, &json!({"hook_event_name":"Stop"}));
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"Stop","turn_id":"unknown"}),
+        );
+        app.write_terminal_input(terminal, b"still interactive\n")
+            .unwrap();
+        wait_for_output(&app, terminal, b"OUTPUT:still interactive");
+        accepted(&app, Command::CancelAgent { workflow_id: id });
+        let page = trace_for_terminal(&app, id, terminal);
+        assert_eq!(page.spans.len(), 1);
+        assert_eq!(page.spans[0].span_id, original);
+        assert_eq!(page.spans[0].status, TraceSpanStatus::Stopped);
+    }
+
+    #[test]
+    fn failed_first_prompt_preserves_fallback_until_atomic_conversion_succeeds() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let mut app = Application::with_event_capacity(4096).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        let terminal = start_codex(&app, id);
+        let original = trace_for_terminal(&app, id, terminal).spans[0].clone();
+        let events = app.trace_events(original.span_id, None, 20).unwrap().events;
+        app.lock_inner().unwrap().folders.store().execute_test_sql(
+            "CREATE TRIGGER reject_prompt BEFORE INSERT ON trace_events WHEN NEW.kind = 'workflowEvent' BEGIN SELECT RAISE(FAIL, 'temporary write failure'); END;"
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit","turn_id":"first","prompt":"Recover me"}),
+        );
+        assert_eq!(
+            trace_for_terminal(&app, id, terminal).spans,
+            vec![original.clone()]
+        );
+        assert_eq!(
+            app.trace_events(original.span_id, None, 20).unwrap().events,
+            events
+        );
+        assert!(!app.harness_steps.lock().unwrap()[&terminal].active);
+        app.lock_inner()
+            .unwrap()
+            .folders
+            .store()
+            .execute_test_sql("DROP TRIGGER reject_prompt;");
+        let page = trace_for_terminal(&app, id, terminal);
+        assert_eq!(page.spans.len(), 1);
+        assert_eq!(page.spans[0].title, "Recover me");
+        assert!(app.harness_steps.lock().unwrap()[&terminal].active);
+        let events = app
+            .trace_events(page.spans[0].span_id, None, 20)
+            .unwrap()
+            .events;
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.message.starts_with("Recover me"))
+                .count(),
+            1
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == crate::TraceEventKind::ProcessStarted)
+        );
+    }
+
+    #[test]
+    #[ignore = "requires authenticated Codex; set TWINE_REAL_CODEX to its absolute path"]
+    fn real_codex_records_tool_steps() {
+        let codex = std::env::var("TWINE_REAL_CODEX").expect("set TWINE_REAL_CODEX");
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let mut app = Application::with_event_capacity(4096).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        let quoted = codex.replace('\'', "'\\''");
+        let folder_path = folder.path().canonicalize().unwrap();
+        let trust = format!(
+            "projects={{{}={{trust_level=\"trusted\"}}}}",
+            serde_json::to_string(&folder_path).unwrap()
+        )
+        .replace('\'', "'\\''");
+        std::fs::write(bin.path().join("codex"), format!(
+            "#!/bin/sh\nexec '{quoted}' --no-alt-screen --sandbox read-only --ask-for-approval never -c '{trust}' \"$@\"\n"
+        )).unwrap();
+        accepted(&app, Command::StartAgent {
+            workflow_id: id, harness: HarnessId::Codex,
+            prompt: "Trace smoke test: run the shell command `printf TWINE44_TRACE_SMOKE` exactly once, then reply Done. Do not read or write files or run other tools.".into(), size: SIZE,
+        });
+        let terminal = workflow(&app, id).terminal_id;
+        let deadline = Instant::now() + Duration::from_secs(120);
+        loop {
+            while let Some(chunk) = app.next_terminal_chunk().unwrap() {
+                if chunk.terminal_id == terminal
+                    && chunk.bytes.windows(4).any(|part| part == b"\x1b[6n")
+                {
+                    app.write_terminal_input(terminal, b"\x1b[1;1R").unwrap();
+                }
+            }
+            let page = trace_for_terminal(&app, id, terminal);
+            if let Some(span) = page
+                .spans
+                .iter()
+                .find(|span| span.status == TraceSpanStatus::Completed)
+            {
+                let events = app.trace_events(span.span_id, None, 30).unwrap().events;
+                assert!(
+                    events
+                        .iter()
+                        .any(|event| event.message.starts_with("Run printf TWINE44_TRACE_SMOKE")),
+                    "missing tool start: {events:?}"
+                );
+                assert!(
+                    events.iter().any(|event| event
+                        .message
+                        .starts_with("Finished: Run printf TWINE44_TRACE_SMOKE")),
+                    "missing tool result: {events:?}"
+                );
+                assert!(
+                    events
+                        .iter()
+                        .any(|event| event.message.starts_with("Finished responding"))
+                );
+                assert!(events.iter().all(|event| {
+                    event
+                        .anchor
+                        .as_ref()
+                        .is_some_and(|anchor| anchor.terminal_id == terminal)
+                }));
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no completed prompt span; workflow status: {:?}",
+                workflow(&app, id).status
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn codex_steps_stay_under_their_assignment_after_a_handoff() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let mut app = Application::with_event_capacity(4096).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        start_adversarial_with_harness(&app, id, HarnessId::Codex);
+        let current = workflow(&app, id);
+        let agent = current
+            .agents
+            .iter()
+            .find(|a| a.terminal_id.value() != 0)
+            .unwrap();
+        let terminal = agent.terminal_id;
+        wait_for_output(&app, terminal, b"READY");
+        let span = app
+            .workflow_trace(id, None, 20)
+            .unwrap()
+            .spans
+            .into_iter()
+            .find(|s| s.terminal_id == Some(terminal))
+            .unwrap();
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit","turn_id":"first","prompt":"Implement"}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PreToolUse","turn_id":"first","tool_use_id":"test","tool_name":"Bash","tool_input":{"command":"make test"}}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PostToolUse","turn_id":"first","tool_use_id":"test","tool_name":"Bash","tool_input":{"command":"make test"},"tool_response":"passed"}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"Stop","turn_id":"first"}),
+        );
+        assert_eq!(
+            app.workflow_trace(id, None, 20)
+                .unwrap()
+                .spans
+                .iter()
+                .find(|s| s.span_id == span.span_id)
+                .unwrap()
+                .status,
+            TraceSpanStatus::Running
+        );
+        accepted(
+            &app,
+            Command::CompleteWorkflowRole {
+                workflow_id: id,
+                agent_id: agent.agent_id,
+                generation: current.run.unwrap().generation,
+                signal: CompletionSignal {
+                    decision: Decision::Done,
+                    summary: "Ready".into(),
+                    assignments: vec![],
+                },
+            },
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PostToolUse","turn_id":"first","tool_name":"Bash","tool_input":{"command":"late result"},"tool_response":"done"}),
+        );
+        let events = app.trace_events(span.span_id, None, 30).unwrap().events;
+        assert!(
+            events
+                .iter()
+                .any(|e| e.message.starts_with("Run make test"))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.message.starts_with("Finished: Run late result"))
+        );
+        assert!(
+            events
+                .iter()
+                .filter_map(|e| e.anchor.as_ref())
+                .all(|a| a.terminal_id == terminal)
+        );
+        let other = app
+            .workflow_trace(id, None, 20)
+            .unwrap()
+            .spans
+            .into_iter()
+            .find(|s| s.terminal_id != Some(terminal))
+            .unwrap();
+        assert!(
+            !app.trace_events(other.span_id, None, 30)
+                .unwrap()
+                .events
+                .iter()
+                .any(|e| e.message.contains("late result"))
+        );
     }
 
     #[test]
