@@ -1,9 +1,14 @@
 import SwiftUI
 
-/// The strip at the top of a multi-agent workflow's terminal panel, with a subtab for each agent.
+/// The strip at the top of a multi-agent workflow's terminal panel, with a subtab for each agent and
+/// a picker between tab mode and Bento mode.
 struct AgentSubtabs: View {
     let agents: [BridgeAgent]
+    /// The agent with the keyboard: the one tab mode shows, or the focused Bento pane's.
     let selectedID: UInt64?
+    @Binding var mode: WorkflowLayout.Mode
+    /// A hidden workflow leaves out the picker: accessibility would still list its AppKit control.
+    let showsLayoutPicker: Bool
     let select: (UInt64) -> Void
 
     var body: some View {
@@ -35,13 +40,25 @@ struct AgentSubtabs: View {
                         if let selectedID { proxy.scrollTo(selectedID) }
                     })
             }
-            Image(systemName: "terminal")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            if showsLayoutPicker { layoutPicker }
         }
         .padding(.horizontal, AgentSubtabLayout.horizontalPadding)
         .frame(height: AgentSubtabLayout.height)
         .background(.workflowTint)
+    }
+
+    private var layoutPicker: some View {
+        Picker("Layout", selection: $mode) {
+            Label("Tabs", systemImage: "rectangle.topthird.inset.filled").tag(WorkflowLayout.Mode.tabs)
+            Label("Bento", systemImage: "square.grid.2x2").tag(WorkflowLayout.Mode.bento)
+        }
+        .pickerStyle(.segmented)
+        .labelStyle(.iconOnly)
+        .labelsHidden()
+        .controlSize(.small)
+        .fixedSize()
+        .help("Show one agent at a time, or up to four side by side")
+        .accessibilityIdentifier("agentLayout")
     }
 }
 

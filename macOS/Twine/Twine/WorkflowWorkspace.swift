@@ -6,6 +6,7 @@ private let workflowLogger = Logger(subsystem: "com.twineproject.Twine", categor
 /// Every workflow stays mounted, including its output pump and terminal emulator, until it closes.
 struct WorkflowWorkspace: View {
     @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(WorkflowLayouts.self) private var layouts
     let folder: String
     @Binding var selection: WorkflowTabSelection
     var isVisible = true
@@ -41,7 +42,7 @@ struct WorkflowWorkspace: View {
                 ForEach(allWorkflows) { workflow in
                     let isSelected = isVisible && workflow.sessionID == sessionID && workflow.id == selection.selectedID
                     WorkflowTerminalSurface(
-                        workflow: workflow, isSelected: isSelected,
+                        folder: folder, workflow: workflow, isSelected: isSelected,
                         reportFailure: { failureMessage = $0 }
                     )
                     .opacity(isSelected ? 1 : 0)
@@ -66,6 +67,9 @@ struct WorkflowWorkspace: View {
         .onChange(of: selectionKey) {
             selection.reconcile(sessionID: sessionID, current: workflows.map(\.id))
         }
+        .onChange(of: allWorkflows.map(\.id), initial: true) {
+            layouts.removeClosedWorkflows(in: folder, state: bridgeClient.snapshot?.workflows)
+        }
         .focusedSceneValue(
             \.workflowActions,
             WorkflowActions(
@@ -73,7 +77,10 @@ struct WorkflowWorkspace: View {
                 createAgents: { roles in Task { await create(kind: .agents, roles: roles) } },
                 close: selection.selectedID.map { id in { close(id) } },
                 cancelAgent: workflows.first(where: { $0.id == selection.selectedID && $0.isRunningAgent })
-                    .map { workflow in { cancelAgent(workflow.id) } }
+                    .map { workflow in { cancelAgent(workflow.id) } },
+                // Not while a file covers the workflow, whose agents the keys would switch unseen.
+                layoutMode: isVisible ? selectedWorkflow.flatMap(layoutMode(for:)) : nil,
+                moveFocus: isVisible ? selectedWorkflow.flatMap(focusMover(for:)) : nil
             )
         )
         .alert(
@@ -89,6 +96,30 @@ struct WorkflowWorkspace: View {
     }
 
     private var panelShape: RoundedRectangle { RoundedRectangle(cornerRadius: CornerRadius.panel) }
+
+    private var selectedWorkflow: BridgeWorkflow? { workflows.first { $0.id == selection.selectedID } }
+
+    /// The workflow's layout mode, when it has agents to arrange.
+    private func layoutMode(for workflow: BridgeWorkflow) -> Binding<WorkflowLayout.Mode>? {
+        guard workflow.showsAgentSubtabs else { return nil }
+        return Binding(
+            get: { layouts.layout(for: workflow.id, in: folder).mode },
+            set: { mode in
+                var layout = layouts.layout(for: workflow.id, in: folder)
+                layout.mode = mode
+                layouts.setLayout(layout, for: workflow.id, in: folder)
+            })
+    }
+
+    /// Moves the keyboard between the workflow's agents, when it has more than one.
+    private func focusMover(for workflow: BridgeWorkflow) -> ((Int) -> Void)? {
+        guard workflow.showsAgentSubtabs else { return nil }
+        return { offset in
+            var layout = layouts.layout(for: workflow.id, in: folder)
+            layout.moveFocus(by: offset, in: workflow.agents)
+            layouts.setLayout(layout, for: workflow.id, in: folder)
+        }
+    }
 
     private func create(kind: BridgeWorkflow.Kind = .draft, roles: [String] = []) async {
         do {

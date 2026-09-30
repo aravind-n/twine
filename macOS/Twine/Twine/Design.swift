@@ -18,6 +18,8 @@ nonisolated enum CornerRadius {
     static let selectedTab: CGFloat = 10
     static let recentFolderCard: CGFloat = 10
     static let sidebarFolderHeader: CGFloat = 10
+    /// The terminal panel's radius less the Bento gutter, so each pane's corners follow the panel's.
+    static let bentoPane: CGFloat = 11
     static let choiceTile: CGFloat = 9
     static let selectedSubtab: CGFloat = 9
     static let fileRowSelection: CGFloat = 8
@@ -100,6 +102,20 @@ nonisolated enum AgentSubtabLayout {
     static let maximumTitleWidth: CGFloat = 180
 }
 
+/// Bento mode: an agents workflow's terminals side by side, as rounded panes on the workflow tint.
+nonisolated enum BentoLayout {
+    /// Between the panes, and between the panes and the terminal panel's edges.
+    static let gutter: CGFloat = 6
+    /// The smallest pane Bento mode shows. A smaller panel shows fewer panes.
+    static let minimumPaneSize = CGSize(width: 260, height: 150)
+    static let headerHeight: CGFloat = 28
+    static let headerPadding: CGFloat = 10
+    static let terminalPadding: CGFloat = 12
+    static let focusRingWidth: CGFloat = 2
+    /// The draggable band centered on the gutter between two panes.
+    static let dividerThickness: CGFloat = 10
+}
+
 nonisolated enum FooterLayout {
     static let height: CGFloat = 22
     static let horizontalPadding: CGFloat = 4
@@ -133,6 +149,9 @@ extension ShapeStyle where Self == Color {
 
     static var fileSelection: Color { .accentColor.opacity(0.12) }
 
+    /// The outline of the Bento pane that has the keyboard.
+    static var paneFocus: Color { Color(nsColor: .keyboardFocusIndicatorColor) }
+
     static var folderIcon: Color { .accentColor.opacity(0.8) }
 
     static var statusRunning: Color { .green }
@@ -147,6 +166,15 @@ extension ShapeStyle where Self == Color {
 nonisolated enum Symbol {
     /// Twine's app symbol, on the start page's icon tile and the sidebar's folder header.
     static let app = "point.3.filled.connected.trianglepath.dotted"
+}
+
+/// The small chevron on a control that opens a menu.
+struct MenuChevron: View {
+    var body: some View {
+        Image(systemName: "chevron.down")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(.secondary)
+    }
 }
 
 // MARK: - Typography

@@ -53,6 +53,40 @@ extension TwineUITests {
         if processIsRunning(processID) { _ = kill(processID, SIGKILL) }
     }
 
+    /// Opens a workflow whose agents run shells, from the debug-only File menu.
+    @MainActor
+    func openTestWorkflow(agents: Int, in app: XCUIApplication) {
+        app.menuBars.menuBarItems["File"].click()
+        let menu = app.menuBars.menuItems["New Test Workflow"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), app.debugDescription)
+        menu.hover()
+        let item = menu.menuItems[agents == 1 ? "1 Agent" : "\(agents) Agents"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
+        item.click()
+    }
+
+    /// Replaces each agent's login shell with `sh`, tags it with a variable, and returns its PID.
+    @MainActor
+    func startShells(in subtabs: [XCUIElement], folder: URL, app: XCUIApplication) throws -> [pid_t] {
+        var processIDs: [pid_t] = []
+        for (index, subtab) in subtabs.enumerated() {
+            subtab.click()
+            waitUntilSelected(subtab, in: app)
+            app.typeText("exec /bin/sh\r")
+            app.typeText("TWINE_AGENT=agent\(index); echo $$ > agent\(index).pid\r")
+            processIDs.append(try writtenProcessID(in: folder.appending(path: "agent\(index).pid"), app: app))
+        }
+        XCTAssertEqual(Set(processIDs).count, subtabs.count, "Each agent needs its own shell")
+        return processIDs
+    }
+
+    @MainActor
+    func waitUntilSelected(_ element: XCUIElement, in app: XCUIApplication) {
+        let selected = expectation(for: NSPredicate(format: "value == 'Selected'"), evaluatedWith: element)
+        let result = XCTWaiter.wait(for: [selected], timeout: 5)
+        XCTAssertEqual(result, .completed, "\(element) wasn't selected\n\(app.debugDescription)")
+    }
+
     @MainActor
     func attachScreenshot(of app: XCUIApplication, named name: String) {
         let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())

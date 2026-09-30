@@ -9,6 +9,8 @@ extension TwineUITests {
         app.launch()
         let draft = app.buttons["workflowTab-1"]
         XCTAssertTrue(draft.waitForExistence(timeout: 10), app.debugDescription)
+        // A window as narrow as an earlier test left it would scroll the third subtab out of view.
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         let allSubtabs = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "agentSubtab-"))
         openTestWorkflow(agents: 3, in: app)
         let agentsTab = app.buttons["workflowTab-2"]
@@ -97,21 +99,6 @@ extension TwineUITests {
         app.terminate()
     }
 
-    /// Replaces each agent's login shell with `sh`, tags it with a variable, and returns its PID.
-    @MainActor
-    private func startShells(in subtabs: [XCUIElement], folder: URL, app: XCUIApplication) throws -> [pid_t] {
-        var processIDs: [pid_t] = []
-        for (index, subtab) in subtabs.enumerated() {
-            subtab.click()
-            waitUntilSelected(subtab, in: app)
-            app.typeText("exec /bin/sh\r")
-            app.typeText("TWINE_AGENT=agent\(index); echo $$ > agent\(index).pid\r")
-            processIDs.append(try writtenProcessID(in: folder.appending(path: "agent\(index).pid"), app: app))
-        }
-        XCTAssertEqual(Set(processIDs).count, subtabs.count, "Each agent needs its own shell")
-        return processIDs
-    }
-
     /// Switching back to each subtab finds its shell as it was left: the same process and variable.
     @MainActor
     private func checkShellsSurviveSwitching(
@@ -126,24 +113,5 @@ extension TwineUITests {
             let lines = try String(contentsOf: check, encoding: .utf8).split(separator: "\n")
             XCTAssertEqual(lines.first, String(processIDs[index])[...], "Switching subtabs restarted a shell")
         }
-    }
-
-    /// Opens a workflow whose agents run shells, from the debug-only File menu.
-    @MainActor
-    private func openTestWorkflow(agents: Int, in app: XCUIApplication) {
-        app.menuBars.menuBarItems["File"].click()
-        let menu = app.menuBars.menuItems["New Test Workflow"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 5), app.debugDescription)
-        menu.hover()
-        let item = menu.menuItems[agents == 1 ? "1 Agent" : "\(agents) Agents"]
-        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
-        item.click()
-    }
-
-    @MainActor
-    private func waitUntilSelected(_ element: XCUIElement, in app: XCUIApplication) {
-        let selected = expectation(for: NSPredicate(format: "value == 'Selected'"), evaluatedWith: element)
-        let result = XCTWaiter.wait(for: [selected], timeout: 5)
-        XCTAssertEqual(result, .completed, "\(element) wasn't selected\n\(app.debugDescription)")
     }
 }

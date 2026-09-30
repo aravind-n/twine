@@ -60,6 +60,20 @@ final class MetalTerminalView: TerminalView {
         super.send(source: source, data: data)
     }
 
+    /// Called after the terminal takes the keyboard, such as when it's clicked.
+    var didFocus: (() -> Void)?
+
+    // SwiftTerm sets this from becomeFirstResponder and resignFirstResponder, which it doesn't let
+    // subclasses override.
+    override var hasFocus: Bool {
+        get { super.hasFocus }
+        set {
+            super.hasFocus = newValue
+            // AppKit can change the first responder during a SwiftUI update, which mustn't change state.
+            if newValue { Task { [weak self] in self?.didFocus?() } }
+        }
+    }
+
     // Clicks land on SwiftTerm's Metal subview, which doesn't take the keyboard, so take it here.
     override func mouseDown(with event: NSEvent) {
         if window?.firstResponder !== self { window?.makeFirstResponder(self) }

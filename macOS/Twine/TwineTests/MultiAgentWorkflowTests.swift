@@ -23,14 +23,10 @@ struct MultiAgentWorkflowTests {
             ])
         #expect(workflow.terminalIDs == [8])
         #expect(workflow.showsAgentSubtabs)
-        #expect(workflow.shownAgent(selectedID: 6)?.id == 6)
-        #expect(workflow.shownAgent(selectedID: 99)?.id == 5)
-        #expect(workflow.shownAgent(selectedID: nil)?.id == 5)
         workflow.agents.removeLast()
         #expect(!workflow.showsAgentSubtabs)
         workflow.agents.removeAll()
         #expect(!workflow.showsAgentSubtabs)
-        #expect(workflow.shownAgent(selectedID: nil) == nil)
     }
 
     @Test func roleStylesAreStableAndMatchTheDesign() {

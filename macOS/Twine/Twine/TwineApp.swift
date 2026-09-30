@@ -14,6 +14,8 @@ struct TwineApp: App {
     @NSApplicationDelegateAdaptor(AppTerminationDelegate.self) private var terminationDelegate
     @State private var bridgeClient = BridgeClient(transport: BridgeWorker(dataDirectory: Self.dataDirectory))
     @State private var fileEditor = FileEditorModel()
+    @State private var workflowLayouts = WorkflowLayouts(
+        fileURL: Self.dataDirectory.appending(path: "workflow-layouts.json"))
 
     init() {
         // The core has one open folder, so a new window tab could only mirror it. SwiftUI has no
@@ -37,8 +39,11 @@ struct TwineApp: App {
             ContentView()
                 .environment(bridgeClient)
                 .environment(fileEditor)
+                .environment(workflowLayouts)
                 .task {
-                    terminationDelegate.connect(to: bridgeClient, editor: fileEditor)
+                    terminationDelegate.connect(to: bridgeClient, editor: fileEditor, layouts: workflowLayouts)
+                    // Workflows appear with the core's first snapshot, so their layouts must be ready first.
+                    await workflowLayouts.load()
                     bridgeClient.start()
                 }
         }
@@ -63,10 +68,12 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
     private var bridgeClient: BridgeClient?
     private var isTerminating = false
     private var editor: FileEditorModel?
+    private var layouts: WorkflowLayouts?
 
-    func connect(to bridgeClient: BridgeClient, editor: FileEditorModel? = nil) {
+    func connect(to bridgeClient: BridgeClient, editor: FileEditorModel? = nil, layouts: WorkflowLayouts? = nil) {
         self.bridgeClient = bridgeClient
         self.editor = editor
+        self.layouts = layouts
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -81,6 +88,7 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
         isTerminating = true
         Task {
             await bridgeClient.stopForQuit()
+            await layouts?.flush()
             reply(true)
         }
         return .terminateLater
