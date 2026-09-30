@@ -39,8 +39,7 @@ jobs:
             libraries:
               - 'twine-core/**'
               - 'twine-bridge/**'
-              - 'TwineCorePackage/Package.swift'
-              - 'scripts/build-core.sh'
+              - 'macOS/TwineCorePackage/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/**'
@@ -51,8 +50,6 @@ jobs:
               - 'macOS/**/!(*.md)'
               - 'twine-core/**'
               - 'twine-bridge/**'
-              - 'TwineCorePackage/Package.swift'
-              - 'scripts/build-core.sh'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/**'
@@ -94,11 +91,11 @@ jobs:
         id: bridge-cache
         uses: actions/cache@v6
         with:
-          path: TwineCorePackage/TwineCore.xcframework
+          path: macOS/TwineCorePackage/TwineCore.xcframework
           key: >-
             twine-bridge-v1-${{ matrix.profile }}-${{
             hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
-            'scripts/build-core.sh') }}
+            'macOS/TwineCorePackage/build.sh') }}
       - uses: ./.github/actions/setup-macos
         if: steps.bridge-cache.outputs.cache-hit != 'true'
         with:
@@ -106,7 +103,7 @@ jobs:
           rust-targets: aarch64-apple-darwin x86_64-apple-darwin
       - name: Build bridge framework
         if: steps.bridge-cache.outputs.cache-hit != 'true'
-        run: scripts/build-core.sh "${{ matrix.profile }}"
+        run: macOS/TwineCorePackage/build.sh "${{ matrix.profile }}"
 
   cargo-audit:
     needs: changes
@@ -122,11 +119,11 @@ jobs:
       - name: Restore Debug bridge
         uses: actions/cache/restore@v6
         with:
-          path: TwineCorePackage/TwineCore.xcframework
+          path: macOS/TwineCorePackage/TwineCore.xcframework
           key: >-
             twine-bridge-v1-debug-${{
             hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
-            'scripts/build-core.sh') }}
+            'macOS/TwineCorePackage/build.sh') }}
           fail-on-cache-miss: true
       - uses: ./.github/actions/setup-macos
         with:
@@ -166,11 +163,11 @@ jobs:
       - name: Restore Debug bridge
         uses: actions/cache/restore@v6
         with:
-          path: TwineCorePackage/TwineCore.xcframework
+          path: macOS/TwineCorePackage/TwineCore.xcframework
           key: >-
             twine-bridge-v1-debug-${{
             hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
-            'scripts/build-core.sh') }}
+            'macOS/TwineCorePackage/build.sh') }}
           fail-on-cache-miss: true
       - uses: ./.github/actions/setup-macos
         with:

@@ -195,7 +195,7 @@
 			mainGroup = F266A3DE3068BD6000C1232B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineCorePackage" */,
+				F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../TwineCorePackage" */,
 				F2DDC75D306A855C0066E501 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */,
 				F2DDC766306A85810066E501 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
@@ -553,9 +553,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineCorePackage" */ = {
+		F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../TwineCorePackage" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../TwineCorePackage;
+			relativePath = ../TwineCorePackage;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -581,7 +581,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		F2DDC76A306B00010066E501 /* TwineCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../../TwineCorePackage" */;
+			package = F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../TwineCorePackage" */;
 			productName = TwineCore;
 		};
 		F2DDC767306A85810066E501 /* SwiftTerm */ = {

@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-    echo "usage: scripts/build-core.sh debug|release" >&2
+    echo "usage: macOS/TwineCorePackage/build.sh debug|release" >&2
     exit 2
 }
 
@@ -24,8 +24,8 @@ case "$1" in
         ;;
 esac
 
-repo_root="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
-package_root="${repo_root}/TwineCorePackage"
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+package_root="${repo_root}/macOS/TwineCorePackage"
 artifact="${package_root}/TwineCore.xcframework"
 target_dir="${repo_root}/target/core-xcframework"
 deployment_target=26.0

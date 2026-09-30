@@ -11,8 +11,8 @@ guard FileManager.default.fileExists(atPath: artifactURL.path) else {
     fatalError(
         """
         TwineCore.xcframework is missing. From the repository root, run \
-        'scripts/build-core.sh debug' for Debug builds or \
-        'scripts/build-core.sh release' for Release builds.
+        'macOS/TwineCorePackage/build.sh debug' for Debug builds or \
+        'macOS/TwineCorePackage/build.sh release' for Release builds.
         """
     )
 }
@@ -21,9 +21,9 @@ let package = Package(
     name: "TwineCorePackage",
     platforms: [.macOS(.v26)],
     products: [
-        .library(name: "TwineCore", targets: ["TwineCore"]),
+        .library(name: "TwineCore", targets: ["TwineCore"])
     ],
     targets: [
-        .binaryTarget(name: "TwineCore", path: artifactName),
+        .binaryTarget(name: "TwineCore", path: artifactName)
     ]
 )

@@ -1,4 +1,4 @@
-# Formatting belongs to swift-format (see .swift-format); SwiftLint covers code quality.
+# Formatting belongs to swift-format (see ../.swift-format); SwiftLint covers code quality.
 strict: true
 
 excluded:

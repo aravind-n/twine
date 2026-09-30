@@ -6,7 +6,7 @@ Use SwiftTerm in an AppKit view for the primary terminal surface, with its Metal
 
 Get `twine-core` state and send commands only through `CoreClient`; build the `twine-core` side of a feature alongside its UI rather than mocking it.
 
-The app links `twine-core` as the `TwineCore` XCFramework from the local `TwineCorePackage` binary Swift package. From the repository root, run `scripts/build-core.sh debug` before Debug builds and `scripts/build-core.sh release` before Release builds. Link only the package: keep build tooling, header paths, and direct static-library linkage out of the Xcode project.
+The app links `twine-core` as the `TwineCore` XCFramework from the local `TwineCorePackage` binary Swift package. From the repository root, run `macOS/TwineCorePackage/build.sh debug` before Debug builds and `macOS/TwineCorePackage/build.sh release` before Release builds. Link only the package: keep build tooling, header paths, and direct static-library linkage out of the Xcode project.
 
 Follow the visual direction in [DESIGN.md](DESIGN.md) for all UI work.
 
@@ -17,7 +17,7 @@ Follow the visual direction in [DESIGN.md](DESIGN.md) for all UI work.
 - **State:** Use Observation: `@Observable` models with `@State`, `@Bindable`, and `@Environment`. Don't use `ObservableObject`, `@Published`, or Combine for app state.
 - **Concurrency:** Use async/await and structured concurrency. Don't use GCD or Combine for new asynchronous work.
 - **Tests:** Write unit tests with Swift Testing (`@Test`, `#expect`). Use XCTest only for UI tests.
-- **Formatting and linting:** Format with `swift format --in-place --recursive macOS/` before committing; `swift format lint --strict --recursive macOS/` must pass. Run `macOS/Twine/Scripts/swiftlint.sh`; it must pass with no violations. The configs are `macOS/Twine/.swift-format` and `macOS/Twine/.swiftlint.yml`.
+- **Formatting and linting:** Format with `swift format --in-place --recursive macOS/` before committing; `swift format lint --strict --recursive macOS/` must pass. Run `macOS/Twine/Scripts/swiftlint.sh`; it must pass with no violations. The configs are `macOS/.swift-format` and `macOS/Twine/.swiftlint.yml`.
 - **Logging:** Emit diagnostics with `Logger` from `os`, using the app's bundle identifier (`com.twineproject.Twine`) as the subsystem and one category per feature. Never use `print`. Never log secrets, file contents, or terminal output.
 
 ## UI testing and signing
@@ -25,7 +25,7 @@ Follow the visual direction in [DESIGN.md](DESIGN.md) for all UI work.
 - Run macOS UI tests from the repository root with:
 
   ```sh
-  scripts/build-core.sh debug && xcodebuild test -project macOS/Twine/Twine.xcodeproj -scheme Twine -destination 'platform=macOS' -derivedDataPath /tmp/twine-uitests -only-testing:TwineUITests
+  macOS/TwineCorePackage/build.sh debug && xcodebuild test -project macOS/Twine/Twine.xcodeproj -scheme Twine -destination 'platform=macOS' -derivedDataPath /tmp/twine-uitests -only-testing:TwineUITests
   ```
 
 - Let Xcode use the project's default signing settings. This command launched `TwineUITests-Runner` with Xcode's ad hoc "Sign to Run Locally" signature; an Apple Development identity was not required. Avoid overriding signing with `CODE_SIGNING_ALLOWED=NO` or `CODE_SIGN_IDENTITY=-`. If a sandbox blocks Xcode's cache writes, rerun with access to the Xcode and SwiftPM caches.
