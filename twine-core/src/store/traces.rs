@@ -141,6 +141,7 @@ impl Store {
         workflow_id: WorkflowId,
         closed_at: u64,
         endings: &[(TraceSpanId, TraceEnding<'_>)],
+        idle_endings: &[(TerminalId, TraceEnding<'_>)],
     ) -> Result<bool, StoreError> {
         let transaction = self.connection.transaction()?;
         transaction.execute(
@@ -148,6 +149,15 @@ impl Store {
             params![sql_integer(workflow_id.0)?, sql_integer(closed_at)?],
         )?;
         let mut changed = false;
+        for (terminal_id, ending) in idle_endings {
+            super::harness_steps::insert_process_ending(
+                &transaction,
+                workflow_id,
+                *terminal_id,
+                ending,
+            )?;
+            changed = true;
+        }
         for (id, ending) in endings {
             changed |= finish_span(&transaction, *id, ending)?.is_some();
         }
@@ -489,7 +499,7 @@ fn summary(connection: &Connection, id: WorkflowId) -> Result<TraceSummary, Stor
     )?)
 }
 
-fn encode_boundary_sizes(anchor: Option<&TraceAnchor>) -> Option<Vec<u8>> {
+pub(super) fn encode_boundary_sizes(anchor: Option<&TraceAnchor>) -> Option<Vec<u8>> {
     anchor?.boundary_sizes.as_ref().map(|sizes| {
         sizes
             .iter()
@@ -578,7 +588,7 @@ const fn status_name(status: TraceSpanStatus) -> &'static str {
     }
 }
 
-const fn kind_name(kind: TraceEventKind) -> &'static str {
+pub(super) const fn kind_name(kind: TraceEventKind) -> &'static str {
     match kind {
         TraceEventKind::ProcessStarted => "processStarted",
         TraceEventKind::ProcessExited => "processExited",

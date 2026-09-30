@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::debug;
 
+pub(crate) mod claude;
+pub(crate) mod steps;
+
 /// How long to wait for the login shell to report its `PATH`.
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_LOGIN_SHELL_OUTPUT: u64 = 64 * 1024;

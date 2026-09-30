@@ -32,7 +32,7 @@ One harness process filling one role in a workflow. Each agent is a subtab of it
 _Avoid_: Agent session
 
 **Trace span**:
-A bounded unit of work shown on the trace timeline. In multi-agent workflows, a span covers an agent's assignment in a stage or review round, from its incoming handoff (or initial stage entry) to its explicit completion or stop. In Terminal workflows, Twine's shell integration records one span per command, from its output start to its exit status; shells without integration retain a process-lifetime span. Process lifecycle changes remain trace events.
+A bounded unit of work shown on the trace timeline. In multi-agent workflows, a span covers an agent's assignment in a stage or review round, from its incoming handoff (or initial stage entry) to its explicit completion or stop. In a single-agent workflow with harness hooks, each prompt starts a span that ends when the agent finishes responding. In Terminal workflows, Twine's shell integration records one span per command, from its output start to its exit status; shells without integration retain a process-lifetime span. Process lifecycle changes remain trace events.
 
 **Trace event**:
 A timestamped record of activity that Twine observes or performs during a workflow. Trace events can be associated with a span.

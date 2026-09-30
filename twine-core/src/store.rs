@@ -5,6 +5,7 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use thiserror::Error;
 use tracing::info;
 
+mod harness_steps;
 mod recovery;
 mod run_traces;
 mod traces;
@@ -170,7 +171,11 @@ const MIGRATIONS: &[&str] = &[
     UPDATE workflows SET lifecycle_status = agent_status WHERE kind = 'single_agent'",
     // 10: Assignment spans end on explicit completion, independently of process lifetimes.
     // Existing spans retain their recorded lifecycle semantics.
-    "ALTER TABLE trace_spans ADD COLUMN work_span INTEGER NOT NULL DEFAULT 0 CHECK (work_span IN (0, 1))"
+    "ALTER TABLE trace_spans ADD COLUMN work_span INTEGER NOT NULL DEFAULT 0 CHECK (work_span IN (0, 1))",
+    // 11: Correlate asynchronous harness events with the prompt that owns them.
+    "ALTER TABLE trace_spans ADD COLUMN harness_turn_id TEXT;
+     CREATE UNIQUE INDEX trace_harness_turn ON trace_spans(terminal_id, harness_turn_id)
+     WHERE harness_turn_id IS NOT NULL"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the

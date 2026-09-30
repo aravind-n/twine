@@ -52,6 +52,7 @@ impl Application {
         before: Option<TraceSpanId>,
         limit: usize,
     ) -> Result<WorkflowTracePage, ApplicationError> {
+        self.poll_harness_steps()?;
         self.poll_shell_observations()?;
         let inner = self.lock_inner()?;
         let mut page = inner
@@ -100,6 +101,7 @@ impl Application {
         after: Option<TraceEventId>,
         limit: usize,
     ) -> Result<TraceEventsPage, ApplicationError> {
+        self.poll_harness_steps()?;
         Ok(self
             .lock_inner()?
             .folders
@@ -426,6 +428,24 @@ impl Inner {
         message: &str,
     ) -> Result<(), ApplicationError> {
         let Some(span_id) = self.trace_spans.get(&terminal_id).copied() else {
+            if let Some(&workflow_id) = self.step_terminals.get(&terminal_id) {
+                let ending = self
+                    .pending_trace_endings
+                    .entry(terminal_id)
+                    .or_insert_with(|| PendingTraceEnding {
+                        observation,
+                        status,
+                        kind,
+                        message: message.into(),
+                    });
+                self.folders.store().record_harness_process_ending(
+                    workflow_id,
+                    terminal_id,
+                    &ending.as_store_ending(terminal_id),
+                )?;
+                self.pending_trace_endings.remove(&terminal_id);
+                self.publish_trace(workflow_id)?;
+            }
             return Ok(());
         };
         let ending = self
@@ -454,6 +474,29 @@ impl Inner {
         workflow_id: WorkflowId,
         observations: &[(TerminalId, TerminalObservation)],
     ) -> Result<(), ApplicationError> {
+        let idle_endings: Vec<_> = observations
+            .iter()
+            .filter(|(terminal_id, _)| {
+                self.step_terminals.contains_key(terminal_id)
+                    && !self.trace_spans.contains_key(terminal_id)
+            })
+            .map(|(terminal_id, observation)| {
+                (
+                    *terminal_id,
+                    TraceEnding {
+                        observed_at: observation.observed_at,
+                        status: TraceSpanStatus::Stopped,
+                        kind: TraceEventKind::ProcessStopped,
+                        message: "Process stopped when its workflow was closed.",
+                        anchor: Some(TraceAnchor {
+                            terminal_id: *terminal_id,
+                            byte_offset: observation.byte_offset,
+                            boundary_sizes: observation.boundary_sizes.clone(),
+                        }),
+                    },
+                )
+            })
+            .collect();
         let pending = observations
             .iter()
             .filter_map(|(terminal_id, observation)| {
@@ -480,6 +523,7 @@ impl Inner {
             workflow_id,
             crate::workflow::timestamp(),
             &endings,
+            &idle_endings,
         )?;
         for (terminal_id, _) in observations {
             self.trace_spans.remove(terminal_id);

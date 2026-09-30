@@ -20,6 +20,7 @@ use crate::workflow::{SessionId, WorkflowId, WorkflowKind, WorkflowState};
 mod agents;
 mod files;
 mod git;
+mod harness_steps;
 #[cfg(test)]
 mod recovery;
 mod runs;
@@ -160,6 +161,7 @@ struct Inner {
     terminals: HashMap<TerminalId, TerminalStatus>,
     workflows: WorkflowState,
     trace_spans: HashMap<TerminalId, crate::TraceSpanId>,
+    step_terminals: HashMap<TerminalId, WorkflowId>,
     pending_trace_endings: HashMap<TerminalId, traces::PendingTraceEnding>,
     command_shells: std::collections::HashSet<TerminalId>,
     shell_process_endings: HashMap<TerminalId, traces::PendingTraceEnding>,
@@ -180,6 +182,7 @@ pub struct Application {
     harness_path: Option<std::ffi::OsString>,
     config: Config,
     run_processes: Mutex<HashMap<WorkflowId, runs::RunProcesses>>,
+    harness_steps: Mutex<HashMap<TerminalId, harness_steps::HarnessRecording>>,
 }
 
 impl Application {
@@ -254,6 +257,7 @@ impl Application {
         let application = Self {
             files: crate::files::FileWatcher::new()?,
             run_processes: Mutex::new(HashMap::new()),
+            harness_steps: Mutex::new(HashMap::new()),
             commands: Mutex::new(()),
             config,
             inner: Arc::new(Mutex::new(Inner {
@@ -263,6 +267,7 @@ impl Application {
                 terminals: HashMap::new(),
                 workflows: WorkflowState::default(),
                 trace_spans: HashMap::new(),
+                step_terminals: HashMap::new(),
                 pending_trace_endings: HashMap::new(),
                 command_shells: std::collections::HashSet::new(),
                 shell_process_endings: HashMap::new(),
@@ -301,6 +306,7 @@ impl Application {
             .lock()
             .map_err(|_| ApplicationError::Poisoned)?;
         self.lock_inner()?.retry_trace_endings();
+        self.poll_harness_steps()?;
         self.poll_shell_observations()?;
         let disposition = match command {
             Command::Ping => {
@@ -398,6 +404,7 @@ impl Application {
     ///
     /// Returns an error if application state cannot be accessed.
     pub fn snapshot(&self) -> Result<Snapshot, ApplicationError> {
+        self.poll_harness_steps()?;
         self.poll_shell_observations()?;
         self.poll_workflow_signals()?;
         let mut inner = self.lock_inner()?;
@@ -477,10 +484,16 @@ impl Inner {
 
 impl Drop for Application {
     fn drop(&mut self) {
+        let _ = self.poll_harness_steps();
         let _ = self.poll_shell_observations();
         if let Ok(mut inner) = self.inner.lock() {
             inner.retry_trace_endings();
-            let ids = inner.trace_spans.keys().copied().collect::<Vec<_>>();
+            let ids = inner
+                .trace_spans
+                .keys()
+                .chain(inner.step_terminals.keys())
+                .copied()
+                .collect::<std::collections::HashSet<_>>();
             for id in ids {
                 if let Ok(observation) = self.terminals.observe(id)
                     && let Err(error) =
