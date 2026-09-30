@@ -56,6 +56,8 @@ Unknown IDs and unavailable storage return typed errors. Byte offsets do not des
 screen state; ANSI replay and resize handling belong to the history viewer.
 
 Recording uses a worker with at most **4 MiB / 256 requests** pending, plus one in-flight request.
+The worker combines adjacent queued output from one terminal into batches up to **64 KiB**,
+preserving read order while avoiding a separate durable commit for every small PTY read.
 Backpressure pauses output readers without holding terminal input or application-state locks.
 Storage failures leave live input and output usable and make transcript reads fail explicitly.
 Reads wait for previously accepted output to commit and must run off the UI thread. Clean shutdown

@@ -15,6 +15,7 @@ use storage::Storage;
 
 /// Maximum bytes returned by a single transcript read.
 pub const MAX_TRANSCRIPT_READ_BYTES: usize = 64 * 1024;
+const MAX_RECORDING_BATCH_BYTES: usize = 64 * 1024;
 
 /// A page of committed, unmodified terminal output. Offsets count bytes, not characters.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,6 +112,37 @@ struct Queue {
     bytes: usize,
     accepting: bool,
     failure: Option<String>,
+}
+
+impl Queue {
+    fn pop_front(&mut self) -> Option<Job> {
+        let mut job = self.jobs.pop_front()?;
+        self.bytes -= job.byte_count();
+        if let Job::Append(chunk) = &mut job {
+            // Coalesce only already queued, contiguous output. A read, allocation, or another
+            // terminal remains a FIFO boundary, and the worker never waits to fill a batch.
+            while let Some(Job::Append(next)) = self.jobs.front() {
+                let end = u64::try_from(chunk.bytes.len())
+                    .ok()
+                    .and_then(|length| chunk.offset.checked_add(length));
+                if chunk.bytes.is_empty()
+                    || next.bytes.is_empty()
+                    || next.terminal_id != chunk.terminal_id
+                    || end != Some(next.offset)
+                    || chunk.bytes.len().saturating_add(next.bytes.len())
+                        > MAX_RECORDING_BATCH_BYTES
+                {
+                    break;
+                }
+                let Some(Job::Append(next)) = self.jobs.pop_front() else {
+                    unreachable!("the queue is exclusively owned while taking a batch");
+                };
+                self.bytes -= next.bytes.len();
+                chunk.bytes.extend(next.bytes);
+            }
+        }
+        Some(job)
+    }
 }
 
 struct Shared {
@@ -341,10 +373,9 @@ fn run_worker(mut storage: Storage, shared: &Shared) {
                     .wait(queue)
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
             }
-            let Some(job) = queue.jobs.pop_front() else {
+            let Some(job) = queue.pop_front() else {
                 return;
             };
-            queue.bytes -= job.byte_count();
             shared.space.notify_all();
             (job, queue.failure.clone())
         };
@@ -464,6 +495,39 @@ mod tests {
             output(&recorder, id, 0, 8).bytes,
             [0xff, 0, 0x1b, b'[', b'H']
         );
+    }
+
+    #[test]
+    fn queued_output_preserves_terminal_boundaries_and_ordered_read_ends() {
+        let recorder = Arc::new(TranscriptRecorder::temporary().unwrap());
+        let first = recorder.allocate().unwrap();
+        let second = recorder.allocate().unwrap();
+        let stalled = recorder.stall_worker(first);
+        append(&recorder, first, 0, &[0xff, 0]);
+        append(&recorder, first, 2, &[0x1b, b'[']);
+        append(&recorder, second, 0, b"other");
+        let reading = Arc::clone(&recorder);
+        let reader = thread::spawn(move || output(&reading, first, 0, 8));
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !recorder
+            .shared
+            .queue
+            .lock()
+            .unwrap()
+            .jobs
+            .iter()
+            .any(|job| matches!(job, Job::Read { terminal_id, .. } if *terminal_id == first))
+        {
+            assert!(std::time::Instant::now() < deadline, "read was not queued");
+            thread::yield_now();
+        }
+        append(&recorder, first, 4, b"Hlater");
+        drop(stalled);
+        let page = reader.join().unwrap();
+        assert_eq!(page.bytes, [0xff, 0, 0x1b, b'[']);
+        assert_eq!((page.next_offset, page.end_offset), (4, 4));
+        assert_eq!(output(&recorder, first, 4, 8).bytes, b"Hlater");
+        assert_eq!(output(&recorder, second, 0, 8).bytes, b"other");
     }
 
     #[test]
