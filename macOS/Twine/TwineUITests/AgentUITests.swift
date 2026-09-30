@@ -2,6 +2,58 @@ import Darwin
 import XCTest
 
 extension TwineUITests {
+    @MainActor
+    func testForceQuitRestoresActiveAgentAsInterrupted() throws {
+        let folder = try makeFolder()
+        try """
+        echo $$ > agent.pid
+        echo CRASH-HISTORY
+        read line
+        """.write(to: folder.appending(path: "stub.txt"), atomically: true, encoding: .utf8)
+        let app = try makeApp(lastOpenFolder: folder)
+        defer { app.terminate() }
+        app.launchEnvironment["SHELL"] = "/bin/sh"
+        app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(folder.path)/bin:/bin:/usr/bin"
+        app.launch()
+        XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
+        element("workflowChoice-Terminal", in: app).click()
+        let installer =
+            "echo $PPID > twine.pid; mkdir bin; printf '#!/bin/sh\\n' > bin/pi; "
+            + "cat stub.txt >> bin/pi; chmod +x bin/pi\r"
+        app.typeText(installer)
+        let installed = expectation(
+            for: NSPredicate { _, _ in
+                FileManager.default.isExecutableFile(atPath: folder.appending(path: "bin/pi").path)
+            },
+            evaluatedWith: nil)
+        wait(for: [installed], timeout: 10)
+        app.buttons["newWorkflow"].click()
+        chooseHarness("pi", in: app)
+        let prompt = element("agentPrompt", in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 10), app.debugDescription)
+        prompt.click()
+        prompt.typeText("Crash recovery fixture")
+        element("agentStart", in: app).click()
+        XCTAssertTrue(app.staticTexts["Running"].waitForExistence(timeout: 10), app.debugDescription)
+        let agentStarted = expectation(
+            for: NSPredicate { _, _ in FileManager.default.fileExists(atPath: folder.appending(path: "agent.pid").path)
+            },
+            evaluatedWith: nil)
+        wait(for: [agentStarted], timeout: 10)
+        let processID = try XCTUnwrap(pid(in: folder.appending(path: "twine.pid")))
+        guard processID > 1 else { throw NSError(domain: "Invalid crash fixture PID", code: 1) }
+        XCTAssertEqual(kill(processID, SIGKILL), 0)
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
+
+        app.launch()
+        XCTAssertTrue(app.buttons["workflowTab-2"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["workflowTab-2"].click()
+        XCTAssertTrue(app.staticTexts["Agent Interrupted"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Interrupted"].exists, app.debugDescription)
+        XCTAssertFalse(app.staticTexts["Completed"].exists)
+        attachAgentWindow(in: app, name: "Force-quit agent recovered as interrupted")
+    }
+
     /// Starts a stub `pi` from the new-tab card, types to it, and cancels it.
     @MainActor
     func testSingleAgentStartsWithThePromptTakesInputAndCancels() throws {

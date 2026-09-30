@@ -30,6 +30,7 @@ struct WireRunAgent<'a> {
     done: bool,
     reviewer: bool,
     harness: twine_core::HarnessId,
+    status: twine_core::RunAgentStatus,
     targets: Vec<WireTarget<'a>>,
 }
 
@@ -61,6 +62,7 @@ impl<'a> From<&'a WorkflowRun> for WireRun<'a> {
                     done: run.completions.contains_key(&agent.agent_id),
                     reviewer: run.is_reviewer(agent.agent_id),
                     harness: agent.harness,
+                    status: agent.status,
                     targets: run
                         .assignment_targets(agent.agent_id)
                         .iter()
@@ -157,7 +159,7 @@ mod tests {
             "workflowType": workflow_type,
             "prompt": "Task", "stageIndex": 1, "generation": 2, "status": "running",
             "agents": [{"agentId": 4, "role": "reviewer", "instance": 1,
-                "label": "Reviewer", "harness": "claudeCode"}],
+                "label": "Reviewer", "harness": "claudeCode", "status": "running"}],
             "completions": {}, "rounds": {}, "incoming": {}, "assignments": {},
             "traces": [], "message": null
         }))
@@ -173,5 +175,6 @@ mod tests {
         assert_eq!(wire["agents"][0]["instance"], 1);
         assert_eq!(wire["agents"][0]["harness"], "claudeCode");
         assert_eq!(wire["agents"][0]["active"], true);
+        assert_eq!(wire["agents"][0]["status"], "running");
     }
 }

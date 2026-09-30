@@ -3,7 +3,9 @@
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{NewTraceSpan, Store, StoreError, sql_integer, traces::insert_span};
-use crate::{TerminalId, TraceAnchor, TraceSpanId, Workflow, WorkflowRun, WorkflowTrace};
+use crate::{
+    TerminalId, TraceAnchor, TraceSpanId, Workflow, WorkflowId, WorkflowRun, WorkflowTrace,
+};
 
 impl Store {
     pub(crate) fn save_workflow_run(
@@ -12,27 +14,36 @@ impl Store {
     ) -> Result<Vec<(TerminalId, TraceSpanId)>, StoreError> {
         let run = workflow.run.as_ref().expect("workflow has a run");
         let transaction = self.connection.transaction()?;
-        let previous: u64 = transaction.query_row(
-            "SELECT trace_sequence FROM workflow_runs WHERE workflow_id = ?1",
-            [sql_integer(workflow.workflow_id.0)?],
-            |row| super::unsigned_column(row, 0),
-        )?;
         let spans = record_starts(&transaction, workflow, run)?;
-        for event in run.traces.iter().filter(|event| event.sequence > previous) {
-            record_event(&transaction, workflow, run, event)?;
-        }
-        let sequence = run.traces.last().map_or(previous, |event| event.sequence);
-        transaction.execute(
-            "UPDATE workflow_runs SET state = ?2, trace_sequence = ?3 WHERE workflow_id = ?1",
-            params![
-                sql_integer(workflow.workflow_id.0)?,
-                serde_json::to_string(run)?,
-                sql_integer(sequence)?
-            ],
-        )?;
+        save_run_state(&transaction, workflow.workflow_id, run)?;
         transaction.commit()?;
         Ok(spans)
     }
+}
+
+pub(super) fn save_run_state(
+    transaction: &Transaction<'_>,
+    workflow_id: WorkflowId,
+    run: &WorkflowRun,
+) -> Result<(), StoreError> {
+    let previous: u64 = transaction.query_row(
+        "SELECT trace_sequence FROM workflow_runs WHERE workflow_id = ?1",
+        [sql_integer(workflow_id.0)?],
+        |row| super::unsigned_column(row, 0),
+    )?;
+    for event in run.traces.iter().filter(|event| event.sequence > previous) {
+        record_event(transaction, workflow_id, run, event)?;
+    }
+    let sequence = run.traces.last().map_or(previous, |event| event.sequence);
+    transaction.execute(
+        "UPDATE workflow_runs SET state = ?2, trace_sequence = ?3 WHERE workflow_id = ?1",
+        params![
+            sql_integer(workflow_id.0)?,
+            serde_json::to_string(run)?,
+            sql_integer(sequence)?
+        ],
+    )?;
+    Ok(())
 }
 
 fn record_starts(
@@ -93,7 +104,7 @@ fn record_starts(
 
 fn record_event(
     transaction: &Transaction<'_>,
-    workflow: &Workflow,
+    workflow_id: WorkflowId,
     run: &WorkflowRun,
     event: &WorkflowTrace,
 ) -> Result<(), StoreError> {
@@ -106,7 +117,7 @@ fn record_event(
          WHERE l.workflow_id = ?1 AND s.run_generation = ?2 AND (?3 IS NULL OR l.lane_key = ?3)
          ORDER BY s.id LIMIT 1",
             params![
-                sql_integer(workflow.workflow_id.0)?,
+                sql_integer(workflow_id.0)?,
                 sql_integer(event.generation)?,
                 lane
             ],
@@ -115,7 +126,7 @@ fn record_event(
         .optional()?;
     let span = match span {
         Some(span) => span,
-        None => failure_span(transaction, workflow, run, event)?,
+        None => failure_span(transaction, workflow_id, run, event)?,
     };
     let label = |id| {
         run.agents
@@ -135,7 +146,7 @@ fn record_event(
         "INSERT INTO trace_events (workflow_id, span_id, timestamp, kind, message)
          VALUES (?1, ?2, ?3, 'workflowEvent', ?4)",
         params![
-            sql_integer(workflow.workflow_id.0)?,
+            sql_integer(workflow_id.0)?,
             span,
             sql_integer(event.timestamp)?,
             message
@@ -146,7 +157,7 @@ fn record_event(
 
 fn failure_span(
     transaction: &Transaction<'_>,
-    workflow: &Workflow,
+    workflow_id: WorkflowId,
     run: &WorkflowRun,
     event: &WorkflowTrace,
 ) -> Result<i64, StoreError> {
@@ -156,7 +167,7 @@ fn failure_span(
         .query_row(
             "SELECT s.id FROM trace_spans s JOIN trace_lanes l ON l.id = s.lane_id
          WHERE l.workflow_id = ?1 ORDER BY s.id DESC LIMIT 1",
-            [sql_integer(workflow.workflow_id.0)?],
+            [sql_integer(workflow_id.0)?],
             |row| row.get(0),
         )
         .optional()?;
@@ -168,12 +179,12 @@ fn failure_span(
     transaction.execute(
         "INSERT INTO trace_lanes (workflow_id, lane_key, name, is_agent)
          VALUES (?1, 'workflow', 'Workflow', 0) ON CONFLICT (workflow_id, lane_key) DO NOTHING",
-        [sql_integer(workflow.workflow_id.0)?],
+        [sql_integer(workflow_id.0)?],
     )?;
     transaction.execute(
         "INSERT INTO trace_spans (lane_id, title, started_at, ended_at, status, run_generation)
          SELECT id, ?2, ?3, ?3, ?4, ?5 FROM trace_lanes WHERE workflow_id = ?1 AND lane_key = 'workflow'",
-        params![sql_integer(workflow.workflow_id.0)?, event.stage, sql_integer(event.timestamp)?,
+        params![sql_integer(workflow_id.0)?, event.stage, sql_integer(event.timestamp)?,
             if run.status == crate::RunStatus::Failed { "failed" } else { "stopped" }, sql_integer(event.generation)?],
     )?;
     Ok(transaction.last_insert_rowid())

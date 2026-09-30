@@ -67,7 +67,7 @@ impl Store {
         let transaction = self.connection.transaction()?;
         transaction.execute(
             "UPDATE workflows SET name = ?2, kind = 'single_agent', harness = ?3,
-             agent_status = 'running' WHERE id = ?1",
+             lifecycle_status = 'running' WHERE id = ?1",
             params![
                 sql_integer(new.workflow_id.0)?,
                 new.title,
@@ -328,7 +328,7 @@ pub(super) fn insert_span(
     ))
 }
 
-fn finish_span(
+pub(super) fn finish_span(
     transaction: &Transaction<'_>,
     span_id: TraceSpanId,
     ending: &TraceEnding<'_>,

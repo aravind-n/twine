@@ -5,6 +5,7 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use thiserror::Error;
 use tracing::info;
 
+mod recovery;
 mod run_traces;
 mod traces;
 mod workflow_types;
@@ -162,7 +163,11 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX trace_events_span ON trace_events(span_id, id)",
     // 8: Ordered terminal sizes at an anchored trace event's byte boundary.
     "ALTER TABLE trace_events ADD COLUMN boundary_sizes BLOB CHECK
-        (boundary_sizes IS NULL OR (length(boundary_sizes) <= 2048 AND length(boundary_sizes) % 8 = 0))"
+        (boundary_sizes IS NULL OR (length(boundary_sizes) <= 2048 AND length(boundary_sizes) % 8 = 0))",
+    // 9: Single-agent lifecycle includes interruption without rebuilding history's parent table.
+    "ALTER TABLE workflows ADD COLUMN lifecycle_status TEXT CHECK
+        (lifecycle_status IN ('running', 'exited', 'failed', 'cancelled', 'interrupted'));
+    UPDATE workflows SET lifecycle_status = agent_status WHERE kind = 'single_agent'"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
