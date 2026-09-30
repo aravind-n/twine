@@ -86,7 +86,7 @@ struct NewTabChoices: View {
                 VStack(spacing: NewTabLayout.spacing) { quickChoices }
             }
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumGraphChoiceWidth))],
+                columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumChoiceWidth))],
                 spacing: NewTabLayout.spacing
             ) {
                 ForEach(catalog) { type in
