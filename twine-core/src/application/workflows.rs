@@ -44,7 +44,7 @@ impl Application {
             inner
                 .folders
                 .store()
-                .update_workflow(workflow_id, name, workflow.kind)?;
+                .update_workflow(workflow_id, name, workflow.kind, None)?;
             name.clone_into(&mut workflow.name);
             inner.workflows.workflows[index] = workflow.clone();
             inner
@@ -62,6 +62,12 @@ impl Application {
         kind: WorkflowKind,
         size: TerminalSize,
     ) -> Result<CommandDisposition, ApplicationError> {
+        if kind == WorkflowKind::SingleAgent {
+            return Ok(reject(
+                "invalidWorkflowKind",
+                "Start an agent from a new workflow tab.",
+            ));
+        }
         let mut inner = self.lock_inner()?;
         if inner.folders.state().open_folder.as_deref() != Some(folder) {
             return Ok(reject(
@@ -86,7 +92,7 @@ impl Application {
         };
         let name = match kind {
             WorkflowKind::Draft => "New workflow",
-            WorkflowKind::Terminal => "Terminal",
+            WorkflowKind::Terminal | WorkflowKind::SingleAgent => "Terminal",
         };
         let persisted = (|| -> Result<_, ApplicationError> {
             let session_id = match selected {
@@ -113,6 +119,7 @@ impl Application {
             session_id,
             name: name.to_owned(),
             kind,
+            harness: None,
             terminal_id,
             status: WorkflowStatus::Running,
             started_at: timestamp(),
@@ -148,10 +155,18 @@ impl Application {
             ));
         };
         let mut workflow = inner.workflows.workflows[index].clone();
-        inner
-            .folders
-            .store()
-            .update_workflow(workflow_id, "Terminal", WorkflowKind::Terminal)?;
+        if workflow.kind != WorkflowKind::Draft && workflow.kind != WorkflowKind::Terminal {
+            return Ok(reject(
+                "workflowNotDraft",
+                "The workflow is already configured.",
+            ));
+        }
+        inner.folders.store().update_workflow(
+            workflow_id,
+            "Terminal",
+            WorkflowKind::Terminal,
+            None,
+        )?;
         workflow.kind = WorkflowKind::Terminal;
         "Terminal".clone_into(&mut workflow.name);
         inner.workflows.workflows[index] = workflow.clone();
@@ -234,6 +249,26 @@ impl Application {
             workflows: Vec::new(),
         };
         for stored in stored {
+            if stored.kind == WorkflowKind::SingleAgent {
+                // The agent's process and terminal are gone. Its work didn't finish.
+                inner.workflows.workflows.push(Workflow {
+                    workflow_id: stored.workflow_id,
+                    session_id: stored.session_id,
+                    name: stored.name,
+                    kind: stored.kind,
+                    harness: stored.harness,
+                    terminal_id: TerminalId::from_value(0),
+                    // Only an agent that was still running when Twine stopped was interrupted.
+                    status: match stored.agent_status {
+                        Some(status) if status != WorkflowStatus::Running => status,
+                        _ => WorkflowStatus::Interrupted,
+                    },
+                    started_at: timestamp(),
+                    ended_at: Some(timestamp()),
+                    restored: true,
+                });
+                continue;
+            }
             let (terminal_id, status) = match self.start_terminal(
                 &folder,
                 TerminalSize {
@@ -257,6 +292,7 @@ impl Application {
                 session_id: stored.session_id,
                 name: stored.name,
                 kind: stored.kind,
+                harness: None,
                 terminal_id,
                 status,
                 started_at: timestamp(),

@@ -20,7 +20,7 @@ final class BridgeClient {
     private var commandResults: [UInt64: BridgeCommandResult] = [:]
     private var ignoredCommandResults: Set<UInt64> = []
     private var commandWaiters: [UInt64: CheckedContinuation<BridgeCommandResult, any Error>] = [:]
-    private var terminalChunkRouter = TerminalChunkRouter(capacityBytes: 1024 * 1024)
+    var terminalChunkRouter = TerminalChunkRouter(capacityBytes: 1024 * 1024)
     private var isFetchingTerminalChunk = false
 
     init(transport: any BridgeTransport) {
@@ -42,7 +42,7 @@ final class BridgeClient {
         if receipt.status == .accepted {
             switch command {
             case .ping, .startTerminal, .closeTerminal, .createWorkflow, .activateWorkflow, .closeWorkflow,
-                .createSession, .renameSession, .selectSession, .deleteSession:
+                .startAgent, .cancelAgent, .createSession, .renameSession, .selectSession, .deleteSession:
                 if commandResults.removeValue(forKey: receipt.requestID) == nil {
                     ignoredCommandResults.insert(receipt.requestID)
                 }
@@ -219,15 +219,10 @@ final class BridgeClient {
         lastCommandCompletion = BridgeCommandCompletion(requestID: requestID, result: result)
         switch result {
         case .terminalStarted(let terminalID):
-            terminalChunkRouter.markStarted(terminalID)
-            updateTerminal(
-                BridgeTerminalState(terminalID: terminalID, status: .running),
-                in: &snapshot
-            )
+            markTerminalRunning(terminalID, in: &snapshot)
         case .terminalClosed(let terminalID):
-            terminalChunkRouter.markClosed(terminalID)
-            snapshot.terminals.removeAll { $0.terminalID == terminalID }
-        case .pong, .workflowCreated, .workflowActivated, .workflowClosed,
+            markTerminalClosed(terminalID, in: &snapshot)
+        case .pong, .workflowCreated, .workflowActivated, .workflowClosed, .agentStarted, .agentCancelled,
             .sessionCreated, .sessionRenamed, .sessionSelected, .sessionDeleted:
             break
         }
@@ -260,7 +255,7 @@ final class BridgeClient {
         failCommandWaiters(with: error)
     }
 
-    private func updateTerminal(_ terminal: BridgeTerminalState, in snapshot: inout BridgeSnapshot) {
+    func updateTerminal(_ terminal: BridgeTerminalState, in snapshot: inout BridgeSnapshot) {
         if let index = snapshot.terminals.firstIndex(where: { $0.terminalID == terminal.terminalID }) {
             snapshot.terminals[index] = terminal
         } else {
@@ -281,16 +276,11 @@ extension BridgeClient {
     private func applyWorkflowState(_ state: BridgeWorkflowState, to snapshot: inout BridgeSnapshot) {
         for workflow in snapshot.workflows.workflows
         where !state.workflows.contains(where: { $0.id == workflow.id }) {
-            terminalChunkRouter.markClosed(workflow.terminalID)
-            snapshot.terminals.removeAll { $0.terminalID == workflow.terminalID }
+            markTerminalClosed(workflow.terminalID, in: &snapshot)
         }
         for workflow in state.workflows
         where !snapshot.workflows.workflows.contains(where: { $0.id == workflow.id }) {
-            if workflow.terminalID != 0 {
-                terminalChunkRouter.markStarted(workflow.terminalID)
-                updateTerminal(
-                    BridgeTerminalState(terminalID: workflow.terminalID, status: .running), in: &snapshot)
-            }
+            if workflow.terminalID != 0 { markTerminalRunning(workflow.terminalID, in: &snapshot) }
         }
         snapshot.workflows = state
     }
@@ -298,14 +288,17 @@ extension BridgeClient {
     private func applyWorkflow(_ workflow: BridgeWorkflow, to snapshot: inout BridgeSnapshot) {
         if workflow.status == .closed {
             snapshot.workflows.workflows.removeAll { $0.id == workflow.id }
-            snapshot.terminals.removeAll { $0.terminalID == workflow.terminalID }
-            terminalChunkRouter.markClosed(workflow.terminalID)
+            markTerminalClosed(workflow.terminalID, in: &snapshot)
         } else if let index = snapshot.workflows.workflows.firstIndex(where: { $0.id == workflow.id }) {
+            let previousTerminalID = snapshot.workflows.workflows[index].terminalID
             snapshot.workflows.workflows[index] = workflow
+            // Starting an agent replaces the draft's placeholder shell with the agent's terminal.
+            guard previousTerminalID != workflow.terminalID else { return }
+            if previousTerminalID != 0 { markTerminalClosed(previousTerminalID, in: &snapshot) }
+            if workflow.terminalID != 0 { markTerminalRunning(workflow.terminalID, in: &snapshot) }
         } else {
             snapshot.workflows.workflows.append(workflow)
-            terminalChunkRouter.markStarted(workflow.terminalID)
-            updateTerminal(BridgeTerminalState(terminalID: workflow.terminalID, status: .running), in: &snapshot)
+            markTerminalRunning(workflow.terminalID, in: &snapshot)
         }
     }
 }

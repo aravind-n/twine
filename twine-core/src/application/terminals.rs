@@ -117,22 +117,29 @@ impl Application {
         working_directory: &Path,
         size: TerminalSize,
     ) -> Result<TerminalId, ApplicationError> {
-        let inner = Arc::downgrade(&self.inner);
         Ok(self.terminals.start_default_shell(
             working_directory,
             size,
-            Arc::new(move |terminal_id, result| {
-                let Some(inner) = inner.upgrade() else { return };
-                let Ok(mut inner) = inner.lock() else {
-                    warn!(
-                        terminal_id = terminal_id.value(),
-                        "application state lock poisoned after terminal exit"
-                    );
-                    return;
-                };
-                inner.record_terminal_exit(terminal_id, result);
-            }),
+            Arc::new(self.exit_callback()),
         )?)
+    }
+
+    /// Records a terminal's process exit in application state.
+    pub(super) fn exit_callback(
+        &self,
+    ) -> impl Fn(TerminalId, Result<TerminalExit, String>) + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move |terminal_id, result| {
+            let Some(inner) = inner.upgrade() else { return };
+            let Ok(mut inner) = inner.lock() else {
+                warn!(
+                    terminal_id = terminal_id.value(),
+                    "application state lock poisoned after terminal exit"
+                );
+                return;
+            };
+            inner.record_terminal_exit(terminal_id, result);
+        }
     }
 }
 
@@ -167,18 +174,37 @@ impl Inner {
             .iter_mut()
             .find(|workflow| workflow.terminal_id == terminal_id)
         {
-            workflow.status = match &status {
-                TerminalStatus::Exited(_) => crate::workflow::WorkflowStatus::Exited,
-                TerminalStatus::Failed { .. } => crate::workflow::WorkflowStatus::Failed,
-                TerminalStatus::Running => return,
-            };
-            workflow.ended_at = Some(crate::workflow::timestamp().max(workflow.started_at));
-            let workflow = workflow.clone();
-            if let Err(error) = self
-                .events
-                .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))
-            {
-                warn!(%error, "failed to record workflow exit");
+            // A cancelled agent keeps its cancelled status. Any other exit only means the process
+            // ended, never that the work succeeded.
+            if workflow.status != crate::workflow::WorkflowStatus::Cancelled {
+                workflow.status = match &status {
+                    TerminalStatus::Exited(_) => crate::workflow::WorkflowStatus::Exited,
+                    TerminalStatus::Failed { .. } => crate::workflow::WorkflowStatus::Failed,
+                    TerminalStatus::Running => return,
+                };
+                workflow.ended_at = Some(crate::workflow::timestamp().max(workflow.started_at));
+                if workflow.kind == crate::workflow::WorkflowKind::SingleAgent {
+                    if let Err(error) = self
+                        .folders
+                        .store()
+                        .update_agent_status(workflow.workflow_id, workflow.status)
+                    {
+                        warn!(%error, "failed to record the agent's exit");
+                    }
+                    // Recording the trace exit event belongs here once traces exist (TWINE-23).
+                    tracing::info!(
+                        workflow_id = workflow.workflow_id.0,
+                        status = ?workflow.status,
+                        "agent exited"
+                    );
+                }
+                let workflow = workflow.clone();
+                if let Err(error) = self
+                    .events
+                    .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))
+                {
+                    warn!(%error, "failed to record workflow exit");
+                }
             }
         }
         self.terminals.insert(terminal_id, status);

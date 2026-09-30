@@ -38,7 +38,7 @@ actor DelayedStartTransport {
             closedTerminalIDs.insert(terminalID)
             deliver(.commandCompleted(requestID: requestID, result: .terminalClosed(terminalID: terminalID)))
         case .ping, .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .createWorkflow,
-            .activateWorkflow, .closeWorkflow, .nameDraftWorkflow, .refreshGitBranch,
+            .activateWorkflow, .closeWorkflow, .startAgent, .cancelAgent, .nameDraftWorkflow, .refreshGitBranch,
             .createSession, .renameSession, .selectSession, .deleteSession:
             break
         }

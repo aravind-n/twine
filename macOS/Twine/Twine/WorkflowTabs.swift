@@ -5,6 +5,7 @@ struct WorkflowTabs: View {
     let selectedID: UInt64?
     let select: (UInt64) -> Void
     let close: (UInt64) -> Void
+    let cancelAgent: (UInt64) -> Void
     let create: () -> Void
     @State private var tabsWidth: CGFloat?
 
@@ -30,7 +31,8 @@ struct WorkflowTabs: View {
                     workflow: workflow,
                     isSelected: workflow.id == selectedID,
                     select: { select(workflow.id) },
-                    close: { close(workflow.id) }
+                    close: { close(workflow.id) },
+                    cancelAgent: { cancelAgent(workflow.id) }
                 )
                 .id(workflow.id)
             }
@@ -80,6 +82,7 @@ private struct WorkflowTab: View {
     let isSelected: Bool
     let select: () -> Void
     let close: () -> Void
+    let cancelAgent: () -> Void
     @State private var isHovered = false
     @FocusState private var focusedControl: Control?
 
@@ -90,7 +93,7 @@ private struct WorkflowTab: View {
     var body: some View {
         Button(action: select) {
             HStack(spacing: 6) {
-                Image(systemName: workflow.kind == .draft ? "square.dashed" : "terminal")
+                Image(systemName: workflow.tabSymbol)
                     .frame(width: 15)
                     .opacity(showsClose ? 0 : 1)
                 Text(workflow.name)
@@ -129,6 +132,12 @@ private struct WorkflowTab: View {
                 .allowsHitTesting(showsClose)
                 .accessibilityHidden(!showsClose)
                 .accessibilityIdentifier("closeWorkflow-\(workflow.id)")
+        }
+        .contextMenu {
+            if workflow.isRunningAgent {
+                Button("Cancel Agent", systemImage: "stop.circle", action: cancelAgent)
+            }
+            Button("Close Workflow", systemImage: "xmark", action: close)
         }
         .onHover { isHovered = $0 }
         .animation(Motion.tabCloseButton, value: showsClose)

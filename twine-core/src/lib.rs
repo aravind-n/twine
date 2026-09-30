@@ -6,6 +6,7 @@ mod event;
 mod files;
 mod folder;
 mod git;
+mod harness;
 mod store;
 mod terminal;
 mod workflow;
@@ -21,6 +22,7 @@ pub use files::{
     FileSaveRequest, FileSnapshot, FileVersion, TEXT_LIMIT,
 };
 pub use folder::{FolderState, RecentFolder, UnavailableFolder, UnavailableReason};
+pub use harness::{HarnessError, HarnessId};
 pub use store::StoreError;
 pub use terminal::{
     TerminalChunk, TerminalError, TerminalExit, TerminalId, TerminalSize, TerminalState,

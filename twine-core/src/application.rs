@@ -14,8 +14,10 @@ use crate::terminal::{
     TerminalStream,
 };
 
+use crate::harness::{HarnessId, LoginPath};
 use crate::workflow::{SessionId, WorkflowId, WorkflowKind, WorkflowState};
 
+mod agents;
 mod files;
 mod git;
 mod sessions;
@@ -79,6 +81,17 @@ pub enum Command {
     CloseWorkflow {
         workflow_id: WorkflowId,
     },
+    /// Runs a draft workflow as a single agent: `harness` started with `prompt`.
+    StartAgent {
+        workflow_id: WorkflowId,
+        harness: HarnessId,
+        prompt: String,
+        size: TerminalSize,
+    },
+    /// Stops a running agent, leaving its workflow open.
+    CancelAgent {
+        workflow_id: WorkflowId,
+    },
     StartTerminal {
         working_directory: PathBuf,
         size: TerminalSize,
@@ -131,6 +144,10 @@ pub struct Application {
     inner: Arc<Mutex<Inner>>,
     terminal_output: Arc<TerminalStream>,
     terminals: TerminalManager,
+    login_path: LoginPath,
+    /// Makes harness lookup search only this `PATH`, so tests don't depend on installed tools.
+    #[cfg(test)]
+    harness_path: Option<std::ffi::OsString>,
     config: Config,
 }
 
@@ -204,6 +221,13 @@ impl Application {
             })),
             terminal_output: Arc::clone(&terminal_output),
             terminals,
+            // Unit tests must not start the developer's login shell.
+            #[cfg(test)]
+            login_path: LoginPath::ready(None),
+            #[cfg(not(test))]
+            login_path: LoginPath::spawn(crate::terminal::login_shell()),
+            #[cfg(test)]
+            harness_path: None,
         };
 
         application.restore_workflows()?;
@@ -273,6 +297,13 @@ impl Application {
             Command::CloseWorkflow { workflow_id } => {
                 self.close_workflow(request_id, workflow_id)?
             }
+            Command::StartAgent {
+                workflow_id,
+                harness,
+                prompt,
+                size,
+            } => self.start_agent(request_id, workflow_id, harness, &prompt, size)?,
+            Command::CancelAgent { workflow_id } => self.cancel_agent(request_id, workflow_id)?,
             Command::StartTerminal {
                 working_directory,
                 size,
@@ -367,6 +398,10 @@ impl Inner {
 
 impl Drop for Application {
     fn drop(&mut self) {
+        // Processes that Twine stops on the way out didn't finish, so their exits aren't recorded.
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.terminals.clear();
+        }
         self.terminals.shutdown();
     }
 }

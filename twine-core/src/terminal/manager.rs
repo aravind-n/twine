@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -9,7 +10,9 @@ use std::time::Duration;
 use portable_pty::{CommandBuilder, MasterPty};
 use tracing::{debug, warn};
 
-use super::launcher::{canonical_working_directory, default_shell_command};
+use super::launcher::{
+    canonical_working_directory, default_shell_command, program_launcher_command,
+};
 use super::process::{SharedChild, terminate_child, terminate_unobserved_child, wait_for_child};
 use super::pty::{StartingTerminal, spawn_terminal_process, spawn_terminal_reader};
 use super::{TerminalError, TerminalExit, TerminalId, TerminalSize, TerminalStream};
@@ -22,6 +25,7 @@ type ExitCallback = Arc<dyn Fn(TerminalId, Result<TerminalExit, String>) + Send 
 
 struct TerminalSession {
     master: Box<dyn MasterPty + Send>,
+    size: TerminalSize,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: SharedChild,
     reader_cancelled: Arc<AtomicBool>,
@@ -68,6 +72,39 @@ impl TerminalManager {
             command
         };
         self.start_command(command, size, Some(working_directory), on_exit)
+    }
+
+    /// Starts `program` in `working_directory` with the given environment `PATH`.
+    pub(crate) fn start_program(
+        &self,
+        working_directory: &Path,
+        program: &Path,
+        arguments: &[OsString],
+        path: &OsStr,
+        size: TerminalSize,
+        on_exit: ExitCallback,
+    ) -> Result<TerminalId, TerminalError> {
+        let working_directory = canonical_working_directory(working_directory)?;
+        let command = program_launcher_command(&working_directory, program, arguments, path);
+        self.start_command(command, size, Some(working_directory), on_exit)
+    }
+
+    /// The last size the terminal was given, if it is open.
+    pub(crate) fn size(&self, terminal_id: TerminalId) -> Option<TerminalSize> {
+        Some(self.lock_sessions().ok()?.get(&terminal_id)?.size)
+    }
+
+    /// Stops the process but keeps the terminal open, so its output stays readable until closed.
+    pub(crate) fn terminate(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
+        let child = Arc::clone(
+            &self
+                .lock_sessions()?
+                .get(&terminal_id)
+                .ok_or(TerminalError::NotOpen { terminal_id })?
+                .child,
+        );
+        terminate_child(&child);
+        Ok(())
     }
 
     fn start_command(
@@ -120,6 +157,7 @@ impl TerminalManager {
                         terminal_id,
                         TerminalSession {
                             master,
+                            size,
                             writer,
                             child,
                             reader_cancelled,
@@ -133,6 +171,7 @@ impl TerminalManager {
 
         let session = TerminalSession {
             master,
+            size,
             writer,
             child,
             reader_cancelled,
@@ -192,15 +231,19 @@ impl TerminalManager {
         size: TerminalSize,
     ) -> Result<(), TerminalError> {
         let size = size.validate()?;
-        self.lock_sessions()?
-            .get(&terminal_id)
-            .ok_or(TerminalError::NotOpen { terminal_id })?
+        let mut sessions = self.lock_sessions()?;
+        let session = sessions
+            .get_mut(&terminal_id)
+            .ok_or(TerminalError::NotOpen { terminal_id })?;
+        session
             .master
             .resize(size.into())
             .map_err(|error| TerminalError::Pty {
                 operation: "resize PTY",
                 message: error.to_string(),
-            })
+            })?;
+        session.size = size;
+        Ok(())
     }
 
     pub(crate) fn close(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
@@ -271,6 +314,7 @@ fn spawn_terminal_supervisor(
 fn stop_session(terminal_id: TerminalId, session: TerminalSession) {
     let TerminalSession {
         master,
+        size: _,
         writer,
         child,
         reader_cancelled,

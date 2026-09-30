@@ -43,8 +43,8 @@ struct StatusFooter: View {
     private func statusColor(for workflow: BridgeWorkflow) -> Color {
         switch workflow.status {
         case .running: workflow.kind == .draft ? .secondary : .statusRunning
-        case .failed: .statusNeedsAttention
-        case .exited, .closed: .statusComplete
+        case .failed, .interrupted: .statusNeedsAttention
+        case .exited, .cancelled, .closed: .statusComplete
         }
     }
 }

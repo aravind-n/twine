@@ -25,12 +25,14 @@ nonisolated private struct CommandPayload: Encodable {
     var sessionID: UInt64?
     var workflowID: UInt64?
     var name: String?
+    var harness: BridgeHarness?
+    var prompt: String?
     var workingDirectory: String?
     var size: BridgeTerminalSize?
     var terminalID: UInt64?
 
     private enum CodingKeys: String, CodingKey {
-        case path, folder, kind, size, type, workingDirectory, name
+        case path, folder, kind, size, type, workingDirectory, name, harness, prompt
         case terminalID = "terminalId"
         case workflowID = "workflowId"
         case sessionID = "sessionId"
@@ -57,7 +59,7 @@ nonisolated private struct CommandPayload: Encodable {
         case .createSession, .renameSession, .selectSession, .deleteSession:
             type = ""
             configureSession(command)
-        case .createWorkflow, .activateWorkflow, .nameDraftWorkflow, .closeWorkflow:
+        case .createWorkflow, .activateWorkflow, .nameDraftWorkflow, .closeWorkflow, .startAgent, .cancelAgent:
             type = ""
             configureWorkflow(command)
         case .startTerminal(let workingDirectory, let size):
@@ -108,6 +110,15 @@ nonisolated private struct CommandPayload: Encodable {
             self.name = name
         case .closeWorkflow(let workflowID):
             type = "closeWorkflow"
+            self.workflowID = workflowID
+        case .startAgent(let workflowID, let harness, let prompt, let size):
+            type = "startAgent"
+            self.workflowID = workflowID
+            self.harness = harness
+            self.prompt = prompt
+            self.size = size
+        case .cancelAgent(let workflowID):
+            type = "cancelAgent"
             self.workflowID = workflowID
         default:
             break

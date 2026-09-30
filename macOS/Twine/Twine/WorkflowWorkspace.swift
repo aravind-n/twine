@@ -27,6 +27,7 @@ struct WorkflowWorkspace: View {
                 selectedID: selection.selectedID,
                 select: { selection.selectedID = $0 },
                 close: close,
+                cancelAgent: cancelAgent,
                 create: { Task { await create() } }
             )
             .zIndex(1)
@@ -69,11 +70,13 @@ struct WorkflowWorkspace: View {
             \.workflowActions,
             WorkflowActions(
                 create: { Task { await create() } },
-                close: selection.selectedID.map { id in { close(id) } }
+                close: selection.selectedID.map { id in { close(id) } },
+                cancelAgent: workflows.first(where: { $0.id == selection.selectedID && $0.isRunningAgent })
+                    .map { workflow in { cancelAgent(workflow.id) } }
             )
         )
         .alert(
-            "Workflow Couldn't Start",
+            "Workflow Error",
             isPresented: Binding(
                 get: { failureMessage != nil }, set: { if !$0 { failureMessage = nil } }
             )
@@ -99,6 +102,20 @@ struct WorkflowWorkspace: View {
             if Task.isCancelled || bridgeClient.snapshot?.folders.openFolder != folder { return }
             failureMessage = error.localizedDescription
             workflowLogger.error("Could not create workflow: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func cancelAgent(_ id: UInt64) {
+        Task {
+            do {
+                try await bridgeClient.cancelAgent(workflowID: id)
+            } catch {
+                // The agent can end on its own just as Cancel is chosen.
+                if (error as? BridgeFailure)?.isAgentNotRunning == true { return }
+                if !workflows.contains(where: { $0.id == id && $0.isRunningAgent }) { return }
+                failureMessage = error.localizedDescription
+                workflowLogger.error("Could not cancel agent: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 

@@ -37,6 +37,8 @@ pub enum CommandResult {
     WorkflowCreated { workflow_id: WorkflowId },
     WorkflowActivated { workflow_id: WorkflowId },
     WorkflowClosed { workflow_id: WorkflowId },
+    AgentStarted { workflow_id: WorkflowId },
+    AgentCancelled { workflow_id: WorkflowId },
     TerminalStarted { terminal_id: TerminalId },
     TerminalClosed { terminal_id: TerminalId },
 }

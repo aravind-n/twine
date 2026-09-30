@@ -38,14 +38,16 @@ struct TerminalSurface: View {
 
     private var statusMessage: String? {
         if let failureMessage { return failureMessage }
+        let subject = workflow.kind == .singleAgent ? "Agent" : "Shell"
+        if workflow.status == .cancelled { return "Agent cancelled" }
         switch bridgeClient.terminalStatus(for: workflow.terminalID) {
         case .exited(let exit):
             if let signal = exit.signal {
-                return "Shell exited with code \(exit.exitCode) (\(signal))"
+                return "\(subject) exited with code \(exit.exitCode) (\(signal))"
             }
-            return "Shell exited with code \(exit.exitCode)"
+            return "\(subject) exited with code \(exit.exitCode)"
         case .failed(let message):
-            return "Shell failed: \(message)"
+            return "\(subject) failed: \(message)"
         case .running, .none:
             return nil
         }

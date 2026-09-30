@@ -16,6 +16,8 @@ nonisolated enum BridgeCommand: Sendable {
     case activateWorkflow(workflowID: UInt64)
     case nameDraftWorkflow(workflowID: UInt64, name: String)
     case closeWorkflow(workflowID: UInt64)
+    case startAgent(workflowID: UInt64, harness: BridgeHarness, prompt: String, size: BridgeTerminalSize)
+    case cancelAgent(workflowID: UInt64)
     case startTerminal(workingDirectory: String, size: BridgeTerminalSize)
     case closeTerminal(terminalID: UInt64)
 }
@@ -160,6 +162,8 @@ nonisolated enum BridgeCommandResult: Equatable, Sendable {
     case workflowCreated(workflowID: UInt64)
     case workflowActivated(workflowID: UInt64)
     case workflowClosed(workflowID: UInt64)
+    case agentStarted(workflowID: UInt64)
+    case agentCancelled(workflowID: UInt64)
     case pong
     case terminalStarted(terminalID: UInt64)
     case terminalClosed(terminalID: UInt64)
@@ -307,13 +311,29 @@ nonisolated private struct CommandResultPayload: Decodable {
         case workflowCreated
         case workflowActivated
         case workflowClosed
+        case agentStarted
+        case agentCancelled
         case terminalStarted
         case terminalClosed
     }
 
+    private static func workflowResult(_ type: ResultType, workflowID: UInt64) throws -> BridgeCommandResult {
+        switch type {
+        case .workflowCreated: .workflowCreated(workflowID: workflowID)
+        case .workflowActivated: .workflowActivated(workflowID: workflowID)
+        case .workflowClosed: .workflowClosed(workflowID: workflowID)
+        case .agentStarted: .agentStarted(workflowID: workflowID)
+        case .agentCancelled: .agentCancelled(workflowID: workflowID)
+        default:
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "\(type) is not a workflow result"))
+        }
+    }
+
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(ResultType.self, forKey: .type) {
+        let type = try container.decode(ResultType.self, forKey: .type)
+        switch type {
         case .sessionCreated:
             result = .sessionCreated(sessionID: try container.decode(UInt64.self, forKey: .sessionID))
         case .sessionRenamed:
@@ -322,12 +342,8 @@ nonisolated private struct CommandResultPayload: Decodable {
             result = .sessionSelected(sessionID: try container.decode(UInt64.self, forKey: .sessionID))
         case .sessionDeleted:
             result = .sessionDeleted(sessionID: try container.decode(UInt64.self, forKey: .sessionID))
-        case .workflowCreated:
-            result = .workflowCreated(workflowID: try container.decode(UInt64.self, forKey: .workflowID))
-        case .workflowActivated:
-            result = .workflowActivated(workflowID: try container.decode(UInt64.self, forKey: .workflowID))
-        case .workflowClosed:
-            result = .workflowClosed(workflowID: try container.decode(UInt64.self, forKey: .workflowID))
+        case .workflowCreated, .workflowActivated, .workflowClosed, .agentStarted, .agentCancelled:
+            result = try Self.workflowResult(type, workflowID: try container.decode(UInt64.self, forKey: .workflowID))
         case .pong:
             result = .pong
         case .terminalStarted:
