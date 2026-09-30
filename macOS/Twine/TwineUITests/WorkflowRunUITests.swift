@@ -55,7 +55,7 @@ extension TwineUITests {
         app.buttons["newWorkflow"].click()
         let choices = app.scrollViews["newTabChoices"]
         XCTAssertTrue(choices.waitForExistence(timeout: 10), app.debugDescription)
-        // The expanded Traces panel leaves the graph cards below the first visible choices.
+        // The expanded Activity panel leaves the graph cards below the first visible choices.
         choices.scroll(byDeltaX: 0, deltaY: -400)
         let choice = item("workflowChoice-Adversarial")
         XCTAssertTrue(choice.waitForExistence(timeout: 10), app.debugDescription)
@@ -73,7 +73,9 @@ extension TwineUITests {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
         item("tracesHeader").click()
         let span = app.buttons.matching(
-            NSPredicate(format: "label == %@", "Reviewer: Review · Round 1, Completed")
+            NSPredicate(
+                format: "identifier BEGINSWITH 'traceSpan-' AND label ENDSWITH %@",
+                "Reviewer: Review · Round 1, Completed")
         ).firstMatch
         XCTAssertTrue(span.waitForExistence(timeout: 10), app.debugDescription)
         span.click()
