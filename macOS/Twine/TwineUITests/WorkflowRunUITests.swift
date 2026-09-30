@@ -50,7 +50,9 @@ extension TwineUITests {
         app.buttons["newWorkflow"].click()
         item("workflowChoice-Adversarial").click()
         for role in ["implementer", "reviewer"] {
-            XCTAssertEqual(item("roleHarness-\(role)-0").value as? String, "pi")
+            let picker = item("roleHarness-\(role)-0")
+            XCTAssertTrue(picker.waitForExistence(timeout: 10), app.debugDescription)
+            XCTAssertEqual(picker.value as? String, "pi")
         }
         attachScreenshot(of: app, named: "Adversarial graph and saved harness choices")
     }
