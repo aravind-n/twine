@@ -55,7 +55,7 @@ extension TwineUITests {
         app.buttons["newWorkflow"].click()
         let choices = app.scrollViews["newTabChoices"]
         XCTAssertTrue(choices.waitForExistence(timeout: 10), app.debugDescription)
-        // The expanded Traces panel leaves the graph cards below the first visible choices.
+        // The expanded Traces panel leaves the workflow types below the first visible choices.
         choices.scroll(byDeltaX: 0, deltaY: -400)
         let choice = item("workflowChoice-Adversarial")
         XCTAssertTrue(choice.waitForExistence(timeout: 10), app.debugDescription)
@@ -101,6 +101,9 @@ extension TwineUITests {
         item("inspectWorkflowType").click()
         XCTAssertTrue(item("workflowTypeInspector").waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(item("graphStage-\(stage)").value as? String, "Current stage")
+        if stage == "review" {
+            XCTAssertEqual(item("graphNode-implement-implementer-1").value as? String, "Done")
+        }
         let handoffs = item("graphHandoffs").value as? String ?? ""
         XCTAssertTrue(
             handoffs.contains("Implementer in Implement sends result to Reviewer in Review."), app.debugDescription)
@@ -164,7 +167,7 @@ extension TwineUITests {
             }
             app.buttons["newWorkflow"].click()
             XCTAssertTrue(item("workflowChoice-Coordinator").waitForExistence(timeout: 10))
-            attachScreenshot(of: app, named: "Catalog graph previews in \(appearance)")
+            attachScreenshot(of: app, named: "Workflow choices in \(appearance)")
             item("workflowChoice-Coordinator").click()
             XCTAssertTrue(item("workflowGraph-coordinator").waitForExistence(timeout: 10))
             XCTAssertTrue(item("graphNode-work-worker-1").exists)

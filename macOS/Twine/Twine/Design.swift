@@ -13,6 +13,7 @@ nonisolated enum CornerRadius {
     static let panel: CGFloat = 17
     static let choicesCard: CGFloat = 14
     static let emptyRecentsCard: CGFloat = 12
+    static let graphNode: CGFloat = 12
     /// The selected workflow tab's top corners.
     static let selectedTab: CGFloat = 10
     static let recentFolderCard: CGFloat = 10

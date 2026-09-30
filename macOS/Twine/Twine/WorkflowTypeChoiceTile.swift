@@ -12,7 +12,7 @@ struct WorkflowTypeChoiceTile: View {
                     let roles = stage.roles.compactMap { id in type.definition.roles.first { $0.id == id }?.name }
                     return "\(stage.name): \(roles.joined(separator: ", "))"
                 }.joined(separator: "; ") + "; "
-                    + WorkflowGraphLayout(definition: type.definition, width: 0, compact: true)
+                    + WorkflowGraphLayout(definition: type.definition, width: 0)
                     .handoffDescriptions.joined(separator: " "))
     }
 }

@@ -70,7 +70,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 
 ## Motion
 
-All ease-in-out, all tied to a user action.
+All ease-in-out, all tied to a user action. The one exception is the workflow graph's running ring, which shows live progress. Every animation stops or becomes a fade when Reduce Motion is on.
 
 | Change | Duration | Animation |
 |---|---|---|
@@ -80,6 +80,8 @@ All ease-in-out, all tied to a user action.
 | Trace detail panel | 0.22s | slide in from the trailing edge with a fade |
 | Typing in a new tab turns it into a Terminal | 0.32s | choices card fades out in place |
 | New-tab choices card appears | default | fade in from 96% scale |
+| A role in the workflow graph is running | 1.6s, repeating | a role-colored ring grows from its avatar and fades |
+| A role in the workflow graph finishes | default | check scales in |
 
 ## Screens
 
@@ -181,10 +183,18 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 - A 22pt plain-text row below the Activity panel, with 4pt horizontal padding and 8pt spacing, in caption2 secondary text; not a card.
 - Contents: the Git branch with a branch symbol, and the selected workflow's status and elapsed time, separated by a 10pt-tall divider when both are present.
 
+### Workflow graph
+
+- Stages run left to right as columns 88pt apart, each titled with its name in 9.5pt semibold uppercase secondary text, tracked 0.8, and a "· n" count when it runs roles in parallel. The running stage's title is green with a 5pt dot.
+- Each role instance is a 40pt-tall node, 120 to 180pt wide, with a 12pt radius, the `WorkflowChoiceBackground` fill, and a hairline outline. It holds a 24pt avatar (the role color as a gradient, with its symbol in 11pt semibold white), the name in caption medium primary text, and the agent's harness below it in 10pt secondary text once a run assigns one.
+- Handoffs are 1.5pt lines in `tertiary`, with round caps, 8pt rounded corners, and 6pt filled arrowheads. A handoff to the next stage turns at a trunk in the gap, shared by fan-out and fan-in. Review feedback runs along a lane under the columns.
+- Each handoff has one 18pt capsule label on its line: 10pt medium secondary text on the node fill with a hairline outline. A review loop's label includes its round limit.
+- During a run, finished roles show a green check, a running role gets a 1.5pt outline and a ring in its role color, and stages not yet reached drop to 40% opacity. A finished run keeps its checks.
+
 ### Empty states
 
 Use the system's standard unavailable-content view with an SF Symbol and one line of guidance, for example "No activity yet" or "No open tabs".
 
 ### Other screens
 
-The file viewer, HTML preview, workflow graph, launch form, and workflow designer are built from the same parts: rounded solid panels (17pt radius) with hairline outlines on the window background, small uppercase section labels, caption-sized controls, role colors and symbols wherever a role appears, and glass only on small controls.
+The file viewer, HTML preview, launch form, and workflow designer are built from the same parts: rounded solid panels (17pt radius) with hairline outlines on the window background, small uppercase section labels, caption-sized controls, role colors and symbols wherever a role appears, and glass only on small controls.
