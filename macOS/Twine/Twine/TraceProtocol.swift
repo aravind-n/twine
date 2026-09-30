@@ -19,11 +19,13 @@ nonisolated struct BridgeTraceLane: Decodable, Equatable, Identifiable, Sendable
     let isAgent: Bool
     let role: String?
     let harness: String?
+    var agentID: UInt64?
     var id: UInt64 { laneID }
 
     private enum CodingKeys: String, CodingKey {
         case laneID = "laneId"
         case workflowID = "workflowId"
+        case agentID = "agentId"
         case name, isAgent, role, harness
     }
 }
@@ -129,8 +131,15 @@ nonisolated struct BridgeTraceEventsPage: Decodable, Equatable, Sendable {
 nonisolated struct BridgeTraceAnchor: Decodable, Equatable, Sendable {
     let terminalID: UInt64
     let byteOffset: UInt64
+    var boundarySizes: [BridgeTraceSize]? = []
     private enum CodingKeys: String, CodingKey {
         case terminalID = "terminalId"
         case byteOffset
+        case boundarySizes
     }
+}
+
+nonisolated struct BridgeTraceSize: Decodable, Equatable, Sendable {
+    let rows: Int
+    let columns: Int
 }

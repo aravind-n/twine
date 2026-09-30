@@ -156,13 +156,18 @@ impl Store {
         }
         let summary = summary(&transaction, id)?;
         let mut statement = transaction.prepare(
-            "SELECT id, name, is_agent, role, harness FROM trace_lanes WHERE workflow_id = ?1 ORDER BY id",
+            "SELECT id, name, is_agent, role, harness, lane_key FROM trace_lanes WHERE workflow_id = ?1 ORDER BY id",
         ).map_err(StoreError::from)?;
         let lanes = statement
             .query_map([sql_integer(id.0)?], |row| {
                 Ok(TraceLane {
                     lane_id: TraceLaneId(unsigned_column(row, 0)?),
                     workflow_id: id,
+                    agent_id: row
+                        .get::<_, String>(5)?
+                        .strip_prefix("agent:")
+                        .and_then(|id| id.parse().ok())
+                        .map(crate::AgentId),
                     name: row.get(1)?,
                     is_agent: row.get(2)?,
                     role: row.get(3)?,
@@ -222,7 +227,7 @@ impl Store {
         let revision = summary(&transaction, workflow_id)?.revision;
         let mut statement = transaction
             .prepare(
-                "SELECT id, timestamp, kind, message, terminal_id, byte_offset FROM trace_events
+                "SELECT id, timestamp, kind, message, terminal_id, byte_offset, boundary_sizes FROM trace_events
              WHERE span_id = ?1 AND (?2 IS NULL OR id > ?2) ORDER BY id LIMIT ?3",
             )
             .map_err(StoreError::from)?;
@@ -247,6 +252,7 @@ impl Store {
                                 Ok::<_, rusqlite::Error>(TraceAnchor {
                                     terminal_id: TerminalId::from_value(unsigned_column(row, 4)?),
                                     byte_offset: unsigned_column(row, 5)?,
+                                    boundary_sizes: read_boundary_sizes(row, 6)?,
                                 })
                             })
                             .transpose()?,
@@ -295,6 +301,7 @@ pub(super) fn insert_span(
     )?;
     let terminal_id = new
         .anchor
+        .as_ref()
         .map(|anchor| sql_integer(anchor.terminal_id.value()))
         .transpose()?;
     transaction.execute(
@@ -309,11 +316,12 @@ pub(super) fn insert_span(
     )?;
     let span_id = transaction.last_insert_rowid();
     transaction.execute(
-            "INSERT INTO trace_events (workflow_id, span_id, timestamp, kind, message, terminal_id, byte_offset)
-             VALUES (?1, ?2, ?3, 'processStarted', ?4, ?5, ?6)",
+            "INSERT INTO trace_events (workflow_id, span_id, timestamp, kind, message, terminal_id, byte_offset, boundary_sizes)
+             VALUES (?1, ?2, ?3, 'processStarted', ?4, ?5, ?6, ?7)",
             params![sql_integer(new.workflow_id.0)?, span_id, sql_integer(new.started_at)?,
                 "Process started.", terminal_id,
-                new.anchor.map(|anchor| sql_integer(anchor.byte_offset)).transpose()?],
+                new.anchor.as_ref().map(|anchor| sql_integer(anchor.byte_offset)).transpose()?,
+                encode_boundary_sizes(new.anchor.as_ref())],
         )?;
     Ok(TraceSpanId(
         u64::try_from(span_id).map_err(|_| StoreError::InvalidIdentifier)?,
@@ -346,11 +354,12 @@ fn finish_span(
         ],
     )?;
     transaction.execute(
-            "INSERT INTO trace_events (workflow_id, span_id, timestamp, kind, message, terminal_id, byte_offset)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO trace_events (workflow_id, span_id, timestamp, kind, message, terminal_id, byte_offset, boundary_sizes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![workflow_id, sql_integer(span_id.0)?, ended_at, kind_name(ending.kind), ending.message,
-                ending.anchor.map(|anchor| sql_integer(anchor.terminal_id.value())).transpose()?,
-                ending.anchor.map(|anchor| sql_integer(anchor.byte_offset)).transpose()?],
+                ending.anchor.as_ref().map(|anchor| sql_integer(anchor.terminal_id.value())).transpose()?,
+                ending.anchor.as_ref().map(|anchor| sql_integer(anchor.byte_offset)).transpose()?,
+                encode_boundary_sizes(ending.anchor.as_ref())],
         )?;
     Ok(Some(WorkflowId(
         u64::try_from(workflow_id).map_err(|_| StoreError::InvalidIdentifier)?,
@@ -368,6 +377,46 @@ fn summary(connection: &Connection, id: WorkflowId) -> Result<TraceSummary, Stor
             span_count: unsigned_column(row, 1)?, agent_count: unsigned_column(row, 2)?,
         }),
     )?)
+}
+
+fn encode_boundary_sizes(anchor: Option<&TraceAnchor>) -> Option<Vec<u8>> {
+    anchor?.boundary_sizes.as_ref().map(|sizes| {
+        sizes
+            .iter()
+            .flat_map(|size| {
+                [size.rows, size.columns, size.pixel_width, size.pixel_height]
+                    .into_iter()
+                    .flat_map(u16::to_le_bytes)
+            })
+            .collect()
+    })
+}
+
+fn read_boundary_sizes(
+    row: &Row<'_>,
+    index: usize,
+) -> rusqlite::Result<Option<Vec<crate::TerminalSize>>> {
+    row.get::<_, Option<Vec<u8>>>(index)?
+        .map(|bytes| {
+            if bytes.len() > 2048 || bytes.len() % 8 != 0 {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            bytes
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|bytes| {
+                    let size = crate::TerminalSize {
+                        rows: u16::from_le_bytes([bytes[0], bytes[1]]),
+                        columns: u16::from_le_bytes([bytes[2], bytes[3]]),
+                        pixel_width: u16::from_le_bytes([bytes[4], bytes[5]]),
+                        pixel_height: u16::from_le_bytes([bytes[6], bytes[7]]),
+                    };
+                    size.validate().map_err(|_| rusqlite::Error::InvalidQuery)
+                })
+                .collect()
+        })
+        .transpose()
 }
 
 fn read_span(row: &Row<'_>) -> rusqlite::Result<TraceSpan> {
@@ -456,6 +505,7 @@ mod tests {
                 anchor: Some(TraceAnchor {
                     terminal_id: TerminalId::from_value(terminal),
                     byte_offset: 0,
+                    boundary_sizes: Some(Vec::new()),
                 }),
             })
             .unwrap()
@@ -476,6 +526,20 @@ mod tests {
             anchor: Some(TraceAnchor {
                 terminal_id: TerminalId::from_value(7),
                 byte_offset: 42,
+                boundary_sizes: Some(vec![
+                    crate::TerminalSize {
+                        rows: 24,
+                        columns: 80,
+                        pixel_width: 800,
+                        pixel_height: 480,
+                    },
+                    crate::TerminalSize {
+                        rows: 10,
+                        columns: 40,
+                        pixel_width: 400,
+                        pixel_height: 200,
+                    },
+                ]),
             }),
         };
         assert_eq!(store.finish_trace_span(span, &ending).unwrap(), Some(id));

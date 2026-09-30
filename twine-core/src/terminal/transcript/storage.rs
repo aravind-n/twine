@@ -5,10 +5,12 @@ use std::path::{Path, PathBuf};
 
 use tracing::warn;
 
-use super::{Limits, TranscriptError, TranscriptPage, TranscriptRead};
-use crate::terminal::{TerminalChunk, TerminalId};
+use super::{Limits, Recording, TranscriptError, TranscriptPage, TranscriptRead, TranscriptSize};
+use crate::terminal::{TerminalChunk, TerminalId, TerminalSize};
 
 const MAGIC: &[u8; 8] = b"TWINE-T1";
+const SIZE_MAGIC: &[u8; 8] = b"TWINE-S1";
+const MAX_SIZE_ENTRIES: usize = 8192;
 const METADATA: &str = "metadata";
 const NEXT_METADATA: &str = "metadata.next";
 // Each of the two manifest files is capped at 1 MiB, including a replacement in progress.
@@ -27,6 +29,7 @@ struct Manifest {
     next_segment_id: u64,
     ends: BTreeMap<u64, u64>,
     segments: VecDeque<Segment>,
+    sizes: VecDeque<(u64, TranscriptSize)>,
 }
 
 impl Default for Manifest {
@@ -36,6 +39,7 @@ impl Default for Manifest {
             next_segment_id: 1,
             ends: BTreeMap::new(),
             segments: VecDeque::new(),
+            sizes: VecDeque::new(),
         }
     }
 }
@@ -105,7 +109,39 @@ impl Storage {
         Ok(TerminalId::from_value(id))
     }
 
+    pub(super) fn append_recording(
+        &mut self,
+        recording: &Recording,
+    ) -> Result<(), TranscriptError> {
+        let id = recording.chunk.terminal_id.value();
+        if recording.geometry_lost {
+            self.manifest.sizes.retain(|(terminal, _)| *terminal != id);
+            // A surviving resize at offset zero must not make an incomplete geometry prefix
+            // appear replayable again after overflow.
+            return self.append_with_sizes(&recording.chunk, &[]);
+        }
+        for &resize in &recording.sizes {
+            if resize.size.rows == 0
+                || resize.size.columns == 0
+                || resize.offset < recording.chunk.offset
+                || resize.offset >= recording.chunk.offset + recording.chunk.bytes.len() as u64
+            {
+                return Err(TranscriptError::Corrupt("invalid recording geometry"));
+            }
+        }
+        self.append_with_sizes(&recording.chunk, &recording.sizes)
+    }
+
+    #[cfg(test)]
     pub(super) fn append(&mut self, chunk: &TerminalChunk) -> Result<(), TranscriptError> {
+        self.append_with_sizes(chunk, &[])
+    }
+
+    fn append_with_sizes(
+        &mut self,
+        chunk: &TerminalChunk,
+        sizes: &[TranscriptSize],
+    ) -> Result<(), TranscriptError> {
         let terminal_id = chunk.terminal_id.value();
         self.check_id(chunk.terminal_id)?;
         if chunk.bytes.is_empty() {
@@ -144,13 +180,18 @@ impl Storage {
             let count = remaining
                 .len()
                 .min(usize::try_from(available).map_err(|_| TranscriptError::Overflow)?);
-            self.append_piece(terminal_id, &remaining[..count])?;
+            self.append_piece(terminal_id, &remaining[..count], sizes)?;
             remaining = &remaining[count..];
         }
         Ok(())
     }
 
-    fn append_piece(&mut self, terminal_id: u64, bytes: &[u8]) -> Result<(), TranscriptError> {
+    fn append_piece(
+        &mut self,
+        terminal_id: u64,
+        bytes: &[u8],
+        sizes: &[TranscriptSize],
+    ) -> Result<(), TranscriptError> {
         let length = u64::try_from(bytes.len()).map_err(|_| TranscriptError::Overflow)?;
         let tail = self.writable_tail(terminal_id, length);
         let removed = self.make_room(terminal_id, length, tail.is_none());
@@ -191,6 +232,23 @@ impl Storage {
             terminal_id,
             start.checked_add(length).ok_or(TranscriptError::Overflow)?,
         );
+        self.manifest.sizes.extend(
+            sizes
+                .iter()
+                .filter(|resize| resize.offset >= start && resize.offset < start + length)
+                .map(|resize| (terminal_id, *resize)),
+        );
+        while self.manifest.sizes.len() > MAX_SIZE_ENTRIES {
+            let oldest = self
+                .manifest
+                .sizes
+                .front()
+                .expect("size history exceeds its limit")
+                .0;
+            self.manifest
+                .sizes
+                .retain(|(terminal, _)| *terminal != oldest);
+        }
         // A trailing write without this commit is discarded during recovery.
         self.persist()
     }
@@ -215,6 +273,9 @@ impl Storage {
                 .expect("nonzero metadata limit")
                 .0;
             self.manifest.ends.remove(&oldest);
+            self.manifest
+                .sizes
+                .retain(|(terminal, _)| *terminal != oldest);
             self.manifest.segments.retain(|segment| {
                 if segment.terminal_id == oldest {
                     removed.push(segment.id);
@@ -337,6 +398,24 @@ impl Storage {
             next_offset: position,
             end_offset,
             bytes,
+            sizes: self
+                .manifest
+                .sizes
+                .iter()
+                .filter_map(|(id, resize)| {
+                    (*id == terminal_id.value()
+                        && resize.offset >= offset
+                        && resize.offset < position)
+                        .then_some(*resize)
+                })
+                .collect(),
+            replay_available: retained_offset == 0
+                && self
+                    .manifest
+                    .sizes
+                    .iter()
+                    .find(|(id, _)| *id == terminal_id.value())
+                    .is_some_and(|(_, resize)| resize.offset == 0),
         }))
     }
 
@@ -500,6 +579,19 @@ impl Manifest {
                 bytes.extend_from_slice(&number.to_le_bytes());
             }
         }
+        if !self.sizes.is_empty() {
+            bytes.extend_from_slice(SIZE_MAGIC);
+            bytes.extend_from_slice(&(self.sizes.len() as u64).to_le_bytes());
+        }
+        for (id, resize) in &self.sizes {
+            let grid = u64::from(resize.size.rows)
+                | (u64::from(resize.size.columns) << 16)
+                | (u64::from(resize.size.pixel_width) << 32)
+                | (u64::from(resize.size.pixel_height) << 48);
+            for number in [*id, resize.offset, grid] {
+                bytes.extend_from_slice(&number.to_le_bytes());
+            }
+        }
         if bytes.len() > MAX_METADATA_BYTES {
             return Err(TranscriptError::Corrupt("manifest exceeds its size limit"));
         }
@@ -524,7 +616,7 @@ impl Manifest {
             || next_segment_id == 0
             || terminal_count > limits.terminal_count
             || segment_count > limits.segment_count
-            || input.len() != terminal_count * 16 + segment_count * 32
+            || input.len() < terminal_count * 16 + segment_count * 32
         {
             return Err(TranscriptError::Corrupt("invalid manifest counts"));
         }
@@ -584,13 +676,56 @@ impl Manifest {
         {
             return Err(TranscriptError::Corrupt("invalid retained ranges"));
         }
+        let sizes = decode_sizes(input, &ends)?;
         Ok(Self {
             next_terminal_id,
             next_segment_id,
             ends,
             segments,
+            sizes,
         })
     }
+}
+
+fn decode_sizes(
+    mut input: &[u8],
+    ends: &BTreeMap<u64, u64>,
+) -> Result<VecDeque<(u64, TranscriptSize)>, TranscriptError> {
+    let mut sizes = VecDeque::new();
+    if !input.is_empty() {
+        if !input.starts_with(SIZE_MAGIC) {
+            return Err(TranscriptError::Corrupt("invalid size history header"));
+        }
+        input = &input[8..];
+        let count =
+            usize::try_from(take_number(&mut input)?).map_err(|_| TranscriptError::Overflow)?;
+        if count > MAX_SIZE_ENTRIES || input.len() != count * 24 {
+            return Err(TranscriptError::Corrupt("invalid size history count"));
+        }
+        let mut previous = BTreeMap::new();
+        for _ in 0..count {
+            let id = take_number(&mut input)?;
+            let offset = take_number(&mut input)?;
+            let grid = take_number(&mut input)?;
+            let size = TerminalSize {
+                rows: u16::from_le_bytes([grid.to_le_bytes()[0], grid.to_le_bytes()[1]]),
+                columns: u16::from_le_bytes([grid.to_le_bytes()[2], grid.to_le_bytes()[3]]),
+                pixel_width: u16::from_le_bytes([grid.to_le_bytes()[4], grid.to_le_bytes()[5]]),
+                pixel_height: u16::from_le_bytes([grid.to_le_bytes()[6], grid.to_le_bytes()[7]]),
+            };
+            if size.rows == 0
+                || size.columns == 0
+                || ends.get(&id).is_none_or(|end| offset >= *end)
+                || previous
+                    .insert(id, offset)
+                    .is_some_and(|earlier| earlier > offset)
+            {
+                return Err(TranscriptError::Corrupt("invalid size history"));
+            }
+            sizes.push_back((id, TranscriptSize { offset, size }));
+        }
+    }
+    Ok(sizes)
 }
 
 fn take_number(input: &mut &[u8]) -> Result<u64, TranscriptError> {
@@ -632,6 +767,78 @@ mod tests {
             panic!("retained output should be available");
         };
         page
+    }
+
+    #[test]
+    fn geometry_survives_segment_commits_paging_and_reopening() {
+        let directory = tempfile::tempdir().unwrap();
+        let budget = Limits {
+            terminal_bytes: 16,
+            total_bytes: 32,
+            segment_count: 8,
+            ..limits()
+        };
+        let mut storage = Storage::open(directory.path(), budget).unwrap();
+        let id = storage.allocate().unwrap();
+        let size = |offset, columns| TranscriptSize {
+            offset,
+            size: TerminalSize {
+                rows: 3,
+                columns,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        };
+        let sizes = vec![size(0, 10), size(3, 6), size(3, 12), size(7, 8)];
+        storage
+            .append_recording(&Recording {
+                chunk: TerminalChunk {
+                    terminal_id: id,
+                    offset: 0,
+                    bytes: b"abcdefghijkl".to_vec(),
+                },
+                sizes: sizes.clone(),
+                geometry_lost: false,
+            })
+            .unwrap();
+        assert!(page(&storage, id, 0, 3).replay_available);
+        assert_eq!(page(&storage, id, 0, 3).sizes, sizes[..1]);
+        assert_eq!(page(&storage, id, 3, 4).sizes, sizes[1..3]);
+        drop(storage);
+        let mut storage = Storage::open(directory.path(), budget).unwrap();
+        assert_eq!(page(&storage, id, 0, 12).sizes, sizes);
+        storage
+            .append_recording(&Recording {
+                chunk: TerminalChunk {
+                    terminal_id: id,
+                    offset: 12,
+                    bytes: b"next".to_vec(),
+                },
+                sizes: vec![size(12, 9)],
+                geometry_lost: true,
+            })
+            .unwrap();
+        assert!(!page(&storage, id, 0, 16).replay_available);
+        assert_eq!(page(&storage, id, 0, 16).bytes, b"abcdefghijklnext");
+    }
+
+    #[test]
+    fn legacy_transcripts_and_pruned_prefixes_cannot_claim_replay() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut storage = Storage::open(directory.path(), limits()).unwrap();
+        let id = storage.allocate().unwrap();
+        append(&mut storage, id, 0, b"old");
+        drop(storage);
+        let mut storage = Storage::open(directory.path(), limits()).unwrap();
+        assert!(!page(&storage, id, 0, 3).replay_available);
+        for offset in [3, 7, 11] {
+            append(&mut storage, id, offset, b"more");
+        }
+        assert!(matches!(
+            storage.read(id, 0, 3).unwrap(),
+            TranscriptRead::Expired { .. }
+        ));
+        assert!(!page(&storage, id, 11, 4).replay_available);
     }
 
     #[test]

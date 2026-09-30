@@ -12,8 +12,11 @@ mod transcript;
 #[cfg(not(test))]
 pub(crate) use launcher::login_shell;
 pub(crate) use manager::{TerminalManager, TerminalObservation};
-pub(crate) use stream::TerminalStream;
+pub(crate) use stream::{ReplayPosition, TerminalStream};
+pub(crate) use transcript::Recording;
 pub(crate) use transcript::TranscriptRecorder;
+pub use transcript::TranscriptRequest;
+pub use transcript::TranscriptSize;
 pub use transcript::{MAX_TRANSCRIPT_READ_BYTES, TranscriptError, TranscriptPage, TranscriptRead};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

@@ -99,6 +99,19 @@ impl TwineClient {
         Ok(self.application.next_terminal_chunk()?)
     }
 
+    pub(crate) fn request_terminal_transcript(
+        &self,
+        terminal_id: u64,
+        offset: u64,
+        limit: usize,
+    ) -> Result<Option<twine_core::TranscriptRequest>, BridgeError> {
+        Ok(self.application.request_terminal_transcript(
+            TerminalId::from_value(terminal_id),
+            offset,
+            limit,
+        )?)
+    }
+
     pub(crate) fn write_terminal_input(
         &self,
         terminal_id: u64,
@@ -118,4 +131,36 @@ impl TwineClient {
             .application
             .resize_terminal(TerminalId::from_value(terminal_id), size)?)
     }
+}
+
+pub(crate) fn encode_transcript(page: twine_core::TranscriptRead) -> Vec<u8> {
+    use twine_core::TranscriptRead;
+    let mut bytes = Vec::new();
+    match page {
+        TranscriptRead::Expired { .. } => bytes.extend_from_slice(&1_u64.to_le_bytes()),
+        TranscriptRead::Output(page) => {
+            for number in [
+                if page.replay_available { 2_u64 } else { 0 },
+                page.offset,
+                page.next_offset,
+                page.end_offset,
+                page.sizes.len() as u64,
+            ] {
+                bytes.extend_from_slice(&number.to_le_bytes());
+            }
+            for resize in page.sizes {
+                bytes.extend_from_slice(&resize.offset.to_le_bytes());
+                for dimension in [
+                    resize.size.rows,
+                    resize.size.columns,
+                    resize.size.pixel_width,
+                    resize.size.pixel_height,
+                ] {
+                    bytes.extend_from_slice(&dimension.to_le_bytes());
+                }
+            }
+            bytes.extend(page.bytes);
+        }
+    }
+    bytes
 }

@@ -5,9 +5,13 @@ import SwiftUI
 /// each workflow across relaunch.
 struct AgentWorkflowSurface: View {
     @Environment(WorkflowLayouts.self) private var layouts
+    @Environment(TraceTerminalNavigation.self) private var navigation
     let folder: String
     let workflow: BridgeWorkflow
     let isSelected: Bool
+    private var history: TraceTerminalTarget? {
+        navigation.target.flatMap { $0.workflowID == workflow.id ? $0 : nil }
+    }
 
     var body: some View {
         let layout = Binding(
@@ -20,7 +24,10 @@ struct AgentWorkflowSurface: View {
                     agents: workflow.agents,
                     selectedID: layout.wrappedValue.focusedAgent(in: workflow.agents)?.id,
                     mode: layout.mode, showsLayoutPicker: isSelected
-                ) { layout.wrappedValue.focus($0, in: workflow.agents) }
+                ) {
+                    layout.wrappedValue.focus($0, in: workflow.agents)
+                    if history != nil { navigation.target = nil }
+                }
             }
             // Under subtabs, the run controls and notice join the strip, which Bento panes also sit on.
             if let run = workflow.run {
@@ -35,6 +42,11 @@ struct AgentWorkflowSurface: View {
                     .background(workflow.showsAgentSubtabs ? Color.workflowTint : .clear)
             }
             AgentPanes(workflow: workflow, layout: layout, isSelected: isSelected)
+        }
+        .onChange(of: history, initial: true) {
+            guard let history else { return }
+            let id = history.agentID ?? workflow.agents.first(where: { $0.terminalID == history.anchor.terminalID })?.id
+            if let id { layout.wrappedValue.focus(id, in: workflow.agents) }
         }
     }
 }

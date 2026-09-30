@@ -19,6 +19,7 @@ pub struct TraceEventId(pub u64);
 pub struct TraceLane {
     pub lane_id: TraceLaneId,
     pub workflow_id: WorkflowId,
+    pub agent_id: Option<crate::AgentId>,
     pub name: String,
     pub is_agent: bool,
     pub role: Option<String>,
@@ -48,11 +49,13 @@ pub struct TraceSpan {
     pub is_live: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraceAnchor {
     pub terminal_id: TerminalId,
     /// The exclusive boundary after output observed when the event happened.
     pub byte_offset: u64,
+    /// Ordered resizes at this exact boundary when the event was observed. `None` means unavailable.
+    pub boundary_sizes: Option<Vec<crate::TerminalSize>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

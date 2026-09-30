@@ -19,13 +19,14 @@ extension TwineUITests {
         """.write(to: folder.appending(path: "stub.txt"), atomically: true, encoding: .utf8)
         let harnesses = folder.appending(path: "bin")
         let app = try makeApp(lastOpenFolder: folder)
+        // The fixture's installer uses a predictable shell without the user's interactive configuration.
+        app.launchEnvironment["SHELL"] = "/bin/sh"
         app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(harnesses.path(percentEncoded: false)):/bin:/usr/bin"
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
         // The trace panel leaves less space for the prompt form at the minimum content height.
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 520, height: 302))
         element("workflowChoice-Terminal", in: app).click()
-        // Plain commands, since the login shell may be fish rather than a POSIX shell.
         app.typeText("mkdir bin; printf '#!/bin/sh\\n' > bin/pi; cat stub.txt >> bin/pi; chmod +x bin/pi\r")
         let installed = expectation(
             for: NSPredicate { _, _ in

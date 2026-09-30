@@ -78,6 +78,7 @@ fn record_starts(
                 anchor: Some(TraceAnchor {
                     terminal_id: agent.terminal_id,
                     byte_offset: 0,
+                    boundary_sizes: Some(Vec::new()),
                 }),
             },
         )?;

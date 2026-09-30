@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use thiserror::Error;
 use tracing::warn;
 
-use super::{TerminalChunk, TerminalId};
+use super::{TerminalChunk, TerminalId, TerminalSize};
 
 mod storage;
 
@@ -25,6 +25,37 @@ pub struct TranscriptPage {
     pub next_offset: u64,
     pub end_offset: u64,
     pub bytes: Vec<u8>,
+    /// Resize operations preceding bytes in this page, in their original order.
+    pub sizes: Vec<TranscriptSize>,
+    /// Replay needs the complete prefix and its initial geometry.
+    pub replay_available: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TranscriptSize {
+    pub offset: u64,
+    pub size: TerminalSize,
+}
+
+/// A bounded storage request whose completion can be polled without waiting for disk I/O.
+pub struct TranscriptRequest(mpsc::Receiver<Result<TranscriptRead, TranscriptError>>);
+
+impl TranscriptRequest {
+    /// # Errors
+    /// Returns recording/storage failures, or cancellation when the worker has stopped.
+    pub fn poll(&self) -> Result<Option<TranscriptRead>, TranscriptError> {
+        match self.0.try_recv() {
+            Ok(result) => result.map(Some),
+            Err(mpsc::TryRecvError::Empty) => Ok(None),
+            Err(mpsc::TryRecvError::Disconnected) => Err(TranscriptError::Cancelled),
+        }
+    }
+}
+
+pub(crate) struct Recording {
+    pub chunk: TerminalChunk,
+    pub sizes: Vec<TranscriptSize>,
+    pub geometry_lost: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -89,7 +120,7 @@ impl Default for Limits {
 
 enum Job {
     Allocate(mpsc::SyncSender<Result<TerminalId, TranscriptError>>),
-    Append(TerminalChunk),
+    Append(Recording),
     Read {
         terminal_id: TerminalId,
         offset: u64,
@@ -101,7 +132,7 @@ enum Job {
 impl Job {
     fn byte_count(&self) -> usize {
         match self {
-            Self::Append(chunk) => chunk.bytes.len(),
+            Self::Append(recording) => recording.chunk.bytes.len() + recording.sizes.len() * 32,
             Self::Allocate(_) | Self::Read { .. } => 0,
         }
     }
@@ -118,27 +149,34 @@ impl Queue {
     fn pop_front(&mut self) -> Option<Job> {
         let mut job = self.jobs.pop_front()?;
         self.bytes -= job.byte_count();
-        if let Job::Append(chunk) = &mut job {
+        if let Job::Append(recording) = &mut job {
+            let chunk = &mut recording.chunk;
             // Coalesce only already queued, contiguous output. A read, allocation, or another
             // terminal remains a FIFO boundary, and the worker never waits to fill a batch.
-            while let Some(Job::Append(next)) = self.jobs.front() {
+            while let Some(Job::Append(next_recording)) = self.jobs.front() {
+                let next = &next_recording.chunk;
                 let end = u64::try_from(chunk.bytes.len())
                     .ok()
                     .and_then(|length| chunk.offset.checked_add(length));
                 if chunk.bytes.is_empty()
+                    || recording.geometry_lost
+                    || next_recording.geometry_lost
                     || next.bytes.is_empty()
                     || next.terminal_id != chunk.terminal_id
                     || end != Some(next.offset)
                     || chunk.bytes.len().saturating_add(next.bytes.len())
                         > MAX_RECORDING_BATCH_BYTES
+                    || recording.sizes.len() + next_recording.sizes.len() > 256
                 {
                     break;
                 }
                 let Some(Job::Append(next)) = self.jobs.pop_front() else {
                     unreachable!("the queue is exclusively owned while taking a batch");
                 };
-                self.bytes -= next.bytes.len();
-                chunk.bytes.extend(next.bytes);
+                self.bytes -= next.chunk.bytes.len() + next.sizes.len() * 32;
+                chunk.bytes.extend(next.chunk.bytes);
+                recording.sizes.extend(next.sizes);
+                recording.geometry_lost |= next.geometry_lost;
             }
         }
         Some(job)
@@ -260,12 +298,28 @@ impl TranscriptRecorder {
         result.recv().map_err(disconnected)?
     }
 
+    #[cfg(test)]
     pub(super) fn append(
         &self,
         chunk: TerminalChunk,
         cancelled: &AtomicBool,
     ) -> Result<(), TranscriptError> {
-        self.enqueue(Job::Append(chunk), Some(cancelled))
+        self.record(
+            Recording {
+                chunk,
+                sizes: Vec::new(),
+                geometry_lost: false,
+            },
+            cancelled,
+        )
+    }
+
+    pub(super) fn record(
+        &self,
+        recording: Recording,
+        cancelled: &AtomicBool,
+    ) -> Result<(), TranscriptError> {
+        self.enqueue(Job::Append(recording), Some(cancelled))
     }
 
     pub(crate) fn read(
@@ -289,6 +343,38 @@ impl TranscriptRecorder {
         )?;
         // Reads share the ordered work queue: every previously accepted append is committed first.
         result.recv().map_err(disconnected)?
+    }
+
+    pub(crate) fn request_read(
+        &self,
+        terminal_id: TerminalId,
+        offset: u64,
+        limit: usize,
+    ) -> Result<Option<TranscriptRequest>, TranscriptError> {
+        if limit == 0 || limit > MAX_TRANSCRIPT_READ_BYTES {
+            return Err(TranscriptError::InvalidLimit);
+        }
+        let mut queue = self.shared.queue.lock().map_err(poisoned)?;
+        if let Some(message) = &queue.failure {
+            return Err(TranscriptError::Unavailable {
+                message: message.clone(),
+            });
+        }
+        if !queue.accepting {
+            return Err(TranscriptError::Cancelled);
+        }
+        if queue.jobs.len() >= self.shared.limits.pending_jobs {
+            return Ok(None);
+        }
+        let (reply, result) = mpsc::sync_channel(1);
+        queue.jobs.push_back(Job::Read {
+            terminal_id,
+            offset,
+            limit,
+            reply,
+        });
+        self.shared.ready.notify_one();
+        Ok(Some(TranscriptRequest(result)))
     }
 
     fn enqueue(&self, job: Job, cancelled: Option<&AtomicBool>) -> Result<(), TranscriptError> {
@@ -387,9 +473,9 @@ fn run_worker(mut storage: Storage, shared: &Shared) {
                 }
                 let _ = reply.send(result);
             }
-            Job::Append(chunk) => {
+            Job::Append(recording) => {
                 if failure.is_none()
-                    && let Err(error) = storage.append(&chunk)
+                    && let Err(error) = storage.append_recording(&recording)
                 {
                     record_failure(shared, &error);
                 }
@@ -528,6 +614,31 @@ mod tests {
         assert_eq!((page.next_offset, page.end_offset), (4, 4));
         assert_eq!(output(&recorder, first, 4, 8).bytes, b"Hlater");
         assert_eq!(output(&recorder, second, 0, 8).bytes, b"other");
+    }
+
+    #[test]
+    fn pending_history_requests_do_not_wait_for_the_worker_or_queue_capacity() {
+        let directory = tempfile::tempdir().unwrap();
+        let recorder = TranscriptRecorder::with_limits(
+            directory.path(),
+            Limits {
+                pending_jobs: 2,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        let id = recorder.allocate().unwrap();
+        let stalled = recorder.stall_worker(id);
+        let request = recorder.request_read(id, 0, 8).unwrap().unwrap();
+        append(&recorder, id, 0, b"ab");
+        assert!(request.poll().unwrap().is_none());
+        assert!(recorder.request_read(id, 0, 8).unwrap().is_none());
+        drop(stalled);
+        assert_eq!(output(&recorder, id, 0, 8).bytes, b"ab");
+        let Some(TranscriptRead::Output(page)) = request.poll().unwrap() else {
+            panic!("ordered read completes before the later append");
+        };
+        assert!(page.bytes.is_empty());
     }
 
     #[test]

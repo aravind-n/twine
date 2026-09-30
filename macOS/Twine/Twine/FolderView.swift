@@ -13,6 +13,7 @@ struct FolderView: View {
     @State private var selection = WorkflowTabSelection()
     @State private var files = FileBrowserModel()
     @State private var htmlNavigationURL: URL?
+    @State private var traceNavigation = TraceTerminalNavigation()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
@@ -55,6 +56,13 @@ struct FolderView: View {
         }
         .background {
             FolderWindowLifetime(bridgeClient: bridgeClient, folder: path, editor: editor).frame(width: 0, height: 0)
+        }
+        .environment(traceNavigation)
+        .onChange(of: traceNavigation.target) {
+            if let target = traceNavigation.target {
+                selection.selectedID = target.workflowID
+                editor.select(nil)
+            }
         }
         .navigationSplitViewStyle(.balanced)
         .navigationTitle(URL(filePath: path).lastPathComponent)

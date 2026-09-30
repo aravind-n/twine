@@ -313,6 +313,93 @@ pub unsafe extern "C" fn twine_client_next_terminal_chunk(
     })
 }
 
+/// An exclusively owned pending transcript read. Destroy exactly once after completion/cancellation.
+pub struct TwineTranscriptRequest(twine_core::TranscriptRequest);
+
+#[unsafe(no_mangle)]
+/// Starts a transcript read without waiting for disk. Empty means retry when queue space is available.
+///
+/// # Safety
+/// Non-null client must be live and exclusively owned. Non-null output must be aligned writable
+/// storage without an unreleased request. Null pointers are rejected before dereferencing.
+pub unsafe extern "C" fn twine_client_request_transcript(
+    client: *mut TwineClient,
+    terminal_id: u64,
+    offset: u64,
+    limit: u32,
+    out_request: *mut *mut TwineTranscriptRequest,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: The caller guarantees aligned writable storage; null is checked.
+        let output = unsafe { out_request.as_mut() }.ok_or(BridgeError::NullPointer)?;
+        *output = std::ptr::null_mut();
+        if limit == 0 || limit as usize > twine_core::MAX_TRANSCRIPT_READ_BYTES {
+            return Err(BridgeError::InvalidArgument);
+        }
+        // SAFETY: The client is exclusively owned and alive for this call.
+        let request = unsafe {
+            ffi::with_client(client, |client| {
+                client.request_terminal_transcript(terminal_id, offset, limit as usize)
+            })
+        }?
+        .ok_or(BridgeError::Empty)?;
+        *output = Box::into_raw(Box::new(TwineTranscriptRequest(request)));
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Polls a transcript request without waiting for storage. Empty means it is still pending.
+///
+/// # Safety
+/// Non-null request must be live and exclusively owned. Non-null output must be aligned writable
+/// storage without an unreleased allocation. Null pointers are rejected before dereferencing.
+pub unsafe extern "C" fn twine_transcript_request_poll(
+    request: *mut TwineTranscriptRequest,
+    out_page: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: Output meets the buffer contract, and the helper checks null.
+        unsafe { ffi::initialize_buffer(out_page) }?;
+        // SAFETY: The caller keeps its exclusively owned request alive through this call.
+        let request = unsafe { request.as_ref() }.ok_or(BridgeError::NullPointer)?;
+        let page = request
+            .0
+            .poll()
+            .map_err(|error| {
+                BridgeError::Application(twine_core::ApplicationError::Terminal(
+                    twine_core::TerminalError::Transcript(error),
+                ))
+            })?
+            .ok_or(BridgeError::Empty)?;
+        // SAFETY: The output storage is valid as described above.
+        unsafe {
+            ffi::write_buffer(
+                out_page,
+                TwineBuffer::from_vec(client::encode_transcript(page)),
+            )
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Releases a completed or canceled transcript request.
+///
+/// # Safety
+/// A non-null pointer must be the unchanged live request returned by this bridge, and released once.
+pub unsafe extern "C" fn twine_transcript_request_destroy(
+    request: *mut TwineTranscriptRequest,
+) -> TwineStatus {
+    catch_status(|| {
+        if request.is_null() {
+            return Err(BridgeError::NullPointer);
+        }
+        // SAFETY: The caller returns this bridge-owned request exactly once.
+        drop(unsafe { Box::from_raw(request) });
+        Ok(())
+    })
+}
+
 #[unsafe(no_mangle)]
 /// Writes raw input bytes to a live terminal.
 ///
@@ -888,6 +975,39 @@ mod tests {
         );
         // SAFETY: The live test client is destroyed exactly once after all operations finish.
         assert_eq!(unsafe { twine_client_destroy(client) }, TwineStatus::Ok);
+    }
+
+    #[test]
+    fn transcript_requests_validate_pointers_limits_and_initialize_outputs() {
+        let mut request = std::ptr::dangling_mut::<TwineTranscriptRequest>();
+        // SAFETY: Output storage is valid, and null clients/invalid limits are rejected before access.
+        assert_eq!(
+            unsafe {
+                twine_client_request_transcript(std::ptr::null_mut(), 1, 0, 0, &raw mut request)
+            },
+            TwineStatus::InvalidArgument
+        );
+        assert!(request.is_null());
+        // SAFETY: Null pointers are rejected before dereferencing.
+        assert_eq!(
+            unsafe {
+                twine_client_request_transcript(std::ptr::null_mut(), 1, 0, 1, &raw mut request)
+            },
+            TwineStatus::NullPointer
+        );
+        let mut buffer = TwineBuffer::empty();
+        // SAFETY: Valid empty output storage and a null request are checked by the bridge.
+        assert_eq!(
+            unsafe { twine_transcript_request_poll(std::ptr::null_mut(), &raw mut buffer) },
+            TwineStatus::NullPointer
+        );
+        assert!(buffer.data.is_null());
+        assert_eq!(buffer.length, 0);
+        // SAFETY: A null request is rejected without reconstructing a box.
+        assert_eq!(
+            unsafe { twine_transcript_request_destroy(std::ptr::null_mut()) },
+            TwineStatus::NullPointer
+        );
     }
 
     #[test]

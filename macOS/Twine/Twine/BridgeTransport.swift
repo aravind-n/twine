@@ -68,6 +68,13 @@ nonisolated protocol BridgeTransport: Sendable {
     func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async throws -> BridgeWorkflowTracePage
     func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> BridgeTraceEventsPage
     func nextTerminalChunk() async throws -> BridgeTerminalChunk?
+    func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async throws -> BridgeTranscriptPage?
     func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws
     func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) async throws
+}
+
+extension BridgeTransport {
+    func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async throws -> BridgeTranscriptPage? {
+        throw BridgeFailure.unexpectedCommandResult
+    }
 }

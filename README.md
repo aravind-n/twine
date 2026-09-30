@@ -88,6 +88,17 @@ returns an empty page; an offset beyond that end is an error. Pruned history ret
 Unknown IDs and unavailable storage return typed errors. Byte offsets do not describe terminal
 screen state; ANSI replay and resize handling belong to the history viewer.
 
+Click an anchored event in the trace details to select its workflow and agent and show a
+read-only snapshot of the terminal at that moment. **Return to live** restores the agent's
+live terminal. The snapshot replays cursor movement and recorded terminal sizes; resizing
+the window only changes its viewport. It currently displays text without terminal colors
+or images. Events without an anchor keep their details without a jump action.
+
+Replay requires the entire byte prefix and its resize history. Pruned output, older
+transcripts without geometry, or expired resize metadata show **Output no longer available**.
+Resize metadata is bounded to 8,192 entries across transcripts and 256 pending entries per
+terminal; losing geometry expires replay while preserving any retained raw output.
+
 Recording uses a worker with at most **4 MiB / 256 requests** pending, plus one in-flight request.
 The worker combines adjacent queued output from one terminal into batches up to **64 KiB**,
 preserving read order while avoiding a separate durable commit for every small PTY read.
@@ -96,6 +107,10 @@ Storage failures leave live input and output usable and make transcript reads fa
 Reads wait for previously accepted output to commit and must run off the UI thread. Clean shutdown
 flushes accepted recording; a crash may lose pending bytes. Reopening discards uncommitted tails
 and orphan files, and reports damage to committed data instead of silently skipping it.
+
+`Application::request_terminal_transcript` provides nonblocking admission and polling for the
+history viewer. A full queue returns no request; polling a pending request returns no result,
+so terminal input and live output polling can continue while disk reads are pending.
 
 One core owns a transcript directory at a time; a second concurrent owner receives an explicit
 error. The ownership lock is released after the recording worker has flushed and stopped.

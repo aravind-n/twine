@@ -3,8 +3,35 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use super::{
-    TerminalChunk, TerminalError, TerminalId, TranscriptError, TranscriptRead, TranscriptRecorder,
+    Recording, TerminalChunk, TerminalError, TerminalId, TerminalSize, TranscriptError,
+    TranscriptRead, TranscriptRecorder, TranscriptSize,
 };
+
+#[derive(Debug, Default)]
+struct ReplayState {
+    offset: u64,
+    sizes: Vec<TranscriptSize>,
+    lost_at: Option<u64>,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ReplayPosition {
+    inner: Mutex<ReplayState>,
+}
+
+impl ReplayPosition {
+    pub(crate) fn observe(&self) -> Result<super::TerminalObservation, TerminalError> {
+        let replay = self.inner.lock().map_err(|_| TerminalError::Poisoned)?;
+        Ok(super::TerminalObservation {
+            observed_at: crate::workflow::timestamp(),
+            byte_offset: replay.offset,
+            boundary_sizes: replay
+                .lost_at
+                .is_none()
+                .then(|| replay.sizes.iter().map(|resize| resize.size).collect()),
+        })
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StreamState {
@@ -15,8 +42,12 @@ enum StreamState {
 #[derive(Debug)]
 struct StreamEntry {
     next_offset: Arc<AtomicU64>,
+    reserved_offset: u64,
     state: StreamState,
     cancelled: Arc<AtomicBool>,
+    sizes: Vec<TranscriptSize>,
+    geometry_lost: bool,
+    replay_position: Arc<ReplayPosition>,
 }
 
 #[derive(Debug)]
@@ -78,8 +109,12 @@ impl TerminalStream {
             terminal_id,
             StreamEntry {
                 next_offset: Arc::new(AtomicU64::new(0)),
+                reserved_offset: 0,
                 state: StreamState::Open,
                 cancelled: Arc::new(AtomicBool::new(false)),
+                sizes: Vec::new(),
+                geometry_lost: false,
+                replay_position: Arc::new(ReplayPosition::default()),
             },
         );
         Ok(terminal_id)
@@ -103,34 +138,60 @@ impl TerminalStream {
 
         // Each terminal has exactly one producer (its PTY reader). Reserve the shared absolute
         // offset before recording, so both storage and live delivery use the same byte positions.
-        let (offset, cancelled) = {
+        let (offset, cancelled, sizes, geometry_lost) = {
             let mut inner = self.lock_inner()?;
             let entry = inner
                 .entries
                 .get_mut(&terminal_id)
                 .filter(|entry| entry.state == StreamState::Open)
                 .ok_or(TerminalError::NotOpen { terminal_id })?;
-            let offset = entry.next_offset.load(Ordering::Acquire);
+            let offset = entry.reserved_offset;
             let next_offset = offset
                 .checked_add(u64::try_from(chunk_bytes).map_err(|_| TerminalError::OffsetOverflow)?)
                 .ok_or(TerminalError::OffsetOverflow)?;
-            entry.next_offset.store(next_offset, Ordering::Release);
-            (offset, Arc::clone(&entry.cancelled))
+            entry.reserved_offset = next_offset;
+            (
+                offset,
+                Arc::clone(&entry.cancelled),
+                std::mem::take(&mut entry.sizes),
+                std::mem::take(&mut entry.geometry_lost),
+            )
         };
         let chunk = TerminalChunk {
             terminal_id,
             offset,
             bytes,
         };
-        if matches!(
-            self.transcripts.append(chunk.clone(), &cancelled),
-            Err(TranscriptError::Cancelled)
-        ) {
+        let recording = self.transcripts.record(
+            Recording {
+                chunk: chunk.clone(),
+                sizes,
+                geometry_lost,
+            },
+            &cancelled,
+        );
+        if matches!(recording, Err(TranscriptError::Cancelled)) {
             return Err(TerminalError::NotOpen { terminal_id });
         }
         // Recording failures are exposed by transcript reads. Live output and input remain usable.
         // Accepted recording survives a subsequent cancellation of the live queue.
         let mut inner = self.lock_inner()?;
+        if recording.is_ok()
+            && let Some(entry) = inner.entries.get_mut(&terminal_id)
+        {
+            let accepted = chunk.offset + chunk.bytes.len() as u64;
+            entry.next_offset.store(accepted, Ordering::Release);
+            let mut replay = entry
+                .replay_position
+                .inner
+                .lock()
+                .map_err(|_| TerminalError::Poisoned)?;
+            replay.offset = accepted;
+            replay.sizes.retain(|resize| resize.offset >= accepted);
+            if replay.lost_at.is_some_and(|offset| offset < accepted) {
+                replay.lost_at = None;
+            }
+        }
         loop {
             let entry = inner
                 .entries
@@ -156,7 +217,65 @@ impl TerminalStream {
         Ok(offset)
     }
 
+    /// Capture geometry at the same boundary used to reserve output offsets. This never waits
+    /// for storage, so resizing and input remain usable under recording backpressure.
+    pub(crate) fn record_size(
+        &self,
+        terminal_id: TerminalId,
+        size: TerminalSize,
+    ) -> Result<(), TerminalError> {
+        self.change_size(terminal_id, size, || Ok(()))
+    }
+
+    pub(crate) fn change_size(
+        &self,
+        terminal_id: TerminalId,
+        size: TerminalSize,
+        change: impl FnOnce() -> Result<(), TerminalError>,
+    ) -> Result<(), TerminalError> {
+        let mut inner = self.lock_inner()?;
+        let entry = inner
+            .entries
+            .get_mut(&terminal_id)
+            .ok_or(TerminalError::NotOpen { terminal_id })?;
+        change()?;
+        if entry.sizes.len() == 256 {
+            entry.sizes.clear();
+            entry.geometry_lost = true;
+        }
+        entry.sizes.push(TranscriptSize {
+            offset: entry.reserved_offset,
+            size,
+        });
+        let mut replay = entry
+            .replay_position
+            .inner
+            .lock()
+            .map_err(|_| TerminalError::Poisoned)?;
+        if replay.sizes.len() == 256 {
+            replay.sizes.clear();
+            replay.lost_at = Some(entry.reserved_offset);
+        }
+        replay.sizes.push(TranscriptSize {
+            offset: entry.reserved_offset,
+            size,
+        });
+        Ok(())
+    }
+
+    pub(crate) fn replay_position(
+        &self,
+        terminal_id: TerminalId,
+    ) -> Result<Arc<ReplayPosition>, TerminalError> {
+        self.lock_inner()?
+            .entries
+            .get(&terminal_id)
+            .map(|entry| Arc::clone(&entry.replay_position))
+            .ok_or(TerminalError::NotOpen { terminal_id })
+    }
+
     /// The process retains this counter after the live queue is drained or cancelled.
+    #[cfg(test)]
     pub(crate) fn output_position(
         &self,
         terminal_id: TerminalId,
@@ -225,6 +344,15 @@ impl TerminalStream {
         limit: usize,
     ) -> Result<TranscriptRead, TranscriptError> {
         self.transcripts.read(terminal_id, offset, limit)
+    }
+
+    pub(crate) fn request_transcript(
+        &self,
+        terminal_id: TerminalId,
+        offset: u64,
+        limit: usize,
+    ) -> Result<Option<super::TranscriptRequest>, TranscriptError> {
+        self.transcripts.request_read(terminal_id, offset, limit)
     }
 
     pub(crate) fn shutdown_recording(&self) {
@@ -529,6 +657,46 @@ mod tests {
         publisher.join().expect("publisher should not panic");
         assert!(stream.next_chunk().expect("read should succeed").is_none());
         assert!(stream.tracks_no_terminals());
+    }
+
+    #[test]
+    fn boundary_geometry_survives_live_entry_reclamation_and_overflow_is_explicit() {
+        let stream = TerminalStream::for_test(64, 4).unwrap();
+        let id = stream.open().unwrap();
+        let position = stream.replay_position(id).unwrap();
+        let size = |columns| TerminalSize {
+            rows: 3,
+            columns,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+        stream.record_size(id, size(10)).unwrap();
+        stream.publish_blocking(id, b"output".to_vec()).unwrap();
+        stream.record_size(id, size(5)).unwrap();
+        stream.record_size(id, size(12)).unwrap();
+        let observed = position.observe().unwrap();
+        assert_eq!(observed.byte_offset, 6);
+        assert_eq!(observed.boundary_sizes.unwrap(), vec![size(5), size(12)]);
+        stream.finish(id).unwrap();
+        stream.next_chunk().unwrap();
+        assert!(stream.tracks_no_terminals());
+        assert_eq!(
+            position.observe().unwrap().boundary_sizes.unwrap(),
+            vec![size(5), size(12)]
+        );
+
+        let id = stream.open().unwrap();
+        let position = stream.replay_position(id).unwrap();
+        for _ in 0..257 {
+            stream.record_size(id, size(8)).unwrap();
+        }
+        assert!(position.observe().unwrap().boundary_sizes.is_none());
+        stream.publish_blocking(id, b"new".to_vec()).unwrap();
+        assert_eq!(position.observe().unwrap().boundary_sizes, Some(Vec::new()));
+        let TranscriptRead::Output(page) = stream.read_transcript(id, 0, 3).unwrap() else {
+            panic!("raw output remains available");
+        };
+        assert!(!page.replay_available);
     }
 
     fn spawn_publish(

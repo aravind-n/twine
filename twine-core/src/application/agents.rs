@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(events[0].kind, crate::TraceEventKind::ProcessStarted);
         assert_eq!(events[1].kind, crate::TraceEventKind::ProcessExited);
         assert!(events[1].message.contains("code 3"));
-        assert!(events[1].anchor.unwrap().byte_offset > 0);
+        assert!(events[1].anchor.as_ref().unwrap().byte_offset > 0);
         assert!(
             events
                 .iter()
