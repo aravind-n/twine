@@ -7,21 +7,20 @@ struct TracesPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let workflow: CoreWorkflow?
     @State private var isExpanded = false
-    @State private var state = TracePanelState()
+    private var state: TracePanelState { navigation.activity }
     @State private var loadOlderRequested = false
-    @State private var jumpRequestedSpanID: UInt64?
-    @State private var jumpRequestID = UUID()
 
     private var summary: CoreTraceSummary? {
         coreClient.snapshot?.traces.first { $0.workflowID == workflow?.id }
     }
 
     private var readKey: String {
-        "\(workflow?.id ?? 0):\(summary?.revision ?? 0):\(coreClient.traceSnapshotGeneration):\(isExpanded)"
+        "\(workflow?.id ?? 0):\(summary?.revision ?? 0):\(coreClient.traceSnapshotGeneration)"
     }
 
     private var logKey: String {
-        "\(workflow?.id ?? 0):\(state.selectedSpanID ?? 0):\(summary?.revision ?? 0):\(isExpanded):\(jumpRequestID)"
+        "\(workflow?.id ?? 0):\(state.selectedSpanID ?? 0):\(summary?.revision ?? 0):\(isExpanded):"
+            + "\(navigation.selectionRevision)"
     }
 
     var body: some View {
@@ -45,34 +44,28 @@ struct TracesPanel: View {
                 .allowsHitTesting(false)
         }
         .task(id: readKey) {
-            if isExpanded { await state.refresh(workflowID: workflow?.id, client: coreClient) }
+            await state.refresh(workflowID: workflow?.id, client: coreClient)
+            if !Task.isCancelled { await navigation.minimap.refresh(activity: state, client: coreClient) }
         }
         .task(id: logKey) {
             if isExpanded {
                 await state.loadEvents(client: coreClient)
-                jumpToRequestedCommand()
+                if !Task.isCancelled { navigation.jumpToSelectedSpan() }
             }
         }
         .task(id: loadOlderRequested) {
             if loadOlderRequested {
                 await state.loadOlder(client: coreClient)
+                if !Task.isCancelled { await navigation.minimap.refresh(activity: state, client: coreClient) }
                 loadOlderRequested = false
             }
         }
         .onChange(of: workflow?.id) {
-            jumpRequestedSpanID = nil
-            state.reset(workflowID: workflow?.id)
+            navigation.requestedSpanID = nil
         }
-    }
-
-    private func jumpToRequestedCommand() {
-        guard let id = jumpRequestedSpanID, state.selectedSpanID == id,
-            let lane = state.selectedLane,
-            let span = state.selectedSpan,
-            state.events.contains(where: { $0.message == "Command started." && $0.anchor != nil })
-        else { return }
-        navigation.jump(toCommand: span, events: state.events, lane: lane)
-        jumpRequestedSpanID = nil
+        .onChange(of: navigation.selectionRevision) {
+            withAnimation(reduceMotion ? nil : Motion.tracesToggle) { isExpanded = true }
+        }
     }
 
     private func expandedContent(now: UInt64) -> some View {
@@ -115,9 +108,7 @@ struct TracesPanel: View {
                     selectedSpanID: state.selectedSpanID, now: now,
                     labelWidth: labelWidth
                 ) { id in
-                    jumpRequestedSpanID = id
-                    jumpRequestID = UUID()
-                    withAnimation(reduceMotion ? nil : Motion.traceDetailPanel) { state.selectedSpanID = id }
+                    withAnimation(reduceMotion ? nil : Motion.traceDetailPanel) { navigation.selectSpan(id) }
                 }
                 HStack {
                     Text(state.failureMessage ?? "Steps are spaced by start order.")

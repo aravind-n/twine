@@ -134,6 +134,19 @@ extend Swift's `CoreConfig` when a consumer needs the new field.
 
 ## Terminal transcripts
 
+Every terminal and agent pane has a compact minimap at its right edge. Hover or focus the
+14-point rail to expand it over the output; expansion does not change the terminal's columns.
+Click or drag the visible-region indicator to scroll. With the rail focused, use the arrow,
+Page Up/Down, Home, and End keys. **Return to live** resumes following the latest output.
+Each Bento pane keeps its own position.
+
+Minimap points use the same step IDs, numbers, role colors, and selection as **Activity**.
+Selecting a point opens that step in Activity and follows its recorded terminal anchor,
+using the same output viewer as the Activity panel. Points are placed by terminal row;
+Activity spaces steps by start order. Loading **Older activity** adds those steps to the
+map when their output is still available. Output without an available anchor remains
+scrollable without a guessed point. Historical output also has its own minimap.
+
 `twine-core` records raw terminal output under `transcripts/` in its application data directory.
 Terminal IDs remain unique across launches. Closing a terminal preserves output already accepted
 for recording, and restored workflows start fresh terminals with new IDs.

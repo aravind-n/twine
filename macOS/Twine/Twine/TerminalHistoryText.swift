@@ -6,9 +6,15 @@ struct TerminalHistoryText: NSViewRepresentable {
     let text: String
     var outputStartRange: NSRange?
     var font = NSFont.terminal
+    var minimap: TerminalMinimapState?
+    var markerRows: [UInt64: Int] = [:]
 
     func makeNSView(context: Context) -> TerminalHistoryScrollView {
-        Self.makeScrollView(font: font)
+        let scroll = Self.makeScrollView(font: font)
+        scroll.minimapState = minimap
+        minimap?.historyView = scroll
+        if minimap != nil { scroll.hasVerticalScroller = false }
+        return scroll
     }
 
     static func makeScrollView(font: NSFont = .terminal) -> TerminalHistoryScrollView {
@@ -36,6 +42,7 @@ struct TerminalHistoryText: NSViewRepresentable {
 
     func updateNSView(_ scroll: TerminalHistoryScrollView, context: Context) {
         Self.show(text, outputStartRange: outputStartRange, in: scroll, font: font)
+        minimap?.showHistory(text: text, rows: markerRows)
     }
 
     static func show(
@@ -59,11 +66,13 @@ struct TerminalHistoryText: NSViewRepresentable {
 
 /// SwiftUI supplies the text before the viewport has a size. Position it once layout has real bounds.
 final class TerminalHistoryScrollView: NSScrollView {
+    weak var minimapState: TerminalMinimapState?
     var pendingOutput: NSRange?
     var outputStartRange: NSRange?
 
     override func layout() {
         super.layout()
+        defer { minimapState?.scheduleRefresh() }
         guard let range = pendingOutput, contentView.bounds.height > 0,
             let view = documentView as? NSTextView,
             let layout = view.layoutManager, let container = view.textContainer
@@ -80,6 +89,11 @@ final class TerminalHistoryScrollView: NSScrollView {
         let origin = NSPoint(x: 0, y: max(0, targetY))
         contentView.scroll(to: origin)
         reflectScrolledClipView(contentView)
+    }
+
+    override func reflectScrolledClipView(_ clipView: NSClipView) {
+        super.reflectScrolledClipView(clipView)
+        minimapState?.scheduleRefresh()
     }
 }
 

@@ -118,6 +118,25 @@ All ease-in-out, all tied to a user action.
 - Dragging the gutters resizes columns and rows. Panes keep at least 260 × 150pt; a smaller panel shows fewer panes, first one per column, then only the focused pane, which fills the panel as in tab mode.
 - Terminal content in a pane has 12pt padding.
 
+### Terminal minimap
+
+- Every live terminal and read-only history view gets a 14pt rail at its trailing edge, with
+  18pt reserved for the rail and its gutter. The rail expands to 92pt on hover or keyboard
+  focus, overlaying output without resizing the terminal grid. Corners are 5pt.
+- Draw a muted silhouette of the actual terminal buffer, with an accent-tinted visible
+  region and a fine accent outline. Clicking or dragging scrolls the pane independently;
+  Home, End, Page Up/Down, and arrow keys operate the focused rail.
+- Activity points share step identities, sequence numbers, lane colors, failure orange,
+  and the selected ring with the Activity panel. Expanded points show their step number;
+  tooltips include the step title and lane. A click selects and reveals that Activity step
+  and opens its recorded output through the shared trace navigation.
+- Position points from recorded byte anchors interpreted through terminal replay. Do not
+  estimate a row from bytes or elapsed time. Live points follow the view's resize sequence;
+  historical points follow recorded geometry. Omit points whose geometry or output expired.
+- A small Return to live control appears while a live terminal is scrolled into history.
+  New output preserves the pane's scroll position. Alternate screens hide normal-buffer
+  points and restore them when the terminal returns to its normal buffer.
+
 ### New-tab surface
 
 - A draft tab shows the terminal prompt, and a choices card centered over the terminal.

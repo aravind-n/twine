@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Twine · Minimap studies</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23252a2e'/%3E%3Cpath d='M10 7v15a5 5 0 0010 0V10M5 12h22M5 17h22' fill='none' stroke='%23f4f3ef' stroke-width='2'/%3E%3C/svg%3E">
+  <style>
+    :root{color-scheme:light;--page:#f4f3ef;--ink:#252a2e;--muted:#6f7377;--line:#dcddd7;--blue:#426fbc;--mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--ink);font:14px/1.5 var(--sans)}button,input{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:3px solid #739ce8;outline-offset:3px}button{color:inherit}svg{display:block}button svg{pointer-events:none}button{touch-action:manipulation}
+    .page{max-width:1400px;margin:auto;padding:0 48px}.masthead{height:85px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:10px;font-size:22px;font-weight:650;letter-spacing:-1px}.brand svg{width:27px;height:30px}.edition{display:flex;align-items:center;gap:14px;font:10px var(--mono);letter-spacing:1.4px;color:var(--muted)}.edition i{width:6px;height:6px;border-radius:50%;background:#74917e}.intro{display:flex;justify-content:space-between;gap:36px;align-items:end;margin:42px 0 29px}.eyebrow{text-transform:uppercase;font-size:10px;letter-spacing:1.8px;font-weight:600;color:var(--muted);margin:0 0 12px}h1{font-size:43px;line-height:1.12;letter-spacing:-1.8px;font-weight:550;margin:0}.intro p:last-child{max-width:355px;color:var(--muted);font-size:14px;line-height:1.7;margin:0 0 2px}
+    .concepts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:29px}.concept{position:relative;text-align:left;border:1px solid var(--line);border-radius:12px;padding:19px 70px 19px 19px;background:transparent;min-height:120px;transition:background .16s,border-color .16s,box-shadow .16s}.concept:hover{background:#fff9}.concept[aria-pressed=true]{border-color:#7797c6;background:#fbfcff;box-shadow:0 0 0 2px #7897c612}.concept-number{font:10px var(--mono);color:var(--muted);display:block;margin-bottom:7px}.concept strong{font-size:15px;font-weight:600;display:block;margin-bottom:5px}.concept-description{display:block;font-size:12px;color:var(--muted);line-height:1.45}.recommended{font-size:9px;font-weight:500;background:#e8eee8;color:#587060;border-radius:4px;padding:3px 5px;margin-left:5px;vertical-align:2px;white-space:nowrap}.mini-art{position:absolute;right:19px;top:22px;width:29px;height:73px;border-radius:3px;background:repeating-linear-gradient(to bottom,#aab6c1 0 1px,transparent 1px 4px);opacity:.75;border-left:1px solid #aab6c130}.mini-art:before{content:"";position:absolute;inset:23px -3px auto;height:22px;border:1px solid #6f94cf;background:#7fa6e62a;border-radius:3px}.mini-art:after{content:"";position:absolute;inset:0 0 0 17px;background:var(--page);clip-path:polygon(20% 0,100% 0,100% 100%,0 100%,0 82%,50% 82%,50% 74%,0 74%,0 48%,65% 48%,65% 39%,0 39%,0 20%,50% 20%,50% 12%,0 12%)}.mini-art.landmarks{border-right:3px solid #b6c7de}.mini-art.landmarks:after{background:linear-gradient(#85a0ce 0 20%,transparent 20% 40%,#c3916f 40% 45%,transparent 45% 70%,#82a58d 70% 85%,transparent 85%);clip-path:none;width:3px;left:auto;right:-7px}.mini-art.compact{right:28px;width:8px;background:#d9dedf}.mini-art.compact:before{inset-inline:-1px}.mini-art.compact:after{display:none}
+    .demo-toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:12px}.demo-title{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:550}.demo-title span{color:var(--muted);font-weight:400;font-size:11px}.controls{display:flex;gap:12px;align-items:center}.segmented{display:inline-flex;padding:3px;background:#e8e8e3;border-radius:7px;gap:2px}.segmented button{border:0;background:transparent;font-size:11px;padding:5px 11px;border-radius:5px;color:#747773}.segmented button[aria-pressed=true]{background:#fff;color:#32383b;box-shadow:0 1px 3px #0001}.simulate{display:flex;align-items:center;gap:6px;border:0;background:transparent;font-size:11px;color:var(--muted);padding:5px 0 5px 8px}.simulate:hover{color:var(--blue)}
+    .app{--window:#1b2024;--terminal:#0c1013;--text:#e5e1cf;--secondary:#969d9f;--dim:#626e75;--border:#ffffff14;--tint:#1c2837;--tab:#28374b;--map-bg:#10171c;--blue:#8bacdf;--green:#92b596;--orange:#d4a078;--purple:#b897d0;--red:#df9082;--selection:#8cb2e92d;--search:#d4ad51;--preview:#19232b;color-scheme:dark;background:var(--window);color:var(--text);border:1px solid #30383e;border-radius:15px;box-shadow:0 14px 35px #202b3512;overflow:hidden}.app.light{--window:#eaeae6;--terminal:#f7f4e8;--text:#1a2026;--secondary:#656b6c;--dim:#82867e;--border:#1a202619;--tint:#dce4ea;--tab:#edf1f4;--map-bg:#eeecdf;--blue:#42679d;--green:#4c7755;--orange:#9c6439;--purple:#87629f;--red:#aa5245;--selection:#7e9aca2a;--search:#a88126;--preview:#f9f8f0;color-scheme:light;border-color:#c9ccc8}
+    .window-bar{height:45px;display:flex;align-items:center;justify-content:space-between;padding:0 17px;position:relative}.traffic{display:flex;gap:7px}.traffic i{height:10px;width:10px;border-radius:50%;background:#f17e76}.traffic i:nth-child(2){background:#e9c164}.traffic i:nth-child(3){background:#8ab58c}.folder-title{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:7px;align-items:center;color:var(--secondary);font-size:11px}.branch{font:10px var(--mono);color:var(--secondary)}.app-content{padding:0 13px 9px}.workflow-tabs{display:flex;align-items:end;height:38px;gap:4px}.section-label{font-size:8px;letter-spacing:1.1px;color:var(--secondary);font-weight:600;margin:0 12px 12px 8px}.workflow-tab{height:32px;border:1px solid transparent;border-bottom:0;border-radius:9px 9px 0 0;background:transparent;color:var(--secondary);padding:0 15px;font-size:11px;display:flex;align-items:center;gap:8px;max-width:240px}.workflow-tab[aria-pressed=true]{background:var(--tint);border-color:var(--border);color:var(--text)}.workflow-tab.shell[aria-pressed=true]{background:var(--terminal)}.workflow-tab svg{width:12px;height:12px}.tab-dot{width:5px;height:5px;background:var(--green);border-radius:50%;margin-left:7px}.terminal-block{border-radius:13px;background:var(--tint);border:1px solid var(--border);overflow:hidden}.agent-bar{height:39px;display:flex;align-items:center;gap:5px;padding:0 10px}.agent-bar .section-label{margin:0 10px 0 5px}.agent-button{padding:5px 9px;display:flex;align-items:center;gap:6px;background:transparent;border:1px solid transparent;border-radius:7px;font-size:10px;color:var(--secondary)}.agent-button[aria-pressed=true]{background:var(--tab);border-color:var(--border);color:var(--text)}.role-icon{color:var(--blue);font-size:13px}.reviewer .role-icon{color:var(--purple)}.layout-switch{margin-left:auto;display:flex;gap:2px;border:1px solid var(--border);padding:2px;border-radius:6px}.layout-switch button{background:transparent;border:0;padding:3px 9px;color:var(--secondary);font-size:9px;border-radius:3px}.layout-switch button[aria-pressed=true]{background:var(--tab);color:var(--text)}
+    .panes{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}.panes.bento{grid-template-columns:repeat(2,minmax(0,1fr));padding:5px}.pane{min-width:0;background:var(--terminal);position:relative;overflow:hidden}.bento .pane{border:1px solid var(--border);border-radius:9px}.bento .pane:focus-within{border-color:var(--blue)}.pane-heading{height:28px;padding:0 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;font-size:10px}.pane-heading .harness{margin-left:auto;color:var(--dim);font-size:9px}.pane-body{height:395px;display:flex;position:relative}.transcript{flex:1;min-width:0;overflow:auto;scrollbar-width:none;overscroll-behavior:contain;padding:18px 22px 44px;outline-offset:-4px;scroll-behavior:auto}.transcript::-webkit-scrollbar{display:none}.output-line{font:11px/21px var(--mono);min-height:21px;white-space:pre-wrap;overflow-wrap:anywhere;position:relative;color:var(--text)}.output-line.muted{color:var(--secondary)}.output-line.command{color:var(--blue)}.output-line.success{color:var(--green)}.output-line.error{color:var(--red)}.output-line.prompt{color:var(--orange)}.output-line.section{color:var(--purple)}.output-line.spacer{min-height:12px;line-height:12px}.output-line.hit{background:#cda74925;border-radius:3px}.output-line mark{color:var(--text);background:#cda74960;border-radius:2px}.line-prefix{color:var(--green)}.line-time{float:right;font-size:9px;color:var(--dim);padding-left:20px}.bento .transcript{padding:14px 13px 44px}.bento .output-line{font-size:10px;line-height:19px;min-height:19px}.bento .output-line.spacer{min-height:10px}.bento .line-time{display:none}
+    .minimap{position:relative;flex:0 0 88px;align-self:stretch;margin:8px 7px 8px 0;background:var(--map-bg);border-left:1px solid var(--border);border-radius:3px;cursor:crosshair;touch-action:none;user-select:none;outline-offset:1px}.minimap canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.7}.minimap:hover canvas,.minimap:focus-visible canvas{opacity:1}.viewport{position:absolute;left:0;right:0;background:var(--selection);border:1px solid color-mix(in srgb,var(--blue) 65%,transparent);border-left:2px solid var(--blue);border-radius:3px;min-height:8px;pointer-events:none;z-index:2}.viewport:after{content:"";position:absolute;left:2px;top:50%;width:2px;height:9px;transform:translateY(-50%);background:var(--blue);opacity:.65;border-radius:1px}.landmark-map{flex-basis:107px}.map-marker{position:absolute;right:1px;left:auto;width:12px;min-height:9px;height:9px;padding:0;border:0;border-radius:2px;background:transparent;transform:translateY(-50%);z-index:3;color:var(--blue)}.map-marker:after{content:"";display:block;width:6px;height:3px;border-radius:1px;background:currentColor;margin:auto}.map-marker.error{color:var(--red)}.map-marker.success{color:var(--green)}.map-marker.prompt{color:var(--orange)}.map-marker.section{color:var(--purple)}.map-marker:hover:after,.map-marker:focus-visible:after{width:10px;height:5px}.map-marker.search-marker{color:var(--search);pointer-events:none}.compact-map{flex-basis:14px;margin-right:7px;border-radius:5px;z-index:4;background:var(--map-bg)}.compact-map canvas{opacity:.18}.compact-map .map-marker{right:0;width:12px}.compact-map .viewport{background:color-mix(in srgb,var(--blue) 30%,transparent);border-color:transparent;border-left:0}.compact-map.expanded{flex-basis:14px;background:var(--map-bg);border-left:0}.compact-map.expanded canvas{left:auto;right:0;width:100%;opacity:.85;background:var(--map-bg);border-radius:5px;box-shadow:-10px 0 22px #0001}.compact-map.expanded .viewport{border:1px solid var(--blue);border-left:2px solid var(--blue)}
+    .map-preview{position:absolute;right:113px;top:0;width:300px;max-width:calc(100% - 125px);background:var(--preview);border:1px solid var(--border);border-radius:8px;box-shadow:0 9px 30px #0004;padding:10px 12px;z-index:8;pointer-events:none;opacity:0;transition:opacity .1s}.map-preview.visible{opacity:1}.preview-heading{font:9px var(--mono);color:var(--blue);display:flex;justify-content:space-between;gap:6px;margin-bottom:7px}.preview-text{margin:0;font:10px/17px var(--mono);color:var(--text);white-space:pre-wrap;overflow:hidden;max-height:70px}.jump-live{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:var(--preview);border:1px solid color-mix(in srgb,var(--blue) 35%,transparent);border-radius:7px;padding:6px 11px;color:var(--blue);font-size:10px;box-shadow:0 4px 15px #0002;z-index:5;white-space:nowrap}.jump-live:hover{filter:brightness(1.1)}.jump-live[hidden]{display:none}.pane-footer{height:28px;display:flex;align-items:center;gap:12px;border-top:1px solid var(--border);padding:0 12px;font:9px var(--mono);color:var(--secondary)}.position-label{margin-left:auto;color:var(--secondary)}.live-state{display:flex;align-items:center;gap:5px;font-size:9px}.live-state:before{content:"";height:4px;width:4px;border-radius:50%;background:var(--orange)}.live-state.at-live:before{background:var(--green)}
+    .app-bottom{display:flex;justify-content:space-between;align-items:center;min-height:37px;gap:12px;padding:7px 3px 0}.legend{display:flex;gap:13px;align-items:center;font-size:9px;color:var(--secondary);flex-wrap:wrap}.legend span{display:flex;gap:4px;align-items:center}.legend i{display:inline-block;width:5px;height:5px;border-radius:1px;background:var(--blue)}.legend .prompt{background:var(--orange)}.legend .error{background:var(--red)}.legend .success{background:var(--green)}.find{display:flex;gap:6px;align-items:center;color:var(--secondary);font-size:10px}.find input{width:145px;color:var(--text);border:1px solid var(--border);border-radius:5px;background:var(--terminal);font-size:10px;padding:5px 8px}.find-count{font:9px var(--mono);min-width:41px;color:var(--secondary)}.find-nav{background:transparent;border:1px solid var(--border);color:var(--secondary);width:23px;height:23px;border-radius:4px;padding:0}.find-nav:disabled{opacity:.35;cursor:default}
+    .caption{display:flex;justify-content:space-between;gap:16px;margin:13px 2px 0;font-size:11px;color:var(--muted)}.caption .hint{display:flex;gap:7px;align-items:center}.caption code{font:10px var(--mono);background:#e6e7e2;border:1px solid #d9dcd5;border-radius:3px;padding:1px 4px}.details{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:32px;padding:28px 0 31px;border-bottom:1px solid var(--line);margin-top:28px;border-top:1px solid var(--line)}.detail-label{font:9px var(--mono);letter-spacing:1.3px;color:var(--muted);margin-bottom:9px;text-transform:uppercase}.detail-value{font-size:13px;line-height:1.65;max-width:360px;margin:0}.detail-value strong{font-weight:600}.detail-value.secondary{color:var(--muted)}.footer{display:flex;justify-content:space-between;gap:20px;padding:21px 0 32px;font-size:10px;color:var(--muted)}.footer span:last-child{font-family:var(--mono);font-size:9px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}[hidden]{display:none!important}
+    .output-line{font-size:12px;line-height:22px;min-height:22px}.bento .output-line{font-size:11px;line-height:20px;min-height:20px}.compact-map.expanded canvas{pointer-events:auto}
+    @media(min-width:1500px){.pane-body{height:450px}.intro{margin-top:48px}}
+    @media(max-width:1000px){.page{padding:0 25px}.intro p:last-child{max-width:295px}.concept{padding-right:52px}.concept strong{font-size:13px}.recommended{display:none}.mini-art{right:15px}.bento .minimap{flex-basis:58px}.bento .landmark-map{flex-basis:72px}.bento .compact-map{flex-basis:14px}}
+    @media(max-width:700px){.page{padding:0 16px}.masthead{height:64px}.edition{font-size:8px;letter-spacing:.6px}.intro{display:block;margin:29px 0 22px}h1{font-size:34px}.intro p:last-child{max-width:450px;margin-top:16px;font-size:13px}.concepts{gap:7px}.concept{min-height:127px;padding:13px 10px}.concept strong{font-size:12px}.concept-description{font-size:10px}.mini-art{display:none}.demo-toolbar{align-items:start}.demo-title{display:block}.demo-title span{display:block;margin-top:2px}.controls{gap:5px}.simulate{font-size:10px}.segmented button{padding:4px 8px}.app-content{padding:0 7px 7px}.branch{display:none}.workflow-tabs .section-label{display:none}.workflow-tab{font-size:10px;padding:0 10px}.agent-bar{padding:0 5px}.agent-bar .section-label{display:none}.agent-button{padding:5px 6px}.panes.bento{grid-template-columns:minmax(0,1fr)}.bento .pane-body{height:245px}.pane-body{height:350px}.transcript{padding:14px 12px 44px}.output-line{font-size:10px;line-height:19px;min-height:19px}.line-time{display:none}.minimap{flex-basis:59px}.landmark-map{flex-basis:74px}.compact-map{flex-basis:14px}.app-bottom{align-items:start;flex-wrap:wrap;gap:9px;padding-top:10px}.legend{gap:9px;min-height:21px}.find{margin-left:auto}.find input{width:126px}.caption{font-size:10px;flex-wrap:wrap;gap:6px}.details{grid-template-columns:1fr;gap:19px;margin-top:22px;padding:23px 0}.detail-value{max-width:none}.footer{font-size:9px}.map-preview{width:210px}.folder-title{font-size:10px}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;scroll-behavior:auto!important}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="masthead">
+      <div class="brand"><svg viewBox="0 0 28 32" fill="none" aria-hidden="true"><path d="M7 5v17a6 6 0 0 0 12 0V10a3 3 0 0 0-6 0v15M2 11h24M2 17h24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>twine</div>
+      <div class="edition"><i></i>INTERFACE STUDIES <span>/ 003</span></div>
+    </header>
+    <section class="intro" aria-labelledby="title">
+      <div><p class="eyebrow">Terminal & agent navigation</p><h1>A little map.<br>A lot less scrolling.</h1></div>
+      <p>Three ways to find your place in a long-running terminal. One familiar gesture, in every window.</p>
+    </section>
+    <nav class="concepts" aria-label="Minimap design concepts">
+      <button class="concept" data-concept="classic" aria-pressed="true"><span class="concept-number">01 / FAMILIAR</span><strong>The text landscape</strong><span class="concept-description">Your entire output, in miniature.<br>Always there. Instantly familiar.</span><span class="mini-art" aria-hidden="true"></span></button>
+      <button class="concept" data-concept="landmarks" aria-pressed="false"><span class="concept-number">02 / CONTEXTUAL</span><strong>A map with landmarks <span class="recommended">Our pick</span></strong><span class="concept-description">Prompts, commands, and outcomes.<br>Find the moment that matters.</span><span class="mini-art landmarks" aria-hidden="true"></span></button>
+      <button class="concept" data-concept="compact" aria-pressed="false"><span class="concept-number">03 / MINIMAL</span><strong>The quiet edge</strong><span class="concept-description">A slim rail that opens on hover.<br>More room for the work.</span><span class="mini-art compact" aria-hidden="true"></span></button>
+    </nav>
+    <section aria-label="Interactive Twine preview">
+      <div class="demo-toolbar"><div class="demo-title">Try the minimap <span>Click anywhere or drag the highlighted area</span></div><div class="controls"><div class="segmented" aria-label="Preview appearance"><button data-theme="light" aria-pressed="false">Light</button><button data-theme="dark" aria-pressed="true">Dark</button></div><button class="simulate" id="simulate" title="Append sample output to the visible panes"><span aria-hidden="true">＋</span> Simulate output</button></div></div>
+      <div class="app" id="app">
+        <div class="window-bar"><div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div><div class="folder-title"><span aria-hidden="true">▱</span> twine</div><div class="branch">⑂ feature/minimap</div></div>
+        <div class="app-content">
+          <div class="workflow-tabs" aria-label="Workflow examples"><span class="section-label">WORKFLOWS</span><button class="workflow-tab shell" data-source="terminal" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 4 4 4-4 4m6 0h4" stroke="currentColor" stroke-width="1.5"/></svg>Terminal</button><button class="workflow-tab" data-source="agent" aria-pressed="true"><span aria-hidden="true">⌘</span> Refine terminal navigation <span class="tab-dot"></span></button></div>
+          <div class="terminal-block">
+            <div class="agent-bar" id="agent-bar"><span class="section-label">TERMINAL</span><button class="agent-button" data-agent="implementer" aria-pressed="true"><span class="role-icon" aria-hidden="true">◇</span> Implementer</button><button class="agent-button reviewer" data-agent="reviewer" aria-pressed="false"><span class="role-icon" aria-hidden="true">⌕</span> Reviewer</button><div class="layout-switch" aria-label="Agent layout"><button data-layout="single" aria-pressed="true">Tabs</button><button data-layout="bento" aria-pressed="false">Bento</button></div></div>
+            <div class="panes" id="panes"></div>
+          </div>
+          <div class="app-bottom"><div class="legend" id="legend"><span><i></i> Visible region</span><span id="legend-detail">Output colors preserved</span></div><div class="find"><label for="find-input" class="sr-only">Find in output</label><input id="find-input" type="search" placeholder="Find in output…" autocomplete="off" spellcheck="false"><span class="find-count" id="find-count" aria-live="polite"></span><button class="find-nav" id="find-prev" aria-label="Previous match" disabled>↑</button><button class="find-nav" id="find-next" aria-label="Next match" disabled>↓</button></div></div>
+        </div>
+      </div>
+      <div class="caption"><span class="hint"><span aria-hidden="true">↳</span> <span id="interaction-hint">Hover to preview. Click to jump. Drag to explore.</span></span><span>Focus the map: <code>↑</code> <code>↓</code> to scroll · <code>End</code> to go live</span></div>
+    </section>
+    <section class="details" aria-label="Design notes"><div><div class="detail-label">The idea</div><p class="detail-value" id="idea"></p></div><div><div class="detail-label">Where it shines</div><p class="detail-value secondary" id="strength"></p></div><div><div class="detail-label">The tradeoff</div><p class="detail-value secondary" id="tradeoff"></p></div></section>
+    <footer class="footer"><span>Independent scrolling in every pane. Live output never pulls you out of history.</span><span>TWINE / INTERACTIVE HTML CONCEPT</span></footer>
+    <p class="sr-only" id="announcement" role="status"></p>
+  </main>
+  <script>
+    'use strict';
+    const $ = (selector, root = document) => root.querySelector(selector);
+    const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+    const app = $('#app');
+    const state = { concept: 'classic', source: 'agent', agent: 'implementer', layout: 'single', theme: 'dark', query: '', match: -1, tick: 0 };
+    const panes = [];
+    const datasets = {};
+    const savedPositions = new Map();
+    const notes = {
+      classic: { idea: 'A small, faithful silhouette of the transcript, with a draggable window showing your place.', strength: 'Familiar VS Code navigation. Great for scanning code, logs, and recognizable blocks of output.', tradeoff: 'Always uses a little horizontal space. Similar-looking output can be hard to distinguish.', hint: 'Hover to preview. Click to jump. Drag to explore.' },
+      landmarks: { idea: 'The text map, plus meaningful stops: prompts, tool calls, errors, and completed steps.', strength: 'Long agent runs. Jump straight to a request or failed command, with a preview before you move.', tradeoff: 'Needs reliable event anchors. Without them, the rail falls back to the text landscape.', hint: 'Hover a colored marker for context. Click it to jump to that event.' },
+      compact: { idea: 'A 14 px overview rail expands into a full map on hover, keyboard focus, or touch.', strength: 'Bento layouts and small windows. Every pane gets its own navigation with very little chrome.', tradeoff: 'Less detail at rest. The expanded map temporarily covers the right edge of the output.', hint: 'Hover, focus, or touch the right edge to open the map. Drag to scrub.' }
+    };
+
+    // All content is local sample data. Each row also provides its color and optional event anchor.
+    const row = (text, kind = '', event = null) => ({ text, kind, event });
+    const files = ['TerminalSurface.swift', 'AgentPanes.swift', 'TerminalHistoryState.swift', 'TraceTerminalNavigation.swift', 'MetalTerminalView.swift', 'TerminalController.swift'];
+    function agentTranscript(role) {
+      const reviewing = role === 'reviewer';
+      const lines = [row(reviewing ? '╭─ Reviewer · Claude Code ─────────────────────────╮' : '╭─ Implementer · Codex ────────────────────────────╮', 'section'), row('│  twine  /  Refine terminal navigation             │', 'muted'), row('╰──────────────────────────────────────────────────╯', 'muted'), row('', 'spacer'), row('› Add a minimap to every terminal and agent pane.', 'prompt', 'User prompt'), row('  Keep each pane independent and preserve scroll position.'), row('  Make it easy to return to the latest output.'), row('', 'spacer')];
+      const steps = reviewing ? ['Inspect the proposed changes', 'Check scroll position mapping', 'Review event anchor handling', 'Check keyboard navigation', 'Review live output behavior', 'Verify independent pane state', 'Check light and dark colors', 'Summarize the review'] : ['Explore the terminal surfaces', 'Read the existing scroll behavior', 'Create the minimap view', 'Map events to terminal positions', 'Keep history stable during output', 'Add keyboard navigation', 'Verify every pane independently', 'Polish the visual treatment'];
+      steps.forEach((step, index) => {
+        lines.push(row(`  ${String(index + 1).padStart(2, '0')}  ${step}`, 'section', step), row('', 'spacer'));
+        lines.push(row(reviewing ? `I’m checking ${step.toLowerCase()} against the terminal behavior.` : `I’ll ${step.charAt(0).toLowerCase() + step.slice(1)} and keep the terminal in focus.`));
+        lines.push(row('The visible region should stay tied to this pane’s own output.'), row('', 'spacer'));
+        const file = files[index % files.length];
+        lines.push(row(`• Read  macOS/Twine/Twine/${file}`, 'command', `Read ${file}`));
+        const snippet = [
+          '    struct TerminalMinimap: View {',
+          '        let transcript: TerminalTranscript',
+          '        @Binding var visibleRange: Range<Int>',
+          '',
+          '        var body: some View {',
+          '            GeometryReader { geometry in',
+          '                TranscriptOverview(transcript)',
+          '                    .overlay(alignment: .top) {',
+          '                        ViewportIndicator(visibleRange)',
+          '                    }',
+          '            }',
+          '        }',
+          '    }'
+        ];
+        snippet.forEach((text, j) => lines.push(row(`${String(24 + index * 19 + j).padStart(3, ' ')} ${text}`, j === 0 || j === 4 ? 'section' : 'muted')));
+        lines.push(row('', 'spacer'));
+        if (index === 3) {
+          lines.push(row('• Run  make test-macos', 'command', 'Run tests'), row('✕ testViewportStaysAnchoredWhenOutputArrives', 'error', 'Test failed'), row('  Expected line 142 to remain visible; received line 158.', 'error'), row('  The scroll offset moved when new output was appended.', 'muted'), row('', 'spacer'), row('I found the offset changing during a transcript update.'), row('Preserving the first visible line fixes the jump.'), row('✓ Updated the scroll anchor.', 'success', 'Scroll anchor fixed'));
+        } else {
+          lines.push(row(`✓ ${reviewing ? 'Verified' : 'Updated'} ${file}`, 'success', `Step ${index + 1} complete`), row(`  ${index + 2} checks passed · ${index % 3 + 1} file${index % 3 ? 's' : ''} inspected`, 'muted'));
+        }
+        lines.push(row('', 'spacer'), row('──────────────────────────────────────────────────', 'muted'), row('', 'spacer'));
+      });
+      lines.push(row('✓ All checks passed', 'success', 'Checks passed'), row('', 'spacer'), row(reviewing ? 'The minimap behaves consistently across both layouts.' : 'The minimap is ready for review.'), row('Each terminal keeps its own position when new output arrives.'), row('', 'spacer'), row('› ', 'prompt', 'Ready for input'));
+      return lines;
+    }
+    function terminalTranscript() {
+      const lines = [row('Last login: Wed Sep 30 09:41:08 on ttys003', 'muted'), row('twine  on  feature/minimap', 'section'), row('', 'spacer')];
+      const commands = ['git status --short', 'rg --files macOS/Twine/Twine', 'make check-rust', 'make test-macos', 'git diff --stat', 'make test-macos', 'make check-rust', 'git status --short'];
+      commands.forEach((command, index) => {
+        lines.push(row(`❯ ${command}`, 'command', command), row('', 'spacer'));
+        if (command.startsWith('git')) {
+          files.forEach((file, j) => lines.push(row(` ${j % 2 ? 'M' : 'A'} macOS/Twine/Twine/${file}`, j % 2 ? 'prompt' : 'success')));
+          lines.push(row(' 6 files changed, 148 insertions(+), 12 deletions(-)', 'muted'));
+        } else if (command.startsWith('rg')) {
+          [...files, 'WorkflowWorkspace.swift', 'AgentSubtabs.swift', 'TerminalReplay.swift', 'Design.swift'].forEach(file => lines.push(row(`macOS/Twine/Twine/${file}`, 'muted')));
+        } else {
+          lines.push(row(`   Compiling ${command.includes('rust') ? 'twine-core v0.1.0' : 'Twine'}`, 'section'), row('    Finished test profile in 2.81s', 'muted'), row('', 'spacer'));
+          const tests = ['scroll_position_is_independent', 'viewport_maps_to_transcript', 'terminal_output_is_recorded', 'minimap_tracks_visible_range', 'history_preserves_anchor', 'keyboard_navigation_moves_viewport', 'return_to_live_follows_output'];
+          for (let j = 0; j < 28; j++) lines.push(row(`test ${tests[j % tests.length]}_${Math.floor(j / tests.length) + 1} ... ok`, 'success'));
+          if (index === 3) lines.push(row('FAIL: viewport remains anchored during new output', 'error', 'Test failed'), row('  expected: 142   actual: 158', 'error'), row('test result: FAILED. 28 passed; 1 failed.', 'error'));
+          else lines.push(row('test result: ok. 28 passed; 0 failed.', 'success', 'Tests passed'));
+        }
+        lines.push(row('', 'spacer'), row(`  completed in ${(index * .43 + .12).toFixed(2)}s`, 'muted'), row('', 'spacer'));
+      });
+      lines.push(row('❯ ', 'command', 'Ready for input'));
+      return lines;
+    }
+    datasets.terminal = terminalTranscript();
+    datasets.implementer = agentTranscript('implementer');
+    datasets.reviewer = agentTranscript('reviewer');
+
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    function announce(message) { $('#announcement').textContent = message; }
+    function textNode(tag, className, text) { const el = document.createElement(tag); el.className = className; el.textContent = text; return el; }
+    function addLine(pane, item) {
+      const el = textNode('div', `output-line ${item.kind}`, item.text || '\u00a0');
+      pane.output.append(el);
+      pane.rows.push(el);
+    }
+    function metric(pane, index) {
+      const element = pane.rows[index];
+      return element.getBoundingClientRect().top - pane.output.getBoundingClientRect().top + pane.output.scrollTop;
+    }
+    function mapWidth(pane) { return pane.map.classList.contains('expanded') ? 100 : pane.map.clientWidth; }
+    function measure(pane) {
+      pane.positions = pane.rows.map((_, i) => metric(pane, i));
+      pane.total = pane.output.scrollHeight;
+      drawMap(pane);
+      updatePosition(pane);
+    }
+    function drawMap(pane) {
+      const height = pane.map.clientHeight;
+      const width = mapWidth(pane);
+      const ratio = window.devicePixelRatio || 1;
+      pane.canvas.width = Math.round(width * ratio);
+      pane.canvas.height = Math.round(height * ratio);
+      pane.canvas.style.width = `${width}px`;
+      const ctx = pane.canvas.getContext('2d');
+      ctx.scale(ratio, ratio);
+      const colors = getComputedStyle(app);
+      const palette = { command: '--blue', section: '--purple', prompt: '--orange', success: '--green', error: '--red', muted: '--secondary', '': '--text' };
+      const semantic = state.concept !== 'classic';
+      const usable = width - (semantic ? 19 : 10);
+      pane.lines.forEach((item, index) => {
+        if (!item.text) return;
+        const y = pane.positions[index] / pane.total * height;
+        const h = Math.max(.7, (pane.rows[index].offsetHeight / pane.total * height) * .58);
+        ctx.fillStyle = colors.getPropertyValue(palette[item.kind] || '--text').trim();
+        ctx.globalAlpha = item.kind === 'muted' ? .4 : .68;
+        const leading = item.text.length - item.text.trimStart().length;
+        const x = 5 + Math.min(leading * .8, usable * .2);
+        // Tiny separated strokes retain the silhouette and rhythm of actual output.
+        let cursor = x;
+        for (const word of item.text.trim().split(/\s+/)) {
+          const stroke = Math.min(word.length * .75, Math.max(0, usable - cursor));
+          if (stroke > 0) ctx.fillRect(cursor, y, stroke, h);
+          cursor += stroke + 1.6;
+          if (cursor >= usable) break;
+        }
+      });
+      ctx.globalAlpha = 1;
+      $$('.map-marker', pane.map).forEach(el => el.remove());
+      pane.lines.forEach((item, index) => {
+        const isHit = state.query && item.text.toLowerCase().includes(state.query.toLowerCase());
+        if (!(semantic && item.event) && !isHit) return;
+        const marker = document.createElement(isHit ? 'span' : 'button');
+        marker.className = `map-marker ${isHit ? 'search-marker' : item.kind}`;
+        marker.style.top = `${clamp(pane.positions[index] / pane.total * 100, 1, 99)}%`;
+        if (!isHit) {
+          marker.type = 'button';
+          marker.tabIndex = -1;
+          marker.setAttribute('aria-label', `${item.event}, line ${index + 1}`);
+          marker.addEventListener('pointerdown', event => event.stopPropagation());
+          marker.addEventListener('click', event => { event.stopPropagation(); jumpToLine(pane, index); announce(`${item.event}, line ${index + 1}`); });
+          marker.addEventListener('pointerenter', () => showPreview(pane, index, parseFloat(marker.style.top) / 100 * height));
+        }
+        pane.map.append(marker);
+      });
+    }
+    function visibleIndex(pane, position) {
+      let low = 0, high = pane.positions.length - 1;
+      while (low < high) { const mid = Math.ceil((low + high) / 2); if (pane.positions[mid] <= position) low = mid; else high = mid - 1; }
+      return low;
+    }
+    function updatePosition(pane) {
+      const output = pane.output;
+      const maxScroll = Math.max(0, output.scrollHeight - output.clientHeight);
+      const progress = maxScroll ? output.scrollTop / maxScroll : 1;
+      const atLive = maxScroll - output.scrollTop < 4;
+      const mapHeight = pane.map.clientHeight;
+      const thumbHeight = Math.min(mapHeight, Math.max(12, output.clientHeight / output.scrollHeight * mapHeight));
+      pane.thumb.style.height = `${thumbHeight}px`;
+      pane.thumb.style.top = `${progress * (mapHeight - thumbHeight)}px`;
+      pane.thumb.style.left = pane.map.classList.contains('expanded') ? `${pane.map.clientWidth - 100}px` : '0';
+      pane.map.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+      const first = visibleIndex(pane, output.scrollTop) + 1;
+      const last = visibleIndex(pane, output.scrollTop + output.clientHeight) + 1;
+      pane.map.setAttribute('aria-valuetext', atLive ? `Live output, line ${pane.lines.length}` : `Lines ${first} to ${last} of ${pane.lines.length}`);
+      pane.position.textContent = `${first}–${last} / ${pane.lines.length}`;
+      pane.status.textContent = atLive ? 'Live' : 'Viewing history';
+      pane.status.classList.toggle('at-live', atLive);
+      pane.live.hidden = atLive;
+      if (atLive) pane.unread = 0;
+      pane.live.textContent = pane.unread ? `↓ ${pane.unread} new lines · Return to live` : '↓ Return to live';
+      savedPositions.set(pane.key, { top: output.scrollTop, atLive, unread: pane.unread });
+    }
+    function jumpToLine(pane, index) { pane.output.scrollTop = Math.max(0, pane.positions[index] - 28); updatePosition(pane); }
+    function showPreview(pane, index, y) {
+      const item = pane.lines[index];
+      pane.previewHeading.textContent = item.event || `Line ${index + 1}`;
+      pane.previewLine.textContent = `L${index + 1}`;
+      pane.previewText.textContent = pane.lines.slice(index, index + 4).map(line => line.text).join('\n');
+      pane.preview.style.top = `${clamp(y - 30, 8, pane.map.clientHeight - 110)}px`;
+      pane.preview.style.right = `${mapWidth(pane) + 20}px`;
+      pane.preview.classList.add('visible');
+    }
+    function expandMap(pane, expanded) {
+      if (state.concept !== 'compact' || pane.map.classList.contains('expanded') === expanded) return;
+      pane.map.classList.toggle('expanded', expanded);
+      drawMap(pane);
+      updatePosition(pane);
+    }
+    function attachMap(pane) {
+      let dragging = false;
+      let grabOffset = 0;
+      function localY(event) { return clamp(event.clientY - pane.map.getBoundingClientRect().top, 0, pane.map.clientHeight); }
+      function scrub(y) {
+        const travel = pane.map.clientHeight - pane.thumb.offsetHeight;
+        const progress = travel > 0 ? clamp((y - grabOffset) / travel, 0, 1) : 1;
+        pane.output.scrollTop = progress * (pane.output.scrollHeight - pane.output.clientHeight);
+        updatePosition(pane);
+      }
+      pane.map.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        pane.map.focus({ preventScroll: true });
+        expandMap(pane, true);
+        const y = localY(event);
+        const top = parseFloat(pane.thumb.style.top) || 0;
+        grabOffset = y >= top && y <= top + pane.thumb.offsetHeight ? y - top : pane.thumb.offsetHeight / 2;
+        dragging = true;
+        pane.map.setPointerCapture(event.pointerId);
+        pane.preview.classList.remove('visible');
+        scrub(y);
+      });
+      pane.map.addEventListener('pointermove', event => {
+        const y = localY(event);
+        if (dragging) { scrub(y); return; }
+        if (event.target.closest('.map-marker')) return;
+        showPreview(pane, visibleIndex(pane, y / pane.map.clientHeight * pane.total), y);
+      });
+      const stopDrag = () => { dragging = false; };
+      pane.map.addEventListener('pointerup', stopDrag);
+      pane.map.addEventListener('pointercancel', stopDrag);
+      pane.map.addEventListener('lostpointercapture', stopDrag);
+      pane.map.addEventListener('pointerenter', () => expandMap(pane, true));
+      pane.map.addEventListener('pointerleave', () => {
+        pane.preview.classList.remove('visible');
+        if (!dragging && !pane.map.contains(document.activeElement)) expandMap(pane, false);
+      });
+      pane.map.addEventListener('focus', () => expandMap(pane, true));
+      pane.map.addEventListener('blur', () => { expandMap(pane, false); pane.preview.classList.remove('visible'); });
+      pane.map.addEventListener('keydown', event => {
+        const moves = { ArrowDown: 63, ArrowUp: -63, PageDown: pane.output.clientHeight * .85, PageUp: -pane.output.clientHeight * .85, Home: -Infinity, End: Infinity };
+        if (event.key === 'Escape') { pane.map.blur(); pane.output.focus({ preventScroll: true }); return; }
+        if (!(event.key in moves)) return;
+        event.preventDefault();
+        pane.output.scrollTop = clamp(pane.output.scrollTop + moves[event.key], 0, pane.output.scrollHeight);
+        updatePosition(pane);
+      });
+      pane.map.addEventListener('wheel', event => {
+        event.preventDefault();
+        pane.output.scrollTop += event.deltaY * (event.deltaMode === 1 ? 21 : event.deltaMode === 2 ? pane.output.clientHeight : 1);
+      }, { passive: false });
+    }
+    function createPane(key) {
+      const name = key === 'terminal' ? 'Terminal' : key === 'reviewer' ? 'Reviewer' : 'Implementer';
+      const pane = { key, lines: datasets[key], rows: [], positions: [], total: 1, unread: savedPositions.get(key)?.unread || 0 };
+      pane.element = document.createElement('section');
+      pane.element.className = 'pane';
+      pane.element.setAttribute('aria-label', `${name} pane`);
+      if (state.layout === 'bento' && state.source === 'agent') {
+        const header = textNode('div', `pane-heading ${key}`, '');
+        header.append(textNode('span', 'role-icon', key === 'reviewer' ? '⌕' : '◇'), textNode('span', '', name), textNode('span', 'harness', key === 'reviewer' ? 'Claude Code' : 'Codex'));
+        pane.element.append(header);
+      }
+      pane.body = textNode('div', 'pane-body', '');
+      pane.output = textNode('div', 'transcript', '');
+      pane.output.id = `transcript-${key}`;
+      pane.output.tabIndex = 0;
+      pane.output.setAttribute('role', 'region');
+      pane.output.setAttribute('aria-label', `${name} output`);
+      pane.lines.forEach(item => addLine(pane, item));
+      pane.map = textNode('div', `minimap ${state.concept === 'landmarks' ? 'landmark-map' : state.concept === 'compact' ? 'compact-map' : ''}`, '');
+      pane.map.tabIndex = 0;
+      pane.map.setAttribute('role', 'scrollbar');
+      pane.map.setAttribute('aria-label', `${name} minimap`);
+      pane.map.setAttribute('aria-controls', pane.output.id);
+      pane.map.setAttribute('aria-orientation', 'vertical');
+      pane.map.setAttribute('aria-valuemin', '0');
+      pane.map.setAttribute('aria-valuemax', '100');
+      pane.canvas = document.createElement('canvas');
+      pane.canvas.setAttribute('aria-hidden', 'true');
+      pane.thumb = textNode('div', 'viewport', '');
+      pane.map.append(pane.canvas, pane.thumb);
+      pane.preview = textNode('div', 'map-preview', '');
+      pane.preview.setAttribute('aria-hidden', 'true');
+      const previewHeader = textNode('div', 'preview-heading', '');
+      pane.previewHeading = textNode('span', '', '');
+      pane.previewLine = textNode('span', '', '');
+      pane.previewText = textNode('pre', 'preview-text', '');
+      previewHeader.append(pane.previewHeading, pane.previewLine);
+      pane.preview.append(previewHeader, pane.previewText);
+      pane.live = textNode('button', 'jump-live', '↓ Return to live');
+      pane.live.setAttribute('aria-label', `${name}: return to live output`);
+      pane.live.addEventListener('click', () => { pane.output.scrollTop = pane.output.scrollHeight; updatePosition(pane); announce(`${name} returned to live output`); });
+      pane.body.append(pane.output, pane.map, pane.preview, pane.live);
+      const footer = textNode('div', 'pane-footer', '');
+      pane.status = textNode('span', 'live-state', 'Viewing history');
+      pane.position = textNode('span', 'position-label', '');
+      footer.append(pane.status, textNode('span', '', key === 'terminal' ? 'zsh' : key === 'reviewer' ? 'Claude Code' : 'Codex'), pane.position);
+      pane.element.append(pane.body, footer);
+      $('#panes').append(pane.element);
+      pane.output.addEventListener('scroll', () => updatePosition(pane), { passive: true });
+      attachMap(pane);
+      panes.push(pane);
+      return pane;
+    }
+    function render() {
+      for (const pane of panes) { updatePosition(pane); pane.observer?.disconnect(); }
+      panes.length = 0;
+      $('#panes').replaceChildren();
+      $('#panes').classList.toggle('bento', state.layout === 'bento' && state.source === 'agent');
+      $('#agent-bar').hidden = state.source === 'terminal';
+      $$('[data-source]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.source === state.source)));
+      $$('[data-layout]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.layout === state.layout)));
+      $$('[data-agent]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.agent === state.agent)));
+      const keys = state.source === 'terminal' ? ['terminal'] : state.layout === 'bento' ? ['implementer', 'reviewer'] : [state.agent];
+      keys.forEach(createPane);
+      for (const pane of panes) {
+        const saved = savedPositions.get(pane.key);
+        measure(pane);
+        const initial = pane.lines.findIndex(line => line.event === 'Map events to terminal positions' || line.event === 'Check keyboard navigation' || line.event === 'make test-macos');
+        pane.output.scrollTop = saved ? (saved.atLive ? pane.output.scrollHeight : saved.top) : pane.positions[Math.max(0, initial)] - 14;
+        updatePosition(pane);
+        pane.observer = new ResizeObserver(() => measure(pane));
+        pane.observer.observe(pane.body);
+      }
+      applySearch(false);
+    }
+    function setConcept(concept) {
+      state.concept = concept;
+      $$('[data-concept]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.concept === concept)));
+      const note = notes[concept];
+      for (const key of ['idea', 'strength', 'tradeoff']) $(`#${key}`).textContent = note[key];
+      $('#interaction-hint').textContent = note.hint;
+      $('#legend').innerHTML = concept === 'classic' ? '<span><i></i> Visible region</span><span>Output colors preserved</span>' : '<span><i class="prompt"></i> Prompt</span><span><i></i> Command</span><span><i class="error"></i> Error</span><span><i class="success"></i> Complete</span>';
+      render();
+    }
+    let matches = [];
+    function applySearch(reset = true) {
+      matches = [];
+      const query = state.query.toLowerCase();
+      for (const pane of panes) {
+        pane.lines.forEach((item, index) => {
+          const el = pane.rows[index];
+          el.textContent = item.text || '\u00a0';
+          el.classList.remove('hit');
+          if (!query || !item.text.toLowerCase().includes(query)) return;
+          el.classList.add('hit');
+          const start = item.text.toLowerCase().indexOf(query);
+          el.replaceChildren(document.createTextNode(item.text.slice(0, start)), textNode('mark', '', item.text.slice(start, start + query.length)), document.createTextNode(item.text.slice(start + query.length)));
+          matches.push({ pane, index });
+        });
+        drawMap(pane);
+      }
+      state.match = reset ? -1 : Math.min(state.match, matches.length - 1);
+      $('#find-count').textContent = state.query ? `${matches.length} lines` : '';
+      $('#find-prev').disabled = $('#find-next').disabled = matches.length === 0;
+    }
+    function navigateMatch(direction) {
+      if (!matches.length) return;
+      state.match = state.match === -1 ? (direction > 0 ? 0 : matches.length - 1) : (state.match + direction + matches.length) % matches.length;
+      const { pane, index } = matches[state.match];
+      jumpToLine(pane, index);
+      $('#find-count').textContent = `${state.match + 1}/${matches.length}`;
+      announce(`Match ${state.match + 1} of ${matches.length}, line ${index + 1}`);
+    }
+    $$('[data-concept]').forEach(button => button.addEventListener('click', () => setConcept(button.dataset.concept)));
+    $$('[data-theme]').forEach(button => button.addEventListener('click', () => {
+      state.theme = button.dataset.theme;
+      app.classList.toggle('light', state.theme === 'light');
+      $$('[data-theme]').forEach(control => control.setAttribute('aria-pressed', String(control === button)));
+      panes.forEach(drawMap);
+    }));
+    $$('[data-source]').forEach(button => button.addEventListener('click', () => { state.source = button.dataset.source; render(); }));
+    $$('[data-layout]').forEach(button => button.addEventListener('click', () => { state.layout = button.dataset.layout; render(); }));
+    $$('[data-agent]').forEach(button => button.addEventListener('click', () => { state.agent = button.dataset.agent; state.layout = 'single'; render(); }));
+    $('#find-input').addEventListener('input', event => { state.query = event.target.value; applySearch(); });
+    $('#find-input').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); navigateMatch(event.shiftKey ? -1 : 1); } if (event.key === 'Escape') { event.target.value = ''; state.query = ''; applySearch(); event.target.blur(); } });
+    $('#find-prev').addEventListener('click', () => navigateMatch(-1));
+    $('#find-next').addEventListener('click', () => navigateMatch(1));
+    $('#simulate').addEventListener('click', () => {
+      state.tick++;
+      for (const pane of panes) {
+        const wasLive = pane.output.scrollHeight - pane.output.clientHeight - pane.output.scrollTop < 4;
+        const priorTop = pane.output.scrollTop;
+        const extra = [row('', 'spacer'), row(`• ${pane.key === 'terminal' ? 'Run' : 'Check'}  incremental verification #${state.tick}`, 'command', `Verification ${state.tick}`), row('  Checking independent scroll positions…', 'muted'), row('✓ Scroll anchors preserved. All checks passed.', 'success', 'Verification passed'), row('', 'spacer'), row(pane.key === 'terminal' ? '❯ ' : '› ', 'prompt')];
+        extra.forEach(item => { pane.lines.push(item); addLine(pane, item); });
+        if (!wasLive) pane.unread += extra.length;
+        measure(pane);
+        pane.output.scrollTop = wasLive ? pane.output.scrollHeight : priorTop;
+        updatePosition(pane);
+      }
+      applySearch(false);
+      announce('Added 6 sample lines to each visible pane. History positions preserved.');
+    });
+    setConcept('classic');
+  </script>
+</body>
+</html>

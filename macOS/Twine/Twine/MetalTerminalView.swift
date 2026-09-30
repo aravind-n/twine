@@ -46,6 +46,7 @@ struct TerminalPalette {
 
 final class MetalTerminalView: TerminalView {
     private(set) var isSendingTerminalResponse = false
+    weak var minimapState: TerminalMinimapState?
 
     override func send(source: Terminal, data: ArraySlice<UInt8>) {
         isSendingTerminalResponse = true
