@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use rusqlite::{OptionalExtension, params};
@@ -5,7 +6,7 @@ use rusqlite::{OptionalExtension, params};
 use super::{Store, StoreError, sql_integer, unsigned_column};
 use crate::harness::HarnessId;
 use crate::workflow::{
-    Session, SessionId, SessionStatus, WorkflowId, WorkflowKind, WorkflowStatus,
+    AgentId, Session, SessionId, SessionStatus, WorkflowId, WorkflowKind, WorkflowStatus,
 };
 
 pub(crate) struct StoredWorkflow {
@@ -16,6 +17,13 @@ pub(crate) struct StoredWorkflow {
     pub harness: Option<HarnessId>,
     /// How a single agent last ended, or that it was still running.
     pub agent_status: Option<WorkflowStatus>,
+    /// In role order.
+    pub agents: Vec<StoredAgent>,
+}
+
+pub(crate) struct StoredAgent {
+    pub agent_id: AgentId,
+    pub role: String,
 }
 
 impl Store {
@@ -128,44 +136,89 @@ impl Store {
     }
 
     pub(crate) fn workflows(&self, folder: &Path) -> Result<Vec<StoredWorkflow>, StoreError> {
+        let folder = folder.to_string_lossy();
+        let mut agents = HashMap::<WorkflowId, Vec<StoredAgent>>::new();
+        let mut statement = self.connection.prepare(
+            "SELECT a.id, a.workflow_id, a.role FROM agents a
+             JOIN workflows w ON w.id = a.workflow_id JOIN sessions s ON s.id = w.session_id
+             WHERE s.folder = ?1 ORDER BY a.id",
+        )?;
+        for agent in statement.query_map([folder.as_ref()], |row| {
+            Ok((
+                WorkflowId(unsigned_column(row, 1)?),
+                StoredAgent {
+                    agent_id: AgentId(unsigned_column(row, 0)?),
+                    role: row.get(2)?,
+                },
+            ))
+        })? {
+            let (workflow_id, agent) = agent?;
+            agents.entry(workflow_id).or_default().push(agent);
+        }
         let mut statement = self.connection.prepare(
             "SELECT w.id, w.session_id, w.name, w.kind, w.harness, w.agent_status FROM workflows w
              JOIN sessions s ON s.id = w.session_id WHERE s.folder = ?1 ORDER BY w.id",
         )?;
         Ok(statement
-            .query_map([folder.to_string_lossy().as_ref()], |row| {
+            .query_map([folder.as_ref()], |row| {
+                let workflow_id = WorkflowId(unsigned_column(row, 0)?);
                 let kind: String = row.get(3)?;
                 let harness: Option<String> = row.get(4)?;
                 let agent_status: Option<String> = row.get(5)?;
                 Ok(StoredWorkflow {
-                    workflow_id: WorkflowId(unsigned_column(row, 0)?),
+                    workflow_id,
                     session_id: SessionId(unsigned_column(row, 1)?),
                     name: row.get(2)?,
                     kind: match kind.as_str() {
                         "draft" => WorkflowKind::Draft,
+                        "terminal" => WorkflowKind::Terminal,
                         "single_agent" => WorkflowKind::SingleAgent,
-                        _ => WorkflowKind::Terminal,
+                        "agents" => WorkflowKind::Agents,
+                        _ => {
+                            return Err(rusqlite::Error::FromSqlConversionFailure(
+                                3,
+                                rusqlite::types::Type::Text,
+                                format!("unknown workflow kind {kind:?}").into(),
+                            ));
+                        }
                     },
                     harness: harness.as_deref().and_then(harness_from_name),
                     agent_status: agent_status.as_deref().and_then(status_from_name),
+                    agents: agents.remove(&workflow_id).unwrap_or_default(),
                 })
             })?
             .collect::<Result<_, _>>()?)
     }
 
+    /// Creates a workflow and one agent per role, in role order.
     pub(crate) fn create_workflow(
-        &self,
+        &mut self,
         session: SessionId,
         name: &str,
         kind: WorkflowKind,
-    ) -> Result<WorkflowId, StoreError> {
-        self.connection.execute(
+        roles: &[&str],
+    ) -> Result<(WorkflowId, Vec<AgentId>), StoreError> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
             "INSERT INTO workflows (session_id, name, kind) VALUES (?1, ?2, ?3)",
             params![sql_integer(session.0)?, name, kind_name(kind)],
         )?;
-        Ok(WorkflowId(
-            u64::try_from(self.connection.last_insert_rowid())
-                .map_err(|_| StoreError::InvalidIdentifier)?,
+        let workflow_id = transaction.last_insert_rowid();
+        let mut agent_ids = Vec::with_capacity(roles.len());
+        for role in roles {
+            transaction.execute(
+                "INSERT INTO agents (workflow_id, role) VALUES (?1, ?2)",
+                params![workflow_id, role],
+            )?;
+            agent_ids.push(AgentId(
+                u64::try_from(transaction.last_insert_rowid())
+                    .map_err(|_| StoreError::InvalidIdentifier)?,
+            ));
+        }
+        transaction.commit()?;
+        Ok((
+            WorkflowId(u64::try_from(workflow_id).map_err(|_| StoreError::InvalidIdentifier)?),
+            agent_ids,
         ))
     }
 
@@ -213,6 +266,7 @@ fn kind_name(kind: WorkflowKind) -> &'static str {
         WorkflowKind::Draft => "draft",
         WorkflowKind::Terminal => "terminal",
         WorkflowKind::SingleAgent => "single_agent",
+        WorkflowKind::Agents => "agents",
     }
 }
 
@@ -250,5 +304,57 @@ fn harness_from_name(name: &str) -> Option<HarnessId> {
         "claude_code" => Some(HarnessId::ClaudeCode),
         "pi" => Some(HarnessId::Pi),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_agent_that_cant_be_stored_rolls_back_its_whole_workflow() {
+        let mut store = Store::open_in_memory().unwrap();
+        let folder = Path::new("/folder");
+        let session = store.create_session(folder, "Session", 1).unwrap();
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_reviewer BEFORE INSERT ON agents WHEN NEW.role = 'Reviewer'
+                 BEGIN SELECT RAISE(ABORT, 'rejected'); END",
+            )
+            .unwrap();
+        assert!(
+            store
+                .create_workflow(
+                    session,
+                    "Agents",
+                    WorkflowKind::Agents,
+                    &["Implementer", "Reviewer"]
+                )
+                .is_err()
+        );
+        assert!(store.workflows(folder).unwrap().is_empty());
+        let agents: i64 = store
+            .connection
+            .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(agents, 0);
+    }
+
+    #[test]
+    fn a_workflow_of_an_unknown_kind_fails_the_load_instead_of_becoming_a_terminal() {
+        let mut store = Store::open_in_memory().unwrap();
+        let folder = Path::new("/folder");
+        let session = store.create_session(folder, "Session", 1).unwrap();
+        store
+            .connection
+            .execute_batch(&format!(
+                "PRAGMA ignore_check_constraints = ON;
+                 INSERT INTO workflows (session_id, name, kind) VALUES ({}, 'Future', 'future');
+                 PRAGMA ignore_check_constraints = OFF;",
+                session.0
+            ))
+            .unwrap();
+        assert!(store.workflows(folder).is_err());
     }
 }

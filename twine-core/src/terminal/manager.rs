@@ -37,6 +37,9 @@ pub(crate) struct TerminalManager {
     output: Arc<TerminalStream>,
     #[cfg(test)]
     test_shell: Option<PathBuf>,
+    /// How many more default shells may start before a start fails.
+    #[cfg(test)]
+    test_starts_before_failure: std::sync::atomic::AtomicUsize,
     sessions: Mutex<HashMap<TerminalId, TerminalSession>>,
 }
 
@@ -46,6 +49,8 @@ impl TerminalManager {
             output,
             #[cfg(test)]
             test_shell: None,
+            #[cfg(test)]
+            test_starts_before_failure: std::sync::atomic::AtomicUsize::new(usize::MAX),
             sessions: Mutex::new(HashMap::new()),
         }
     }
@@ -55,12 +60,32 @@ impl TerminalManager {
         self.test_shell = Some(shell);
     }
 
+    /// Makes every default shell start after the next `starts` fail.
+    #[cfg(test)]
+    pub(crate) fn fail_starts_after(&self, starts: usize) {
+        self.test_starts_before_failure
+            .store(starts, Ordering::Release);
+    }
+
     pub(crate) fn start_default_shell(
         &self,
         working_directory: &Path,
         size: TerminalSize,
         on_exit: ExitCallback,
     ) -> Result<TerminalId, TerminalError> {
+        #[cfg(test)]
+        if self
+            .test_starts_before_failure
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |starts| {
+                starts.checked_sub(1)
+            })
+            .is_err()
+        {
+            return Err(TerminalError::Pty {
+                operation: "start a test shell",
+                message: "the test made this start fail".to_owned(),
+            });
+        }
         let working_directory = canonical_working_directory(working_directory)?;
         let command = default_shell_command(&working_directory);
         #[cfg(test)]

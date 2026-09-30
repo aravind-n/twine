@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{Application, ApplicationError, CommandDisposition, Inner, RequestId};
 use crate::event::{CommandResult, EventKind, StateEvent};
-use crate::workflow::{Session, SessionId, SessionStatus, timestamp};
+use crate::workflow::{Session, SessionId, SessionStatus, Workflow, timestamp, valid_name};
 
 impl Application {
     pub(super) fn create_session(
@@ -123,7 +123,7 @@ impl Application {
                 .workflows
                 .iter()
                 .filter(|workflow| workflow.session_id == session_id)
-                .map(|workflow| workflow.terminal_id)
+                .flat_map(Workflow::terminal_ids)
                 .collect();
             for terminal_id in &terminal_ids {
                 inner.terminals.remove(terminal_id);
@@ -142,11 +142,7 @@ impl Application {
             inner.publish_workflows()?;
             terminal_ids
         };
-        for terminal_id in terminal_ids {
-            if terminal_id.value() != 0 {
-                self.terminals.close(terminal_id)?;
-            }
-        }
+        self.terminals.close_all(&terminal_ids)?;
         self.lock_inner()?
             .events
             .append(EventKind::CommandCompleted {
@@ -203,9 +199,6 @@ impl Inner {
     }
 }
 
-fn valid_name(name: &str) -> bool {
-    !name.is_empty() && name.chars().count() <= 200 && !name.chars().any(char::is_control)
-}
 fn invalid_name() -> CommandDisposition {
     super::workflows::reject(
         "invalidSessionName",
@@ -272,6 +265,7 @@ mod tests {
                 folder: folder.to_owned(),
                 session_id: Some(session_id),
                 kind,
+                roles: Vec::new(),
                 size: TerminalSize {
                     rows: 24,
                     columns: 80,
@@ -439,6 +433,7 @@ mod tests {
                     folder: folder.path().to_owned(),
                     session_id: Some(first),
                     kind: WorkflowKind::Terminal,
+                    roles: Vec::new(),
                     size: TerminalSize {
                         rows: 24,
                         columns: 80,
@@ -546,6 +541,78 @@ mod tests {
             }
         }
         assert_eq!(state, final_snapshot.workflows);
+    }
+
+    #[test]
+    fn relaunch_restores_agents_with_fresh_shells_and_deleting_the_session_stops_them() {
+        let data = tempfile::tempdir().unwrap();
+        let folder = tempfile::tempdir().unwrap();
+        let mut app = Application::with_config(data.path(), Config::default()).unwrap();
+        app.terminals.set_test_shell("/bin/sh".into());
+        open(&app, folder.path());
+        let session = create_session(&app, folder.path(), "Agents");
+        accepted(
+            &app,
+            Command::CreateWorkflow {
+                folder: folder.path().to_owned(),
+                session_id: Some(session),
+                kind: WorkflowKind::Agents,
+                roles: vec!["Implementer".to_owned(), "Reviewer".to_owned()],
+                size: TerminalSize {
+                    rows: 24,
+                    columns: 80,
+                    pixel_width: 800,
+                    pixel_height: 480,
+                },
+            },
+        );
+        let original = app.snapshot().unwrap().workflows.workflows[0].clone();
+        app.write_terminal_input(original.agents[1].terminal_id, b"echo $$ > before.pid\n")
+            .unwrap();
+        let before = wait_for_file(&folder.path().join("before.pid"));
+        drop(app);
+
+        let mut app = Application::with_config(data.path(), Config::default()).unwrap();
+        app.terminals.set_test_shell("/bin/sh".into());
+        let snapshot = app.snapshot().unwrap();
+        let [restored] = snapshot.workflows.workflows.as_slice() else {
+            panic!("expected the agents workflow, got {:?}", snapshot.workflows);
+        };
+        assert!(restored.restored);
+        assert_eq!(restored.kind, WorkflowKind::Agents);
+        assert_eq!(restored.status, crate::WorkflowStatus::Running);
+        assert_eq!(restored.terminal_id.value(), 0);
+        assert_eq!(
+            restored
+                .agents
+                .iter()
+                .map(|agent| (agent.agent_id, agent.role.as_str()))
+                .collect::<Vec<_>>(),
+            original
+                .agents
+                .iter()
+                .map(|agent| (agent.agent_id, agent.role.as_str()))
+                .collect::<Vec<_>>()
+        );
+        let terminal_ids = restored.terminal_ids();
+        assert_eq!(terminal_ids.len(), 2);
+        assert_eq!(snapshot.terminals.len(), 2);
+        app.write_terminal_input(terminal_ids[1], b"echo $$ > after.pid\n")
+            .unwrap();
+        assert_ne!(wait_for_file(&folder.path().join("after.pid")), before);
+
+        accepted(
+            &app,
+            Command::DeleteSession {
+                session_id: session,
+            },
+        );
+        let snapshot = app.snapshot().unwrap();
+        assert!(snapshot.workflows.workflows.is_empty());
+        assert!(snapshot.terminals.is_empty());
+        for terminal_id in terminal_ids {
+            assert!(app.write_terminal_input(terminal_id, b"\n").is_err());
+        }
     }
 
     #[test]
