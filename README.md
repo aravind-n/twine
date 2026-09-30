@@ -38,12 +38,15 @@ are interrupted, without automatically restarting harnesses. The Traces timeline
 role's stage invocations. Select a span to inspect its stage changes, completions, and handoffs;
 this history survives reopening the app.
 
-Claude Code and Codex also report prompts, tool calls, and responses through launch-only hooks.
+Claude Code, Codex, and pi also report prompts, tool calls, and responses through launch-only observers.
 Single-agent runs show a span for each prompt; multi-agent steps stay under the role's assignment.
 Select a step to jump to its recorded terminal position. Hook payloads are bounded and recording
 is best effort. If hooks are unavailable or disabled, the ordinary agent span remains. User and
 project harness config files are never edited. Codex hook compatibility is verified with CLI
 0.159; Twine trusts only its own invocation hooks and preserves existing hook policy.
+Pi uses a temporary extension supplied with `--extension`, verified with pi 0.99.1. It observes
+prompts as they enter the agent (including queued prompts), tool execution, and final response
+settlement. Delivery never waits on Twine, and user/project extensions remain enabled.
 
 Startup recovers interrupted work across all folders before publishing state. Agents retain their
 individual lifecycle status, and unfinished trace spans gain a stopped event without changing
@@ -69,6 +72,23 @@ TWINE_REAL_CODEX="$(command -v codex)" make test-rust \
 ```
 
 This opt-in test uses interactive, authenticated Codex in a disposable folder with a read-only sandbox.
+
+To verify pi's interactive trace events using both DeepSeek Flash and DeepSeek V4 Pro:
+
+```sh
+TWINE_REAL_PI="$(command -v pi)" make test-rust \
+  RUST_TEST_ARGS='real_pi_deepseek_models_record_tool_steps -- --ignored'
+```
+
+This opt-in test uses your existing DeepSeek authentication, disposable folders, and the bash tool
+to print a marker. It does not edit pi settings or save sessions.
+
+The extension's queued-prompt, tool-correlation, Unicode, and unavailable-endpoint checks need only Node:
+
+```sh
+TWINE_NODE="$(command -v node)" make test-rust \
+  RUST_TEST_ARGS='pi_extension_preserves_queued_prompts_and_tool_identity -- --ignored'
+```
 
 ## Configuration
 

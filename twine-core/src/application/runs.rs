@@ -728,6 +728,7 @@ mod tests {
 
     // A real PTY harness process invokes the same completion helper an installed harness uses.
     const FAKE: &str = r#"
+    while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
     prompt=$2
     command=$(printf '%s\n' "$prompt" | sed -n "s/^'\(.*\/complete\)' <<.*/\1/p")
     case "$prompt" in
