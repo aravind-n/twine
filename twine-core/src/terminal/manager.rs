@@ -17,6 +17,8 @@ use super::process::{SharedChild, terminate_child, terminate_unobserved_child, w
 use super::pty::{StartingTerminal, spawn_terminal_process, spawn_terminal_reader};
 use super::{TerminalError, TerminalExit, TerminalId, TerminalSize, TerminalStream};
 
+mod cleanup;
+
 const EXIT_REPORT_PENDING: u8 = 0;
 const EXIT_REPORT_ENABLED: u8 = 1;
 const EXIT_REPORT_SUPPRESSED: u8 = 2;
@@ -56,6 +58,7 @@ pub(crate) struct TerminalManager {
     test_starts_before_failure: std::sync::atomic::AtomicUsize,
     sessions: Mutex<HashMap<TerminalId, TerminalSession>>,
     integrations: Mutex<HashMap<TerminalId, super::shell::ShellIntegration>>,
+    cleanup: cleanup::TerminalCleanup,
 }
 
 impl TerminalManager {
@@ -70,6 +73,7 @@ impl TerminalManager {
             test_starts_before_failure: std::sync::atomic::AtomicUsize::new(usize::MAX),
             sessions: Mutex::new(HashMap::new()),
             integrations: Mutex::new(HashMap::new()),
+            cleanup: cleanup::TerminalCleanup::default(),
         }
     }
 
@@ -421,6 +425,24 @@ impl TerminalManager {
         Ok(())
     }
 
+    /// Retires a replaced terminal without holding up the new terminal's startup responses.
+    /// Shutdown still waits for the retired process and both of its workers to finish.
+    pub(crate) fn close_in_background(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
+        let session = self
+            .lock_sessions()?
+            .remove(&terminal_id)
+            .ok_or(TerminalError::NotOpen { terminal_id })?;
+        session.input_closed.store(true, Ordering::Release);
+        let _ = self.output.cancel(terminal_id);
+        let integration = self
+            .integrations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&terminal_id);
+        self.cleanup.close(terminal_id, session, integration);
+        Ok(())
+    }
+
     /// Closes the terminals together, so their hang-up grace periods overlap instead of adding up.
     /// Every open one closes even if another wasn't open; the first that wasn't is the error.
     pub(crate) fn close_all(&self, terminal_ids: &[TerminalId]) -> Result<(), TerminalError> {
@@ -471,6 +493,7 @@ impl TerminalManager {
             let _ = self.output.cancel(*terminal_id);
         }
         stop_sessions(owned_sessions.into_iter().collect());
+        self.cleanup.shutdown();
         self.integrations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -627,6 +650,50 @@ mod tests {
     use super::super::launcher::shell_launcher_command;
     use super::super::pty::READ_CHUNK_BYTES;
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn background_close_returns_while_reaping_is_blocked_and_shutdown_joins_it() {
+        let stream = Arc::new(TerminalStream::for_test(64 * 1024, 256).unwrap());
+        let manager = Arc::new(TerminalManager::new(Arc::clone(&stream)));
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("shell.pid");
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "echo $$ > \"$TWINE_TEST_PID\"; read line"]);
+        command.env("TWINE_TEST_PID", &pid_file);
+        let terminal_id = manager
+            .start_test_command(command, test_terminal_size(), None, Arc::new(|_, _, _| {}))
+            .unwrap();
+        let pid = read_process_id(&pid_file);
+        let child = Arc::clone(&manager.lock_sessions().unwrap()[&terminal_id].child);
+        // Hold process supervision here to test nonblocking admission without relying on a
+        // scheduler-sensitive timeout shorter than the process's normal hang-up grace period.
+        let blocked_reaping = child.lock().unwrap();
+        let closing = Arc::clone(&manager);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let closer = thread::spawn(move || {
+            sender
+                .send(closing.close_in_background(terminal_id))
+                .unwrap();
+        });
+        let result = receiver.recv_timeout(Duration::from_secs(5));
+        // Unblock cleanup even when admission fails, so a failed assertion cannot strand a child.
+        drop(blocked_reaping);
+        closer.join().unwrap();
+        result
+            .expect("background close waited for process reaping")
+            .unwrap();
+        assert!(manager.size(terminal_id).is_none());
+        assert!(matches!(
+            manager.write_input(terminal_id, b"late input"),
+            Err(TerminalError::NotOpen { .. })
+        ));
+        assert!(stream.tracks_no_terminals());
+
+        manager.shutdown();
+        assert!(!process_exists(pid), "retired shell survived shutdown");
+        manager.shutdown();
+    }
 
     #[test]
     fn stopped_terminals_reject_input_and_resize_but_keep_final_output() {
