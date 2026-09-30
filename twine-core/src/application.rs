@@ -11,7 +11,7 @@ use crate::folder::{FolderError, FolderState, Folders};
 use crate::store::{Store, StoreError};
 use crate::terminal::{
     TerminalError, TerminalId, TerminalManager, TerminalSize, TerminalState, TerminalStatus,
-    TerminalStream,
+    TerminalStream, TranscriptError, TranscriptRecorder,
 };
 
 use crate::harness::{HarnessId, LoginPath};
@@ -159,8 +159,8 @@ impl Application {
     ///
     /// # Errors
     ///
-    /// Returns an error if the database cannot be opened or migrated, or the initial ready event
-    /// cannot be recorded.
+    /// Returns an error if the database cannot be opened or migrated, transcript storage cannot
+    /// be opened or is owned by another core, or the initial ready event cannot be recorded.
     pub fn new(data_directory: &Path) -> Result<Self, ApplicationError> {
         Self::with_config(data_directory, Config::load_user())
     }
@@ -170,19 +170,26 @@ impl Application {
     ///
     /// # Errors
     ///
-    /// Returns an error if the database cannot be opened or migrated, or the initial ready event
-    /// cannot be recorded.
+    /// Returns an error if the database cannot be opened or migrated, transcript storage cannot
+    /// be opened or is owned by another core, or the initial ready event cannot be recorded.
     pub fn with_config(data_directory: &Path, config: Config) -> Result<Self, ApplicationError> {
         let store = Store::open(&data_directory.join(DATABASE_FILE_NAME))?;
-        Self::with_store(store, config, DEFAULT_EVENT_CAPACITY)
+        let transcripts = Arc::new(TranscriptRecorder::open(
+            &data_directory.join("transcripts"),
+        )?);
+        Self::with_store(store, config, DEFAULT_EVENT_CAPACITY, transcripts)
     }
 
     /// Creates the application with an in-memory database, default configuration, and an
     /// injectable event limit for deterministic tests.
     #[cfg(test)]
     pub(crate) fn with_event_capacity(event_capacity: usize) -> Result<Self, ApplicationError> {
-        let mut application =
-            Self::with_store(Store::open_in_memory()?, Config::default(), event_capacity)?;
+        let mut application = Self::with_store(
+            Store::open_in_memory()?,
+            Config::default(),
+            event_capacity,
+            Arc::new(TranscriptRecorder::temporary()?),
+        )?;
         application
             .terminals
             .set_test_shell(PathBuf::from("/bin/sh"));
@@ -193,6 +200,7 @@ impl Application {
         store: Store,
         config: Config,
         event_capacity: usize,
+        transcripts: Arc<TranscriptRecorder>,
     ) -> Result<Self, ApplicationError> {
         let folders = Folders::restore(store)?;
         let mut events = EventJournal::new(event_capacity)?;
@@ -201,6 +209,7 @@ impl Application {
         let terminal_output = Arc::new(TerminalStream::new(
             DEFAULT_TERMINAL_CAPACITY_BYTES,
             DEFAULT_TERMINAL_CAPACITY_CHUNKS,
+            transcripts,
         )?);
         let terminals = TerminalManager::new(Arc::clone(&terminal_output));
         #[cfg(test)]
@@ -406,6 +415,7 @@ impl Drop for Application {
             inner.terminals.clear();
         }
         self.terminals.shutdown();
+        self.terminal_output.shutdown_recording();
     }
 }
 
@@ -430,6 +440,8 @@ pub enum ApplicationError {
     Store(#[from] StoreError),
     #[error(transparent)]
     Terminal(#[from] TerminalError),
+    #[error(transparent)]
+    Transcript(#[from] TranscriptError),
 }
 
 #[cfg(test)]

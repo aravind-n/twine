@@ -90,6 +90,12 @@ impl Application {
             Err(error) => return Ok(rejection("harnessNotFound", &error)),
         };
 
+        // Transcript allocation may wait on disk; lifetime commands keep this draft valid while
+        // application state remains available. Hold state again for startup and exit-event order.
+        let reserved = match self.terminals.reserve_terminal() {
+            Ok(id) => id,
+            Err(error) => return Ok(rejection("agentStartFailed", &error)),
+        };
         let mut inner = self.lock_inner()?;
         // Start the agent at the size its draft terminal has now, as the view has already fitted it.
         let placeholder_size = inner
@@ -100,6 +106,7 @@ impl Application {
             .and_then(|workflow| self.terminals.size(workflow.terminal_id))
             .unwrap_or(size);
         let terminal_id = match self.terminals.start_program(
+            reserved,
             &folder,
             &located.program,
             &definition.arguments(prompt),
@@ -385,6 +392,33 @@ mod tests {
         wait_until(|| output_contains(&application, &mut output, "GOT:hello"));
         // A nonzero exit is a finished process, never a successful or cancelled workflow.
         wait_until(|| workflow(&application).status == WorkflowStatus::Exited);
+    }
+
+    #[test]
+    fn agent_allocation_waits_without_holding_application_state() {
+        let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let application = Arc::new(application(folder.path(), bin.path(), Some("read line")));
+        let draft = draft(&application, folder.path());
+        let stalled = application
+            .terminal_output
+            .stall_recording_worker(draft.terminal_id);
+        let starting = Arc::clone(&application);
+        let starter = thread::spawn(move || start(&starting, draft.workflow_id, "wait for input"));
+        wait_until(|| application.terminal_output.allocation_is_pending());
+        let (sent, received) = std::sync::mpsc::sync_channel(1);
+        let observing = Arc::clone(&application);
+        let observer = thread::spawn(move || {
+            let snapshot = observing.snapshot().unwrap();
+            observing.events_after(snapshot.sequence, 8).unwrap();
+            sent.send(()).unwrap();
+        });
+        received
+            .recv_timeout(Duration::from_secs(1))
+            .expect("state must remain available while agent allocation is stalled");
+        observer.join().unwrap();
+        assert!(!starter.is_finished());
+        drop(stalled);
+        assert_eq!(starter.join().unwrap(), CommandDisposition::Accepted);
     }
 
     #[test]

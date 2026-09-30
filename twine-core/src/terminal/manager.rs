@@ -69,6 +69,7 @@ impl TerminalManager {
 
     pub(crate) fn start_default_shell(
         &self,
+        terminal_id: TerminalId,
         working_directory: &Path,
         size: TerminalSize,
         on_exit: ExitCallback,
@@ -81,12 +82,19 @@ impl TerminalManager {
             })
             .is_err()
         {
+            let _ = self.output.cancel(terminal_id);
             return Err(TerminalError::Pty {
                 operation: "start a test shell",
                 message: "the test made this start fail".to_owned(),
             });
         }
-        let working_directory = canonical_working_directory(working_directory)?;
+        let working_directory = match canonical_working_directory(working_directory) {
+            Ok(path) => path,
+            Err(error) => {
+                let _ = self.output.cancel(terminal_id);
+                return Err(error);
+            }
+        };
         let command = default_shell_command(&working_directory);
         #[cfg(test)]
         let command = if let Some(shell) = &self.test_shell {
@@ -96,12 +104,29 @@ impl TerminalManager {
         } else {
             command
         };
-        self.start_command(command, size, Some(working_directory), on_exit)
+        self.start_command(terminal_id, command, size, Some(working_directory), on_exit)
+    }
+
+    pub(crate) fn reserve_terminal(&self) -> Result<TerminalId, TerminalError> {
+        self.output.open()
+    }
+
+    /// Releases a reserved stream when a workflow cannot start all of its shells.
+    pub(crate) fn cancel_reserved_terminal(
+        &self,
+        terminal_id: TerminalId,
+    ) -> Result<(), TerminalError> {
+        self.output.cancel(terminal_id)
     }
 
     /// Starts `program` in `working_directory` with the given environment `PATH`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the reserved ID keeps transcript allocation outside application-state locks"
+    )]
     pub(crate) fn start_program(
         &self,
+        terminal_id: TerminalId,
         working_directory: &Path,
         program: &Path,
         arguments: &[OsString],
@@ -109,9 +134,15 @@ impl TerminalManager {
         size: TerminalSize,
         on_exit: ExitCallback,
     ) -> Result<TerminalId, TerminalError> {
-        let working_directory = canonical_working_directory(working_directory)?;
+        let working_directory = match canonical_working_directory(working_directory) {
+            Ok(path) => path,
+            Err(error) => {
+                let _ = self.output.cancel(terminal_id);
+                return Err(error);
+            }
+        };
         let command = program_launcher_command(&working_directory, program, arguments, path);
-        self.start_command(command, size, Some(working_directory), on_exit)
+        self.start_command(terminal_id, command, size, Some(working_directory), on_exit)
     }
 
     /// The last size the terminal was given, if it is open.
@@ -134,12 +165,19 @@ impl TerminalManager {
 
     fn start_command(
         &self,
+        terminal_id: TerminalId,
         command: CommandBuilder,
         size: TerminalSize,
         working_directory_handshake: Option<PathBuf>,
         on_exit: ExitCallback,
     ) -> Result<TerminalId, TerminalError> {
-        let starting = spawn_terminal_process(command, size, working_directory_handshake)?;
+        let starting = match spawn_terminal_process(command, size, working_directory_handshake) {
+            Ok(starting) => starting,
+            Err(error) => {
+                let _ = self.output.cancel(terminal_id);
+                return Err(error);
+            }
+        };
         let StartingTerminal {
             master,
             reader,
@@ -147,14 +185,6 @@ impl TerminalManager {
             child,
             reader_descriptor,
         } = starting;
-        let terminal_id = match self.output.open() {
-            Ok(terminal_id) => terminal_id,
-            Err(error) => {
-                terminate_unobserved_child(&child);
-                return Err(error);
-            }
-        };
-
         let reader_cancelled = Arc::new(AtomicBool::new(false));
         let reader_thread = match spawn_terminal_reader(
             Arc::clone(&self.output),
@@ -332,6 +362,18 @@ impl TerminalManager {
     ) -> Result<MutexGuard<'_, HashMap<TerminalId, TerminalSession>>, TerminalError> {
         self.sessions.lock().map_err(|_| TerminalError::Poisoned)
     }
+
+    #[cfg(test)]
+    fn start_test_command(
+        &self,
+        command: CommandBuilder,
+        size: TerminalSize,
+        working_directory_handshake: Option<PathBuf>,
+        on_exit: ExitCallback,
+    ) -> Result<TerminalId, TerminalError> {
+        let id = self.reserve_terminal()?;
+        self.start_command(id, command, size, working_directory_handshake, on_exit)
+    }
 }
 
 impl Drop for TerminalManager {
@@ -445,7 +487,7 @@ mod tests {
     #[test]
     fn shell_output_is_ordered_and_has_absolute_byte_offsets() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -454,7 +496,7 @@ mod tests {
         let mut command = shell_launcher_command(&directory, Path::new("/bin/sh"));
         command.env("TERM", "xterm-256color");
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -539,7 +581,7 @@ mod tests {
     #[test]
     fn shell_start_fails_if_working_directory_disappears_before_launch() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -548,7 +590,7 @@ mod tests {
         std::fs::remove_dir(&directory).expect("test working directory should be removed");
 
         let error = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -568,14 +610,14 @@ mod tests {
     #[test]
     fn closing_terminal_terminates_a_running_child() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(stream);
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
         let mut command = CommandBuilder::new("/bin/sh");
         command.args(["-c", "trap '' HUP; while :; do sleep 1; done"]);
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -608,7 +650,7 @@ mod tests {
     #[test]
     fn closing_terminal_does_not_wait_for_output_written_on_hangup() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(stream);
         // Like an interactive shell restoring terminal modes as it exits.
@@ -618,7 +660,7 @@ mod tests {
             "trap 'printf restore; exit' HUP; while :; do sleep 0.01; done",
         ]);
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -645,7 +687,7 @@ mod tests {
     #[test]
     fn shell_exit_terminates_descendants_that_keep_the_pty_open() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(stream);
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
@@ -655,7 +697,7 @@ mod tests {
             "trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & exit 0",
         ]);
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -687,20 +729,26 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn close_cancels_reader_when_detached_descendant_keeps_slave_open() {
+        if let Some(directory) = std::env::var_os("TWINE_TEST_DETACHED_PTY_DIRECTORY") {
+            run_detached_pty_fixture(Path::new(&directory));
+            return;
+        }
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
-        let manager = TerminalManager::new(stream);
+        let manager = TerminalManager::new(Arc::clone(&stream));
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
-        let ready_path = unique_test_directory().with_extension("pid");
-        let mut command = CommandBuilder::new("/bin/sh");
-        command.args([
-            "-c",
-            "/usr/bin/python3 -c 'import os, signal; os.setsid(); signal.signal(signal.SIGHUP, signal.SIG_IGN); open(os.environ[\"TWINE_TEST_READY\"], \"w\").write(str(os.getpid())); os.read(0, 1)' & while [ ! -s \"$TWINE_TEST_READY\" ]; do :; done; exit 0",
-        ]);
-        command.env("TWINE_TEST_READY", &ready_path);
+        // Removing this directory also releases the descendant on failed assertions.
+        let directory = tempfile::tempdir().expect("fixture directory should be created");
+        let ready_path = directory.path().join("descendant.pid");
+        let mut command = CommandBuilder::new(std::env::current_exe().unwrap());
+        // Isolate reader cancellation from the EOF caused by a controlling session's hangup.
+        command.set_controlling_tty(false);
+        command.args(DETACHED_PTY_FIXTURE_ARGS);
+        command.env("TWINE_TEST_DETACHED_PTY_DIRECTORY", directory.path());
+        command.env("TWINE_TEST_DETACHED_PTY_ROLE", "parent");
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -713,47 +761,64 @@ mod tests {
                     let _ = exit_sender.send((terminal_id, result));
                 }),
             )
-            .expect("shell with a detached descendant should start");
+            .expect("parent with a detached descendant should start");
 
-        // The shell exits once Python has started, which can take seconds on a busy CI host.
-        assert_eq!(
-            exit_receiver
-                .recv_timeout(Duration::from_secs(10))
-                .expect("supervisor should report the primary shell exit")
-                .0,
-            terminal_id
+        let descendant_id = read_process_id(&ready_path);
+        let (exited_id, result) = exit_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("supervisor should report the parent exit");
+        assert_eq!(exited_id, terminal_id);
+        assert_eq!(result.expect("parent exit should be observed").exit_code, 0);
+        assert!(
+            process_exists(descendant_id),
+            "descendant should hold the PTY open"
         );
-        let descendant_id = std::fs::read_to_string(&ready_path)
-            .expect("detached descendant should publish its process ID")
-            .parse::<libc::pid_t>()
-            .expect("detached descendant process ID should be valid");
+        // SAFETY: This probes the fixture PID published above without changing its session.
+        assert_eq!(unsafe { libc::getsid(descendant_id) }, descendant_id);
+        assert!(
+            !manager
+                .lock_sessions()
+                .unwrap()
+                .get(&terminal_id)
+                .unwrap()
+                .reader_thread
+                .as_ref()
+                .unwrap()
+                .is_finished(),
+            "reader should still be waiting on the retained slave"
+        );
 
         let started = Instant::now();
         manager
             .close(terminal_id)
             .expect("closing should cancel the PTY reader");
         assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(stream.tracks_no_terminals());
+        assert!(process_exists(descendant_id));
 
+        directory
+            .close()
+            .expect("fixture directory should be removed");
         let deadline = Instant::now() + Duration::from_secs(2);
         while process_exists(descendant_id) {
             assert!(
                 Instant::now() < deadline,
-                "detached descendant should exit after the PTY master closes"
+                "detached descendant should exit after fixture cleanup"
             );
             thread::sleep(Duration::from_millis(10));
         }
-        std::fs::remove_file(ready_path).expect("test process ID file should be removed");
     }
 
     #[test]
     fn input_remains_responsive_when_output_queue_is_full() {
         let stream = Arc::new(
-            TerminalStream::new(READ_CHUNK_BYTES, 1).expect("terminal stream should initialize"),
+            TerminalStream::for_test(READ_CHUNK_BYTES, 1)
+                .expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 CommandBuilder::new("/usr/bin/yes"),
                 TerminalSize {
                     rows: 24,
@@ -790,11 +855,53 @@ mod tests {
         manager.close(terminal_id).expect("terminal should close");
     }
 
+    #[test]
+    fn input_and_shutdown_remain_responsive_when_recording_queue_is_full() {
+        let directory = tempfile::tempdir().unwrap();
+        let transcripts =
+            Arc::new(super::super::TranscriptRecorder::open(directory.path()).unwrap());
+        let stream =
+            Arc::new(TerminalStream::new(8 * 1024 * 1024, 1024, Arc::clone(&transcripts)).unwrap());
+        let manager = TerminalManager::new(Arc::clone(&stream));
+        let (sent, received) = mpsc::sync_channel(1);
+        let id = manager
+            .start_test_command(
+                CommandBuilder::new("/usr/bin/yes"),
+                test_terminal_size(),
+                None,
+                Arc::new(move |id, exit| {
+                    let _ = sent.send((id, exit));
+                }),
+            )
+            .unwrap();
+        let stalled = transcripts.stall_worker(id);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !transcripts.recording_queue_is_full() {
+            assert!(Instant::now() < deadline, "recording queue did not fill");
+            thread::sleep(Duration::from_millis(5));
+        }
+        manager.resize(id, test_terminal_size()).unwrap();
+        manager.write_input(id, b"\x03").unwrap();
+        assert_eq!(received.recv_timeout(Duration::from_secs(2)).unwrap().0, id);
+        let start = Instant::now();
+        manager.shutdown();
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(stream.tracks_no_terminals());
+        drop(stalled);
+        transcripts.shutdown();
+        let reopened = super::super::TranscriptRecorder::open(directory.path()).unwrap();
+        assert!(matches!(
+            reopened.read(id, 0, 1).unwrap(),
+            super::super::TranscriptRead::Output(_)
+        ));
+    }
+
     #[cfg(unix)]
     #[test]
     fn shutdown_reaps_multiple_shells_and_descendants_with_a_full_output_queue() {
         let stream = Arc::new(
-            TerminalStream::new(READ_CHUNK_BYTES, 1).expect("terminal stream should initialize"),
+            TerminalStream::for_test(READ_CHUNK_BYTES, 1)
+                .expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -810,7 +917,7 @@ mod tests {
         ]);
         quiet_shell.env("TWINE_TEST_DIR", &directory);
         let quiet_id = manager
-            .start_command(quiet_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(quiet_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
             .expect("shell with descendant should start");
 
         let mut noisy_shell = CommandBuilder::new("/bin/sh");
@@ -820,7 +927,7 @@ mod tests {
         ]);
         noisy_shell.env("TWINE_TEST_DIR", &directory);
         let noisy_id = manager
-            .start_command(noisy_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(noisy_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
             .expect("output-heavy shell should start");
 
         let process_ids = ["shell.pid", "descendant.pid", "noisy.pid"]
@@ -860,7 +967,7 @@ mod tests {
     #[test]
     fn close_all_stops_terminals_together_and_reports_one_that_was_not_open() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -877,7 +984,7 @@ mod tests {
             ]);
             shell.env("TWINE_TEST_DIR", &directory);
             let terminal_id = manager
-                .start_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+                .start_test_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
                 .expect("shell should start");
             (
                 terminal_id,
@@ -924,7 +1031,8 @@ mod tests {
     #[test]
     fn shutdown_kills_background_job_in_another_process_group() {
         let stream = Arc::new(
-            TerminalStream::new(READ_CHUNK_BYTES, 16).expect("terminal stream should initialize"),
+            TerminalStream::for_test(READ_CHUNK_BYTES, 16)
+                .expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -940,7 +1048,7 @@ mod tests {
         ]);
         shell.env("TWINE_TEST_DIR", &directory);
         manager
-            .start_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
             .expect("shell should start");
 
         let shell_id = read_process_id(&directory.join("shell.pid"));
@@ -970,7 +1078,7 @@ mod tests {
     #[test]
     fn shutdown_recovers_poisoned_session_and_child_locks() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -982,7 +1090,7 @@ mod tests {
         ]);
         command.env("TWINE_TEST_DIR", &directory);
         let terminal_id = manager
-            .start_command(command, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(command, test_terminal_size(), None, Arc::new(|_, _| {}))
             .expect("shell should start");
         let process_id = read_process_id(&directory.join("shell.pid"));
         let child = Arc::clone(
@@ -1034,6 +1142,55 @@ mod tests {
             columns: 80,
             pixel_width: 800,
             pixel_height: 480,
+        }
+    }
+
+    #[cfg(unix)]
+    const DETACHED_PTY_FIXTURE_ARGS: [&str; 4] = [
+        "--exact",
+        "terminal::manager::tests::close_cancels_reader_when_detached_descendant_keeps_slave_open",
+        "--nocapture",
+        "--test-threads=1",
+    ];
+
+    #[cfg(unix)]
+    fn run_detached_pty_fixture(directory: &Path) {
+        let ready_path = directory.join("descendant.pid");
+        match std::env::var("TWINE_TEST_DETACHED_PTY_ROLE")
+            .unwrap()
+            .as_str()
+        {
+            "parent" => {
+                #[expect(
+                    clippy::zombie_processes,
+                    reason = "the fixture parent exits first, reparenting its detached descendant"
+                )]
+                let child = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args(DETACHED_PTY_FIXTURE_ARGS)
+                    .env("TWINE_TEST_DETACHED_PTY_ROLE", "descendant")
+                    .spawn()
+                    .expect("Rust descendant should start");
+                assert_eq!(
+                    read_process_id(&ready_path),
+                    libc::pid_t::try_from(child.id()).unwrap()
+                );
+                // Child::drop leaves this detached process alive with the inherited PTY descriptors.
+            }
+            "descendant" => {
+                // SAFETY: This isolated helper process changes only its own signal disposition and
+                // Unix session. Its parent waits for readiness before exiting and hanging up.
+                unsafe {
+                    assert_ne!(libc::signal(libc::SIGHUP, libc::SIG_IGN), libc::SIG_ERR);
+                    assert_ne!(libc::setsid(), -1);
+                }
+                std::fs::write(&ready_path, std::process::id().to_string())
+                    .expect("descendant should publish readiness");
+                // Keep the slave open without reading it: a read can return on session hangup.
+                while directory.is_dir() {
+                    thread::sleep(Duration::from_millis(10));
+                }
+            }
+            role => panic!("unknown detached PTY fixture role: {role}"),
         }
     }
 

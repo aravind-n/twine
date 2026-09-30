@@ -25,8 +25,8 @@ pub use folder::{FolderState, RecentFolder, UnavailableFolder, UnavailableReason
 pub use harness::{HarnessError, HarnessId};
 pub use store::StoreError;
 pub use terminal::{
-    TerminalChunk, TerminalError, TerminalExit, TerminalId, TerminalSize, TerminalState,
-    TerminalStatus,
+    MAX_TRANSCRIPT_READ_BYTES, TerminalChunk, TerminalError, TerminalExit, TerminalId,
+    TerminalSize, TerminalState, TerminalStatus, TranscriptError, TranscriptPage, TranscriptRead,
 };
 
 pub use workflow::{

@@ -7,11 +7,14 @@ mod manager;
 mod process;
 mod pty;
 mod stream;
+mod transcript;
 
 #[cfg(not(test))]
 pub(crate) use launcher::login_shell;
 pub(crate) use manager::TerminalManager;
 pub(crate) use stream::TerminalStream;
+pub(crate) use transcript::TranscriptRecorder;
+pub use transcript::{MAX_TRANSCRIPT_READ_BYTES, TranscriptError, TranscriptPage, TranscriptRead};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TerminalId(u64);
@@ -99,8 +102,6 @@ pub enum TerminalError {
     },
     #[error("terminal state lock is poisoned")]
     Poisoned,
-    #[error("terminal ID counter overflowed")]
-    TerminalIdOverflow,
     #[error("failed to {operation}: {message}")]
     Thread {
         operation: &'static str,
@@ -110,4 +111,6 @@ pub enum TerminalError {
     WorkingDirectory { path: PathBuf, message: String },
     #[error("terminal output capacity must be greater than zero")]
     ZeroCapacity,
+    #[error(transparent)]
+    Transcript(#[from] TranscriptError),
 }

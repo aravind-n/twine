@@ -35,6 +35,38 @@ Add settings as fields with defaults in `twine-core/src/config.rs`. The Serde sc
 parsing, unknown-key warnings, the generated default file, and snapshot serialization;
 extend Swift's `BridgeConfig` when a consumer needs the new field.
 
+## Terminal transcripts
+
+The Rust core records raw terminal output under `transcripts/` in its application data directory.
+Terminal IDs remain unique across launches. Closing a terminal preserves output already accepted
+for recording, and restored workflows start fresh terminals with new IDs.
+
+Retention is capped at **64 MiB per terminal** and **512 MiB across all terminals**. Output is stored
+in segments of at most **1 MiB**, with at most **512 segments** and **1,024 terminal metadata entries**.
+Old segments or terminal entries expire when a limit is reached, so many short transcripts may
+expire before the byte limit. Metadata and its atomic replacement are each capped at 1 MiB,
+giving a maximum of **514 MiB of transcript file contents**, plus bounded filesystem overhead.
+Pruned ranges remain expired after reopening.
+
+`Application::read_terminal_transcript(terminal_id, offset, limit)` returns a page of exact bytes
+starting at an absolute byte offset. Reads are limited to **64 KiB**. An offset at the recorded end
+returns an empty page; an offset beyond that end is an error. Pruned history returns
+`TranscriptRead::Expired` with the earliest retained offset, or `None` when no output remains.
+Unknown IDs and unavailable storage return typed errors. Byte offsets do not describe terminal
+screen state; ANSI replay and resize handling belong to the history viewer.
+
+Recording uses a worker with at most **4 MiB / 256 requests** pending, plus one in-flight request.
+The worker combines adjacent queued output from one terminal into batches up to **64 KiB**,
+preserving read order while avoiding a separate durable commit for every small PTY read.
+Backpressure pauses output readers without holding terminal input or application-state locks.
+Storage failures leave live input and output usable and make transcript reads fail explicitly.
+Reads wait for previously accepted output to commit and must run off the UI thread. Clean shutdown
+flushes accepted recording; a crash may lose pending bytes. Reopening discards uncommitted tails
+and orphan files, and reports damage to committed data instead of silently skipping it.
+
+One core owns a transcript directory at a time; a second concurrent owner receives an explicit
+error. The ownership lock is released after the recording worker has flushed and stopped.
+
 ## Development setup
 
 - Install Xcode 27.0 and point the developer tools at it: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. The SwiftTerm build plugin and SwiftLint both require Xcode rather than the Command Line Tools.
