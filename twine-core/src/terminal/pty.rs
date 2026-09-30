@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use tracing::debug;
@@ -113,9 +113,9 @@ pub(super) fn spawn_terminal_reader(
     reader_descriptor: TerminalReaderDescriptor,
     cancelled: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>, TerminalError> {
-    thread::Builder::new()
-        .name(format!("terminal-{}-reader", terminal_id.value()))
-        .spawn(move || {
+    crate::blocking_worker::spawn(
+        format!("terminal-{}-reader", terminal_id.value()),
+        move || {
             let mut buffer = vec![0; READ_CHUNK_BYTES];
             loop {
                 match wait_for_terminal_output(reader_descriptor, &cancelled) {
@@ -145,7 +145,8 @@ pub(super) fn spawn_terminal_reader(
                 }
             }
             let _ = output.finish(terminal_id);
-        })
+        },
+    )
         .map_err(|error| TerminalError::Thread {
             operation: "start PTY reader",
             message: error.to_string(),

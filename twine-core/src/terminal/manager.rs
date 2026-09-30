@@ -429,9 +429,9 @@ fn spawn_terminal_supervisor(
 ) -> Result<JoinHandle<()>, TerminalError> {
     let child = Arc::clone(child);
     let exit_reporting = Arc::clone(exit_reporting);
-    thread::Builder::new()
-        .name(format!("terminal-{}-supervisor", terminal_id.value()))
-        .spawn(move || {
+    crate::blocking_worker::spawn(
+        format!("terminal-{}-supervisor", terminal_id.value()),
+        move || {
             let result = wait_for_child(&child);
             let observation = output_position
                 .observe()
@@ -446,11 +446,12 @@ fn spawn_terminal_supervisor(
             if exit_reporting.load(Ordering::Acquire) == EXIT_REPORT_ENABLED {
                 on_exit(terminal_id, result, observation);
             }
-        })
-        .map_err(|error| TerminalError::Thread {
-            operation: "start process supervisor",
-            message: error.to_string(),
-        })
+        },
+    )
+    .map_err(|error| TerminalError::Thread {
+        operation: "start process supervisor",
+        message: error.to_string(),
+    })
 }
 
 /// Stops sessions on worker threads, so each one's hang-up grace period overlaps the others'. If a
@@ -471,9 +472,7 @@ fn stop_sessions(sessions: Vec<(TerminalId, TerminalSession)>) {
     thread::scope(|scope| {
         let workers: Vec<_> = (0..extra_workers)
             .map_while(|_| {
-                thread::Builder::new()
-                    .name("terminal-stop".to_owned())
-                    .spawn_scoped(scope, stop_pending)
+                crate::blocking_worker::spawn_scoped(scope, "terminal-stop".into(), stop_pending)
                     .ok()
             })
             .collect();

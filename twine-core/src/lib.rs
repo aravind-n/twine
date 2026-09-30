@@ -1,6 +1,7 @@
 //! UI-independent application core for Twine.
 
 mod application;
+mod blocking_worker;
 pub mod config;
 mod event;
 mod files;
