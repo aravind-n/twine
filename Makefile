@@ -16,7 +16,7 @@ UI_TEST_TARGETS := $(if $(strip $(ONLY)),$(addprefix TwineUITests/TwineUITests/,
 .PHONY: help fmt-rust lint-rust test-rust check-rust clean-rust \
 	framework framework-release build-macos build-macos-release fmt-macos lint-macos \
 	test-macos ui-test-macos check-macos clean-macos \
-	fmt lint test check clean release-build-app release-bundle release-package check-release
+	fmt lint test check clean release-build-app release-bundle release-package check-release check-release-scripts
 
 help:
 	@echo 'usage: make <target> [ONLY="testA testB"]'
@@ -92,9 +92,11 @@ release-bundle:
 release-package:
 	$(RELEASE_SCRIPT) package "$(VERSION)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
 
-check-release:
+check-release-scripts:
 	bash .github/release/test-notes.sh
 	shellcheck .github/release/*.sh
+
+check-release: check-release-scripts
 	actionlint -ignore 'label "xcode-27" is unknown'
 
 fmt-macos:

@@ -206,11 +206,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: actionlint@1.7.12,shellcheck
-      - name: Check release tooling and workflows
-        run: make check-release
+      - name: Check release scripts
+        run: make check-release-scripts
+      - name: Lint workflows
+        run: |
+          docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.12 \
+            -color -ignore 'label "xcode-27" is unknown'
 
   ci-gate:
     needs: [changes, library-checks, library-build, cargo-audit, app-checks, actionlint]
