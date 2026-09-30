@@ -17,10 +17,11 @@ Use the terms defined in [CONTEXT.md](CONTEXT.md) when naming folder, session, w
 
 ## Component instructions
 
+- Run builds, formatting, linting, and tests through the root `Makefile`. `make` lists the targets.
 - For Rust core work in `twine-core/`, read [twine-core/AGENTS.md](twine-core/AGENTS.md).
 - For C ABI work in `twine-bridge/`, read [twine-bridge/AGENTS.md](twine-bridge/AGENTS.md).
 - For Swift app work in `macOS/`, read [macOS/AGENTS.md](macOS/AGENTS.md).
-- For changes spanning components, follow each component's file. Give any new component its own `AGENTS.md` when it needs distinct instructions.
+- For changes spanning components, follow each component's file, and run `make fmt` and `make check` in place of the per-component targets. Give any new component its own `AGENTS.md` when it needs distinct instructions.
 
 ## Code style guidelines
 
