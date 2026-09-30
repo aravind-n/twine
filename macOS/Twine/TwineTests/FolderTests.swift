@@ -36,7 +36,8 @@ struct FolderTests {
     }
 
     /// A refresh can be accepted without a branch when Git times out. Retry as the app does,
-    /// then independently verify that the client receives the successful core state change.
+    /// then independently verify that the client receives the successful core state change. A busy
+    /// CI runner can keep Git past the core's one-second timeout for several seconds in a row.
     private static func refreshBranch(
         _ expected: String,
         folder: String,
@@ -44,7 +45,7 @@ struct FolderTests {
         worker: BridgeWorker
     ) async throws {
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(5)
+        let deadline = clock.now + .seconds(30)
         var branch: String?
         repeat {
             try await client.refreshGitBranch(folder: folder)
