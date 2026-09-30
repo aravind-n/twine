@@ -7,4 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tag-triggered draft releases with changelog notes, a universal macOS app ZIP with install
+  instructions, the static C ABI library and header, source, debug symbols, and checksums.
+
 [unreleased]: https://github.com/aravind-n/twine/compare/HEAD

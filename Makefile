@@ -4,12 +4,19 @@ PROJECT := macOS/Twine/Twine.xcodeproj
 XCODEBUILD := xcodebuild -project $(PROJECT) -scheme Twine -skipPackagePluginValidation
 XCODEBUILD_DEBUG := $(XCODEBUILD) -destination 'platform=macOS,arch=$(shell uname -m)'
 FRAMEWORK_BUILD := macOS/TwineCorePackage/build.sh
+DERIVED_DATA ?= $(CURDIR)/target/release-app
+BUILD_DIR ?= $(DERIVED_DATA)/Build/Products/Release
+BUNDLE_DIR ?= $(CURDIR)/target/release-bundle
+OUTPUT_DIR ?= $(CURDIR)/dist
+XCODE_BUILD_ARGS ?=
+RELEASE_SCRIPT := bash .github/release/release.sh
+
 UI_TEST_TARGETS := $(if $(strip $(ONLY)),$(addprefix TwineUITests/TwineUITests/,$(ONLY)),TwineUITests)
 
 .PHONY: help fmt-rust lint-rust test-rust check-rust clean-rust \
 	framework framework-release build-macos build-macos-release fmt-macos lint-macos \
 	test-macos ui-test-macos check-macos clean-macos \
-	fmt lint test check clean
+	fmt lint test check clean release-build-app release-bundle release-package check-release check-release-scripts
 
 help:
 	@echo 'usage: make <target> [ONLY="testA testB"]'
@@ -40,6 +47,12 @@ help:
 	@echo '  check-macos           Run lint-macos and test-macos'
 	@echo '  clean-macos           Remove the framework, package caches, and Xcode build output'
 	@echo ''
+	@echo 'Release packaging:'
+	@echo '  release-build-app     Build Release app using an existing Release framework'
+	@echo '  release-bundle        Save app, static C ABI library, header, symbols, commit'
+	@echo '  release-package       Package and verify archives for VERSION (BUNDLE_DIR, OUTPUT_DIR)'
+	@echo '  check-release         Test changelog extraction and lint release tooling'
+	@echo ''
 	@echo '  help                  Show this message (default)'
 
 fmt-rust:
@@ -67,7 +80,24 @@ build-macos: framework
 	$(XCODEBUILD_DEBUG) build
 
 build-macos-release: framework-release
-	$(XCODEBUILD) -configuration Release -destination 'generic/platform=macOS' build
+	$(MAKE) release-build-app
+
+release-build-app:
+	$(XCODEBUILD) -configuration Release -destination 'generic/platform=macOS' \
+		-derivedDataPath "$(DERIVED_DATA)" -onlyUsePackageVersionsFromResolvedFile build $(XCODE_BUILD_ARGS)
+
+release-bundle:
+	$(RELEASE_SCRIPT) bundle "$(BUILD_DIR)" "$(BUNDLE_DIR)"
+
+release-package:
+	$(RELEASE_SCRIPT) package "$(VERSION)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
+
+check-release-scripts:
+	bash .github/release/test-notes.sh
+	shellcheck .github/release/*.sh
+
+check-release: check-release-scripts
+	actionlint -ignore 'label "xcode-27" is unknown'
 
 fmt-macos:
 	swift format --in-place --recursive macOS/

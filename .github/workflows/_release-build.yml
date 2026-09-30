@@ -18,41 +18,35 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Restore Release bridge
-        uses: actions/cache/restore@v6
+        id: bridge-cache
+        uses: actions/cache@v6
         with:
           path: macOS/TwineCorePackage/TwineCore.xcframework
           key: >-
             twine-bridge-v1-release-${{
             hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
             'macOS/TwineCorePackage/build.sh') }}
-          fail-on-cache-miss: true
       - uses: ./.github/actions/setup-macos
         with:
           metal: 'true'
+          rust: ${{ steps.bridge-cache.outputs.cache-hit != 'true' && 'true' || 'false' }}
+          rust-targets: aarch64-apple-darwin x86_64-apple-darwin
+      - name: Rebuild Release bridge when uncached
+        if: steps.bridge-cache.outputs.cache-hit != 'true'
+        run: make framework-release
       - name: Build universal Release app
         run: >-
-          xcodebuild build -project macOS/Twine/Twine.xcodeproj -scheme Twine
-          -configuration Release -destination 'generic/platform=macOS'
-          -derivedDataPath "$RUNNER_TEMP/DerivedData"
-          -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
-      - name: Stamp version and package app
-        run: |
-          if [[ ! "$BUILD_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
-            echo "::error::Invalid artifact version: $BUILD_VERSION"
-            exit 1
-          fi
-          app="$RUNNER_TEMP/DerivedData/Build/Products/Release/Twine.app"
-          test -d "$app"
-          archs="$(xcrun lipo -archs "$app/Contents/MacOS/Twine")"
-          if [[ " $archs " != *' arm64 '* || " $archs " != *' x86_64 '* ]]; then
-            echo "::error::Expected a universal app, found architectures: $archs"
-            exit 1
-          fi
-          /usr/libexec/PlistBuddy -c "Add :TwineBuildVersion string $BUILD_VERSION" "$app/Contents/Info.plist"
-          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/Twine-$BUILD_VERSION.zip"
-      - name: Upload app artifact
+          make release-build-app DERIVED_DATA="$RUNNER_TEMP/DerivedData"
+          XCODE_BUILD_ARGS=CODE_SIGNING_ALLOWED=NO
+      - name: Package reusable app, library, header, and symbols
+        run: >-
+          make release-bundle DERIVED_DATA="$RUNNER_TEMP/DerivedData"
+          BUNDLE_DIR="$RUNNER_TEMP/bundle"
+      - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
           name: Twine-${{ inputs.version }}
-          path: ${{ runner.temp }}/Twine-${{ inputs.version }}.zip
+          path: ${{ runner.temp }}/bundle/
           if-no-files-found: error
+          overwrite: true
+          retention-days: 90

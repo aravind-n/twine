@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.guard.outputs.version }}
+      sha: ${{ steps.guard.outputs.sha }}
+      build_run: ${{ steps.guard.outputs.build_run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Validate tag and changelog, find main CI build
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          bash .github/release/release.sh guard "$GITHUB_REF_NAME" "$RUNNER_TEMP/notes.md"
+          sha="$(git rev-parse HEAD)"
+          run_id="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs" --method GET \
+            -f branch=main -f event=push -f head_sha="$sha" -f status=success -f per_page=100 \
+            --jq '.workflow_runs[0].id // empty')"
+          if [[ -z "$run_id" ]]; then
+            echo '::error::Wait for a successful push-to-main CI run on this commit before releasing'
+            exit 1
+          fi
+          available="$(gh api "repos/$GH_REPO/actions/runs/$run_id/artifacts?per_page=100" \
+            | jq --arg name "Twine-ci-$sha" '[.artifacts[] | select(.name == $name and .expired == false)] | length')"
+          if [[ "$available" == 0 ]]; then run_id=''; fi
+          {
+            echo "version=${GITHUB_REF_NAME#v}"
+            echo "sha=$sha"
+            echo "build_run=$run_id"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes.md
+          if-no-files-found: error
+          overwrite: true
+
+  rebuild:
+    needs: guard
+    if: needs.guard.outputs.build_run == ''
+    uses: ./.github/workflows/_release-build.yml
+    with:
+      version: ci-${{ needs.guard.outputs.sha }}
+
+  package:
+    needs: [guard, rebuild]
+    if: >-
+      always() && !cancelled() && needs.guard.result == 'success' &&
+      (needs.rebuild.result == 'success' || needs.rebuild.result == 'skipped')
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-macos
+      - name: Download main CI build or rebuilt tagged build
+        uses: actions/download-artifact@v8
+        with:
+          name: Twine-ci-${{ needs.guard.outputs.sha }}
+          path: ${{ runner.temp }}/bundle
+          run-id: ${{ needs.guard.outputs.build_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Package and verify release archives
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: >-
+          make release-package VERSION="$VERSION" BUNDLE_DIR="$RUNNER_TEMP/bundle"
+          OUTPUT_DIR="$RUNNER_TEMP/release"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          overwrite: true
+
+  publish:
+    needs: [guard, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: notes
+      - name: Create or update a draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ needs.guard.outputs.sha }}
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          # Retries may replace assets only on this commit's draft, never a published release.
+          if gh release view "$GITHUB_REF_NAME" --json isDraft,targetCommitish > release.json; then
+            jq -e --arg sha "$RELEASE_SHA" '.isDraft and .targetCommitish == $sha' release.json >/dev/null
+            gh release edit "$GITHUB_REF_NAME" --draft --notes-file notes/notes.md
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            # Do not leave a newly created partial draft after an upload failure.
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --target "$RELEASE_SHA" \
+              --title "$GITHUB_REF_NAME" --notes-file notes/notes.md
+            trap 'gh release delete "$GITHUB_REF_NAME" --yes' ERR
+            gh release upload "$GITHUB_REF_NAME" dist/*
+            trap - ERR
+          fi

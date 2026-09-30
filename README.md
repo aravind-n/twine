@@ -2,6 +2,14 @@
 
 Twine is an agent workspace for coordinating your agents
 
+## Install
+
+Download the universal ZIP from [GitHub Releases](https://github.com/aravind-n/twine/releases).
+It supports Apple Silicon and Intel on **macOS 26+**. Extract it, move `Twine.app` to
+Applications, and follow its included `README.txt`. If macOS blocks the first launch,
+use **System Settings → Privacy & Security → Open Anyway** for Twine, then confirm Open.
+The app is ad hoc signed and not notarized; managed Macs may restrict approval.
+
 ## Files
 
 Show the sidebar to browse the open folder. Expanding a directory loads only its children;
@@ -200,3 +208,61 @@ The generated framework includes its C header and module map and is ignored by G
 Linting prepares the framework before resolving the app's packages. `ONLY` accepts one UI test name or a quoted, space-separated list; omitting it runs the full UI suite.
 
 SwiftLint runs the version pinned in `Package.resolved`, through `macOS/Twine/Scripts/swiftlint.sh`.
+
+## Releases
+
+Pushing a `vMAJOR.MINOR.PATCH` tag runs `.github/workflows/release.yml` and creates a
+**draft** GitHub Release. It reuses the unsigned universal build from successful main CI
+for that commit, or rebuilds it using the same build workflow if the artifact has expired.
+No Apple Developer account, signing certificate, notarization credentials, or release
+secrets are required.
+
+To cut a release:
+
+1. Set the version in `Cargo.toml` and update `Cargo.lock`. Set the Twine app's
+   **Marketing Version** in both Debug and Release configurations to the same version.
+2. Move the finished changelog entries into a dated section such as
+   `## [0.1.0] - 2026-09-30`, leaving `[Unreleased]` above it. The release body comes from
+   exactly that section, following the same extraction as vhrn. Missing, empty, or duplicate
+   sections fail the release.
+3. Review and merge through a pull request. Wait for push-to-main CI on that commit to pass.
+4. Create and push the tag on that reviewed main commit:
+
+   ```sh
+   git tag -a v0.1.0 <reviewed-main-commit> -m 'Twine 0.1.0'
+   git push origin v0.1.0
+   ```
+
+5. Wait for Release to finish. Download the draft ZIP, check its checksum, and test first
+   launch on a Mac with quarantine enabled using the included instructions. Check a shell
+   and the harnesses you intend to support, then publish the draft in GitHub Releases.
+
+The release contains:
+
+- `Twine-VERSION-macos-universal.zip`: ad hoc signed app, install README, and license.
+- `libtwinecore-VERSION-macos-universal.tar.gz`: the existing universal static C ABI library
+  as `libtwinecore.a`, matching C header, usage README, and license.
+  The protocol is experimental; pin matching header/library versions.
+- `twine-VERSION-source.tar.gz`: the tagged Git source tree.
+- `Twine-VERSION-symbols.tar.gz`: app debug symbols, checked against both executable UUIDs.
+- `SHA256SUMS`: SHA-256 checksums for all four archives.
+
+The packaged app's short version and bundle version both match the tag. Its ad hoc signature
+provides integrity; users still approve the first launch themselves. No DMG or notarization
+is involved. This release matrix is macOS only.
+
+Re-run failed jobs to retry a draft release. Published releases are never overwritten; use
+a new patch version for a correction after publication. Do not move an existing release tag.
+
+For local packaging, run from the root (the output directory must be empty):
+
+```sh
+make check-release  # needs shellcheck and actionlint
+make build-macos-release XCODE_BUILD_ARGS=CODE_SIGNING_ALLOWED=NO
+make release-bundle
+make release-package VERSION=0.1.0
+(cd dist && shasum -a 256 -c SHA256SUMS)
+```
+
+`DERIVED_DATA`, `BUILD_DIR`, `BUNDLE_DIR`, and `OUTPUT_DIR` can override the default paths.
+These commands do not create a GitHub Release. The source archive always uses committed HEAD.
