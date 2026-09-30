@@ -21,6 +21,10 @@ impl Application {
         if let Some(path) = &self.harness_path {
             return locate_in(definition, Some(path), None);
         }
+        // UI tests point this at a stub harness, like `TWINE_DATA_DIRECTORY` points at test data.
+        if let Some(path) = std::env::var_os("TWINE_HARNESS_PATH") {
+            return locate_in(definition, Some(&path), None);
+        }
         locate_in(
             definition,
             self.login_path.get().as_deref(),
