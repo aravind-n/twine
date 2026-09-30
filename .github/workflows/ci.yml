@@ -2,7 +2,7 @@ name: CI
 
 # Pull requests run every check their changes select, and ci-gate is the one required check.
 # Main only accepts up-to-date pull requests, so pushes to main skip those checks and run
-# only the work pull requests don't: the release build.
+# only the work pull requests don't: the release build and the UI tests.
 on:
   pull_request:
   push:
@@ -86,8 +86,8 @@ jobs:
     runs-on: xcode-27
     strategy:
       matrix:
-        # Pull requests test a Debug app; main packages a Release app.
-        profile: ${{ github.event_name == 'push' && fromJSON('["release"]') || fromJSON('["debug"]') }}
+        # Pull requests test a Debug app; main UI-tests a Debug app and packages a Release app.
+        profile: ${{ github.event_name == 'push' && fromJSON('["debug", "release"]') || fromJSON('["debug"]') }}
     steps:
       - uses: actions/checkout@v7
       - name: Restore prebuilt bridge
@@ -146,6 +146,40 @@ jobs:
           xcodebuild test-without-building -project macOS/Twine/Twine.xcodeproj -scheme Twine
           -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
           -only-testing:TwineTests
+      - name: Upload failed test results
+        if: failure() && steps.unit-tests.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-test-results-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/DerivedData/Logs/Test/*.xcresult
+          retention-days: 7
+
+  ui-tests:
+    needs: library-build
+    # Pull requests skip the UI tests because they are slow; main runs them after each merge.
+    if: >-
+      github.event_name == 'push' && !cancelled() &&
+      needs.library-build.result == 'success'
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - name: Restore Debug bridge
+        uses: actions/cache/restore@v6
+        with:
+          path: TwineBridgePackage/TwineBridge.xcframework
+          key: >-
+            twine-bridge-v1-debug-${{
+            hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
+            'scripts/build-bridge.sh') }}
+          fail-on-cache-miss: true
+      - uses: ./.github/actions/setup-macos
+        with:
+          metal: 'true'
+      - name: Build app for testing (Debug)
+        run: >-
+          xcodebuild build-for-testing -project macOS/Twine/Twine.xcodeproj -scheme Twine
+          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
       - name: Run UI tests
         id: ui-tests
         run: >-
@@ -153,10 +187,10 @@ jobs:
           -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
           -only-testing:TwineUITests
       - name: Upload failed test results
-        if: failure() && (steps.unit-tests.outcome == 'failure' || steps.ui-tests.outcome == 'failure')
+        if: failure() && steps.ui-tests.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
-          name: macos-test-results-${{ github.run_attempt }}
+          name: macos-ui-test-results-${{ github.run_attempt }}
           path: ${{ runner.temp }}/DerivedData/Logs/Test/*.xcresult
           retention-days: 7
 
