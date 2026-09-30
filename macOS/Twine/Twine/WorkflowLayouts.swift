@@ -32,7 +32,7 @@ final class WorkflowLayouts {
 
     /// Forgets the layouts of a folder's workflows that closed. Only the folder's loaded workflow state
     /// lists all of its workflows, which the core gives for every session.
-    func removeClosedWorkflows(in folder: String, state: BridgeWorkflowState?) {
+    func removeClosedWorkflows(in folder: String, state: CoreWorkflowState?) {
         guard let state, state.sessionsInitialized, state.session?.folder == folder, let saved = layouts[folder]
         else { return }
         let kept = Set(state.workflows.map { String($0.id) })

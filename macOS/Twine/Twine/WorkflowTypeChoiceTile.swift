@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct WorkflowTypeChoiceTile: View {
-    let type: BridgeWorkflowType
+    let type: CoreWorkflowType
 
     var body: some View {
         VStack(alignment: .leading, spacing: NewTabLayout.spacing) {

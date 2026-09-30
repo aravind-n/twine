@@ -1,19 +1,19 @@
 import SwiftUI
 
 struct NewTabChoices: View {
-    @Environment(BridgeClient.self) private var client
+    @Environment(CoreClient.self) private var client
     let workflowID: UInt64
     let availableHeight: CGFloat
     let isSelected: Bool
     let choose: (WorkflowChoice) -> Void
     /// Runs `prompt` with the harness in the draft's folder. Throws the reason it couldn't start.
-    let startAgent: (BridgeHarness, String) async throws -> Void
+    let startAgent: (CoreHarness, String) async throws -> Void
     /// Gives the keyboard back to the terminal, which nothing else in the card can take.
     let focusTerminal: () -> Void
     @State private var contentHeight: CGFloat = 0
-    @Binding var harness: BridgeHarness?
-    @Binding var selectedType: BridgeWorkflowType?
-    private var catalog: [BridgeWorkflowType] { client.snapshot?.workflowTypes ?? [] }
+    @Binding var harness: CoreHarness?
+    @Binding var selectedType: CoreWorkflowType?
+    private var catalog: [CoreWorkflowType] { client.snapshot?.workflowTypes ?? [] }
 
     // A prompt form owns keyboard input, so it can use the space reserved for the shell prompt.
     private var showsPrompt: Bool { harness != nil || selectedType != nil }
@@ -86,7 +86,7 @@ struct NewTabChoices: View {
                 ForEach(WorkflowChoice.allCases) { choice in
                     if choice.opensMenu {
                         Menu {
-                            ForEach(BridgeHarness.allCases) { harness in
+                            ForEach(CoreHarness.allCases) { harness in
                                 Button(harness.displayName) { self.harness = harness }
                                     .accessibilityIdentifier("harness-\(harness.rawValue)")
                             }

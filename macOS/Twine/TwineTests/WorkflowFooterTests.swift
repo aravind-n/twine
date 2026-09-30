@@ -22,11 +22,11 @@ struct WorkflowFooterTests {
     }
 
     private func make(
-        _ kind: BridgeWorkflow.Kind,
-        _ status: BridgeWorkflow.Status,
+        _ kind: CoreWorkflow.Kind,
+        _ status: CoreWorkflow.Status,
         end: UInt64? = nil
-    ) -> BridgeWorkflow {
-        BridgeWorkflow(
+    ) -> CoreWorkflow {
+        CoreWorkflow(
             workflowID: 1, sessionID: 1, name: "Terminal", kind: kind, terminalID: 1,
             status: status, startedAt: 1_000, endedAt: end
         )

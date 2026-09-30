@@ -13,7 +13,7 @@ final class TerminalHistoryState {
 
     private(set) var status: Status = .loading
 
-    func load(_ target: TraceTerminalTarget, client: BridgeClient) async {
+    func load(_ target: TraceTerminalTarget, client: CoreClient) async {
         status = .loading
         guard let boundarySizes = target.anchor.boundarySizes else {
             status = .expired
@@ -38,7 +38,7 @@ final class TerminalHistoryState {
                 }
                 if remaining == 0 { break }
                 guard page.nextOffset > replay.offset, page.nextOffset <= target.anchor.byteOffset else {
-                    throw BridgeFailure.unexpectedCommandResult
+                    throw CoreFailure.unexpectedCommandResult
                 }
                 try replay.append(page)
                 await Task.yield()

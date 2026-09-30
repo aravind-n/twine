@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Native drawing shared by catalog previews, launch forms, and the pinned live workflow type.
 struct WorkflowGraph: View {
-    let type: BridgeWorkflowType
+    let type: CoreWorkflowType
     var counts: [String: Int] = [:]
-    var run: BridgeWorkflowRun?
+    var run: CoreWorkflowRun?
     var compact = false
 
     private var instanceCounts: [String: Int] {
@@ -159,7 +159,7 @@ private struct WorkflowGraphConnections: View {
 }
 
 #Preview("Catalog graphs") {
-    @Previewable @State var types: [BridgeWorkflowType] = []
+    @Previewable @State var types: [CoreWorkflowType] = []
     @Previewable @State var failure: String?
     ScrollView {
         VStack {
@@ -170,7 +170,7 @@ private struct WorkflowGraphConnections: View {
     }
     .frame(width: 340, height: 600)
     .task {
-        let worker = BridgeWorker(dataDirectory: .temporaryDirectory.appending(path: "TwineGraphPreview"))
+        let worker = CoreWorker(dataDirectory: .temporaryDirectory.appending(path: "TwineGraphPreview"))
         do {
             types = try await worker.open().workflowTypes ?? []
             await worker.close()

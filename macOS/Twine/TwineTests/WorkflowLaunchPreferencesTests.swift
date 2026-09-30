@@ -29,7 +29,7 @@ struct WorkflowLaunchPreferencesTests {
                 == [.piAgent, .claudeCode, .codex, .codex])
     }
 
-    private func type(id: UInt64, version: UInt32, min: Int = 2, max: Int = 5) -> BridgeWorkflowType {
+    private func type(id: UInt64, version: UInt32, min: Int = 2, max: Int = 5) -> CoreWorkflowType {
         .init(
             reference: .init(user: .init(typeID: id, version: version)),
             definition: .init(

@@ -12,7 +12,7 @@ import SwiftUI
 @main
 struct TwineApp: App {
     @NSApplicationDelegateAdaptor(AppTerminationDelegate.self) private var terminationDelegate
-    @State private var bridgeClient = BridgeClient(transport: BridgeWorker(dataDirectory: Self.dataDirectory))
+    @State private var coreClient = CoreClient(transport: CoreWorker(dataDirectory: Self.dataDirectory))
     @State private var fileEditor = FileEditorModel()
     @State private var workflowLayouts = WorkflowLayouts(
         fileURL: Self.dataDirectory.appending(path: "workflow-layouts.json"))
@@ -37,18 +37,18 @@ struct TwineApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(bridgeClient)
+                .environment(coreClient)
                 .environment(fileEditor)
                 .environment(workflowLayouts)
                 .task {
-                    terminationDelegate.connect(to: bridgeClient, editor: fileEditor, layouts: workflowLayouts)
+                    terminationDelegate.attach(to: coreClient, editor: fileEditor, layouts: workflowLayouts)
                     // Workflows appear with the core's first snapshot, so their layouts must be ready first.
                     await workflowLayouts.load()
-                    bridgeClient.start()
+                    coreClient.start()
                 }
         }
         .commands {
-            FolderCommands(bridgeClient: bridgeClient, editor: fileEditor)
+            FolderCommands(coreClient: coreClient, editor: fileEditor)
         }
     }
 
@@ -65,13 +65,13 @@ struct TwineApp: App {
 
 @MainActor
 final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
-    private var bridgeClient: BridgeClient?
+    private var coreClient: CoreClient?
     private var isTerminating = false
     private var editor: FileEditorModel?
     private var layouts: WorkflowLayouts?
 
-    func connect(to bridgeClient: BridgeClient, editor: FileEditorModel? = nil, layouts: WorkflowLayouts? = nil) {
-        self.bridgeClient = bridgeClient
+    func attach(to coreClient: CoreClient, editor: FileEditorModel? = nil, layouts: WorkflowLayouts? = nil) {
+        self.coreClient = coreClient
         self.editor = editor
         self.layouts = layouts
     }
@@ -82,12 +82,12 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
 
     /// The reply closure also lets tests verify that AppKit is released only after shutdown.
     func beginTermination(reply: @escaping @MainActor (Bool) -> Void) -> NSApplication.TerminateReply {
-        guard let bridgeClient else { return .terminateNow }
+        guard let coreClient else { return .terminateNow }
         guard !isTerminating else { return .terminateLater }
         guard editor?.select(nil) != false else { return .terminateCancel }
         isTerminating = true
         Task {
-            await bridgeClient.stopForQuit()
+            await coreClient.stopForQuit()
             await layouts?.flush()
             reply(true)
         }

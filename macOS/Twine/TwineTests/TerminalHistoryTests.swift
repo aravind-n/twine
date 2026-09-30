@@ -8,9 +8,9 @@ import Testing
 struct TerminalHistoryTests {
     @Test func exactAnchorAndBoundaryResizesExcludeLaterOutput() async throws {
         let transport = TranscriptFixtureTransport(bytes: Data("first\r\nsecond\r\nlater".utf8))
-        let client = BridgeClient(transport: transport)
+        let client = CoreClient(transport: transport)
         let state = TerminalHistoryState()
-        var anchor = BridgeTraceAnchor(terminalID: 1, byteOffset: 15)
+        var anchor = CoreTraceAnchor(terminalID: 1, byteOffset: 15)
         anchor.boundarySizes = [.init(rows: 2, columns: 5), .init(rows: 4, columns: 12)]
         let target = TraceTerminalTarget(workflowID: 1, agentID: nil, anchor: anchor, timestamp: 0, message: "Stopped")
         await state.load(target, client: client)
@@ -29,7 +29,7 @@ struct TerminalHistoryTests {
         let target = TraceTerminalTarget(
             workflowID: 1, agentID: nil, anchor: .init(terminalID: 1, byteOffset: 1), timestamp: 0, message: "Stopped")
         let expired = TerminalHistoryState()
-        await expired.load(target, client: BridgeClient(transport: TranscriptFixtureTransport(bytes: nil)))
+        await expired.load(target, client: CoreClient(transport: TranscriptFixtureTransport(bytes: nil)))
         guard case .expired = expired.status else {
             Issue.record("Expected expired history")
             return
@@ -37,14 +37,14 @@ struct TerminalHistoryTests {
         let missing = TerminalHistoryState()
         await missing.load(
             target,
-            client: BridgeClient(transport: TranscriptFixtureTransport(bytes: Data([65]), replayAvailable: false)))
+            client: CoreClient(transport: TranscriptFixtureTransport(bytes: Data([65]), replayAvailable: false)))
         guard case .expired = missing.status else {
             Issue.record("Expected unavailable geometry")
             return
         }
         let transport = TranscriptFixtureTransport(bytes: Data([65]), delayed: true)
         let cancelled = TerminalHistoryState()
-        let load = Task { await cancelled.load(target, client: BridgeClient(transport: transport)) }
+        let load = Task { await cancelled.load(target, client: CoreClient(transport: transport)) }
         try await waitUntil { await transport.hasPendingRead }
         load.cancel()
         await transport.release()
@@ -57,9 +57,9 @@ struct TerminalHistoryTests {
 
     @Test func onlyAnchoredEventsNavigateToTheExactAgent() {
         let navigation = TraceTerminalNavigation()
-        let lane = BridgeTraceLane(
+        let lane = CoreTraceLane(
             laneID: 1, workflowID: 3, name: "Worker", isAgent: true, role: "Worker", harness: nil, agentID: 9)
-        let event = BridgeTraceEvent(
+        let event = CoreTraceEvent(
             eventID: 1, workflowID: 3, spanID: 1, timestamp: 42, kind: .processStopped,
             message: "Stopped", anchor: .init(terminalID: 8, byteOffset: 50))
         navigation.jump(to: event, lane: lane)

@@ -1,12 +1,12 @@
 # macOS app
 
-Build the presentation layer with SwiftUI and AppKit. Keep workflow orchestration, PTYs, Git state, and persistence in the Rust backend. Send commands through the bridge and render the state, trace events, and terminal bytes it publishes.
+Build the presentation layer with SwiftUI and AppKit. Keep workflow orchestration, PTYs, Git state, and persistence in `twine-core`. Send it commands and render the state, trace events, and terminal bytes it publishes.
 
 Use SwiftTerm in an AppKit view for the primary terminal surface, with its Metal renderer enabled. Embed that view in SwiftUI and keep terminal I/O off the main actor.
 
-Get backend state and send commands only through the Swift bridge client; build the Rust side of a feature alongside its UI rather than mocking it.
+Get `twine-core` state and send commands only through `CoreClient`; build the `twine-core` side of a feature alongside its UI rather than mocking it.
 
-The app consumes the backend through the local `TwineBridge` binary Swift package. From the repository root, run `scripts/build-bridge.sh debug` before Debug builds and `scripts/build-bridge.sh release` before Release builds. Keep Cargo invocations, Rust source paths, C header paths, and direct static-library linkage out of the Xcode project.
+The app links `twine-core` as the `TwineCore` XCFramework from the local `TwineCorePackage` binary Swift package. From the repository root, run `scripts/build-core.sh debug` before Debug builds and `scripts/build-core.sh release` before Release builds. Link only the package: keep build tooling, header paths, and direct static-library linkage out of the Xcode project.
 
 Follow the visual direction in [DESIGN.md](DESIGN.md) for all UI work.
 
@@ -25,7 +25,7 @@ Follow the visual direction in [DESIGN.md](DESIGN.md) for all UI work.
 - Run macOS UI tests from the repository root with:
 
   ```sh
-  scripts/build-bridge.sh debug && xcodebuild test -project macOS/Twine/Twine.xcodeproj -scheme Twine -destination 'platform=macOS' -derivedDataPath /tmp/twine-uitests -only-testing:TwineUITests
+  scripts/build-core.sh debug && xcodebuild test -project macOS/Twine/Twine.xcodeproj -scheme Twine -destination 'platform=macOS' -derivedDataPath /tmp/twine-uitests -only-testing:TwineUITests
   ```
 
 - Let Xcode use the project's default signing settings. This command launched `TwineUITests-Runner` with Xcode's ad hoc "Sign to Run Locally" signature; an Apple Development identity was not required. Avoid overriding signing with `CODE_SIGNING_ALLOWED=NO` or `CODE_SIGN_IDENTITY=-`. If a sandbox blocks Xcode's cache writes, rerun with access to the Xcode and SwiftPM caches.

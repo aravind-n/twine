@@ -18,7 +18,7 @@ struct TerminalReplayTests {
         let sizes = [(10, 4), (6, 3), (12, 5)]
         var offset: UInt64 = 0
         var bytes = Data()
-        var resizes: [BridgeTranscriptSize] = []
+        var resizes: [CoreTranscriptSize] = []
         for (index, chunk) in chunks.enumerated() {
             let (columns, rows) = sizes[index]
             live.resize(cols: columns, rows: rows)
@@ -51,7 +51,7 @@ struct TerminalReplayTests {
 
     @Test func replayRequiresContiguousPages() throws {
         let replay = TerminalReplay()
-        #expect(throws: BridgeFailure.unexpectedCommandResult) {
+        #expect(throws: CoreFailure.unexpectedCommandResult) {
             try replay.append(
                 .init(offset: 1, nextOffset: 2, endOffset: 2, sizes: [], bytes: Data([65]), replayAvailable: true))
         }

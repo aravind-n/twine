@@ -11,7 +11,7 @@ nonisolated struct CommandEnvelope: Encodable {
         case requestID = "requestId"
     }
 
-    init(requestID: UInt64, command: BridgeCommand) {
+    init(requestID: UInt64, command: CoreCommand) {
         self.requestID = requestID
         self.command = CommandPayload(command)
     }
@@ -21,20 +21,20 @@ nonisolated private struct CommandPayload: Encodable {
     var type: String
     var path: String?
     var folder: String?
-    var kind: BridgeWorkflow.Kind?
+    var kind: CoreWorkflow.Kind?
     var roles: [String]?
     var sessionID: UInt64?
     var workflowID: UInt64?
     var name: String?
-    var harness: BridgeHarness?
+    var harness: CoreHarness?
     var prompt: String?
-    var workflowType: BridgeWorkflowType.Reference?
-    var roleLaunches: [BridgeRoleLaunch]?
+    var workflowType: CoreWorkflowType.Reference?
+    var roleLaunches: [CoreRoleLaunch]?
     var agentID: UInt64?
     var generation: UInt64?
-    var signal: BridgeCompletionSignal?
+    var signal: CoreCompletionSignal?
     var workingDirectory: String?
-    var size: BridgeTerminalSize?
+    var size: CoreTerminalSize?
     var terminalID: UInt64?
 
     private enum CodingKeys: String, CodingKey {
@@ -47,7 +47,7 @@ nonisolated private struct CommandPayload: Encodable {
         case agentID = "agentId"
     }
 
-    init(_ command: BridgeCommand) {
+    init(_ command: CoreCommand) {
         switch command {
         case .ping:
             type = "ping"
@@ -73,7 +73,7 @@ nonisolated private struct CommandPayload: Encodable {
         }
     }
 
-    private mutating func configureFolder(_ command: BridgeCommand) {
+    private mutating func configureFolder(_ command: CoreCommand) {
         switch command {
         case .openFolder(let path):
             type = "openFolder"
@@ -93,7 +93,7 @@ nonisolated private struct CommandPayload: Encodable {
         }
     }
 
-    private mutating func configureRun(_ command: BridgeCommand) {
+    private mutating func configureRun(_ command: CoreCommand) {
         switch command {
         case .startWorkflowRun(let workflowID, let workflowType, let prompt, let roles, let size):
             type = "startWorkflowRun"
@@ -115,7 +115,7 @@ nonisolated private struct CommandPayload: Encodable {
         }
     }
 
-    private mutating func configureSession(_ command: BridgeCommand) {
+    private mutating func configureSession(_ command: CoreCommand) {
         switch command {
         case .createSession(let folder, let name):
             type = "createSession"
@@ -136,7 +136,7 @@ nonisolated private struct CommandPayload: Encodable {
         }
     }
 
-    private mutating func configureWorkflow(_ command: BridgeCommand) {
+    private mutating func configureWorkflow(_ command: CoreCommand) {
         switch command {
         case .createWorkflow(let folder, let sessionID, let kind, let roles, let size):
             self.sessionID = sessionID

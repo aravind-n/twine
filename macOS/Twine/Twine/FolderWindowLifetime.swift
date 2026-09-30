@@ -3,12 +3,12 @@ import SwiftUI
 
 /// Closing the window also closes its folder's processes, even when the app remains running.
 struct FolderWindowLifetime: NSViewRepresentable {
-    let bridgeClient: BridgeClient
+    let coreClient: CoreClient
     let folder: String
     let editor: FileEditorModel
 
     func makeNSView(context: Context) -> FolderWindowObserver {
-        FolderWindowObserver(bridgeClient: bridgeClient, folder: folder, editor: editor)
+        FolderWindowObserver(coreClient: coreClient, folder: folder, editor: editor)
     }
 
     func updateNSView(_ nsView: FolderWindowObserver, context: Context) {
@@ -17,13 +17,13 @@ struct FolderWindowLifetime: NSViewRepresentable {
 }
 
 final class FolderWindowObserver: NSView {
-    private let bridgeClient: BridgeClient
+    private let coreClient: CoreClient
     private let folder: String
     private weak var observedWindow: NSWindow?
     private let editor: FileEditorModel
 
-    init(bridgeClient: BridgeClient, folder: String, editor: FileEditorModel) {
-        self.bridgeClient = bridgeClient
+    init(coreClient: CoreClient, folder: String, editor: FileEditorModel) {
+        self.coreClient = coreClient
         self.folder = folder
         self.editor = editor
         super.init(frame: .zero)
@@ -45,6 +45,6 @@ final class FolderWindowObserver: NSView {
     @objc private func windowWillClose(_ notification: Notification) {
         guard let observedWindow, notification.object as? NSWindow === observedWindow else { return }
         editor.discardAndClose()
-        Task { await bridgeClient.perform(.closeFolderIfOpen(path: folder)) }
+        Task { await coreClient.perform(.closeFolderIfOpen(path: folder)) }
     }
 }

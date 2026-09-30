@@ -1,7 +1,7 @@
 import Foundation
-import TwineBridge
+import TwineCore
 
-actor BridgeWorker: BridgeTransport {
+actor CoreWorker: CoreTransport {
     /// The directory where the core keeps its database.
     private let dataDirectory: URL
     private var client: OpaquePointer?
@@ -19,13 +19,13 @@ actor BridgeWorker: BridgeTransport {
         }
     }
 
-    func open() throws -> BridgeSnapshot {
+    func open() throws -> CoreSnapshot {
         if client == nil {
             var createdClient: OpaquePointer?
             let path = Array(dataDirectory.path(percentEncoded: false).utf8)
             try check(path.withUnsafeBufferPointer { twine_client_create($0.baseAddress, $0.count, &createdClient) })
             guard let createdClient else {
-                throw BridgeFailure.nullPointer
+                throw CoreFailure.nullPointer
             }
             client = createdClient
         }
@@ -38,10 +38,10 @@ actor BridgeWorker: BridgeTransport {
         self.client = nil
     }
 
-    func send(_ command: BridgeCommand) throws -> BridgeCommandReceipt {
+    func send(_ command: CoreCommand) throws -> CoreCommandReceipt {
         let requestID = nextRequestID
         let (incrementedID, overflow) = requestID.addingReportingOverflow(1)
-        guard !overflow else { throw BridgeFailure.requestIDOverflow }
+        guard !overflow else { throw CoreFailure.requestIDOverflow }
         nextRequestID = incrementedID
 
         let data = try encoder.encode(CommandEnvelope(requestID: requestID, command: command))
@@ -57,10 +57,10 @@ actor BridgeWorker: BridgeTransport {
             }
         }
         try check(status)
-        return try decoder.decode(BridgeCommandReceipt.self, from: consume(&response))
+        return try decoder.decode(CoreCommandReceipt.self, from: consume(&response))
     }
 
-    func snapshot() throws -> BridgeSnapshot {
+    func snapshot() throws -> CoreSnapshot {
         try readSnapshot()
     }
 
@@ -93,34 +93,34 @@ actor BridgeWorker: BridgeTransport {
         return try decoder.decode(FileSaveResult.self, from: consume(&response))
     }
 
-    func events(after sequence: UInt64, limit: UInt32) throws -> [BridgeEvent] {
+    func events(after sequence: UInt64, limit: UInt32) throws -> [CoreEvent] {
         var response = TwineBuffer()
         let status = try withClient { client in
             twine_client_events_after(client, sequence, limit, &response)
         }
         try check(status)
-        return try decoder.decode(BridgeEventBatch.self, from: consume(&response)).events
+        return try decoder.decode(CoreEventBatch.self, from: consume(&response)).events
     }
 
-    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) throws -> BridgeWorkflowTracePage {
+    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) throws -> CoreWorkflowTracePage {
         var response = TwineBuffer()
         let status = try withClient { client in
             twine_client_workflow_trace(client, workflowID, before ?? 0, limit, &response)
         }
         try check(status)
-        return try decoder.decode(BridgeWorkflowTracePage.self, from: consume(&response))
+        return try decoder.decode(CoreWorkflowTracePage.self, from: consume(&response))
     }
 
-    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) throws -> BridgeTraceEventsPage {
+    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) throws -> CoreTraceEventsPage {
         var response = TwineBuffer()
         let status = try withClient { client in
             twine_client_trace_events(client, spanID, after ?? 0, limit, &response)
         }
         try check(status)
-        return try decoder.decode(BridgeTraceEventsPage.self, from: consume(&response))
+        return try decoder.decode(CoreTraceEventsPage.self, from: consume(&response))
     }
 
-    func nextTerminalChunk() throws -> BridgeTerminalChunk? {
+    func nextTerminalChunk() throws -> CoreTerminalChunk? {
         var chunk = TwineTerminalChunk()
         let status = try withClient { client in
             twine_client_next_terminal_chunk(client, &chunk)
@@ -129,14 +129,14 @@ actor BridgeWorker: BridgeTransport {
             return nil
         }
         try check(status)
-        return BridgeTerminalChunk(
+        return CoreTerminalChunk(
             terminalID: chunk.terminal_id,
             offset: chunk.offset,
             bytes: try consume(&chunk.bytes)
         )
     }
 
-    func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async throws -> BridgeTranscriptPage? {
+    func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async throws -> CoreTranscriptPage? {
         var request: OpaquePointer?
         while request == nil {
             try Task.checkCancellation()
@@ -154,7 +154,7 @@ actor BridgeWorker: BridgeTransport {
                 try await Task.sleep(for: .milliseconds(10))
             } else {
                 try check(status)
-                return try BridgeTranscriptPage.decode(consume(&response))
+                return try CoreTranscriptPage.decode(consume(&response))
             }
         }
     }
@@ -173,7 +173,7 @@ actor BridgeWorker: BridgeTransport {
         try check(status)
     }
 
-    func resizeTerminal(terminalID: UInt64, size: BridgeTerminalSize) throws {
+    func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) throws {
         let status = try withClient { client in
             twine_client_resize_terminal(
                 client,
@@ -187,17 +187,17 @@ actor BridgeWorker: BridgeTransport {
         try check(status)
     }
 
-    private func readSnapshot() throws -> BridgeSnapshot {
+    private func readSnapshot() throws -> CoreSnapshot {
         var response = TwineBuffer()
         let status = try withClient { client in
             twine_client_snapshot(client, &response)
         }
         try check(status)
-        return try decoder.decode(BridgeSnapshot.self, from: consume(&response))
+        return try decoder.decode(CoreSnapshot.self, from: consume(&response))
     }
 
     private func withClient<T>(_ operation: (OpaquePointer) -> T) throws -> T {
-        guard let client else { throw BridgeFailure.nullPointer }
+        guard let client else { throw CoreFailure.nullPointer }
         return operation(client)
     }
 
@@ -206,7 +206,7 @@ actor BridgeWorker: BridgeTransport {
         if buffer.length == 0 {
             data = Data()
         } else {
-            guard let bytes = buffer.data else { throw BridgeFailure.nullPointer }
+            guard let bytes = buffer.data else { throw CoreFailure.nullPointer }
             data = Data(bytes: bytes, count: buffer.length)
         }
         try check(twine_buffer_release(&buffer))
@@ -218,23 +218,23 @@ actor BridgeWorker: BridgeTransport {
         case TWINE_STATUS_OK:
             return
         case TWINE_STATUS_EMPTY:
-            throw BridgeFailure.empty
+            throw CoreFailure.empty
         case TWINE_STATUS_NULL_POINTER:
-            throw BridgeFailure.nullPointer
+            throw CoreFailure.nullPointer
         case TWINE_STATUS_INVALID_UTF8:
-            throw BridgeFailure.invalidUTF8
+            throw CoreFailure.invalidUTF8
         case TWINE_STATUS_MALFORMED_COMMAND:
-            throw BridgeFailure.malformedCommand
+            throw CoreFailure.malformedCommand
         case TWINE_STATUS_INVALID_ARGUMENT:
-            throw BridgeFailure.invalidArgument
+            throw CoreFailure.invalidArgument
         case TWINE_STATUS_CURSOR_EXPIRED:
-            throw BridgeFailure.cursorExpired
+            throw CoreFailure.cursorExpired
         case TWINE_STATUS_INTERNAL_ERROR:
-            throw BridgeFailure.internalError
+            throw CoreFailure.internalError
         case TWINE_STATUS_PANIC:
-            throw BridgeFailure.panic
+            throw CoreFailure.panic
         default:
-            throw BridgeFailure.unknownStatus(status.rawValue)
+            throw CoreFailure.unknownStatus(status.rawValue)
         }
     }
 }

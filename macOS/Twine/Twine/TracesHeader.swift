@@ -2,7 +2,7 @@ import SwiftUI
 
 struct TracesHeader: View {
     let isExpanded: Bool
-    let summary: BridgeTraceSummary?
+    let summary: CoreTraceSummary?
     let toggle: () -> Void
 
     var body: some View {

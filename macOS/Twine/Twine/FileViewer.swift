@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct FileViewer: View {
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     @Environment(FileEditorModel.self) private var editor
     let path: String
     let folder: String
@@ -84,7 +84,7 @@ struct FileViewer: View {
         .background(.background)
         .clipShape(.rect(cornerRadius: CornerRadius.panel))
         .overlay { RoundedRectangle(cornerRadius: CornerRadius.panel).stroke(.hairline, lineWidth: 1) }
-        .task(id: editor.saveID) { await editor.savePending(client: bridgeClient) }
+        .task(id: editor.saveID) { await editor.savePending(client: coreClient) }
         .alert(
             "File Changed on Disk",
             isPresented: Binding(get: { editor.conflict != nil }, set: { if !$0 { editor.conflict = nil } }),

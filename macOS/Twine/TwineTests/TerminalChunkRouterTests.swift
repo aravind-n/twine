@@ -17,7 +17,7 @@ struct TerminalChunkRouterTests {
     }
 
     @Test func removingEverythingForgetsClosedTerminals() {
-        // The core numbers terminals from 1 again after the bridge restarts.
+        // The core numbers terminals from 1 again after it restarts.
         var router = TerminalChunkRouter(capacityBytes: 64)
         router.markClosed(1)
         router.removeAll()
@@ -34,7 +34,7 @@ struct TerminalChunkRouterTests {
         #expect(router.hasCapacity)
     }
 
-    private func chunk(terminalID: UInt64, bytes: String) -> BridgeTerminalChunk {
-        BridgeTerminalChunk(terminalID: terminalID, offset: 0, bytes: Data(bytes.utf8))
+    private func chunk(terminalID: UInt64, bytes: String) -> CoreTerminalChunk {
+        CoreTerminalChunk(terminalID: terminalID, offset: 0, bytes: Data(bytes.utf8))
     }
 }

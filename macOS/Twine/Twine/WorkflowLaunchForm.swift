@@ -1,13 +1,13 @@
 import SwiftUI
 
 struct WorkflowLaunchForm: View {
-    @Environment(BridgeClient.self) private var client
+    @Environment(CoreClient.self) private var client
     let workflowID: UInt64
-    let type: BridgeWorkflowType
+    let type: CoreWorkflowType
     var isSelected = true
     let back: () -> Void
     @State private var prompt = ""
-    @State private var harnesses: [String: [BridgeHarness]] = [:]
+    @State private var harnesses: [String: [CoreHarness]] = [:]
     @State private var isStarting = false
     @State private var failure: String?
     @State private var hasLoaded = false
@@ -48,7 +48,7 @@ struct WorkflowLaunchForm: View {
         .onChange(of: isSelected) { _, selected in if selected { promptFocused = true } }
     }
 
-    private func rolePickers(_ role: BridgeWorkflowType.Role) -> some View {
+    private func rolePickers(_ role: CoreWorkflowType.Role) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if role.instances.max > role.instances.min {
                 Stepper(
@@ -67,7 +67,7 @@ struct WorkflowLaunchForm: View {
                         get: { harnesses[role.id]?[index] ?? .codex },
                         set: { harnesses[role.id]?[index] = $0 })
                 ) {
-                    ForEach(BridgeHarness.allCases) { Text($0.displayName).tag($0) }
+                    ForEach(CoreHarness.allCases) { Text($0.displayName).tag($0) }
                 } label: {
                     Label(
                         role.instances.max > 1 ? "\(role.name) \(index + 1)" : role.name,
@@ -82,7 +82,7 @@ struct WorkflowLaunchForm: View {
     private func start() {
         guard !isStarting else { return }
         let roles = type.definition.roles.flatMap { role in
-            (harnesses[role.id] ?? []).map { BridgeRoleLaunch(role: role.id, harness: $0) }
+            (harnesses[role.id] ?? []).map { CoreRoleLaunch(role: role.id, harness: $0) }
         }
         let assignments = harnesses
         isStarting = true
@@ -112,7 +112,7 @@ struct WorkflowLaunchForm: View {
                         .init(id: "reviewer", name: "Reviewer", instances: .init(min: 1, max: 1)),
                     ]))
         ) { visible = false }
-        .environment(BridgeClient(transport: BridgeWorker(dataDirectory: .temporaryDirectory)))
+        .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
         .padding().frame(width: 550)
     } else {
         Button("Show launch form") { visible = true }

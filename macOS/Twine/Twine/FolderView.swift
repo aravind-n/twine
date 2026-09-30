@@ -6,7 +6,7 @@ private let gitLogger = Logger(subsystem: "com.twineproject.Twine", category: "g
 
 /// The window content while a folder is open.
 struct FolderView: View {
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     @Environment(FileEditorModel.self) private var editor
     let path: String
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .detailOnly
@@ -47,7 +47,7 @@ struct FolderView: View {
                 }
                 if editor.path == nil { TracesPanel(workflow: selectedWorkflow) }
                 StatusFooter(
-                    branch: bridgeClient.snapshot?.folders.currentBranch,
+                    branch: coreClient.snapshot?.folders.currentBranch,
                     workflow: selectedWorkflow
                 )
             }
@@ -55,7 +55,7 @@ struct FolderView: View {
             .background(.windowBackground)
         }
         .background {
-            FolderWindowLifetime(bridgeClient: bridgeClient, folder: path, editor: editor).frame(width: 0, height: 0)
+            FolderWindowLifetime(coreClient: coreClient, folder: path, editor: editor).frame(width: 0, height: 0)
         }
         .environment(traceNavigation)
         .onChange(of: traceNavigation.target) {
@@ -69,7 +69,7 @@ struct FolderView: View {
         .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
         .task(id: path) { await refreshGitBranch() }
         .task(id: files.request(folder: path, file: editor.path)) {
-            await files.watch(files.request(folder: path, file: editor.path), client: bridgeClient, editor: editor)
+            await files.watch(files.request(folder: path, file: editor.path), client: coreClient, editor: editor)
         }
         .onChange(of: selection.selectedID) { editor.select(nil) }
         .onChange(of: editor.path) {
@@ -94,17 +94,17 @@ struct FolderView: View {
         if editor.select(url.path, folder: path) { htmlNavigationURL = url }
     }
 
-    private var selectedWorkflow: BridgeWorkflow? {
-        guard let state = bridgeClient.snapshot?.workflows, state.session?.folder == path else { return nil }
+    private var selectedWorkflow: CoreWorkflow? {
+        guard let state = coreClient.snapshot?.workflows, state.session?.folder == path else { return nil }
         return state.workflows.first { $0.id == selection.selectedID && $0.sessionID == state.session?.sessionID }
     }
 
     private func refreshGitBranch() async {
         do {
             while !Task.isCancelled {
-                guard bridgeClient.connectionState == .running, bridgeClient.snapshot?.folders.openFolder == path
+                guard coreClient.runState == .running, coreClient.snapshot?.folders.openFolder == path
                 else { return }
-                try await bridgeClient.refreshGitBranch(folder: path)
+                try await coreClient.refreshGitBranch(folder: path)
                 try await Task.sleep(for: .seconds(5))
             }
         } catch is CancellationError {

@@ -2,10 +2,10 @@ import SwiftUI
 
 /// The prompt for a single agent, shown in the choices card once a harness is picked.
 struct AgentPromptForm: View {
-    @Binding var harness: BridgeHarness
+    @Binding var harness: CoreHarness
     let isSelected: Bool
     let back: () -> Void
-    let start: (BridgeHarness, String) async throws -> Void
+    let start: (CoreHarness, String) async throws -> Void
     @State private var prompt = ""
     @State private var isStarting = false
     @State private var failureMessage: String?
@@ -20,7 +20,7 @@ struct AgentPromptForm: View {
                 message: "Give the agent a prompt. It starts in this folder and you can interact with it here.")
             HStack(alignment: .top, spacing: NewTabLayout.spacing) {
                 Picker("Harness", selection: $harness) {
-                    ForEach(BridgeHarness.allCases) { Text($0.displayName).tag($0) }
+                    ForEach(CoreHarness.allCases) { Text($0.displayName).tag($0) }
                 }
                 .labelsHidden()
                 .fixedSize()

@@ -3,14 +3,14 @@ import Testing
 
 @testable import Twine
 
-extension BridgeSnapshot {
+extension CoreSnapshot {
     /// A ready snapshot with the default config and no folders or terminals.
     static func testReady(sequence: UInt64 = 1) -> Self {
         Self(
             sequence: sequence,
-            state: BridgeApplicationState(status: .ready),
-            config: BridgeConfig(appearance: .init(colorScheme: .system)),
-            folders: BridgeFolderState(
+            state: CoreApplicationState(status: .ready),
+            config: CoreConfig(appearance: .init(colorScheme: .system)),
+            folders: CoreFolderState(
                 openFolder: nil,
                 recentFolders: [],
                 unavailableFolder: nil
@@ -34,11 +34,11 @@ func waitUntil(
 }
 
 // Existing terminal-only doubles do not service trace reads. Trace tests supply their own reads.
-extension BridgeTransport {
-    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async throws -> BridgeWorkflowTracePage {
-        throw BridgeFailure.unexpectedCommandResult
+extension CoreTransport {
+    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async throws -> CoreWorkflowTracePage {
+        throw CoreFailure.unexpectedCommandResult
     }
-    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> BridgeTraceEventsPage {
-        throw BridgeFailure.unexpectedCommandResult
+    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> CoreTraceEventsPage {
+        throw CoreFailure.unexpectedCommandResult
     }
 }

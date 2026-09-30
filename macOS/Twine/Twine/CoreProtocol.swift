@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum BridgeCommand: Sendable {
+nonisolated enum CoreCommand: Sendable {
     case ping
     case openFolder(path: String)
     /// Closes the open folder, so the window shows the start page.
@@ -14,30 +14,30 @@ nonisolated enum BridgeCommand: Sendable {
     case deleteSession(sessionID: UInt64)
     /// `roles` names one agent each, in order; only `agents` workflows have them.
     case createWorkflow(
-        folder: String, sessionID: UInt64? = nil, kind: BridgeWorkflow.Kind, roles: [String] = [],
-        size: BridgeTerminalSize)
+        folder: String, sessionID: UInt64? = nil, kind: CoreWorkflow.Kind, roles: [String] = [],
+        size: CoreTerminalSize)
     case activateWorkflow(workflowID: UInt64)
     case nameDraftWorkflow(workflowID: UInt64, name: String)
     case closeWorkflow(workflowID: UInt64)
-    case startAgent(workflowID: UInt64, harness: BridgeHarness, prompt: String, size: BridgeTerminalSize)
+    case startAgent(workflowID: UInt64, harness: CoreHarness, prompt: String, size: CoreTerminalSize)
     case cancelAgent(workflowID: UInt64)
     case startWorkflowRun(
-        workflowID: UInt64, workflowType: BridgeWorkflowType.Reference, prompt: String,
-        roles: [BridgeRoleLaunch], size: BridgeTerminalSize)
-    case completeWorkflowRole(workflowID: UInt64, agentID: UInt64, generation: UInt64, signal: BridgeCompletionSignal)
+        workflowID: UInt64, workflowType: CoreWorkflowType.Reference, prompt: String,
+        roles: [CoreRoleLaunch], size: CoreTerminalSize)
+    case completeWorkflowRole(workflowID: UInt64, agentID: UInt64, generation: UInt64, signal: CoreCompletionSignal)
     case cancelWorkflowRun(workflowID: UInt64)
-    case startTerminal(workingDirectory: String, size: BridgeTerminalSize)
+    case startTerminal(workingDirectory: String, size: CoreTerminalSize)
     case closeTerminal(terminalID: UInt64)
 }
 
-nonisolated struct BridgeTerminalSize: Codable, Equatable, Sendable {
+nonisolated struct CoreTerminalSize: Codable, Equatable, Sendable {
     let rows: UInt16
     let columns: UInt16
     let pixelWidth: UInt16
     let pixelHeight: UInt16
 }
 
-nonisolated struct BridgeCommandReceipt: Decodable, Equatable, Sendable {
+nonisolated struct CoreCommandReceipt: Decodable, Equatable, Sendable {
     let requestID: UInt64
     let status: Status
     let error: Rejection?
@@ -59,19 +59,19 @@ nonisolated struct BridgeCommandReceipt: Decodable, Equatable, Sendable {
     }
 }
 
-nonisolated struct BridgeSnapshot: Decodable, Equatable, Sendable {
+nonisolated struct CoreSnapshot: Decodable, Equatable, Sendable {
     var sequence: UInt64
-    var state: BridgeApplicationState
-    let config: BridgeConfig
-    var folders: BridgeFolderState
-    var terminals: [BridgeTerminalState] = []
-    var workflows = BridgeWorkflowState()
-    var traces: [BridgeTraceSummary] = []
-    var workflowTypes: [BridgeWorkflowType]?
+    var state: CoreApplicationState
+    let config: CoreConfig
+    var folders: CoreFolderState
+    var terminals: [CoreTerminalState] = []
+    var workflows = CoreWorkflowState()
+    var traces: [CoreTraceSummary] = []
+    var workflowTypes: [CoreWorkflowType]?
 }
 
-nonisolated struct BridgeConfig: Decodable, Equatable, Sendable {
-    let appearance: BridgeAppearance
+nonisolated struct CoreConfig: Decodable, Equatable, Sendable {
+    let appearance: CoreAppearance
 
     enum ColorScheme: String, Decodable, Sendable {
         case system
@@ -80,15 +80,15 @@ nonisolated struct BridgeConfig: Decodable, Equatable, Sendable {
     }
 }
 
-nonisolated struct BridgeAppearance: Decodable, Equatable, Sendable {
-    let colorScheme: BridgeConfig.ColorScheme
+nonisolated struct CoreAppearance: Decodable, Equatable, Sendable {
+    let colorScheme: CoreConfig.ColorScheme
 
     private enum CodingKeys: String, CodingKey {
         case colorScheme = "color_scheme"
     }
 }
 
-nonisolated struct BridgeApplicationState: Decodable, Equatable, Sendable {
+nonisolated struct CoreApplicationState: Decodable, Equatable, Sendable {
     var status: Status
 
     enum Status: String, Decodable, Sendable {
@@ -97,17 +97,17 @@ nonisolated struct BridgeApplicationState: Decodable, Equatable, Sendable {
 }
 
 /// The open folder and the recent folders the start page lists.
-nonisolated struct BridgeFolderState: Decodable, Equatable, Sendable {
+nonisolated struct CoreFolderState: Decodable, Equatable, Sendable {
     var currentBranch: String?
     /// The folder the window shows, or `nil` while it shows the start page.
     var openFolder: String?
     /// Recently opened folders, most recent first.
-    var recentFolders: [BridgeRecentFolder]
+    var recentFolders: [CoreRecentFolder]
     /// A folder that just failed to open, so the start page can say why it's showing.
-    var unavailableFolder: BridgeUnavailableFolder?
+    var unavailableFolder: CoreUnavailableFolder?
 }
 
-nonisolated struct BridgeRecentFolder: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct CoreRecentFolder: Decodable, Equatable, Identifiable, Sendable {
     let path: String
     /// Whether nothing, or something other than a folder, is at `path` now. Missing folders stay
     /// listed until removed.
@@ -116,7 +116,7 @@ nonisolated struct BridgeRecentFolder: Decodable, Equatable, Identifiable, Senda
     var id: String { path }
 }
 
-nonisolated struct BridgeUnavailableFolder: Decodable, Equatable, Sendable {
+nonisolated struct CoreUnavailableFolder: Decodable, Equatable, Sendable {
     let path: String
     let reason: Reason
 
@@ -128,23 +128,23 @@ nonisolated struct BridgeUnavailableFolder: Decodable, Equatable, Sendable {
     }
 }
 
-nonisolated struct BridgeEventBatch: Decodable, Sendable {
-    let events: [BridgeEvent]
+nonisolated struct CoreEventBatch: Decodable, Sendable {
+    let events: [CoreEvent]
 }
 
-nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
+nonisolated struct CoreEvent: Decodable, Equatable, Sendable {
     let sequence: UInt64
     let event: Kind
 
     enum Kind: Equatable, Sendable {
         case applicationReady
-        case traceChanged(BridgeTraceSummary)
-        case workflowsChanged(BridgeWorkflowState)
-        case workflowChanged(BridgeWorkflow)
-        case commandCompleted(requestID: UInt64, result: BridgeCommandResult)
-        case foldersChanged(BridgeFolderState)
+        case traceChanged(CoreTraceSummary)
+        case workflowsChanged(CoreWorkflowState)
+        case workflowChanged(CoreWorkflow)
+        case commandCompleted(requestID: UInt64, result: CoreCommandResult)
+        case foldersChanged(CoreFolderState)
         case terminalClosed(terminalID: UInt64)
-        case terminalExited(terminalID: UInt64, exit: BridgeTerminalExit)
+        case terminalExited(terminalID: UInt64, exit: CoreTerminalExit)
         case terminalFailed(terminalID: UInt64, message: String)
     }
 
@@ -165,7 +165,7 @@ nonisolated struct BridgeEvent: Decodable, Equatable, Sendable {
     }
 }
 
-nonisolated enum BridgeCommandResult: Equatable, Sendable {
+nonisolated enum CoreCommandResult: Equatable, Sendable {
     case sessionCreated(sessionID: UInt64)
     case sessionRenamed(sessionID: UInt64)
     case sessionSelected(sessionID: UInt64)
@@ -180,29 +180,29 @@ nonisolated enum BridgeCommandResult: Equatable, Sendable {
     case terminalClosed(terminalID: UInt64)
 }
 
-nonisolated struct BridgeCommandCompletion: Equatable, Sendable {
+nonisolated struct CoreCommandCompletion: Equatable, Sendable {
     let requestID: UInt64
-    let result: BridgeCommandResult
+    let result: CoreCommandResult
 }
 
-nonisolated struct BridgeTerminalChunk: Equatable, Sendable {
+nonisolated struct CoreTerminalChunk: Equatable, Sendable {
     let terminalID: UInt64
     let offset: UInt64
     let bytes: Data
 }
 
-nonisolated struct BridgeTerminalExit: Decodable, Equatable, Sendable {
+nonisolated struct CoreTerminalExit: Decodable, Equatable, Sendable {
     let exitCode: UInt32
     let signal: String?
 }
 
-nonisolated struct BridgeTerminalState: Decodable, Equatable, Sendable {
+nonisolated struct CoreTerminalState: Decodable, Equatable, Sendable {
     let terminalID: UInt64
     let status: Status
 
     enum Status: Equatable, Sendable {
         case running
-        case exited(BridgeTerminalExit)
+        case exited(CoreTerminalExit)
         case failed(message: String)
     }
 
@@ -233,7 +233,7 @@ nonisolated struct BridgeTerminalState: Decodable, Equatable, Sendable {
             status = .running
         case .exited:
             status = .exited(
-                BridgeTerminalExit(
+                CoreTerminalExit(
                     exitCode: try container.decode(UInt32.self, forKey: .exitCode),
                     signal: try container.decodeIfPresent(String.self, forKey: .signal)
                 )
@@ -245,7 +245,7 @@ nonisolated struct BridgeTerminalState: Decodable, Equatable, Sendable {
 }
 
 nonisolated private struct EventPayload: Decodable {
-    let kind: BridgeEvent.Kind
+    let kind: CoreEvent.Kind
 
     private enum CodingKeys: String, CodingKey {
         case folders
@@ -277,7 +277,7 @@ nonisolated private struct EventPayload: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(EventType.self, forKey: .type) {
         case .traceChanged:
-            kind = .traceChanged(try container.decode(BridgeTraceSummary.self, forKey: .summary))
+            kind = .traceChanged(try container.decode(CoreTraceSummary.self, forKey: .summary))
         case .applicationReady:
             kind = .applicationReady
         case .commandCompleted:
@@ -286,17 +286,17 @@ nonisolated private struct EventPayload: Decodable {
                 result: try container.decode(CommandResultPayload.self, forKey: .result).result
             )
         case .workflowsChanged:
-            kind = .workflowsChanged(try container.decode(BridgeWorkflowState.self, forKey: .workflows))
+            kind = .workflowsChanged(try container.decode(CoreWorkflowState.self, forKey: .workflows))
         case .workflowChanged:
-            kind = .workflowChanged(try container.decode(BridgeWorkflow.self, forKey: .workflow))
+            kind = .workflowChanged(try container.decode(CoreWorkflow.self, forKey: .workflow))
         case .foldersChanged:
-            kind = .foldersChanged(try container.decode(BridgeFolderState.self, forKey: .folders))
+            kind = .foldersChanged(try container.decode(CoreFolderState.self, forKey: .folders))
         case .terminalClosed:
             kind = .terminalClosed(terminalID: try container.decode(UInt64.self, forKey: .terminalID))
         case .terminalExited:
             kind = .terminalExited(
                 terminalID: try container.decode(UInt64.self, forKey: .terminalID),
-                exit: BridgeTerminalExit(
+                exit: CoreTerminalExit(
                     exitCode: try container.decode(UInt32.self, forKey: .exitCode),
                     signal: try container.decodeIfPresent(String.self, forKey: .signal)
                 )
@@ -311,7 +311,7 @@ nonisolated private struct EventPayload: Decodable {
 }
 
 nonisolated private struct CommandResultPayload: Decodable {
-    let result: BridgeCommandResult
+    let result: CoreCommandResult
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
@@ -332,7 +332,7 @@ nonisolated private struct CommandResultPayload: Decodable {
         case terminalClosed
     }
 
-    private static func workflowResult(_ type: ResultType, workflowID: UInt64) throws -> BridgeCommandResult {
+    private static func workflowResult(_ type: ResultType, workflowID: UInt64) throws -> CoreCommandResult {
         switch type {
         case .workflowCreated: .workflowCreated(workflowID: workflowID)
         case .workflowActivated: .workflowActivated(workflowID: workflowID)
@@ -374,7 +374,7 @@ nonisolated private struct CommandResultPayload: Decodable {
 }
 
 // Trace metadata was added after the original state protocol; tolerate snapshots without it.
-extension BridgeSnapshot {
+extension CoreSnapshot {
     nonisolated private enum CodingKeys: String, CodingKey {
         case sequence, state, config, folders, terminals, workflows, traces, workflowTypes
     }
@@ -382,12 +382,12 @@ extension BridgeSnapshot {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             sequence: try container.decode(UInt64.self, forKey: .sequence),
-            state: try container.decode(BridgeApplicationState.self, forKey: .state),
-            config: try container.decode(BridgeConfig.self, forKey: .config),
-            folders: try container.decode(BridgeFolderState.self, forKey: .folders),
-            terminals: try container.decodeIfPresent([BridgeTerminalState].self, forKey: .terminals) ?? [],
-            workflows: try container.decodeIfPresent(BridgeWorkflowState.self, forKey: .workflows) ?? .init(),
-            traces: try container.decodeIfPresent([BridgeTraceSummary].self, forKey: .traces) ?? [],
-            workflowTypes: try container.decodeIfPresent([BridgeWorkflowType].self, forKey: .workflowTypes))
+            state: try container.decode(CoreApplicationState.self, forKey: .state),
+            config: try container.decode(CoreConfig.self, forKey: .config),
+            folders: try container.decode(CoreFolderState.self, forKey: .folders),
+            terminals: try container.decodeIfPresent([CoreTerminalState].self, forKey: .terminals) ?? [],
+            workflows: try container.decodeIfPresent(CoreWorkflowState.self, forKey: .workflows) ?? .init(),
+            traces: try container.decodeIfPresent([CoreTraceSummary].self, forKey: .traces) ?? [],
+            workflowTypes: try container.decodeIfPresent([CoreWorkflowType].self, forKey: .workflowTypes))
     }
 }

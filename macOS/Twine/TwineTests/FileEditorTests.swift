@@ -35,7 +35,7 @@ struct FileEditorTests {
         try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
         let file = folder.url.appending(path: "file.txt")
         try "original".write(to: file, atomically: true, encoding: .utf8)
-        let client = BridgeClient(transport: BridgeWorker(dataDirectory: data.url))
+        let client = CoreClient(transport: CoreWorker(dataDirectory: data.url))
         client.start()
         try await client.waitUntilRunning()
         _ = try await client.send(.openFolder(path: folder.url.path))
@@ -77,7 +77,7 @@ struct FileEditorTests {
         await client.stop()
     }
 
-    private func verifyFailedSave(editor: FileEditorModel, client: BridgeClient, file: URL) async throws {
+    private func verifyFailedSave(editor: FileEditorModel, client: CoreClient, file: URL) async throws {
         editor.text = String(repeating: "x", count: 2 * 1024 * 1024 + 1)
         editor.requestSave()
         await editor.savePending(client: client)

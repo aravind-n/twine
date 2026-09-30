@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-    echo "usage: scripts/build-bridge.sh debug|release" >&2
+    echo "usage: scripts/build-core.sh debug|release" >&2
     exit 2
 }
 
@@ -25,9 +25,9 @@ case "$1" in
 esac
 
 repo_root="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
-package_root="${repo_root}/TwineBridgePackage"
-artifact="${package_root}/TwineBridge.xcframework"
-target_dir="${repo_root}/target/bridge-xcframework"
+package_root="${repo_root}/TwineCorePackage"
+artifact="${package_root}/TwineCore.xcframework"
+target_dir="${repo_root}/target/core-xcframework"
 deployment_target=26.0
 
 if command -v cargo >/dev/null 2>&1; then
@@ -35,13 +35,13 @@ if command -v cargo >/dev/null 2>&1; then
 elif [ -x "${CARGO_HOME:-${HOME}/.cargo}/bin/cargo" ]; then
     cargo_bin="${CARGO_HOME:-${HOME}/.cargo}/bin/cargo"
 else
-    echo "error: cargo not found; install Rust before building TwineBridge" >&2
+    echo "error: cargo not found; install Rust before building TwineCore" >&2
     exit 1
 fi
 
 for tool in xcodebuild xcrun; do
     if ! command -v "${tool}" >/dev/null 2>&1; then
-        echo "error: ${tool} not found; install Xcode before building TwineBridge" >&2
+        echo "error: ${tool} not found; install Xcode before building TwineCore" >&2
         exit 1
     fi
 done
@@ -53,7 +53,7 @@ for rust_target in aarch64-apple-darwin x86_64-apple-darwin; do
     fi
 done
 
-echo "Building TwineBridge (${configuration}) for arm64 and x86_64"
+echo "Building TwineCore (${configuration}) for arm64 and x86_64"
 MACOSX_DEPLOYMENT_TARGET="${deployment_target}" \
 CARGO_TARGET_DIR="${target_dir}" \
     "${cargo_bin}" build \
@@ -64,7 +64,7 @@ CARGO_TARGET_DIR="${target_dir}" \
         --target x86_64-apple-darwin \
         ${cargo_profile}
 
-staging_root="$(mktemp -d "${package_root}/.build-bridge.XXXXXX")"
+staging_root="$(mktemp -d "${package_root}/.build-core.XXXXXX")"
 trap 'rm -rf "${staging_root}"' EXIT HUP INT TERM
 
 universal_library="${staging_root}/libtwine_bridge.a"
@@ -73,7 +73,7 @@ xcrun lipo -create \
     "${target_dir}/x86_64-apple-darwin/${profile}/libtwine_bridge.a" \
     -output "${universal_library}"
 
-staged_artifact="${staging_root}/TwineBridge.xcframework"
+staged_artifact="${staging_root}/TwineCore.xcframework"
 xcodebuild -create-xcframework \
     -library "${universal_library}" \
     -headers "${repo_root}/twine-bridge/include" \

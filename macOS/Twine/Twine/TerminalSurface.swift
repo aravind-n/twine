@@ -7,7 +7,7 @@ struct TerminalSurface: View {
     private static let minimumTerminalHeight =
         2 * (NSFont.terminal.ascender - NSFont.terminal.descender + NSFont.terminal.leading).rounded(.up)
 
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     @State private var failureMessage: String?
 
     let terminalID: UInt64
@@ -31,7 +31,7 @@ struct TerminalSurface: View {
         TerminalPadding(padding: padding, minimumContentHeight: Self.minimumTerminalHeight) {
             ZStack(alignment: .bottomLeading) {
                 TerminalViewRepresentable(
-                    bridgeClient: bridgeClient,
+                    coreClient: coreClient,
                     terminalID: terminalID,
                     isVisible: isVisible,
                     isSelected: isSelected,
@@ -62,7 +62,7 @@ struct TerminalSurface: View {
     private var statusMessage: String? {
         if let failureMessage { return failureMessage }
         if isCancelled { return "Agent cancelled" }
-        switch bridgeClient.terminalStatus(for: terminalID) {
+        switch coreClient.terminalStatus(for: terminalID) {
         case .exited(let exit):
             if let signal = exit.signal {
                 return "\(subject) exited with code \(exit.exitCode) (\(signal))"
@@ -98,7 +98,7 @@ nonisolated private struct TerminalPadding: Layout {
 }
 
 struct TerminalViewRepresentable: NSViewRepresentable {
-    let bridgeClient: BridgeClient
+    let coreClient: CoreClient
     let terminalID: UInt64
     let isVisible: Bool
     let isSelected: Bool
@@ -110,7 +110,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
 
     func makeCoordinator() -> TerminalController {
         let controller = TerminalController(
-            bridgeClient: bridgeClient, terminalID: terminalID, failureMessage: $failureMessage
+            coreClient: coreClient, terminalID: terminalID, failureMessage: $failureMessage
         )
         controller.beforeUserInput = beforeUserInput
         return controller

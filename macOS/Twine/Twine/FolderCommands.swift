@@ -28,14 +28,14 @@ struct FolderCommands: Commands {
         private static let testRoles = ["Implementer", "Reviewer", "Coordinator", "Worker"]
     #endif
 
-    let bridgeClient: BridgeClient
+    let coreClient: CoreClient
     let editor: FileEditorModel
     @FocusedBinding(\.isChoosingFolder) private var isChoosingFolder
     @FocusedValue(\.workflowActions) private var workflowActions
     @FocusedValue(\.closeFile) private var closeFile
 
     var body: some Commands {
-        let isRunning = bridgeClient.connectionState == .running
+        let isRunning = coreClient.runState == .running
         CommandGroup(replacing: .newItem) {
             Button("New Workflow") { workflowActions?.create() }
                 .keyboardShortcut("t")
@@ -62,9 +62,9 @@ struct FolderCommands: Commands {
             .disabled(isChoosingFolder == nil || !isRunning)
             Button("Close Folder") {
                 guard editor.select(nil) else { return }
-                Task { await bridgeClient.perform(.closeFolder) }
+                Task { await coreClient.perform(.closeFolder) }
             }
-            .disabled(!isRunning || bridgeClient.snapshot?.folders.openFolder == nil)
+            .disabled(!isRunning || coreClient.snapshot?.folders.openFolder == nil)
         }
         CommandGroup(after: .sidebar) {
             Toggle(

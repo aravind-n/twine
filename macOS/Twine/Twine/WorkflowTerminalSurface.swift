@@ -2,17 +2,17 @@ import SwiftUI
 
 /// Keeps the live terminal mounted while its draft choices appear and disappear above it.
 struct WorkflowTerminalSurface: View {
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     @Environment(TraceTerminalNavigation.self) private var navigation
     let folder: String
-    let workflow: BridgeWorkflow
+    let workflow: CoreWorkflow
     let isSelected: Bool
     let reportFailure: (String) -> Void
     @State private var draft = WorkflowDraftPresentation()
     @State private var showsChoices = false
     @State private var focusRequest = 0
-    @State private var selectedHarness: BridgeHarness?
-    @State private var selectedType: BridgeWorkflowType?
+    @State private var selectedHarness: CoreHarness?
+    @State private var selectedType: CoreWorkflowType?
     private var history: TraceTerminalTarget? {
         navigation.target.flatMap { $0.workflowID == workflow.id ? $0 : nil }
     }
@@ -68,7 +68,7 @@ struct WorkflowTerminalSurface: View {
             automaticallyFocuses: workflow.kind != .draft || (selectedHarness == nil && selectedType == nil),
             subject: workflow.kind == .singleAgent ? "Agent" : "Shell", isCancelled: workflow.status == .cancelled
         ) {
-            try await draft.activate(client: bridgeClient, workflowID: workflow.id)
+            try await draft.activate(client: coreClient, workflowID: workflow.id)
         }
         // A started agent gets a new terminal, so the emulator must be rebuilt for it.
         .id(workflow.terminalID)
@@ -103,8 +103,8 @@ struct WorkflowTerminalSurface: View {
         )
     }
 
-    private func startAgent(harness: BridgeHarness, prompt: String) async throws {
-        try await bridgeClient.startAgent(workflowID: workflow.id, harness: harness, prompt: prompt)
+    private func startAgent(harness: CoreHarness, prompt: String) async throws {
+        try await coreClient.startAgent(workflowID: workflow.id, harness: harness, prompt: prompt)
         focusRequest += 1
     }
 
@@ -112,13 +112,13 @@ struct WorkflowTerminalSurface: View {
         Task {
             do {
                 if choice == .terminal {
-                    try await draft.activate(client: bridgeClient, workflowID: workflow.id)
+                    try await draft.activate(client: coreClient, workflowID: workflow.id)
                 }
                 focusRequest += 1
             } catch {
                 // Typing can activate or closing can remove a draft while a choice is being sent.
                 guard
-                    bridgeClient.snapshot?.workflows.workflows.contains(
+                    coreClient.snapshot?.workflows.workflows.contains(
                         where: { $0.id == workflow.id && $0.kind == .draft }
                     ) == true
                 else { return }

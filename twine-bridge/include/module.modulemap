@@ -1,4 +1,4 @@
-module TwineBridge {
+module TwineCore {
     header "twine_bridge.h"
     export *
 }

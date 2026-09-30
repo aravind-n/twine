@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct BridgeWorkflowType: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct CoreWorkflowType: Decodable, Equatable, Identifiable, Sendable {
     let reference: Reference
     let definition: Definition
     var id: String { reference.builtin ?? "custom-\(reference.user?.typeID ?? 0)-\(reference.user?.version ?? 0)" }
@@ -9,7 +9,7 @@ nonisolated struct BridgeWorkflowType: Decodable, Equatable, Identifiable, Senda
 
     struct Reference: Codable, Equatable, Sendable {
         var builtin: String?
-        var user: BridgeUserWorkflowVersion?
+        var user: CoreUserWorkflowVersion?
     }
 
     struct Definition: Decodable, Equatable, Sendable {
@@ -70,21 +70,21 @@ nonisolated struct BridgeWorkflowType: Decodable, Equatable, Identifiable, Senda
     }
 }
 
-extension BridgeWorkflowType.Definition {
+extension CoreWorkflowType.Definition {
     private enum CodingKeys: String, CodingKey {
         case name, description, roles, stages, handoffs
         case reviewLoops = "review_loops"
     }
 }
 
-extension BridgeWorkflowType.Handoff {
+extension CoreWorkflowType.Handoff {
     private enum CodingKeys: String, CodingKey {
         case from, content
         case destination = "to"
     }
 }
 
-extension BridgeWorkflowType.ReviewLoop {
+extension CoreWorkflowType.ReviewLoop {
     private enum CodingKeys: String, CodingKey {
         case reviewStage = "review_stage"
         case backTo = "back_to"

@@ -20,10 +20,10 @@ struct WorkflowTests {
         #expect(selection.selectedID == nil)
     }
 
-    @Test @MainActor func draftActivationAndWorkflowCloseRoundTripThroughTheRealBridge() async throws {
+    @Test @MainActor func draftActivationAndWorkflowCloseRoundTripThroughTheRealCore() async throws {
         let directory = TemporaryPath()
         try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: true)
-        let client = BridgeClient(transport: BridgeWorker(dataDirectory: directory.url.appending(path: ".twine")))
+        let client = CoreClient(transport: CoreWorker(dataDirectory: directory.url.appending(path: ".twine")))
         client.start()
         do {
             try await client.waitUntilRunning()
@@ -61,7 +61,7 @@ struct WorkflowTests {
     @Test @MainActor func hiddenWorkflowDrainsMoreThanTheRouterCapacityWhileSelectedTerminalResponds() async throws {
         let directory = TemporaryPath()
         try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: true)
-        let client = BridgeClient(transport: BridgeWorker(dataDirectory: directory.url.appending(path: ".twine")))
+        let client = CoreClient(transport: CoreWorker(dataDirectory: directory.url.appending(path: ".twine")))
         client.start()
         var controllers: [TerminalController] = []
         do {
@@ -110,7 +110,7 @@ struct WorkflowTests {
     }
 
     @MainActor
-    private func prepareShell(client: BridgeClient, terminalID: UInt64, view: MetalTerminalView) async throws {
+    private func prepareShell(client: CoreClient, terminalID: UInt64, view: MetalTerminalView) async throws {
         // Wait for the replacement shell's prompt before sending the next command. A shell can
         // read ahead and discard queued input when exec replaces it.
         let command = "exec /bin/sh -c 'PS1=TWINE_\"\"READY; export PS1; exec /bin/sh'\n"
@@ -119,13 +119,13 @@ struct WorkflowTests {
     }
 
     @MainActor
-    private func makeTerminal(client: BridgeClient, workflow: BridgeWorkflow, isSelected: Bool) -> TestTerminal {
+    private func makeTerminal(client: CoreClient, workflow: CoreWorkflow, isSelected: Bool) -> TestTerminal {
         let view = MetalTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
         view.isSelected = isSelected
         view.isHidden = !isSelected
         let failure = TerminalFailure()
         let controller = TerminalController(
-            bridgeClient: client, terminalID: workflow.terminalID,
+            coreClient: client, terminalID: workflow.terminalID,
             failureMessage: Binding(get: { failure.value }, set: { failure.value = $0 })
         )
         view.terminalDelegate = controller
@@ -174,11 +174,11 @@ extension WorkflowTests {
         #expect(selection.selectedID == nil)
     }
 
-    @Test @MainActor func sessionsAndTabsRestoreThroughTheRealBridge() async throws {
+    @Test @MainActor func sessionsAndTabsRestoreThroughTheRealCore() async throws {
         let directory = TemporaryPath()
         try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: true)
         let data = directory.url.appending(path: ".twine")
-        let client = BridgeClient(transport: BridgeWorker(dataDirectory: data))
+        let client = CoreClient(transport: CoreWorker(dataDirectory: data))
         client.start()
         do {
             try await client.waitUntilRunning()

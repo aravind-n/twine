@@ -20,14 +20,14 @@ nonisolated struct WorkflowLayout: Codable, Equatable, Sendable {
     var rowFractions = [0.5, 0.5]
 
     /// The focused agent while it exists, otherwise the first.
-    func focusedAgent(in agents: [BridgeAgent]) -> BridgeAgent? {
+    func focusedAgent(in agents: [CoreAgent]) -> CoreAgent? {
         agents.first { $0.id == focusedAgentID } ?? agents.first
     }
 
     /// One agent per Bento pane: the saved order for agents that still exist, then the rest in role
     /// order, up to four. The focused agent always has a pane.
-    func panes(of agents: [BridgeAgent]) -> [BridgeAgent] {
-        var panes: [BridgeAgent] = []
+    func panes(of agents: [CoreAgent]) -> [CoreAgent] {
+        var panes: [CoreAgent] = []
         for id in paneAgentIDs {
             if let agent = agents.first(where: { $0.id == id }), !panes.contains(agent) { panes.append(agent) }
         }
@@ -41,7 +41,7 @@ nonisolated struct WorkflowLayout: Codable, Equatable, Sendable {
 
     /// Gives an agent the keyboard. In Bento mode the panes stay as they are on screen, and an agent
     /// without a pane takes the focused one's.
-    mutating func focus(_ agentID: UInt64, in agents: [BridgeAgent]) {
+    mutating func focus(_ agentID: UInt64, in agents: [CoreAgent]) {
         guard agents.contains(where: { $0.id == agentID }) else { return }
         if mode == .bento {
             let ids = panes(of: agents).map(\.id)
@@ -52,7 +52,7 @@ nonisolated struct WorkflowLayout: Codable, Equatable, Sendable {
     }
 
     /// Puts an agent in a pane and focuses it. An agent that had another pane swaps places.
-    mutating func place(_ agentID: UInt64, inPane index: Int, of agents: [BridgeAgent]) {
+    mutating func place(_ agentID: UInt64, inPane index: Int, of agents: [CoreAgent]) {
         var ids = panes(of: agents).map(\.id)
         guard ids.indices.contains(index), agents.contains(where: { $0.id == agentID }) else { return }
         if let current = ids.firstIndex(of: agentID) {
@@ -66,7 +66,7 @@ nonisolated struct WorkflowLayout: Codable, Equatable, Sendable {
 
     /// Moves the keyboard forward or back, wrapping around: through the agents in tab mode, and through
     /// the panes as they are on screen in Bento mode.
-    mutating func moveFocus(by offset: Int, in agents: [BridgeAgent]) {
+    mutating func moveFocus(by offset: Int, in agents: [CoreAgent]) {
         let ids = mode == .bento ? panes(of: agents).map(\.id) : agents.map(\.id)
         guard let focused = focusedAgent(in: agents), let index = ids.firstIndex(of: focused.id) else { return }
         if mode == .bento { paneAgentIDs = ids }

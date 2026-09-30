@@ -7,7 +7,7 @@ import Testing
 struct WorkflowRunTests {
     @Test func coreCatalogDecodesRolesAndLaunchBounds() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "TwineRunTests-\(UUID().uuidString)")
-        let worker = BridgeWorker(dataDirectory: directory)
+        let worker = CoreWorker(dataDirectory: directory)
         do {
             let snapshot = try await worker.open()
             let types = try #require(snapshot.workflowTypes)
@@ -26,7 +26,7 @@ struct WorkflowRunTests {
     }
 
     @Test func completionCarriesTheStageGenerationReviewAndWorkerAssignments() throws {
-        let signal = BridgeCompletionSignal(
+        let signal = CoreCompletionSignal(
             decision: .done, summary: "Split the task",
             assignments: [
                 .init(role: "worker", instance: 1, task: "Fix one file", files: ["one.swift"])
@@ -42,12 +42,12 @@ struct WorkflowRunTests {
         #expect(command["agentId"] as? Int == 4)
         let encoded = try #require(command["signal"] as? [String: Any])
         let decoded = try JSONDecoder().decode(
-            BridgeCompletionSignal.self, from: JSONSerialization.data(withJSONObject: encoded))
+            CoreCompletionSignal.self, from: JSONSerialization.data(withJSONObject: encoded))
         #expect(decoded == signal)
     }
 
     @Test func startCarriesCustomVersionAndEachHarnessChoice() throws {
-        let reference = BridgeWorkflowType.Reference(user: .init(typeID: 10, version: 2))
+        let reference = CoreWorkflowType.Reference(user: .init(typeID: 10, version: 2))
         let envelope = CommandEnvelope(
             requestID: 1,
             command: .startWorkflowRun(

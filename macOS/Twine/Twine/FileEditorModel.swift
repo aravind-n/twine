@@ -4,7 +4,7 @@ import Observation
 
 private let fileEditorLogger = Logger(subsystem: "com.twineproject.Twine", category: "file-editor")
 
-/// A single transient editing buffer; Rust supplies disk versions and performs every save.
+/// A single transient editing buffer; twine-core supplies disk versions and performs every save.
 @Observable
 final class FileEditorModel {
     private(set) var path: String?
@@ -64,18 +64,18 @@ final class FileEditorModel {
         saveID = UUID()
     }
 
-    func savePending(client: BridgeClient) async {
+    func savePending(client: CoreClient) async {
         guard let request = pendingSave else { return }
         do {
             let result = try await client.saveFile(request)
             switch result.status {
             case .saved:
                 guard let file = result.file, file.path == path, file.version != nil else {
-                    throw BridgeFailure.unexpectedCommandResult
+                    throw CoreFailure.unexpectedCommandResult
                 }
                 baseline = file
             case .conflict:
-                guard let file = result.file, file.path == path else { throw BridgeFailure.unexpectedCommandResult }
+                guard let file = result.file, file.path == path else { throw CoreFailure.unexpectedCommandResult }
                 conflict = file
             case .failed:
                 failure = result.message ?? "The file could not be saved."

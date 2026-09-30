@@ -5,7 +5,7 @@ import Observation
 final class WorkflowDraftPresentation {
     private var activation: Task<Void, any Error>?
 
-    func activate(client: BridgeClient, workflowID: UInt64) async throws {
+    func activate(client: CoreClient, workflowID: UInt64) async throws {
         if let activation {
             try await activation.value
             return

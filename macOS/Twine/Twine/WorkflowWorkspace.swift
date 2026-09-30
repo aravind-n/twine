@@ -5,20 +5,20 @@ private let workflowLogger = Logger(subsystem: "com.twineproject.Twine", categor
 
 /// Every workflow stays mounted, including its output pump and terminal emulator, until it closes.
 struct WorkflowWorkspace: View {
-    @Environment(BridgeClient.self) private var bridgeClient
+    @Environment(CoreClient.self) private var coreClient
     @Environment(WorkflowLayouts.self) private var layouts
     let folder: String
     @Binding var selection: WorkflowTabSelection
     var isVisible = true
     @State private var failureMessage: String?
 
-    private var allWorkflows: [BridgeWorkflow] {
-        guard bridgeClient.snapshot?.folders.openFolder == folder else { return [] }
-        return bridgeClient.snapshot?.workflows.workflows ?? []
+    private var allWorkflows: [CoreWorkflow] {
+        guard coreClient.snapshot?.folders.openFolder == folder else { return [] }
+        return coreClient.snapshot?.workflows.workflows ?? []
     }
 
-    private var sessionID: UInt64? { bridgeClient.snapshot?.workflows.session?.sessionID }
-    private var workflows: [BridgeWorkflow] { allWorkflows.filter { $0.sessionID == sessionID } }
+    private var sessionID: UInt64? { coreClient.snapshot?.workflows.session?.sessionID }
+    private var workflows: [CoreWorkflow] { allWorkflows.filter { $0.sessionID == sessionID } }
     private var selectionKey: [UInt64] { [sessionID ?? 0] + workflows.map(\.id) }
 
     var body: some View {
@@ -62,13 +62,13 @@ struct WorkflowWorkspace: View {
         }
         .task {
             selection.reconcile(sessionID: sessionID, current: workflows.map(\.id))
-            if bridgeClient.snapshot?.workflows.sessionsInitialized == false { await create() }
+            if coreClient.snapshot?.workflows.sessionsInitialized == false { await create() }
         }
         .onChange(of: selectionKey) {
             selection.reconcile(sessionID: sessionID, current: workflows.map(\.id))
         }
         .onChange(of: allWorkflows.map(\.id), initial: true) {
-            layouts.removeClosedWorkflows(in: folder, state: bridgeClient.snapshot?.workflows)
+            layouts.removeClosedWorkflows(in: folder, state: coreClient.snapshot?.workflows)
         }
         .focusedSceneValue(
             \.workflowActions,
@@ -97,10 +97,10 @@ struct WorkflowWorkspace: View {
 
     private var panelShape: RoundedRectangle { RoundedRectangle(cornerRadius: CornerRadius.panel) }
 
-    private var selectedWorkflow: BridgeWorkflow? { workflows.first { $0.id == selection.selectedID } }
+    private var selectedWorkflow: CoreWorkflow? { workflows.first { $0.id == selection.selectedID } }
 
     /// The workflow's layout mode, when it has agents to arrange.
-    private func layoutMode(for workflow: BridgeWorkflow) -> Binding<WorkflowLayout.Mode>? {
+    private func layoutMode(for workflow: CoreWorkflow) -> Binding<WorkflowLayout.Mode>? {
         guard workflow.showsAgentSubtabs else { return nil }
         return Binding(
             get: { layouts.layout(for: workflow.id, in: folder).mode },
@@ -112,7 +112,7 @@ struct WorkflowWorkspace: View {
     }
 
     /// Moves the keyboard between the workflow's agents, when it has more than one.
-    private func focusMover(for workflow: BridgeWorkflow) -> ((Int) -> Void)? {
+    private func focusMover(for workflow: CoreWorkflow) -> ((Int) -> Void)? {
         guard workflow.showsAgentSubtabs else { return nil }
         return { offset in
             var layout = layouts.layout(for: workflow.id, in: folder)
@@ -121,18 +121,18 @@ struct WorkflowWorkspace: View {
         }
     }
 
-    private func create(kind: BridgeWorkflow.Kind = .draft, roles: [String] = []) async {
+    private func create(kind: CoreWorkflow.Kind = .draft, roles: [String] = []) async {
         do {
             let targetSession = sessionID
-            let id = try await bridgeClient.createWorkflow(
+            let id = try await coreClient.createWorkflow(
                 folder: folder, sessionID: targetSession, kind: kind, roles: roles)
             if Task.isCancelled {
-                try await bridgeClient.closeWorkflow(workflowID: id)
+                try await coreClient.closeWorkflow(workflowID: id)
             } else if targetSession == sessionID || targetSession == nil {
                 selection.selectedID = id
             }
         } catch {
-            if Task.isCancelled || bridgeClient.snapshot?.folders.openFolder != folder { return }
+            if Task.isCancelled || coreClient.snapshot?.folders.openFolder != folder { return }
             failureMessage = error.localizedDescription
             workflowLogger.error("Could not create workflow: \(error.localizedDescription, privacy: .public)")
         }
@@ -141,10 +141,10 @@ struct WorkflowWorkspace: View {
     private func cancelAgent(_ id: UInt64) {
         Task {
             do {
-                try await bridgeClient.cancelAgent(workflowID: id)
+                try await coreClient.cancelAgent(workflowID: id)
             } catch {
                 // The agent can end on its own just as Cancel is chosen.
-                if (error as? BridgeFailure)?.isAgentNotRunning == true { return }
+                if (error as? CoreFailure)?.isAgentNotRunning == true { return }
                 if !workflows.contains(where: { $0.id == id && $0.isRunningAgent }) { return }
                 failureMessage = error.localizedDescription
                 workflowLogger.error("Could not cancel agent: \(error.localizedDescription, privacy: .public)")
@@ -155,7 +155,7 @@ struct WorkflowWorkspace: View {
     private func close(_ id: UInt64) {
         Task {
             do {
-                try await bridgeClient.closeWorkflow(workflowID: id)
+                try await coreClient.closeWorkflow(workflowID: id)
             } catch {
                 if !workflows.contains(where: { $0.id == id }) { return }
                 failureMessage = error.localizedDescription

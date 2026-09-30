@@ -7,7 +7,7 @@ struct AgentWorkflowSurface: View {
     @Environment(WorkflowLayouts.self) private var layouts
     @Environment(TraceTerminalNavigation.self) private var navigation
     let folder: String
-    let workflow: BridgeWorkflow
+    let workflow: CoreWorkflow
     let isSelected: Bool
     private var history: TraceTerminalTarget? {
         navigation.target.flatMap { $0.workflowID == workflow.id ? $0 : nil }
