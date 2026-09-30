@@ -378,7 +378,9 @@ mod tests {
         let application = application(
             folder.path(),
             bin.path(),
-            Some("printf 'ARGS:%s|%s\\n' \"$1\" \"$2\"; read line; echo \"GOT:$line\"; exit 3"),
+            Some(
+                "while [ \"$#\" -gt 0 ] && [ \"$1\" != -- ]; do shift; done; printf 'ARGS:%s|%s\\n' \"$1\" \"$2\"; read line; echo \"GOT:$line\"; exit 3",
+            ),
         );
         let draft = draft(&application, folder.path());
 
@@ -590,7 +592,7 @@ mod tests {
             let binary = bin.path().join("pi");
             std::fs::write(
                 &binary,
-                "#!/bin/sh\ncase \"$2\" in exit) exit 0;; *) trap '' HUP; sleep 30;; esac\n",
+                "#!/bin/sh\nwhile [ \"$#\" -gt 0 ] && [ \"$1\" != -- ]; do shift; done\ncase \"$2\" in exit) exit 0;; *) trap '' HUP; sleep 30;; esac\n",
             )
             .unwrap();
             std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
