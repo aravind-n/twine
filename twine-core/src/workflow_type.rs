@@ -8,8 +8,10 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+mod builtin;
 mod validation;
 
+pub use builtin::BuiltinType;
 pub use validation::{ElementPath, ValidationIssue, ValidationProblem, validate};
 
 /// The most agents that can run at once in one stage, counting every instance of every role.
