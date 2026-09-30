@@ -27,11 +27,23 @@ pub(super) fn canonical_working_directory(path: &Path) -> Result<PathBuf, Termin
 }
 
 /// The user's login shell, started in `working_directory` through the launcher handshake.
-pub(super) fn default_shell_command(working_directory: &Path) -> CommandBuilder {
-    let mut command = shell_launcher_command(working_directory, &login_shell());
+pub(super) fn default_shell_command(
+    working_directory: &Path,
+    shell: &Path,
+    integrate: bool,
+) -> Result<(CommandBuilder, Option<super::shell::ShellIntegration>), TerminalError> {
+    let mut command = shell_launcher(working_directory, shell);
+    let integration = if integrate {
+        super::shell::ShellIntegration::prepare(shell, &mut command)?
+    } else {
+        None
+    };
+    if integration.is_none() {
+        command.arg("-l");
+    }
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
-    command
+    Ok((command, integration))
 }
 
 /// The user's login shell.
@@ -61,11 +73,18 @@ pub(super) fn program_launcher_command(
     command
 }
 
+#[cfg(test)]
 pub(super) fn shell_launcher_command(working_directory: &Path, shell: &Path) -> CommandBuilder {
+    let mut command = shell_launcher(working_directory, shell);
+    command.arg("-l");
+    command
+}
+
+fn shell_launcher(working_directory: &Path, shell: &Path) -> CommandBuilder {
     let mut command = CommandBuilder::new("/bin/sh");
     command.args([
         "-c",
-        "if cd \"$1\" 2>/dev/null; then printf '\\036'; exec \"$2\" -l; else printf '\\037'; exit 125; fi",
+        "if cd \"$1\" 2>/dev/null; then printf '\\036'; shift; exec \"$@\"; else printf '\\037'; exit 125; fi",
         "twine-shell-launcher",
     ]);
     command.arg(working_directory.as_os_str());

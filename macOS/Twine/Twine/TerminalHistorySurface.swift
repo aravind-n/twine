@@ -25,7 +25,7 @@ struct TerminalHistorySurface: View {
                 ProgressView("Loading terminal output…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready(let replay):
-                TerminalHistoryText(text: replay.text)
+                TerminalHistoryText(text: replay.text, outputStartRange: replay.outputStartRange)
             case .expired:
                 ContentUnavailableView(
                     "Output no longer available", systemImage: "clock.badge.exclamationmark",

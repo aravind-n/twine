@@ -1,0 +1,68 @@
+# The private login profile restored HOME. The system profile has already run.
+for _twine_profile in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+    if [[ -r $_twine_profile ]]; then builtin source "$_twine_profile"; break; fi
+done
+builtin unset _twine_profile
+[[ $- == *i* ]] || return
+_twine_active=0
+_twine_ready=0
+_twine_disabled=0
+_twine_metadata_available() {
+    [[ -o history && ${HISTSIZE:-500} != 0 &&
+       ${HISTCONTROL:-} != *ignorespace* && ${HISTCONTROL:-} != *ignoreboth* && -z ${HISTIGNORE:-} ]]
+}
+_twine_prompt() {
+    local result=$?
+    (( _twine_disabled )) && return "$result"
+    _twine_ready=0
+    if (( _twine_active )); then
+        builtin printf '\033]133;D;twine=@TOKEN@;%s\007' "$result"
+        _twine_active=0
+    fi
+    builtin printf '\033]133;A;twine=@TOKEN@\007'
+    return "$result"
+}
+_twine_debug() {
+    local result=$?
+    (( _twine_disabled )) && return "$result"
+    [[ $BASH_COMMAND == _twine_prompt || ${FUNCNAME[1]:-} == _twine_prompt ]] && return "$result"
+    if (( _twine_ready && ! _twine_active )); then
+        if ! _twine_metadata_available; then
+            builtin printf '\033]133;L;twine=@TOKEN@\007'
+            _twine_disabled=1
+            _twine_ready=0
+            return "$result"
+        fi
+        _twine_active=1
+        _twine_ready=0
+        local line recent
+        # The shell supplies this command metadata. Never read terminal echo/output.
+        recent=$(HISTTIMEFORMAT= builtin history 1)
+        line=${recent#*[0-9]  }
+        if [[ -z $line ]]; then
+            builtin printf '\033]133;L;twine=@TOKEN@\007'
+            _twine_disabled=1
+            _twine_ready=0
+            _twine_active=0
+            return "$result"
+        fi
+        local command_hex=$(builtin printf '%s' "$line" | /usr/bin/od -An -v -tx1 | /usr/bin/tr -d ' \n')
+        builtin printf '\033]133;C;twine=@TOKEN@;command=%s\007' "$command_hex"
+    fi
+    return "$result"
+}
+_twine_exit() {
+    local result=$?
+    (( _twine_active )) && builtin printf '\033]133;D;twine=@TOKEN@;%s\007' "$result"
+}
+# Leave shells with existing DEBUG/EXIT traps on the lifetime-span fallback rather
+# than replacing user hooks. PROMPT_COMMAND retains both strings and arrays.
+if [[ -z $(builtin trap -p DEBUG) && -z $(builtin trap -p EXIT) ]] && _twine_metadata_available; then
+    if [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == 'declare -a'* ]]; then
+        PROMPT_COMMAND=('_twine_prompt' "${PROMPT_COMMAND[@]}" '_twine_ready=1')
+    else
+        PROMPT_COMMAND="_twine_prompt${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _twine_ready=1"
+    fi
+    builtin trap '_twine_debug' DEBUG
+    builtin trap '_twine_exit' EXIT
+fi

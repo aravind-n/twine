@@ -109,7 +109,12 @@ impl Application {
         let mut inner = self.lock_inner()?;
         let mut terminal_ids = Vec::with_capacity(reserved.len());
         for (index, &terminal_id) in reserved.iter().enumerate() {
-            match self.start_terminal(terminal_id, folder, size) {
+            match self.start_terminal(
+                terminal_id,
+                folder,
+                size,
+                matches!(kind, WorkflowKind::Draft | WorkflowKind::Terminal),
+            ) {
                 Ok(terminal_id) => terminal_ids.push(terminal_id),
                 Err(error) => {
                     drop(inner);
@@ -354,6 +359,7 @@ impl Application {
                             pixel_width: 800,
                             pixel_height: 480,
                         },
+                        matches!(stored.kind, WorkflowKind::Draft | WorkflowKind::Terminal),
                     )
                 }) {
                 Ok(id) => {

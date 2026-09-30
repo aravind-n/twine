@@ -161,6 +161,10 @@ struct Inner {
     workflows: WorkflowState,
     trace_spans: HashMap<TerminalId, crate::TraceSpanId>,
     pending_trace_endings: HashMap<TerminalId, traces::PendingTraceEnding>,
+    command_shells: std::collections::HashSet<TerminalId>,
+    shell_process_endings: HashMap<TerminalId, traces::PendingTraceEnding>,
+    pending_shell_marks: std::collections::VecDeque<crate::terminal::ShellObservation>,
+    pending_shell_workflows: HashMap<TerminalId, crate::Workflow>,
 }
 
 pub struct Application {
@@ -260,6 +264,10 @@ impl Application {
                 workflows: WorkflowState::default(),
                 trace_spans: HashMap::new(),
                 pending_trace_endings: HashMap::new(),
+                command_shells: std::collections::HashSet::new(),
+                shell_process_endings: HashMap::new(),
+                pending_shell_marks: std::collections::VecDeque::new(),
+                pending_shell_workflows: HashMap::new(),
             })),
             terminal_output: Arc::clone(&terminal_output),
             terminals,
@@ -293,6 +301,7 @@ impl Application {
             .lock()
             .map_err(|_| ApplicationError::Poisoned)?;
         self.lock_inner()?.retry_trace_endings();
+        self.poll_shell_observations()?;
         let disposition = match command {
             Command::Ping => {
                 let mut inner = self.lock_inner()?;
@@ -389,6 +398,7 @@ impl Application {
     ///
     /// Returns an error if application state cannot be accessed.
     pub fn snapshot(&self) -> Result<Snapshot, ApplicationError> {
+        self.poll_shell_observations()?;
         self.poll_workflow_signals()?;
         let mut inner = self.lock_inner()?;
         let workflow_types =
@@ -428,6 +438,7 @@ impl Application {
         sequence: u64,
         limit: usize,
     ) -> Result<Vec<Event>, ApplicationError> {
+        self.poll_shell_observations()?;
         self.poll_workflow_signals()?;
         Ok(self.lock_inner()?.events.after(sequence, limit)?)
     }
@@ -466,6 +477,7 @@ impl Inner {
 
 impl Drop for Application {
     fn drop(&mut self) {
+        let _ = self.poll_shell_observations();
         if let Ok(mut inner) = self.inner.lock() {
             inner.retry_trace_endings();
             let ids = inner.trace_spans.keys().copied().collect::<Vec<_>>();

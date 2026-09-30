@@ -4,6 +4,7 @@ import SwiftUI
 /// Snapshot rows keep their original wrapping. Resizing the window only changes the viewport.
 struct TerminalHistoryText: NSViewRepresentable {
     let text: String
+    var outputStartRange: NSRange?
 
     func makeNSView(context: Context) -> TerminalHistoryScrollView {
         Self.makeScrollView()
@@ -33,17 +34,20 @@ struct TerminalHistoryText: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: TerminalHistoryScrollView, context: Context) {
-        Self.show(text, in: scroll)
+        Self.show(text, outputStartRange: outputStartRange, in: scroll)
     }
 
-    static func show(_ text: String, in scroll: TerminalHistoryScrollView) {
+    static func show(_ text: String, outputStartRange: NSRange? = nil, in scroll: TerminalHistoryScrollView) {
         guard let view = scroll.documentView as? NSTextView else { return }
         view.backgroundColor = .terminalBackground
         view.textColor = .terminalText
-        if view.string != text {
+        if view.string != text || scroll.outputStartRange != outputStartRange {
             view.string = text
-            scroll.pendingOutput = (text as NSString).rangeOfCharacter(
-                from: .whitespacesAndNewlines.inverted, options: .backwards)
+            scroll.outputStartRange = outputStartRange
+            scroll.pendingOutput =
+                outputStartRange
+                ?? (text as NSString).rangeOfCharacter(
+                    from: .whitespacesAndNewlines.inverted, options: .backwards)
             scroll.needsLayout = true
         }
     }
@@ -52,6 +56,7 @@ struct TerminalHistoryText: NSViewRepresentable {
 /// SwiftUI supplies the text before the viewport has a size. Position it once layout has real bounds.
 final class TerminalHistoryScrollView: NSScrollView {
     var pendingOutput: NSRange?
+    var outputStartRange: NSRange?
 
     override func layout() {
         super.layout()
@@ -64,7 +69,11 @@ final class TerminalHistoryScrollView: NSScrollView {
         let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         let output = layout.boundingRect(forGlyphRange: glyphs, in: container)
             .offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y)
-        let origin = NSPoint(x: 0, y: max(0, output.maxY + view.textContainerInset.height - contentView.bounds.height))
+        let targetY =
+            outputStartRange == nil
+            ? output.maxY + view.textContainerInset.height - contentView.bounds.height
+            : output.minY - view.textContainerInset.height
+        let origin = NSPoint(x: 0, y: max(0, targetY))
         contentView.scroll(to: origin)
         reflectScrolledClipView(contentView)
     }

@@ -23,6 +23,7 @@ const EXIT_REPORT_SUPPRESSED: u8 = 2;
 
 #[derive(Clone, Debug)]
 pub(crate) struct TerminalObservation {
+    pub integrated_shell: bool,
     pub observed_at: u64,
     pub byte_offset: u64,
     pub boundary_sizes: Option<Vec<TerminalSize>>,
@@ -47,10 +48,13 @@ pub(crate) struct TerminalManager {
     output: Arc<TerminalStream>,
     #[cfg(test)]
     test_shell: Option<PathBuf>,
+    #[cfg(test)]
+    test_shell_home: Option<PathBuf>,
     /// How many more default shells may start before a start fails.
     #[cfg(test)]
     test_starts_before_failure: std::sync::atomic::AtomicUsize,
     sessions: Mutex<HashMap<TerminalId, TerminalSession>>,
+    integrations: Mutex<HashMap<TerminalId, super::shell::ShellIntegration>>,
 }
 
 impl TerminalManager {
@@ -60,14 +64,22 @@ impl TerminalManager {
             #[cfg(test)]
             test_shell: None,
             #[cfg(test)]
+            test_shell_home: None,
+            #[cfg(test)]
             test_starts_before_failure: std::sync::atomic::AtomicUsize::new(usize::MAX),
             sessions: Mutex::new(HashMap::new()),
+            integrations: Mutex::new(HashMap::new()),
         }
     }
 
     #[cfg(test)]
     pub(crate) fn set_test_shell(&mut self, shell: PathBuf) {
         self.test_shell = Some(shell);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_shell_home(&mut self, home: PathBuf) {
+        self.test_shell_home = Some(home);
     }
 
     /// Makes every default shell start after the next `starts` fail.
@@ -83,6 +95,7 @@ impl TerminalManager {
         working_directory: &Path,
         size: TerminalSize,
         on_exit: ExitCallback,
+        integrate: bool,
     ) -> Result<TerminalId, TerminalError> {
         #[cfg(test)]
         if self
@@ -105,16 +118,49 @@ impl TerminalManager {
                 return Err(error);
             }
         };
-        let command = default_shell_command(&working_directory);
+        let shell = super::launcher::login_shell();
         #[cfg(test)]
-        let command = if let Some(shell) = &self.test_shell {
-            let mut command = super::launcher::shell_launcher_command(&working_directory, shell);
-            command.env("TERM", "xterm-256color");
-            command
-        } else {
+        let shell = self.test_shell.clone().unwrap_or(shell);
+        let (command, integration) =
+            match default_shell_command(&working_directory, &shell, integrate) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    let _ = self.output.cancel(terminal_id);
+                    return Err(error);
+                }
+            };
+        #[cfg(test)]
+        let command = {
+            let mut command = command;
+            if let Some(home) = &self.test_shell_home {
+                if integrate && shell.file_name().is_some_and(|name| name == "bash") {
+                    command.env("TWINE_USER_HOME", home);
+                } else {
+                    command.env("HOME", home);
+                }
+                command.env("TWINE_USER_ZDOTDIR", home);
+                command.env("XDG_CONFIG_HOME", home.join(".config"));
+                command.env("HISTFILE", home.join(".history"));
+            }
             command
         };
-        self.start_command(terminal_id, command, size, Some(working_directory), on_exit)
+        if let Some(integration) = integration {
+            self.output
+                .integrate_shell(terminal_id, integration.token.clone())?;
+            self.integrations
+                .lock()
+                .map_err(|_| TerminalError::Poisoned)?
+                .insert(terminal_id, integration);
+        }
+        let result =
+            self.start_command(terminal_id, command, size, Some(working_directory), on_exit);
+        if result.is_err() {
+            self.integrations
+                .lock()
+                .map_err(|_| TerminalError::Poisoned)?
+                .remove(&terminal_id);
+        }
+        result
     }
 
     pub(crate) fn reserve_terminal(&self) -> Result<TerminalId, TerminalError> {
@@ -346,6 +392,10 @@ impl TerminalManager {
             .ok_or(TerminalError::NotOpen { terminal_id })?;
         let _ = self.output.cancel(terminal_id);
         stop_session(terminal_id, session);
+        self.integrations
+            .lock()
+            .map_err(|_| TerminalError::Poisoned)?
+            .remove(&terminal_id);
         debug!(terminal_id = terminal_id.value(), "terminal process closed");
         Ok(())
     }
@@ -375,6 +425,13 @@ impl TerminalManager {
             let _ = self.output.cancel(*terminal_id);
         }
         stop_sessions(sessions);
+        let mut integrations = self
+            .integrations
+            .lock()
+            .map_err(|_| TerminalError::Poisoned)?;
+        for id in terminal_ids {
+            integrations.remove(id);
+        }
         debug!(count = terminal_ids.len(), "terminal processes closed");
         result
     }
@@ -393,6 +450,10 @@ impl TerminalManager {
             let _ = self.output.cancel(*terminal_id);
         }
         stop_sessions(owned_sessions.into_iter().collect());
+        self.integrations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 
     fn lock_sessions(
@@ -436,6 +497,7 @@ fn spawn_terminal_supervisor(
             let observation = output_position
                 .observe()
                 .unwrap_or_else(|_| TerminalObservation {
+                    integrated_shell: false,
                     observed_at: crate::workflow::timestamp(),
                     byte_offset: 0,
                     boundary_sizes: None,

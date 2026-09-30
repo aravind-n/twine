@@ -187,24 +187,37 @@ struct TraceStateTests {
         try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
         let client = CoreClient(transport: CoreWorker(dataDirectory: data.url))
         client.start()
-        try await waitUntil { client.runState == .running }
-        _ = try await client.send(.openFolder(path: folder.path))
-        try await waitUntil { client.snapshot?.folders.openFolder == folder.path }
-        let id = try await client.createWorkflow(folder: folder.path)
-        let page = try await client.workflowTrace(workflowID: id)
-        let span = try #require(page.spans.first)
-        #expect(span.isLive)
-        #expect(page.summary.agentCount == 0)
-        #expect(page.summary.spanCount == 1)
-        let events = try await client.traceEvents(spanID: span.id)
-        #expect(events.events.first?.kind == .processStarted)
-        #expect(events.events.first?.anchor?.byteOffset == 0)
-        try await client.closeWorkflow(workflowID: id)
-        let closed = try await client.workflowTrace(workflowID: id)
-        #expect(closed.spans.first?.status == .stopped)
-        #expect(closed.summary.revision > page.summary.revision)
-        #expect(!closed.spans[0].isLive)
-        await client.stop()
+        do {
+            try await waitUntil { client.runState == .running }
+            _ = try await client.send(.openFolder(path: folder.path))
+            try await waitUntil { client.snapshot?.folders.openFolder == folder.path }
+            let id = try await client.createWorkflow(folder: folder.path)
+            let workflow = try #require(client.snapshot?.workflows.workflows.first(where: { $0.id == id }))
+            try await client.writeTerminalInput(terminalID: workflow.terminalID, bytes: Data("sleep 60\r".utf8))
+            try await waitUntil {
+                let page = try? await client.workflowTrace(workflowID: id)
+                return page?.spans.contains(where: { $0.title == "sleep 60" }) == true
+            }
+            let page = try await client.workflowTrace(workflowID: id)
+            let span = try #require(page.spans.first)
+            #expect(span.isLive)
+            #expect(page.summary.agentCount == 0)
+            #expect(page.summary.spanCount == 1)
+            let events = try await client.traceEvents(spanID: span.id)
+            #expect(events.events.first?.kind == .workflowEvent)
+            #expect(events.events.first?.message == "Command started.")
+            #expect(events.events.first?.anchor?.terminalID == workflow.terminalID)
+            #expect((events.events.first?.anchor?.byteOffset ?? 0) > 0)
+            try await client.closeWorkflow(workflowID: id)
+            let closed = try await client.workflowTrace(workflowID: id)
+            #expect(closed.spans.first?.status == .stopped)
+            #expect(closed.summary.revision > page.summary.revision)
+            #expect(!closed.spans[0].isLive)
+            await client.stop()
+        } catch {
+            await client.stop()
+            throw error
+        }
     }
 }
 

@@ -1,0 +1,25 @@
+[[ -o interactive ]] || return
+typeset -g _twine_active=0
+_twine_preexec() {
+    emulate -L zsh
+    local command_hex=$(builtin printf '%s' "$1" | /usr/bin/od -An -v -tx1 | /usr/bin/tr -d ' \n')
+    builtin printf '\033]133;C;twine=@TOKEN@;command=%s\007' "$command_hex"
+    _twine_active=1
+}
+_twine_precmd() {
+    local result=$?
+    if (( _twine_active )); then
+        builtin printf '\033]133;D;twine=@TOKEN@;%s\007' "$result"
+        _twine_active=0
+    fi
+    builtin printf '\033]133;A;twine=@TOKEN@\007'
+    return $result
+}
+_twine_exit() {
+    local result=$?
+    (( _twine_active )) && builtin printf '\033]133;D;twine=@TOKEN@;%s\007' "$result"
+}
+typeset -ga preexec_functions precmd_functions zshexit_functions
+preexec_functions=(_twine_preexec ${preexec_functions:#_twine_preexec})
+precmd_functions=(_twine_precmd ${precmd_functions:#_twine_precmd})
+zshexit_functions+=(_twine_exit)

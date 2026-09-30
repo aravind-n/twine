@@ -27,7 +27,7 @@ impl Application {
         // Hold state while the process starts so an immediately exiting shell cannot publish its
         // exit before the command-completion event.
         let mut inner = self.lock_inner()?;
-        let terminal_id = match self.start_terminal(reserved, working_directory, size) {
+        let terminal_id = match self.start_terminal(reserved, working_directory, size, false) {
             Ok(terminal_id) => terminal_id,
             Err(error) => return Ok(rejection("terminalStartFailed", &error)),
         };
@@ -164,12 +164,14 @@ impl Application {
         terminal_id: TerminalId,
         working_directory: &Path,
         size: TerminalSize,
+        integrate: bool,
     ) -> Result<TerminalId, ApplicationError> {
         Ok(self.terminals.start_default_shell(
             terminal_id,
             working_directory,
             size,
             Arc::new(self.exit_callback()),
+            integrate,
         )?)
     }
 
@@ -179,6 +181,7 @@ impl Application {
     ) -> impl Fn(TerminalId, Result<TerminalExit, String>, TerminalObservation) + Send + Sync + 'static
     {
         let inner = Arc::downgrade(&self.inner);
+        let output = Arc::clone(&self.terminal_output);
         move |terminal_id, result, observation| {
             let Some(inner) = inner.upgrade() else { return };
             let Ok(mut inner) = inner.lock() else {
@@ -188,7 +191,14 @@ impl Application {
                 );
                 return;
             };
+            inner.record_shell_observations(Vec::new());
+            if inner.pending_shell_marks.is_empty()
+                && let Ok(observations) = output.take_shell_observations()
+            {
+                inner.record_shell_observations(observations);
+            }
             inner.record_terminal_exit_at(terminal_id, result, observation);
+            inner.finish_shell_process_endings(&output);
         }
     }
 }
@@ -206,6 +216,7 @@ impl Inner {
             terminal_id,
             result,
             TerminalObservation {
+                integrated_shell: false,
                 observed_at: crate::workflow::timestamp(),
                 byte_offset: 0,
                 boundary_sizes: Some(Vec::new()),
@@ -254,7 +265,13 @@ impl Inner {
             TerminalStatus::Running => return,
         };
         let observed_at = observation.observed_at;
-        if let Err(error) = self.end_trace(
+        if !self.defer_shell_process_ending(
+            terminal_id,
+            &observation,
+            trace_status,
+            trace_kind,
+            &trace_message,
+        ) && let Err(error) = self.end_trace(
             terminal_id,
             observation,
             trace_status,
