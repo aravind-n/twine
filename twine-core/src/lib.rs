@@ -32,7 +32,8 @@ pub use workflow::{
     WorkflowStatus,
 };
 pub use workflow_type::{
-    BuiltinType, Completion, ElementPath, Handoff, HandoffContent, InstanceCount,
+    BuiltinType, CatalogError, Completion, ElementPath, Handoff, HandoffContent, InstanceCount,
     MAX_PARALLEL_AGENTS, MAX_REVIEW_ROUNDS, ReviewLoop, Role, RoleId, Stage, StageId, StageRole,
-    ValidationIssue, ValidationProblem, WorkflowTypeDefinition, validate,
+    ValidationIssue, ValidationProblem, WorkflowType, WorkflowTypeDefinition, WorkflowTypeRef,
+    validate,
 };
