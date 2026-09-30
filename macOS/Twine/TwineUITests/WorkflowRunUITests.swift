@@ -72,14 +72,22 @@ extension TwineUITests {
     private func inspectTraceHandoff(in app: XCUIApplication) {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
         item("tracesHeader").click()
-        let span = app.buttons["traceSpan-3"]
+        let span = app.buttons.matching(
+            NSPredicate(format: "label == %@", "Reviewer: Review · Round 1, Completed")
+        ).firstMatch
         XCTAssertTrue(span.waitForExistence(timeout: 10), app.debugDescription)
         span.click()
         let log = app.scrollViews["traceEventLog"]
         XCTAssertTrue(log.waitForExistence(timeout: 5), app.debugDescription)
-        log.scroll(byDeltaX: 0, deltaY: -400)
-        let handoff = app.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "Handoff delivered")).firstMatch
+        let handoff = log.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Handoff delivered: Initial implementation")
+        ).firstMatch
         XCTAssertTrue(handoff.waitForExistence(timeout: 10), app.debugDescription)
+        log.scroll(byDeltaX: 0, deltaY: -400)
+        let completion = log.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Requested changes: Fix the edge case")
+        ).firstMatch
+        XCTAssertTrue(completion.waitForExistence(timeout: 10), app.debugDescription)
         let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         screenshot.name = "Completed Adversarial workflow and traces"
         screenshot.lifetime = .keepAlways
