@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Package the existing macOS build; no Rust or Swift application behavior lives here.
 set -euo pipefail
 
 fail() { echo "error: $*" >&2; exit 1; }
@@ -38,6 +37,12 @@ case "${1:-}" in
             /};/ {if(app) print version; app=0}
         ' macOS/Twine/Twine.xcodeproj/project.pbxproj | sort -u)"
         [[ "$app_versions" == "$version" ]] || fail "tag version $version differs from app version $app_versions"
+        core_version="$(awk '
+            /^\[workspace.package\]$/ {package=1; next}
+            /^\[/ {package=0}
+            package && $1=="version" {gsub(/"/, "", $3); print $3}
+        ' Cargo.toml)"
+        [[ "$core_version" == "$version" ]] || fail "tag version $version differs from core version $core_version"
         git merge-base --is-ancestor HEAD origin/main || fail 'tagged commit is not on main'
         notes "$version" "${3:?notes path required}"
         ;;

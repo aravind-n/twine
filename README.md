@@ -9,8 +9,6 @@ It supports Apple Silicon and Intel on **macOS 26+**. Extract it, move `Twine.ap
 Applications, and follow its included `README.txt`. If macOS blocks the first launch,
 use **System Settings → Privacy & Security → Open Anyway** for Twine, then confirm Open.
 The app is ad hoc signed and not notarized; managed Macs may restrict approval.
-Rust and Xcode are not required to run the prebuilt app. Install and authenticate agent
-harnesses separately.
 
 ## Files
 
@@ -221,18 +219,18 @@ secrets are required.
 
 To cut a release:
 
-1. Set the Twine app's **Marketing Version** in both Debug and Release configurations
-   to the desired `MAJOR.MINOR.PATCH` version in Xcode's project settings.
+1. Set the version in `Cargo.toml` and update `Cargo.lock`. Set the Twine app's
+   **Marketing Version** in both Debug and Release configurations to the same version.
 2. Move the finished changelog entries into a dated section such as
-   `## [1.0.0] - 2026-09-30`, leaving `[Unreleased]` above it. The release body comes from
+   `## [0.1.0] - 2026-09-30`, leaving `[Unreleased]` above it. The release body comes from
    exactly that section, following the same extraction as vhrn. Missing, empty, or duplicate
    sections fail the release.
 3. Review and merge through a pull request. Wait for push-to-main CI on that commit to pass.
 4. Create and push the tag on that reviewed main commit:
 
    ```sh
-   git tag -a v1.0.0 <reviewed-main-commit> -m 'Twine 1.0.0'
-   git push origin v1.0.0
+   git tag -a v0.1.0 <reviewed-main-commit> -m 'Twine 0.1.0'
+   git push origin v0.1.0
    ```
 
 5. Wait for Release to finish. Download the draft ZIP, check its checksum, and test first
@@ -243,8 +241,8 @@ The release contains:
 
 - `Twine-VERSION-macos-universal.zip`: ad hoc signed app, install README, and license.
 - `libtwinecore-VERSION-macos-universal.tar.gz`: the existing universal static C ABI library
-  as `libtwinecore.a`, matching C header, usage README, and license. Native apps can link it
-  without Rust. The protocol is experimental; pin matching header/library versions.
+  as `libtwinecore.a`, matching C header, usage README, and license.
+  The protocol is experimental; pin matching header/library versions.
 - `twine-VERSION-source.tar.gz`: the tagged Git source tree.
 - `Twine-VERSION-symbols.tar.gz`: app debug symbols, checked against both executable UUIDs.
 - `SHA256SUMS`: SHA-256 checksums for all four archives.
@@ -262,7 +260,7 @@ For local packaging, run from the root (the output directory must be empty):
 make check-release  # needs shellcheck and actionlint
 make build-macos-release XCODE_BUILD_ARGS=CODE_SIGNING_ALLOWED=NO
 make release-bundle
-make release-package VERSION=1.0.0
+make release-package VERSION=0.1.0
 (cd dist && shasum -a 256 -c SHA256SUMS)
 ```
 

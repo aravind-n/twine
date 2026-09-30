@@ -1,8 +1,6 @@
 Twine @VERSION@
 
-Requirements: macOS 26+, Apple Silicon or Intel. Rust and Xcode are not
-needed to run the prebuilt app. Install and authenticate any agent harness
-(Claude Code, Codex, or pi) separately.
+Requirements: macOS 26+, Apple Silicon or Intel.
 
 Install
 1. Extract the ZIP and move Twine.app to Applications.

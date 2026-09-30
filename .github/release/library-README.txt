@@ -1,9 +1,7 @@
 libtwinecore @VERSION@ (macOS 26+, Apple Silicon and Intel)
 
-libtwinecore.a is Twine's existing static C ABI library, containing both
-the bridge and reusable Rust core. Native apps can include
-include/twine_bridge.h and link libtwinecore.a. Rust is not required to
-consume this binary. The exported API uses the twine_ prefix.
+Include include/twine_bridge.h and link libtwinecore.a.
+The exported API uses the twine_ prefix.
 
 Configure your linker for macOS system libraries: -liconv and the
 Foundation framework (-framework Foundation), in addition to this archive.
@@ -16,8 +14,7 @@ client per application data directory.
 
 The JSON protocol is experimental. Its command and response definitions
 are in twine-bridge/src/protocol in the matching source archive. Pin a
-matching library/header release. External shells and agent harnesses are
-installed separately by the consumer.
+matching library/header release.
 
 Source and license: https://github.com/aravind-n/twine
 Release notes: https://github.com/aravind-n/twine/releases/tag/v@VERSION@
