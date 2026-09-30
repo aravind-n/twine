@@ -66,6 +66,7 @@ extension TwineUITests {
         // So the runner only writes the script's text, and Twine's own shell installs the executable.
         try """
         echo $$ > agent.pid
+        while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
         printf '%s|%s' "$1" "$2" > agent-args.txt
         echo STUB-AGENT-READY
         read line
