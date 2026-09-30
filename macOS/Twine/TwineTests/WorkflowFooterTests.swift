@@ -21,6 +21,30 @@ struct WorkflowFooterTests {
             ).status == "Draft")
     }
 
+    @Test func onlyRunMessagesThatNeedAttentionReachTheFooter() throws {
+        func message(_ status: String, _ text: String?) throws -> String? {
+            let encoded = text.map { "\"\($0)\"" } ?? "null"
+            let json =
+                #"{"generation":1,"stage":"Review","status":"\#(status)","needsTask":false,"#
+                + #""message":\#(encoded),"agents":[]}"#
+            var workflow = make(.agents, .running)
+            workflow.run = try JSONDecoder().decode(CoreWorkflowRun.self, from: Data(json.utf8))
+            return WorkflowFooterState(workflow: workflow, now: .now).message
+        }
+        #expect(try message("limitReached", "Review limit reached") == "Review limit reached")
+        #expect(try message("running", "Completion rejected") == "Completion rejected")
+        #expect(try message("failed", "Couldn't reserve a terminal") == "Couldn't reserve a terminal")
+        for (status, text) in [
+            ("completed", "Workflow completed"), ("cancelled", "Workflow cancelled"),
+            ("interrupted", "Twine stopped while the workflow was running."),
+        ] {
+            #expect(try message(status, text) == nil, "The status already says it")
+        }
+        #expect(try message("running", nil) == nil)
+        #expect(try message("running", "") == nil)
+        #expect(WorkflowFooterState(workflow: make(.terminal, .running), now: .now).message == nil)
+    }
+
     private func make(
         _ kind: CoreWorkflow.Kind,
         _ status: CoreWorkflow.Status,

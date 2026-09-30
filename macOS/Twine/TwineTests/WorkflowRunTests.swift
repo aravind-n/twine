@@ -16,6 +16,17 @@ struct WorkflowRunTests {
         #expect(run.agents.first?.status?.rawValue == status)
     }
 
+    @Test(arguments: [
+        ("running", true), ("waiting", true), ("exited", false), ("failed", false), ("completed", false),
+    ])
+    func onlyALiveActiveAgentIsWorking(_ status: String, _ working: Bool) throws {
+        let json =
+            #"{"agentId":4,"active":true,"done":false,"reviewer":false,"harness":"pi","targets":[],"#
+            + #""status":"\#(status)"}"#
+        let agent = try JSONDecoder().decode(CoreWorkflowRun.Agent.self, from: Data(json.utf8))
+        #expect(agent.isWorking == working)
+    }
+
     @Test func coreCatalogDecodesRolesAndLaunchBounds() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "TwineRunTests-\(UUID().uuidString)")
         let worker = CoreWorker(dataDirectory: directory)

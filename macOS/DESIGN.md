@@ -44,7 +44,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 - **Panel outline:** a 1pt hairline in the primary color at 12% opacity (8% for the Activity panel).
 - **Terminal panel shadow:** black at 8% opacity, radius 12, y offset 4.
 - **Glass:** Use Liquid Glass sparingly for important controls and navigation. Let native toolbars and menus adopt the system appearance; prefer the native glass button style for `+`. Sidebar section menus stay borderless on the sidebar material, and the Activity toggle uses a plain chevron. Terminal text, trace lanes, and logs sit on solid backgrounds. Follow Apple's [Materials](https://developer.apple.com/design/human-interface-guidelines/materials) and [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass) guidance.
-- **Workflow tint:** a workflow with multiple agents fills its selected tab and its subtab strip with `controlBackgroundColor` plus a 12% accent wash. Terminal and single-agent workflows use the terminal background for the selected tab.
+- **Workflow tint:** a workflow with multiple agents fills its selected tab and its terminal strip with `controlBackgroundColor` plus a 12% accent wash. Terminal and single-agent workflows use the terminal background for the selected tab.
 - **Secondary surfaces:** start page cards use `controlBackgroundColor`. The trace detail panel uses the same `windowBackgroundColor` as the Activity panel.
 
 ## Color
@@ -120,14 +120,15 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 ### Terminal panel and agent subtabs
 
 - The terminal panel has a 17pt radius on all four corners, with a hairline outline along its curved corners, sides, and bottom, and a shadow. The tab row sits directly above it.
-- Workflows with more than one agent get a 43pt subtab strip at the top of the panel, with 18pt horizontal padding and the workflow tint. It starts with a "TERMINAL" label (13pt after it), then subtabs 5pt apart: the role's colored symbol and name, 10pt horizontal padding, 29pt tall. The selected subtab is semibold on a 9pt-radius glass capsule. The Tabs and Bento control sits at the trailing edge.
-- Terminal content has about 24pt padding.
+- Agents workflows get a 34pt strip at the top of the panel, with 18pt horizontal padding and the workflow tint. It starts with a "TERMINAL" label (13pt after it). In tab mode, subtabs follow, 5pt apart: the role's colored symbol and name, 10pt horizontal padding, 26pt tall, with a 6pt green dot after the name while that agent is working. The selected subtab is semibold on a 9pt-radius glass capsule, and each subtab's tooltip names its harness.
+- The strip's trailing edge holds the run's actions as small icon-only buttons 6pt apart, each with a tooltip: the workflow graph, Mark done (a checkmark), and Cancel workflow, all small bordered buttons without color. The Tabs and Bento control comes last. The strip names no stage; the working dots show who is active.
+- Terminal content has about 24pt padding, or 14pt in agents workflows, where the strip already frames the panel.
 
 ### Bento panes
 
-- A workflow with more than one agent can show its agents side by side. A small segmented control (Tabs, Bento) at the trailing edge of the subtab strip switches modes.
+- A workflow with more than one agent can show its agents side by side. A small segmented control (Tabs, Bento) at the trailing edge of the strip switches modes. While Bento panes are tiled, the strip leaves the subtabs out, since each pane's header names its agent. When a small panel shows only the focused pane, which has no header, the subtabs come back.
 - Bento mode shows up to four agents: two side by side, three as one pane beside two stacked, four as a grid. The panes sit on the workflow tint inside the terminal panel, 6pt apart and 6pt from its edges.
-- Each pane is a rounded solid panel with an 11pt radius, the panel's 17pt less the gutter so the corners stay concentric, on the terminal background with a hairline outline. Its 28pt header, with 10pt horizontal padding, shows the role's colored symbol, name, and a menu chevron. The menu picks the pane's agent, swapping panes with the agent's current one.
+- Each pane is a rounded solid panel with an 11pt radius, the panel's 17pt less the gutter so the corners stay concentric, on the terminal background with a hairline outline. Its 28pt header, with 10pt horizontal padding, shows the role's colored symbol, name, the working dot while that agent is working, and a menu chevron. The menu picks the pane's agent, swapping panes with the agent's current one.
 - The pane with the keyboard has a 2pt outline in the keyboard focus color (secondary while the window is inactive) and a semibold, primary header title. Clicking a pane, ⌘], and ⌘[ move the keyboard between panes; in tab mode, ⌘] and ⌘[ switch subtabs.
 - Dragging the gutters resizes columns and rows. Panes keep at least 260 × 150pt; a smaller panel shows fewer panes, first one per column, then only the focused pane, which fills the panel as in tab mode.
 - Terminal content in a pane has 12pt padding.
@@ -181,7 +182,7 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 ### Status footer
 
 - A 22pt plain-text row below the Activity panel, with 4pt horizontal padding and 8pt spacing, in caption2 secondary text; not a card.
-- Contents: the Git branch with a branch symbol, and the selected workflow's status and elapsed time, separated by a 10pt-tall divider when both are present.
+- Contents: the Git branch with a branch symbol, and the selected workflow's status and elapsed time, separated by a 10pt-tall divider when both are present. A run's message, such as a review limit or a rejected completion, follows after another divider in the needs-attention color, truncated with its full text in the tooltip. A completed, cancelled, or interrupted run's message is left out, since the status already says it.
 
 ### Workflow graph
 

@@ -50,6 +50,15 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
         var instance: Int?
         var status: AgentStatus?
         var id: UInt64 { agentId }
+
+        /// Doing its stage's work now: an exited or failed process isn't, even before Mark done.
+        var isWorking: Bool {
+            guard active && !done else { return false }
+            switch status {
+            case nil, .waiting, .running: return true
+            case .completed, .exited, .failed, .cancelled, .interrupted: return false
+            }
+        }
     }
 
     enum AgentStatus: String, Decodable, Sendable {

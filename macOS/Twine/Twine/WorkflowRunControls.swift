@@ -1,52 +1,60 @@
 import SwiftUI
 
+/// A run's actions in the terminal strip, as icon buttons: the workflow graph, Mark done for the
+/// selected agent, and Cancel. The run's messages appear in the status footer.
 struct WorkflowRunControls: View {
     @Environment(CoreClient.self) private var client
     let workflowID: UInt64
     let run: CoreWorkflowRun
     let selectedAgentID: UInt64?
+    /// The selected agent's role, named in Mark done's tooltip.
+    var selectedRole: String?
+    let reportFailure: (String) -> Void
     @State private var showsCompletion = false
-    @State private var failure: String?
     @State private var showsGraph = false
 
     private var agent: CoreWorkflowRun.Agent? { run.agents.first { $0.id == selectedAgentID } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(run.stage).fontWeight(.semibold)
-                if let agent { Text(agent.harness.displayName).foregroundStyle(.secondary) }
-                Spacer(minLength: 8)
-                if let type = run.workflowType {
-                    Button {
-                        showsGraph.toggle()
-                    } label: {
-                        Label(type.definition.name, systemImage: "flowchart")
-                    }
-                    .accessibilityIdentifier("inspectWorkflowType")
-                    .popover(isPresented: $showsGraph) {
-                        WorkflowTypeInspector(type: type, run: run)
-                    }
+        HStack(spacing: AgentSubtabLayout.actionSpacing) {
+            if let type = run.workflowType {
+                Button {
+                    showsGraph.toggle()
+                } label: {
+                    Label(type.definition.name, systemImage: "flowchart")
                 }
-                if let agent, agent.active && !agent.done {
-                    Button("Mark done…") { showsCompletion = true }
-                        .accessibilityIdentifier("workflowMarkDone")
-                }
-                if run.status == .running {
-                    Button("Cancel workflow") {
-                        Task {
-                            do { try await client.cancelWorkflowRun(workflowID: workflowID) } catch {
-                                failure = error.localizedDescription
-                            }
-                        }
-                    }.accessibilityIdentifier("workflowCancel")
+                .help("\(type.definition.name) workflow")
+                .accessibilityLabel("Show \(type.definition.name) workflow graph")
+                .accessibilityIdentifier("inspectWorkflowType")
+                .popover(isPresented: $showsGraph) {
+                    WorkflowTypeInspector(type: type, run: run)
                 }
             }
-            if let message = failure ?? run.message {
-                Text(message).foregroundStyle(.secondary).textSelection(.enabled)
+            if let agent, agent.active && !agent.done {
+                Button {
+                    showsCompletion = true
+                } label: {
+                    Label("Mark done…", systemImage: "checkmark")
+                }
+                .help(selectedRole.map { "Mark \($0) done…" } ?? "Mark done…")
+                .accessibilityIdentifier("workflowMarkDone")
+            }
+            if run.status == .running {
+                Button {
+                    Task {
+                        do { try await client.cancelWorkflowRun(workflowID: workflowID) } catch {
+                            reportFailure(error.localizedDescription)
+                        }
+                    }
+                } label: {
+                    Label("Cancel workflow", systemImage: "xmark")
+                }
+                .help("Cancel workflow")
+                .accessibilityIdentifier("workflowCancel")
             }
         }
-        .font(.caption).controlSize(.small).padding(.horizontal, 18).padding(.vertical, 6)
+        .labelStyle(.iconOnly)
+        .controlSize(.small)
         .sheet(isPresented: $showsCompletion) {
             if let agent {
                 WorkflowCompletionForm(
@@ -65,7 +73,7 @@ struct WorkflowRunControls: View {
         run: .init(
             generation: 1, stage: "Review", status: .running, message: nil, needsTask: false,
             agents: [.init(agentId: 1, active: true, done: false, reviewer: true, harness: .codex, targets: [])]),
-        selectedAgentID: 1
+        selectedAgentID: 1, reportFailure: { _ in }
     )
     .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
     .frame(width: 650)

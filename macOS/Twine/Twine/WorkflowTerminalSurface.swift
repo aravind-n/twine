@@ -19,7 +19,8 @@ struct WorkflowTerminalSurface: View {
 
     var body: some View {
         if workflow.kind == .agents {
-            AgentWorkflowSurface(folder: folder, workflow: workflow, isSelected: isSelected)
+            AgentWorkflowSurface(
+                folder: folder, workflow: workflow, isSelected: isSelected, reportFailure: reportFailure)
         } else {
             VStack(spacing: 0) {
                 if workflow.restored && workflow.kind != .singleAgent {

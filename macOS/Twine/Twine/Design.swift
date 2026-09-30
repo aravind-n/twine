@@ -35,6 +35,8 @@ nonisolated enum Spacing {
     /// Vertical space between the terminal block, the Traces panel, and the footer.
     static let windowSections: CGFloat = 13
     static let terminalContent: CGFloat = 24
+    /// Agents workflows' strip already frames the panel, so their terminals sit closer to it.
+    static let agentTerminalContent: CGFloat = 14
 }
 
 // MARK: - Folder window layout
@@ -89,12 +91,15 @@ nonisolated enum NewTabLayout {
 
 /// The subtab strip at the top of a multi-agent workflow's terminal panel.
 nonisolated enum AgentSubtabLayout {
-    static let height: CGFloat = 43
+    static let height: CGFloat = 34
     static let horizontalPadding: CGFloat = 18
     /// Between the "TERMINAL" label and the first subtab.
     static let labelSpacing: CGFloat = 13
     static let spacing: CGFloat = 5
-    static let subtabHeight: CGFloat = 29
+    static let subtabHeight: CGFloat = 26
+    /// Between the run's actions and the layout picker at the strip's trailing edge.
+    static let actionSpacing: CGFloat = 6
+    static let workingDotSize: CGFloat = 6
     static let subtabPadding: CGFloat = 10
     static let symbolSpacing: CGFloat = 6
     /// Longer role names truncate, as workflow tab titles do.
