@@ -9,8 +9,8 @@ struct TracesHeader: View {
         Button(action: toggle) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Traces").panelTitleStyle()
-                    if isExpanded { Text("Agent activity over time").panelSubtitleStyle() }
+                    Text("Activity").panelTitleStyle()
+                    if isExpanded { Text("Steps in start order").panelSubtitleStyle() }
                 }
                 Spacer(minLength: 0)
                 if summary != nil {
@@ -31,13 +31,13 @@ struct TracesHeader: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(isExpanded ? "Traces, expanded" : "Traces, collapsed")
-        .accessibilityHint("Toggle the activity timeline")
+        .accessibilityLabel(isExpanded ? "Activity, expanded" : "Activity, collapsed")
+        .accessibilityHint("Toggle the activity sequence")
         .accessibilityIdentifier("tracesHeader")
     }
     private var countLabel: String {
         guard let summary else { return "" }
-        let spans = summary.spanCount == 1 ? "span" : "spans"
+        let spans = summary.spanCount == 1 ? "step" : "steps"
         let agents = summary.agentCount == 1 ? "agent" : "agents"
         return "\(summary.spanCount) \(spans) · \(summary.agentCount) \(agents)"
     }

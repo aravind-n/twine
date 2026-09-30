@@ -34,9 +34,10 @@ advance a stage.
 **Mark done…** is always available for an unfinished active role, including after its process
 exits. Its form also supports review decisions and worker assignments. Review loops stop at the
 type's limit; **Cancel workflow** stops all its agents. Runs restored after quitting or a crash
-are interrupted, without automatically restarting harnesses. The Traces timeline records each
-role's stage invocations. Select a span to inspect its stage changes, completions, and handoffs;
-this history survives reopening the app.
+are interrupted, without automatically restarting harnesses. The Activity panel shows each
+role's stage invocations on compact agent tracks in shared start order, with equal spacing
+regardless of pauses. Select a step to focus a seven-step window and inspect its stage
+changes, completions, and handoffs; this history survives reopening the app.
 
 Claude Code, Codex, and pi also report prompts, tool calls, and responses through launch-only observers.
 Single-agent runs show a span for each prompt; multi-agent steps stay under the role's assignment.

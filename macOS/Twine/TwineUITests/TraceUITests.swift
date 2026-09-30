@@ -16,11 +16,11 @@ extension TwineUITests {
         defer { app.terminate() }
         let header = app.buttons["tracesHeader"]
         XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(header.label, "Traces, collapsed")
+        XCTAssertEqual(header.label, "Activity, collapsed")
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         attachWindow(in: app, name: "\(appearance), Traces collapsed")
         header.click()
-        XCTAssertEqual(header.label, "Traces, expanded")
+        XCTAssertEqual(header.label, "Activity, expanded")
         let span = app.buttons["traceSpan-1"]
         XCTAssertTrue(span.waitForExistence(timeout: 10), app.debugDescription)
         span.click()
@@ -48,7 +48,7 @@ extension TwineUITests {
         XCTAssertTrue(span.isHittable)
         header.click()
         XCTAssertTrue(span.waitForNonExistence(timeout: 5))
-        XCTAssertEqual(header.label, "Traces, collapsed")
+        XCTAssertEqual(header.label, "Activity, collapsed")
     }
 
     @MainActor
@@ -66,7 +66,7 @@ extension TwineUITests {
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
         app.launch()
         XCTAssertTrue(header.waitForExistence(timeout: 10))
-        XCTAssertEqual(header.label, "Traces, collapsed")
+        XCTAssertEqual(header.label, "Activity, collapsed")
         header.click()
         let historical = app.buttons["traceSpan-1"]
         XCTAssertTrue(historical.waitForExistence(timeout: 10), app.debugDescription)
@@ -87,7 +87,7 @@ extension TwineUITests {
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["No Open Tabs"].waitForExistence(timeout: 5))
         app.buttons["tracesHeader"].click()
-        XCTAssertTrue(app.staticTexts["No traces yet"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["No activity yet"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertFalse(app.buttons["copyTraceLog"].exists)
     }
 

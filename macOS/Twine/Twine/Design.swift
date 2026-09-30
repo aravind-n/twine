@@ -54,14 +54,15 @@ nonisolated enum SidebarLayout {
 nonisolated enum TracesLayout {
     static let collapsedHeight: CGFloat = 48
     static let expandedHeight: CGFloat = 272
-    static let axisHeight: CGFloat = 18
-    static let laneHeight: CGFloat = 36
+    static let axisHeight: CGFloat = 14
+    static let laneHeight: CGFloat = 18
     static let labelWidth: CGFloat = 126
     static let detailLabelWidth: CGFloat = 104
     static let compactLabelWidth: CGFloat = 36
     static let timelineMinimumViewport: CGFloat = 100
     static let timelineTrailingInset: CGFloat = 14
-    static let pillHeight: CGFloat = 25
+    static let focusHeaderHeight: CGFloat = 24
+    static let focusRailHeight: CGFloat = 102
     static let hintHeight: CGFloat = 28
     static let detailMinimumWidth: CGFloat = 280
     static let detailMaximumWidth: CGFloat = 440
