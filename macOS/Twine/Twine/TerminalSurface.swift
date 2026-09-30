@@ -130,11 +130,11 @@ struct TerminalViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: MetalTerminalView, context: Context) {
         context.coordinator.beforeUserInput = beforeUserInput
-        nsView.isHidden = !isVisible
         nsView.automaticallyFocuses = automaticallyFocuses
         nsView.didFocus = didFocus
         nsView.isSelected = isSelected
         nsView.focusRequest = focusRequest
+        nsView.setVisible(isVisible)
         nsView.applyTwinePalette()
     }
 

@@ -81,6 +81,26 @@ final class MetalTerminalView: TerminalView {
     }
 
     private var focusTask: Task<Void, Never>?
+    private var visibilityTask: Task<Void, Never>?
+    private var requestedVisibility: Bool?
+
+    /// Hiding the first responder asks AppKit to find another key view. During a representable
+    /// update that can reenter SwiftUI's focus graph, so apply visibility after the update returns.
+    func setVisible(_ visible: Bool) {
+        guard requestedVisibility != visible else { return }
+        requestedVisibility = visible
+        visibilityTask?.cancel()
+        let hidden = !visible
+        guard isHidden != hidden else { return }
+        visibilityTask = Task { [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            if hidden, window?.firstResponder === self { window?.makeFirstResponder(nil) }
+            isHidden = hidden
+            if visible && isSelected { requestKeyboardFocus() }
+        }
+    }
+
     var automaticallyFocuses = true {
         didSet {
             guard automaticallyFocuses != oldValue else { return }
@@ -132,6 +152,8 @@ final class MetalTerminalView: TerminalView {
 
         guard window != nil else {
             focusTask?.cancel()
+            visibilityTask?.cancel()
+            requestedVisibility = nil
             return
         }
         // The selected terminal takes keyboard input without an additional click.

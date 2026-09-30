@@ -52,6 +52,10 @@ extension TwineUITests {
         XCTAssertTrue(app.staticTexts["Interrupted"].exists, app.debugDescription)
         XCTAssertFalse(app.staticTexts["Completed"].exists)
         attachAgentWindow(in: app, name: "Force-quit agent recovered as interrupted")
+
+        app.buttons["workflowTab-1"].click()
+        app.typeText("printf '%s' RECOVERED-INPUT > recovered-input.txt\r")
+        waitForFile(folder.appending(path: "recovered-input.txt"), containing: "RECOVERED-INPUT")
     }
 
     /// Starts a stub `pi` from the new-tab card, types to it, and cancels it.
