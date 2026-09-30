@@ -4,7 +4,20 @@ import SwiftUI
 
 struct TerminalSurface: View {
     @Environment(CoreClient.self) private var coreClient
+    @Environment(TraceTerminalNavigation.self) private var navigation
     @State private var failureMessage: String?
+    @State private var minimap = TerminalMinimapState()
+
+    private var markers: [TraceMinimapMarker] {
+        navigation.minimap.markers.filter { $0.anchor?.terminalID == terminalID }
+    }
+
+    private var markerKey: String {
+        let latest = markers.compactMap { $0.anchor?.byteOffset }.max() ?? 0
+        return "\(terminalID):\(minimap.geometryRevision):\(minimap.receivedOffset >= latest):\(isVisible):"
+            + "\(minimap.receivedOffset > 0):\(minimap.indexRevision):"
+            + markers.map { String($0.id) }.joined(separator: ",")
+    }
 
     /// Two rows of terminal text, which short panels keep by giving up vertical padding first.
     private var minimumTerminalHeight: CGFloat {
@@ -42,8 +55,18 @@ struct TerminalSurface: View {
                     automaticallyFocuses: automaticallyFocuses,
                     didFocus: didFocus,
                     beforeUserInput: beforeUserInput,
+                    minimap: minimap,
                     failureMessage: $failureMessage
                 )
+                .padding(.trailing, 18)
+
+                if !minimap.geometry.isLive {
+                    Button("Return to live", systemImage: "arrow.down") { minimap.returnToLive() }
+                        .font(.caption2).buttonStyle(.glass).controlSize(.small)
+                        .padding(.bottom, 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .accessibilityIdentifier("minimapReturnToLive")
+                }
 
                 if let statusMessage {
                     Text(statusMessage)
@@ -55,11 +78,20 @@ struct TerminalSurface: View {
                         .padding(8)
                 }
             }
+            .overlay(alignment: .trailing) {
+                TerminalMinimap(
+                    state: minimap, markers: markers, selectedID: navigation.activity.selectedSpanID,
+                    select: navigation.selectSpan)
+            }
         }
         .background {
             // Clicking the padding focuses the terminal, as clicking its text does.
             Color.terminalBackground.onTapGesture { didFocus?() }
         }
+        .task(id: markerKey) {
+            if isVisible { await minimap.loadMarkers(markers, terminalID: terminalID, client: coreClient) }
+        }
+        .accessibilityHidden(!isVisible)
     }
 
     private var statusMessage: String? {
@@ -110,6 +142,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     let automaticallyFocuses: Bool
     var didFocus: (() -> Void)?
     var beforeUserInput: (() async throws -> Void)?
+    var minimap: TerminalMinimapState?
     @Binding var failureMessage: String?
 
     func makeCoordinator() -> TerminalController {
@@ -128,6 +161,8 @@ struct TerminalViewRepresentable: NSViewRepresentable {
         view.focusRequest = focusRequest
         view.isHidden = !isVisible
         view.didFocus = didFocus
+        view.minimapState = minimap
+        minimap?.view = view
         view.terminalDelegate = context.coordinator
         context.coordinator.start(view: view)
         return view
@@ -142,6 +177,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
         nsView.focusRequest = focusRequest
         nsView.setVisible(isVisible)
         nsView.applyTwinePalette()
+        minimap?.scheduleRefresh()
     }
 
     static func dismantleNSView(_ nsView: MetalTerminalView, coordinator: TerminalController) {

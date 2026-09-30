@@ -161,6 +161,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     }
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        (source as? MetalTerminalView)?.minimapState?.recordSize(columns: newCols, rows: newRows)
         guard !isStopping, !isTerminalStopped else { return }
         let size = terminalSize(for: source, columns: newCols, rows: newRows)
         pendingSize = size
@@ -192,9 +193,13 @@ final class TerminalController: NSObject, TerminalViewDelegate {
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
-    func scrolled(source: TerminalView, position: Double) {}
+    func scrolled(source: TerminalView, position: Double) {
+        (source as? MetalTerminalView)?.minimapState?.scheduleRefresh()
+    }
 
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
+        (source as? MetalTerminalView)?.minimapState?.scheduleRefresh()
+    }
 
     private func pumpOutput(for terminalID: UInt64, into view: TerminalView) async throws {
         while !Task.isCancelled {
@@ -205,8 +210,10 @@ final class TerminalController: NSObject, TerminalViewDelegate {
                         received: chunk.offset
                     )
                 }
+                (view as? MetalTerminalView)?.minimapState?.beginFeed()
                 expectedOffset += UInt64(chunk.bytes.count)
                 view.feed(byteArray: Array(chunk.bytes)[...])
+                (view as? MetalTerminalView)?.minimapState?.received(through: expectedOffset)
                 await Task.yield()
                 continue
             }

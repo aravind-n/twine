@@ -12,9 +12,11 @@ final class TerminalHistoryState {
     }
 
     private(set) var status: Status = .loading
+    private(set) var minimapRows: [UInt64: Int] = [:]
 
     func load(_ target: TraceTerminalTarget, client: CoreClient) async {
         status = .loading
+        minimapRows = [:]
         guard let boundarySizes = target.anchor.boundarySizes else {
             status = .expired
             return
@@ -48,6 +50,28 @@ final class TerminalHistoryState {
         }
     }
     private enum HistoryFailure: Error { case expired }
+
+    func updateMinimap(_ markers: [TraceMinimapMarker], target: TraceTerminalTarget, client: CoreClient) async {
+        guard case .ready(let frozen) = status else { return }
+        do {
+            let index = TerminalMinimapReplay()
+            try await index.load(
+                terminalID: target.anchor.terminalID, endOffset: frozen.offset, markers: markers, client: client)
+            try Task.checkCancellation()
+            if !target.readToCurrentEnd, let sizes = target.anchor.boundarySizes {
+                try index.replay.applyBoundarySizes(sizes)
+            }
+            index.discardExpiredAnchors()
+            guard case .ready(let current) = status, current === frozen else { return }
+            minimapRows = index.replay.text == frozen.text ? index.rows : [:]
+        } catch is CancellationError {
+            return
+        } catch {
+            // Keep the frozen output readable if its backing transcript has since expired.
+            guard !Task.isCancelled else { return }
+            minimapRows = [:]
+        }
+    }
 
     private func reachedEnd(
         _ page: CoreTranscriptPage, replay: TerminalReplay, endOffset: UInt64?, remaining: UInt64

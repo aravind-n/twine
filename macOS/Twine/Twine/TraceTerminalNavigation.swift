@@ -16,6 +16,30 @@ nonisolated struct TraceTerminalTarget: Equatable, Identifiable, Sendable {
 @Observable
 final class TraceTerminalNavigation {
     var target: TraceTerminalTarget?
+    let activity = TracePanelState()
+    let minimap = TraceMinimapState()
+    var requestedSpanID: UInt64?
+    var selectionRevision = UUID()
+
+    func selectSpan(_ id: UInt64) {
+        activity.selectedSpanID = id
+        requestedSpanID = id
+        selectionRevision = UUID()
+    }
+
+    func jumpToSelectedSpan() {
+        guard let id = requestedSpanID, activity.selectedSpanID == id,
+            let span = activity.selectedSpan, let lane = activity.selectedLane
+        else { return }
+        if activity.events.contains(where: { $0.message == "Command started." && $0.anchor != nil }) {
+            jump(toCommand: span, events: activity.events, lane: lane)
+        } else if let event = activity.events.first(where: { $0.anchor != nil }) {
+            jump(to: event, lane: lane)
+        } else if let marker = minimap.markers.first(where: { $0.id == id }) {
+            jump(to: marker.event, lane: lane)
+        }
+        requestedSpanID = nil
+    }
 
     func jump(to event: CoreTraceEvent, lane: CoreTraceLane) {
         guard let anchor = event.anchor else { return }
