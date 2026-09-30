@@ -5,12 +5,17 @@ import Foundation
 /// A transport that holds back the Start Terminal completion until the test calls `completeStart`,
 /// completes Close Terminal at once, and records the input and resizes it receives.
 actor DelayedStartTransport {
+    private let initialSnapshot: CoreSnapshot
     private(set) var input = Data()
     private(set) var closedTerminalIDs: Set<UInt64> = []
     private(set) var lastResize: CoreTerminalSize?
     private var startRequestID: UInt64?
     private var nextRequestID: UInt64 = 1
     private var eventsToDeliver: [CoreEvent] = []
+
+    init(snapshot: CoreSnapshot = .testReady()) {
+        initialSnapshot = snapshot
+    }
 
     var hasStartRequest: Bool {
         startRequestID != nil
@@ -23,7 +28,7 @@ actor DelayedStartTransport {
     }
 
     func open() -> CoreSnapshot {
-        .testReady()
+        initialSnapshot
     }
 
     func close() {}
@@ -55,7 +60,7 @@ actor DelayedStartTransport {
     }
 
     func snapshot() -> CoreSnapshot {
-        .testReady()
+        initialSnapshot
     }
 
     func events(after sequence: UInt64, limit: UInt32) -> [CoreEvent] {

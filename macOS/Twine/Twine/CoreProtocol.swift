@@ -70,24 +70,6 @@ nonisolated struct CoreSnapshot: Decodable, Equatable, Sendable {
     var workflowTypes: [CoreWorkflowType]?
 }
 
-nonisolated struct CoreConfig: Decodable, Equatable, Sendable {
-    let appearance: CoreAppearance
-
-    enum ColorScheme: String, Decodable, Sendable {
-        case system
-        case light
-        case dark
-    }
-}
-
-nonisolated struct CoreAppearance: Decodable, Equatable, Sendable {
-    let colorScheme: CoreConfig.ColorScheme
-
-    private enum CodingKeys: String, CodingKey {
-        case colorScheme = "color_scheme"
-    }
-}
-
 nonisolated struct CoreApplicationState: Decodable, Equatable, Sendable {
     var status: Status
 

@@ -181,4 +181,10 @@ final class MetalTerminalView: TerminalView {
         nativeForegroundColor = palette.text
         installColors(palette.ansi)
     }
+
+    func applyTwineFont(_ font: NSFont) {
+        // SwiftTerm resets the grid and selection when its font is assigned, even if unchanged.
+        guard self.font != font else { return }
+        self.font = font
+    }
 }

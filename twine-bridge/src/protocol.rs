@@ -487,7 +487,7 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
 #[cfg(test)]
 mod tests {
     use super::*;
-    use twine_core::config::{Appearance, ColorScheme, Config};
+    use twine_core::config::Config;
     use twine_core::{RecentFolder, UnavailableFolder};
 
     fn decode(json: &str) -> Command {
@@ -525,15 +525,15 @@ mod tests {
     #[test]
     fn snapshot_serializes_validated_config() {
         let data = tempfile::tempdir().unwrap();
-        let application = twine_core::Application::with_config(
-            data.path(),
-            Config {
-                appearance: Appearance {
-                    color_scheme: ColorScheme::Dark,
-                },
-            },
+        let config_path = data.path().join("config.toml");
+        std::fs::write(
+            &config_path,
+            "[appearance]\ncolor_scheme = 'dark'\n[terminal]\nfont_family = 'Menlo'\nfont_size = 15.5\n",
         )
         .unwrap();
+        let application =
+            twine_core::Application::with_config(data.path(), Config::load(&config_path).config)
+                .unwrap();
         let bytes = encode_snapshot(&application.snapshot().unwrap()).unwrap();
         let json: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(
@@ -541,7 +541,10 @@ mod tests {
             serde_json::json!({
                 "sequence": 1,
                 "state": { "status": "ready" },
-                "config": { "appearance": { "color_scheme": "dark" } },
+                "config": {
+                    "appearance": { "color_scheme": "dark" },
+                    "terminal": { "font_family": "Menlo", "font_size": 15.5 }
+                },
                 "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null, "currentBranch": null },
                 "terminals": [],
                 "traces": [],

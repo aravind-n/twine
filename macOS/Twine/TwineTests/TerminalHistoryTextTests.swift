@@ -27,6 +27,27 @@ struct TerminalHistoryTextTests {
         #expect(abs(scroll.contentView.bounds.minY - (output.minY - view.textContainerInset.height)) < 1)
     }
 
+    @Test func customFontPreservesHistoricalRowsAndTextSelection() throws {
+        let font = try #require(NSFont(name: "Menlo-Regular", size: 18))
+        let scroll = TerminalHistoryText.makeScrollView(font: font)
+        let text = "first historical row\nsecond historical row\n"
+        TerminalHistoryText.show(text, in: scroll, font: font)
+        let view = try #require(scroll.documentView as? NSTextView)
+        let selection = NSRange(location: 0, length: 5)
+        view.setSelectedRange(selection)
+        TerminalHistoryText.show(text, in: scroll, font: font)
+        #expect(view.font == font)
+        #expect(view.string == text)
+        #expect(view.selectedRange() == selection)
+        #expect(view.textContainer?.widthTracksTextView == false)
+
+        let larger = try #require(NSFont(name: "Menlo-Regular", size: 24))
+        TerminalHistoryText.show(text, in: scroll, font: larger)
+        #expect(view.font == larger)
+        #expect(view.string == text)
+        #expect(view.selectedRange() == selection)
+    }
+
     @Test func viewportShowsOutputInsteadOfTrailingBlankTerminalRows() throws {
         let scroll = TerminalHistoryText.makeScrollView()
         let text =
