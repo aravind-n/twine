@@ -11,6 +11,7 @@ extension FocusedValues {
 struct WorkflowActions {
     let create: () -> Void
     let close: (() -> Void)?
+    let cancelAgent: (() -> Void)?
 }
 
 /// File menu commands that open a folder and close it, returning the window to the start page.
@@ -29,6 +30,9 @@ struct FolderCommands: Commands {
             Button("New Workflow") { workflowActions?.create() }
                 .keyboardShortcut("t")
                 .disabled(workflowActions == nil || !isRunning)
+            Button("Cancel Agent") { workflowActions?.cancelAgent?() }
+                .keyboardShortcut(".")
+                .disabled(workflowActions?.cancelAgent == nil || !isRunning)
             Divider()
             Button("Open Folder…") {
                 isChoosingFolder = true

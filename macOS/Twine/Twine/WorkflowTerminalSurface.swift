@@ -12,7 +12,7 @@ struct WorkflowTerminalSurface: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if workflow.restored {
+            if workflow.restored && workflow.kind != .singleAgent {
                 Label(
                     workflow.terminalID == 0
                         ? "Restored tab — the shell couldn't restart."
@@ -26,29 +26,50 @@ struct WorkflowTerminalSurface: View {
                 .accessibilityIdentifier("restoredWorkflowNotice")
             }
             if workflow.terminalID == 0 {
-                ContentUnavailableView(
-                    "Shell Couldn't Restart", systemImage: "terminal",
-                    description: Text("Open a new workflow to try again."))
+                if workflow.kind == .singleAgent {
+                    restoredAgent
+                } else {
+                    ContentUnavailableView(
+                        "Shell Couldn't Restart", systemImage: "terminal",
+                        description: Text("Open a new workflow to try again."))
+                }
             } else {
                 terminal
             }
         }
     }
 
+    /// A restored agent has no process or terminal contents, only how it last ended.
+    private var restoredAgent: some View {
+        let (title, detail) =
+            switch workflow.status {
+            case .exited: ("Agent Exited", "This agent's process ended. Its terminal output isn't restored.")
+            case .cancelled: ("Agent Cancelled", "You cancelled this agent. Its terminal output isn't restored.")
+            case .failed: ("Agent Failed", "This agent's process failed. Its terminal output isn't restored.")
+            default: ("Agent Interrupted", "Twine quit while this agent was running. Its work didn't finish.")
+            }
+        return ContentUnavailableView(title, systemImage: "person", description: Text(detail))
+    }
+
     private var terminal: some View {
         TerminalSurface(workflow: workflow, isSelected: isSelected, focusRequest: focusRequest) {
             try await draft.activate(client: bridgeClient, workflowID: workflow.id)
         }
+        // A started agent gets a new terminal, so the emulator must be rebuilt for it.
+        .id(workflow.terminalID)
         .overlay {
             GeometryReader { geometry in
                 if workflow.kind == .draft && showsChoices {
-                    NewTabChoices(name: workflow.name, availableHeight: geometry.size.height, choose: choose)
-                        .frame(
-                            maxWidth: min(
-                                NewTabLayout.maximumWidth, max(0, geometry.size.width - 2 * Spacing.terminalContent))
-                        )
-                        .transition(choicesTransition)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    NewTabChoices(
+                        name: workflow.name, availableHeight: geometry.size.height, isSelected: isSelected,
+                        choose: choose, startAgent: startAgent, focusTerminal: { focusRequest += 1 }
+                    )
+                    .frame(
+                        maxWidth: min(
+                            NewTabLayout.maximumWidth, max(0, geometry.size.width - 2 * Spacing.terminalContent))
+                    )
+                    .transition(choicesTransition)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
@@ -65,12 +86,17 @@ struct WorkflowTerminalSurface: View {
         )
     }
 
+    private func startAgent(harness: BridgeHarness, prompt: String) async throws {
+        try await bridgeClient.startAgent(workflowID: workflow.id, harness: harness, prompt: prompt)
+        focusRequest += 1
+    }
+
     private func choose(_ choice: WorkflowChoice) {
         Task {
             do {
                 if choice == .terminal {
                     try await draft.activate(client: bridgeClient, workflowID: workflow.id)
-                } else {
+                } else if choice != .singleAgent {
                     try await bridgeClient.nameDraftWorkflow(workflowID: workflow.id, name: choice.rawValue)
                 }
                 focusRequest += 1

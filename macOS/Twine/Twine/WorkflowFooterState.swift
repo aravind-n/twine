@@ -10,6 +10,8 @@ struct WorkflowFooterState {
         case .running: status = workflow.kind == .draft ? "Draft" : "Running"
         case .exited: status = "Exited"
         case .failed: status = "Failed"
+        case .cancelled: status = "Cancelled"
+        case .interrupted: status = "Interrupted"
         case .closed: status = "Closed"
         }
         let end = workflow.endedAt.map { Double($0) / 1_000 } ?? now.timeIntervalSince1970
