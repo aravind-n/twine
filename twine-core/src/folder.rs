@@ -56,6 +56,10 @@ pub(crate) struct Folders {
 }
 
 impl Folders {
+    pub(crate) fn read_store(&self) -> &Store {
+        &self.store
+    }
+
     pub(crate) fn store(&mut self) -> &mut Store {
         &mut self.store
     }

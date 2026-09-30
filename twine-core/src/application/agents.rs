@@ -133,25 +133,6 @@ impl Application {
         let mut workflow = inner.workflows.workflows[index].clone();
         let placeholder = workflow.terminal_id;
         let name = definition.name;
-        if let Err(error) = inner.folders.store().update_workflow(
-            workflow_id,
-            name,
-            WorkflowKind::SingleAgent,
-            Some(harness),
-        ) {
-            drop(inner);
-            let _ = self.terminals.close(terminal_id);
-            return Err(error.into());
-        }
-        if let Err(error) = inner
-            .folders
-            .store()
-            .update_agent_status(workflow_id, WorkflowStatus::Running)
-        {
-            warn!(%error, "failed to record that the agent is running");
-        }
-        inner.terminals.remove(&placeholder);
-        inner.terminals.insert(terminal_id, TerminalStatus::Running);
         workflow.kind = WorkflowKind::SingleAgent;
         workflow.harness = Some(harness);
         name.clone_into(&mut workflow.name);
@@ -159,6 +140,18 @@ impl Application {
         workflow.status = WorkflowStatus::Running;
         workflow.started_at = timestamp();
         workflow.ended_at = None;
+        if let Err(error) = inner.start_agent_trace(
+            &workflow,
+            harness,
+            placeholder,
+            self.terminals.observe(placeholder).ok(),
+        ) {
+            drop(inner);
+            let _ = self.terminals.close(terminal_id);
+            return Err(error);
+        }
+        inner.terminals.remove(&placeholder);
+        inner.terminals.insert(terminal_id, TerminalStatus::Running);
         inner.workflows.workflows[index] = workflow.clone();
         inner
             .events
@@ -168,7 +161,6 @@ impl Application {
             result: CommandResult::AgentStarted { workflow_id },
         })?;
         drop(inner);
-        // Recording the trace start event belongs here once traces exist (TWINE-23).
         info!(
             workflow_id = workflow_id.0,
             terminal_id = terminal_id.value(),
@@ -205,6 +197,15 @@ impl Application {
                 || workflow.status != WorkflowStatus::Running
             {
                 return Ok(reject("agentNotRunning", "The agent isn't running."));
+            }
+            if let Ok(observation) = self.terminals.observe(workflow.terminal_id)
+                && let Err(error) = inner.stop_trace(
+                    workflow.terminal_id,
+                    observation,
+                    "Process stopped when its agent was cancelled.",
+                )
+            {
+                warn!(%error, "failed to record the cancelled agent's trace");
             }
             workflow.status = WorkflowStatus::Cancelled;
             workflow.ended_at = Some(timestamp().max(workflow.started_at));
@@ -392,6 +393,45 @@ mod tests {
         wait_until(|| output_contains(&application, &mut output, "GOT:hello"));
         // A nonzero exit is a finished process, never a successful or cancelled workflow.
         wait_until(|| workflow(&application).status == WorkflowStatus::Exited);
+        let trace = application
+            .workflow_trace(draft.workflow_id, None, 10)
+            .unwrap();
+        assert_eq!(trace.spans.len(), 2);
+        let agent_span = trace
+            .spans
+            .iter()
+            .find(|span| span.terminal_id == Some(agent.terminal_id))
+            .unwrap();
+        assert_eq!(agent_span.status, crate::TraceSpanStatus::Exited);
+        assert!(!agent_span.is_live);
+        let lane = trace
+            .lanes
+            .iter()
+            .find(|lane| lane.lane_id == agent_span.lane_id)
+            .unwrap();
+        assert!(lane.is_agent);
+        assert_eq!(lane.role.as_deref(), Some("agent"));
+        assert_eq!(lane.harness.as_deref(), Some("pi"));
+        let events = application
+            .trace_events(agent_span.span_id, None, 10)
+            .unwrap()
+            .events;
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, crate::TraceEventKind::ProcessStarted);
+        assert_eq!(events[1].kind, crate::TraceEventKind::ProcessExited);
+        assert!(events[1].message.contains("code 3"));
+        assert!(events[1].anchor.unwrap().byte_offset > 0);
+        assert!(
+            events
+                .iter()
+                .all(|event| !event.message.contains("fix it") && !event.message.contains("GOT:"))
+        );
+        let shell = trace
+            .spans
+            .iter()
+            .find(|span| span.terminal_id == Some(draft.terminal_id))
+            .unwrap();
+        assert_eq!(shell.status, crate::TraceSpanStatus::Stopped);
     }
 
     #[test]
@@ -496,6 +536,26 @@ mod tests {
                 })
         });
         assert_eq!(workflow(&application).status, WorkflowStatus::Cancelled);
+        let trace = application
+            .workflow_trace(draft.workflow_id, None, 10)
+            .unwrap();
+        let span = trace
+            .spans
+            .iter()
+            .find(|span| span.terminal_id == Some(terminal_id))
+            .unwrap();
+        assert_eq!(span.status, crate::TraceSpanStatus::Stopped);
+        let events = application
+            .trace_events(span.span_id, None, 10)
+            .unwrap()
+            .events;
+        assert_eq!(
+            events.len(),
+            2,
+            "the exit callback must not add a second ending"
+        );
+        assert_eq!(events[1].kind, crate::TraceEventKind::ProcessStopped);
+        assert!(events[1].message.contains("cancelled"));
         assert!(matches!(
             application
                 .handle_command(
@@ -577,12 +637,166 @@ mod tests {
             assert_eq!(restored.harness, Some(HarnessId::Pi));
             assert_eq!(restored.status, expected);
             assert!(restored.restored);
+            let trace = second.workflow_trace(id, None, 10).unwrap();
+            assert_eq!(trace.spans.len(), 2);
+            let lane = trace.lanes.iter().find(|lane| lane.is_agent).unwrap();
+            assert_eq!(lane.harness.as_deref(), Some("pi"));
+            let span = trace
+                .spans
+                .iter()
+                .find(|span| span.lane_id == lane.lane_id)
+                .unwrap();
+            assert_eq!(
+                span.status,
+                if expected == WorkflowStatus::Exited {
+                    crate::TraceSpanStatus::Exited
+                } else {
+                    crate::TraceSpanStatus::Stopped
+                }
+            );
+            assert!(!span.is_live);
+            assert_eq!(
+                second
+                    .trace_events(span.span_id, None, 10)
+                    .unwrap()
+                    .events
+                    .len(),
+                2
+            );
             assert_eq!(
                 restored.terminal_id.value(),
                 0,
                 "agents are never relaunched"
             );
         }
+    }
+
+    #[test]
+    fn a_failed_agent_start_trace_keeps_the_draft_and_rolls_back_its_shell_ending() {
+        let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let application = application(folder.path(), bin.path(), Some("sleep 30"));
+        let draft = draft(&application, folder.path());
+        application.lock_inner().unwrap().folders.store().execute_test_sql(
+            "CREATE TRIGGER reject_start BEFORE INSERT ON trace_events WHEN NEW.kind = 'processStarted' BEGIN SELECT RAISE(FAIL, 'test start failure'); END;"
+        );
+        assert!(
+            application
+                .handle_command(
+                    RequestId(3),
+                    Command::StartAgent {
+                        workflow_id: draft.workflow_id,
+                        harness: HarnessId::Pi,
+                        prompt: "go".to_owned(),
+                        size: SIZE,
+                    }
+                )
+                .is_err()
+        );
+        assert_eq!(workflow(&application), draft);
+        let stored = application
+            .lock_inner()
+            .unwrap()
+            .folders
+            .read_store()
+            .workflows(folder.path())
+            .unwrap();
+        assert_eq!(stored[0].kind, WorkflowKind::Draft);
+        assert_eq!(stored[0].harness, None);
+        let trace = application
+            .workflow_trace(draft.workflow_id, None, 10)
+            .unwrap();
+        assert_eq!(trace.spans.len(), 1);
+        assert_eq!(trace.lanes.len(), 1);
+        assert!(trace.spans[0].is_live);
+        assert_eq!(
+            application
+                .trace_events(trace.spans[0].span_id, None, 10)
+                .unwrap()
+                .events
+                .len(),
+            1
+        );
+        assert_eq!(application.snapshot().unwrap().terminals.len(), 1);
+        assert!(
+            application
+                .terminals
+                .size(crate::TerminalId::from_value(draft.terminal_id.value() + 1))
+                .is_none()
+        );
+        application
+            .write_terminal_input(draft.terminal_id, b"echo alive\n")
+            .unwrap();
+    }
+
+    #[test]
+    fn a_failed_cancel_trace_still_stops_the_agent_and_retries_the_cancellation() {
+        let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let application = application(
+            folder.path(),
+            bin.path(),
+            Some("trap '' HUP; echo ready; while :; do sleep 1; done"),
+        );
+        let draft = draft(&application, folder.path());
+        start(&application, draft.workflow_id, "go");
+        let agent = workflow(&application);
+        let mut output = Vec::new();
+        wait_until(|| output_contains(&application, &mut output, "ready"));
+        application.lock_inner().unwrap().folders.store().execute_test_sql(
+            "CREATE TRIGGER reject_trace BEFORE INSERT ON trace_events BEGIN SELECT RAISE(FAIL, 'test recording failure'); END;"
+        );
+        application
+            .handle_command(
+                RequestId(4),
+                Command::CancelAgent {
+                    workflow_id: draft.workflow_id,
+                },
+            )
+            .unwrap();
+        wait_until(|| {
+            application
+                .snapshot()
+                .unwrap()
+                .terminals
+                .iter()
+                .any(|terminal| {
+                    terminal.terminal_id == agent.terminal_id
+                        && matches!(terminal.status, TerminalStatus::Exited(_))
+                })
+        });
+        assert_eq!(workflow(&application).status, WorkflowStatus::Cancelled);
+        assert_eq!(
+            application
+                .lock_inner()
+                .unwrap()
+                .pending_trace_endings
+                .len(),
+            1
+        );
+        application
+            .lock_inner()
+            .unwrap()
+            .folders
+            .store()
+            .execute_test_sql("DROP TRIGGER reject_trace");
+        application
+            .handle_command(RequestId(5), Command::Ping)
+            .unwrap();
+        let trace = application
+            .workflow_trace(draft.workflow_id, None, 10)
+            .unwrap();
+        let span = trace
+            .spans
+            .iter()
+            .find(|span| span.terminal_id == Some(agent.terminal_id))
+            .unwrap();
+        assert_eq!(span.status, crate::TraceSpanStatus::Stopped);
+        let events = application
+            .trace_events(span.span_id, None, 10)
+            .unwrap()
+            .events;
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].kind, crate::TraceEventKind::ProcessStopped);
+        assert!(events[1].message.contains("cancelled"));
     }
 
     #[test]

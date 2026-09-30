@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -21,13 +21,22 @@ const EXIT_REPORT_PENDING: u8 = 0;
 const EXIT_REPORT_ENABLED: u8 = 1;
 const EXIT_REPORT_SUPPRESSED: u8 = 2;
 
-type ExitCallback = Arc<dyn Fn(TerminalId, Result<TerminalExit, String>) + Send + Sync + 'static>;
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TerminalObservation {
+    pub observed_at: u64,
+    pub byte_offset: u64,
+}
+
+type ExitCallback = Arc<
+    dyn Fn(TerminalId, Result<TerminalExit, String>, TerminalObservation) + Send + Sync + 'static,
+>;
 
 struct TerminalSession {
     master: Box<dyn MasterPty + Send>,
     size: TerminalSize,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: SharedChild,
+    output_position: Arc<AtomicU64>,
     reader_cancelled: Arc<AtomicBool>,
     reader_thread: Option<JoinHandle<()>>,
     supervisor_thread: Option<JoinHandle<()>>,
@@ -171,6 +180,7 @@ impl TerminalManager {
         working_directory_handshake: Option<PathBuf>,
         on_exit: ExitCallback,
     ) -> Result<TerminalId, TerminalError> {
+        let output_position = self.output.output_position(terminal_id)?;
         let starting = match spawn_terminal_process(command, size, working_directory_handshake) {
             Ok(starting) => starting,
             Err(error) => {
@@ -202,33 +212,40 @@ impl TerminalManager {
         };
 
         let exit_reporting = Arc::new(AtomicU8::new(EXIT_REPORT_PENDING));
-        let supervisor_thread =
-            match spawn_terminal_supervisor(terminal_id, &child, &exit_reporting, on_exit) {
-                Ok(thread) => thread,
-                Err(error) => {
-                    exit_reporting.store(EXIT_REPORT_SUPPRESSED, Ordering::Release);
-                    let _ = self.output.cancel(terminal_id);
-                    stop_session(
-                        terminal_id,
-                        TerminalSession {
-                            master,
-                            size,
-                            writer,
-                            child,
-                            reader_cancelled,
-                            reader_thread: Some(reader_thread),
-                            supervisor_thread: None,
-                        },
-                    );
-                    return Err(error);
-                }
-            };
+        let supervisor_thread = match spawn_terminal_supervisor(
+            terminal_id,
+            &child,
+            &exit_reporting,
+            Arc::clone(&output_position),
+            on_exit,
+        ) {
+            Ok(thread) => thread,
+            Err(error) => {
+                exit_reporting.store(EXIT_REPORT_SUPPRESSED, Ordering::Release);
+                let _ = self.output.cancel(terminal_id);
+                stop_session(
+                    terminal_id,
+                    TerminalSession {
+                        master,
+                        size,
+                        writer,
+                        child,
+                        output_position,
+                        reader_cancelled,
+                        reader_thread: Some(reader_thread),
+                        supervisor_thread: None,
+                    },
+                );
+                return Err(error);
+            }
+        };
 
         let session = TerminalSession {
             master,
             size,
             writer,
             child,
+            output_position,
             reader_cancelled,
             reader_thread: Some(reader_thread),
             supervisor_thread: Some(supervisor_thread),
@@ -299,6 +316,20 @@ impl TerminalManager {
             })?;
         session.size = size;
         Ok(())
+    }
+
+    pub(crate) fn observe(
+        &self,
+        terminal_id: TerminalId,
+    ) -> Result<TerminalObservation, TerminalError> {
+        let sessions = self.lock_sessions()?;
+        let session = sessions
+            .get(&terminal_id)
+            .ok_or(TerminalError::NotOpen { terminal_id })?;
+        Ok(TerminalObservation {
+            observed_at: crate::workflow::timestamp(),
+            byte_offset: session.output_position.load(Ordering::Acquire),
+        })
     }
 
     pub(crate) fn close(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
@@ -386,6 +417,7 @@ fn spawn_terminal_supervisor(
     terminal_id: TerminalId,
     child: &SharedChild,
     exit_reporting: &Arc<AtomicU8>,
+    output_position: Arc<AtomicU64>,
     on_exit: ExitCallback,
 ) -> Result<JoinHandle<()>, TerminalError> {
     let child = Arc::clone(child);
@@ -394,11 +426,15 @@ fn spawn_terminal_supervisor(
         .name(format!("terminal-{}-supervisor", terminal_id.value()))
         .spawn(move || {
             let result = wait_for_child(&child);
+            let observation = TerminalObservation {
+                observed_at: crate::workflow::timestamp(),
+                byte_offset: output_position.load(Ordering::Acquire),
+            };
             while exit_reporting.load(Ordering::Acquire) == EXIT_REPORT_PENDING {
                 thread::sleep(Duration::from_millis(1));
             }
             if exit_reporting.load(Ordering::Acquire) == EXIT_REPORT_ENABLED {
-                on_exit(terminal_id, result);
+                on_exit(terminal_id, result, observation);
             }
         })
         .map_err(|error| TerminalError::Thread {
@@ -446,6 +482,7 @@ fn stop_session(terminal_id: TerminalId, session: TerminalSession) {
         size: _,
         writer,
         child,
+        output_position: _,
         reader_cancelled,
         reader_thread,
         supervisor_thread,
@@ -505,7 +542,7 @@ mod tests {
                     pixel_height: 480,
                 },
                 Some(directory.clone()),
-                Arc::new(move |terminal_id, result| {
+                Arc::new(move |terminal_id, result, _| {
                     let _ = exit_sender.send((terminal_id, result));
                 }),
             )
@@ -599,7 +636,7 @@ mod tests {
                     pixel_height: 480,
                 },
                 Some(directory),
-                Arc::new(|_, _| panic!("failed terminal must not report an exit event")),
+                Arc::new(|_, _, _| panic!("failed terminal must not report an exit event")),
             )
             .expect_err("startup should fail closed when the directory disappears");
 
@@ -626,7 +663,7 @@ mod tests {
                     pixel_height: 480,
                 },
                 None,
-                Arc::new(move |terminal_id, result| {
+                Arc::new(move |terminal_id, result, _| {
                     let _ = exit_sender.send((terminal_id, result));
                 }),
             )
@@ -669,7 +706,7 @@ mod tests {
                     pixel_height: 480,
                 },
                 None,
-                Arc::new(|_, _| {}),
+                Arc::new(|_, _, _| {}),
             )
             .expect("child should start");
         thread::sleep(Duration::from_millis(100));
@@ -706,7 +743,7 @@ mod tests {
                     pixel_height: 480,
                 },
                 None,
-                Arc::new(move |terminal_id, result| {
+                Arc::new(move |terminal_id, result, _| {
                     let _ = exit_sender.send((terminal_id, result));
                 }),
             )
@@ -757,7 +794,7 @@ mod tests {
                     pixel_height: 480,
                 },
                 None,
-                Arc::new(move |terminal_id, result| {
+                Arc::new(move |terminal_id, result, _| {
                     let _ = exit_sender.send((terminal_id, result));
                 }),
             )
@@ -827,7 +864,7 @@ mod tests {
                     pixel_height: 480,
                 },
                 None,
-                Arc::new(move |terminal_id, result| {
+                Arc::new(move |terminal_id, result, _| {
                     let _ = exit_sender.send((terminal_id, result));
                 }),
             )
@@ -869,7 +906,7 @@ mod tests {
                 CommandBuilder::new("/usr/bin/yes"),
                 test_terminal_size(),
                 None,
-                Arc::new(move |id, exit| {
+                Arc::new(move |id, exit, _| {
                     let _ = sent.send((id, exit));
                 }),
             )
@@ -917,7 +954,12 @@ mod tests {
         ]);
         quiet_shell.env("TWINE_TEST_DIR", &directory);
         let quiet_id = manager
-            .start_test_command(quiet_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(
+                quiet_shell,
+                test_terminal_size(),
+                None,
+                Arc::new(|_, _, _| {}),
+            )
             .expect("shell with descendant should start");
 
         let mut noisy_shell = CommandBuilder::new("/bin/sh");
@@ -927,7 +969,12 @@ mod tests {
         ]);
         noisy_shell.env("TWINE_TEST_DIR", &directory);
         let noisy_id = manager
-            .start_test_command(noisy_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(
+                noisy_shell,
+                test_terminal_size(),
+                None,
+                Arc::new(|_, _, _| {}),
+            )
             .expect("output-heavy shell should start");
 
         let process_ids = ["shell.pid", "descendant.pid", "noisy.pid"]
@@ -984,7 +1031,7 @@ mod tests {
             ]);
             shell.env("TWINE_TEST_DIR", &directory);
             let terminal_id = manager
-                .start_test_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+                .start_test_command(shell, test_terminal_size(), None, Arc::new(|_, _, _| {}))
                 .expect("shell should start");
             (
                 terminal_id,
@@ -1048,7 +1095,7 @@ mod tests {
         ]);
         shell.env("TWINE_TEST_DIR", &directory);
         manager
-            .start_test_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(shell, test_terminal_size(), None, Arc::new(|_, _, _| {}))
             .expect("shell should start");
 
         let shell_id = read_process_id(&directory.join("shell.pid"));
@@ -1090,7 +1137,7 @@ mod tests {
         ]);
         command.env("TWINE_TEST_DIR", &directory);
         let terminal_id = manager
-            .start_test_command(command, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(command, test_terminal_size(), None, Arc::new(|_, _, _| {}))
             .expect("shell should start");
         let process_id = read_process_id(&directory.join("shell.pid"));
         let child = Arc::clone(

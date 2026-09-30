@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use super::{
@@ -14,7 +14,7 @@ enum StreamState {
 
 #[derive(Debug)]
 struct StreamEntry {
-    next_offset: u64,
+    next_offset: Arc<AtomicU64>,
     state: StreamState,
     cancelled: Arc<AtomicBool>,
 }
@@ -77,7 +77,7 @@ impl TerminalStream {
         inner.entries.insert(
             terminal_id,
             StreamEntry {
-                next_offset: 0,
+                next_offset: Arc::new(AtomicU64::new(0)),
                 state: StreamState::Open,
                 cancelled: Arc::new(AtomicBool::new(false)),
             },
@@ -110,10 +110,11 @@ impl TerminalStream {
                 .get_mut(&terminal_id)
                 .filter(|entry| entry.state == StreamState::Open)
                 .ok_or(TerminalError::NotOpen { terminal_id })?;
-            let offset = entry.next_offset;
-            entry.next_offset = offset
+            let offset = entry.next_offset.load(Ordering::Acquire);
+            let next_offset = offset
                 .checked_add(u64::try_from(chunk_bytes).map_err(|_| TerminalError::OffsetOverflow)?)
                 .ok_or(TerminalError::OffsetOverflow)?;
+            entry.next_offset.store(next_offset, Ordering::Release);
             (offset, Arc::clone(&entry.cancelled))
         };
         let chunk = TerminalChunk {
@@ -153,6 +154,18 @@ impl TerminalStream {
         inner.buffered_bytes += chunk_bytes;
         inner.chunks.push_back(chunk);
         Ok(offset)
+    }
+
+    /// The process retains this counter after the live queue is drained or cancelled.
+    pub(crate) fn output_position(
+        &self,
+        terminal_id: TerminalId,
+    ) -> Result<Arc<AtomicU64>, TerminalError> {
+        self.lock_inner()?
+            .entries
+            .get(&terminal_id)
+            .map(|entry| Arc::clone(&entry.next_offset))
+            .ok_or(TerminalError::NotOpen { terminal_id })
     }
 
     pub(crate) fn next_chunk(&self) -> Result<Option<TerminalChunk>, TerminalError> {
@@ -273,6 +286,23 @@ mod tests {
     use super::*;
 
     const TEST_TIMEOUT: Duration = Duration::from_secs(2);
+
+    #[test]
+    fn retained_output_counter_survives_finish_drain_and_cancel() {
+        let stream = TerminalStream::for_test(16, 4).unwrap();
+        let id = stream.open().unwrap();
+        let counter = stream.output_position(id).unwrap();
+        stream.publish_blocking(id, vec![1, 2, 3]).unwrap();
+        stream.finish(id).unwrap();
+        stream.next_chunk().unwrap();
+        assert!(stream.tracks_no_terminals());
+        assert_eq!(counter.load(Ordering::Acquire), 3);
+        let id = stream.open().unwrap();
+        let counter = stream.output_position(id).unwrap();
+        stream.publish_blocking(id, vec![4, 5]).unwrap();
+        stream.cancel(id).unwrap();
+        assert_eq!(counter.load(Ordering::Acquire), 2);
+    }
 
     #[test]
     fn empty_and_oversized_chunks_are_rejected() {
@@ -531,6 +561,7 @@ mod tests {
     fn cancelling_live_delivery_preserves_output_already_accepted_for_recording() {
         let stream = Arc::new(TerminalStream::for_test(1, 1).unwrap());
         let id = stream.open().unwrap();
+        let observed_offset = stream.output_position(id).unwrap();
         stream.publish_blocking(id, b"a".to_vec()).unwrap();
         let (result, publisher) = spawn_publish(&stream, id, b"b".to_vec());
         assert!(matches!(
@@ -541,6 +572,10 @@ mod tests {
             panic!("accepted output should remain readable");
         };
         assert_eq!(page.bytes, b"ab");
+        // The second byte is recorded while live delivery waits for capacity. Trace observations
+        // must use that same reserved offset, without waiting for delivery or incrementing twice.
+        assert_eq!(observed_offset.load(Ordering::Acquire), page.end_offset);
+        assert_eq!(page.end_offset, 2);
         stream.cancel(id).unwrap();
         assert!(matches!(
             result.recv_timeout(TEST_TIMEOUT).unwrap(),
@@ -548,6 +583,7 @@ mod tests {
         ));
         publisher.join().unwrap();
         assert!(stream.next_chunk().unwrap().is_none());
+        assert_eq!(observed_offset.load(Ordering::Acquire), 2);
         assert_eq!(
             stream.read_transcript(id, 0, 8).unwrap(),
             TranscriptRead::Output(page)
