@@ -66,6 +66,31 @@ const MIGRATIONS: &[&str] = &[
     DROP TABLE workflows;
     ALTER TABLE workflows_new RENAME TO workflows;
     CREATE INDEX workflows_session ON workflows(session_id)",
+    // 5: Agents workflows and their agents' roles. SQLite can't change a CHECK constraint, so the
+    // workflows table is rebuilt, keeping its IDs and its AUTOINCREMENT high-water mark so closed
+    // workflows' IDs are never reused.
+    "CREATE TABLE workflows_v5 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('draft', 'terminal', 'single_agent', 'agents')),
+        harness TEXT CHECK (harness IN ('codex', 'claude_code', 'pi')),
+        agent_status TEXT CHECK (agent_status IN ('running', 'exited', 'failed', 'cancelled'))
+    ) STRICT;
+    INSERT INTO workflows_v5 (id, session_id, name, kind, harness, agent_status)
+        SELECT id, session_id, name, kind, harness, agent_status FROM workflows;
+    DELETE FROM sqlite_sequence WHERE name = 'workflows_v5';
+    INSERT INTO sqlite_sequence (name, seq)
+        SELECT 'workflows_v5', seq FROM sqlite_sequence WHERE name = 'workflows';
+    DROP TABLE workflows;
+    ALTER TABLE workflows_v5 RENAME TO workflows;
+    CREATE INDEX workflows_session ON workflows(session_id);
+    CREATE TABLE agents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+        role TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX agents_workflow ON agents(workflow_id)",
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
@@ -304,7 +329,7 @@ mod tests {
             .create_session(Path::new("/folder"), "Session", 123)
             .unwrap();
         store
-            .create_workflow(id, "Terminal", crate::WorkflowKind::Terminal)
+            .create_workflow(id, "Terminal", crate::WorkflowKind::Terminal, &[])
             .unwrap();
         assert_eq!(
             store.selected_session(Path::new("/folder")).unwrap(),
@@ -365,11 +390,16 @@ mod tests {
             .unwrap();
         connection.pragma_update(None, "user_version", 2).unwrap();
         migrate(&mut connection).unwrap();
-        let store = Store::with_connection(connection).unwrap();
+        let mut store = Store::with_connection(connection).unwrap();
 
         // Workflow 3 was deleted before the migration, and its ID must not come back.
-        let id = store
-            .create_workflow(SessionId(1), "New workflow", crate::WorkflowKind::Draft)
+        let (id, _) = store
+            .create_workflow(
+                SessionId(1),
+                "New workflow",
+                crate::WorkflowKind::Draft,
+                &[],
+            )
             .unwrap();
         assert!(
             id.0 > 3,
@@ -390,6 +420,88 @@ mod tests {
         assert_eq!(workflows[0].harness, None);
         assert_eq!(workflows[1].kind, crate::WorkflowKind::SingleAgent);
         assert_eq!(workflows[1].harness, Some(crate::HarnessId::ClaudeCode));
+    }
+
+    #[test]
+    fn migration_to_agents_keeps_workflows_and_never_reuses_their_ids() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        for migration in &MIGRATIONS[..4] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 4).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO sessions (folder, name, started_at) VALUES ('/folder', 'Session', 1);
+                 INSERT INTO workflows (session_id, name, kind)
+                     VALUES (1, 'New workflow', 'draft'), (1, 'Terminal', 'terminal'),
+                         (1, 'Closed', 'terminal');
+                 DELETE FROM workflows WHERE id = 3;",
+            )
+            .unwrap();
+        let mut store = Store::with_connection(connection).unwrap();
+        let folder = Path::new("/folder");
+        assert_eq!(
+            store
+                .workflows(folder)
+                .unwrap()
+                .iter()
+                .map(|workflow| (
+                    workflow.workflow_id.0,
+                    workflow.name.as_str(),
+                    workflow.kind
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (1, "New workflow", crate::WorkflowKind::Draft),
+                (2, "Terminal", crate::WorkflowKind::Terminal)
+            ]
+        );
+
+        let (workflow_id, agent_ids) = store
+            .create_workflow(
+                crate::SessionId(1),
+                "Agents",
+                crate::WorkflowKind::Agents,
+                &["Implementer", "Reviewer"],
+            )
+            .unwrap();
+        assert_eq!(
+            workflow_id.0, 4,
+            "a closed workflow's ID must not be reused"
+        );
+        let workflows = store.workflows(folder).unwrap();
+        let agents = &workflows.last().unwrap().agents;
+        assert_eq!(
+            agents
+                .iter()
+                .map(|agent| (agent.agent_id, agent.role.as_str()))
+                .collect::<Vec<_>>(),
+            [(agent_ids[0], "Implementer"), (agent_ids[1], "Reviewer")]
+        );
+        assert!(
+            workflows[..2]
+                .iter()
+                .all(|workflow| workflow.agents.is_empty())
+        );
+
+        store.delete_workflow(workflow_id).unwrap();
+        let remaining: i64 = store
+            .connection
+            .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, 0, "deleting a workflow deletes its agents");
+        assert!(
+            store
+                .connection
+                .execute(
+                    "INSERT INTO workflows (session_id, name, kind) VALUES (1, 'Other', 'other')",
+                    [],
+                )
+                .is_err()
+        );
     }
 
     #[test]

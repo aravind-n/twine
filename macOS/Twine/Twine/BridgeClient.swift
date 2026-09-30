@@ -196,8 +196,7 @@ final class BridgeClient {
         case .foldersChanged(let folders):
             snapshot.folders = folders
         case .terminalClosed(let terminalID):
-            terminalChunkRouter.markClosed(terminalID)
-            snapshot.terminals.removeAll { $0.terminalID == terminalID }
+            markTerminalClosed(terminalID, in: &snapshot)
         case .terminalExited(let terminalID, let exit):
             updateTerminal(
                 BridgeTerminalState(terminalID: terminalID, status: .exited(exit)),
@@ -276,11 +275,11 @@ extension BridgeClient {
     private func applyWorkflowState(_ state: BridgeWorkflowState, to snapshot: inout BridgeSnapshot) {
         for workflow in snapshot.workflows.workflows
         where !state.workflows.contains(where: { $0.id == workflow.id }) {
-            markTerminalClosed(workflow.terminalID, in: &snapshot)
+            for terminalID in workflow.terminalIDs { markTerminalClosed(terminalID, in: &snapshot) }
         }
         for workflow in state.workflows
         where !snapshot.workflows.workflows.contains(where: { $0.id == workflow.id }) {
-            if workflow.terminalID != 0 { markTerminalRunning(workflow.terminalID, in: &snapshot) }
+            for terminalID in workflow.terminalIDs { markTerminalRunning(terminalID, in: &snapshot) }
         }
         snapshot.workflows = state
     }
@@ -288,7 +287,7 @@ extension BridgeClient {
     private func applyWorkflow(_ workflow: BridgeWorkflow, to snapshot: inout BridgeSnapshot) {
         if workflow.status == .closed {
             snapshot.workflows.workflows.removeAll { $0.id == workflow.id }
-            markTerminalClosed(workflow.terminalID, in: &snapshot)
+            for terminalID in workflow.terminalIDs { markTerminalClosed(terminalID, in: &snapshot) }
         } else if let index = snapshot.workflows.workflows.firstIndex(where: { $0.id == workflow.id }) {
             let previousTerminalID = snapshot.workflows.workflows[index].terminalID
             snapshot.workflows.workflows[index] = workflow
@@ -298,7 +297,7 @@ extension BridgeClient {
             if workflow.terminalID != 0 { markTerminalRunning(workflow.terminalID, in: &snapshot) }
         } else {
             snapshot.workflows.workflows.append(workflow)
-            markTerminalRunning(workflow.terminalID, in: &snapshot)
+            for terminalID in workflow.terminalIDs { markTerminalRunning(terminalID, in: &snapshot) }
         }
     }
 }

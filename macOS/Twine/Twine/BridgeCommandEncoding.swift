@@ -22,6 +22,7 @@ nonisolated private struct CommandPayload: Encodable {
     var path: String?
     var folder: String?
     var kind: BridgeWorkflow.Kind?
+    var roles: [String]?
     var sessionID: UInt64?
     var workflowID: UInt64?
     var name: String?
@@ -32,7 +33,7 @@ nonisolated private struct CommandPayload: Encodable {
     var terminalID: UInt64?
 
     private enum CodingKeys: String, CodingKey {
-        case path, folder, kind, size, type, workingDirectory, name, harness, prompt
+        case path, folder, kind, roles, size, type, workingDirectory, name, harness, prompt
         case terminalID = "terminalId"
         case workflowID = "workflowId"
         case sessionID = "sessionId"
@@ -95,11 +96,12 @@ nonisolated private struct CommandPayload: Encodable {
 
     private mutating func configureWorkflow(_ command: BridgeCommand) {
         switch command {
-        case .createWorkflow(let folder, let sessionID, let kind, let size):
+        case .createWorkflow(let folder, let sessionID, let kind, let roles, let size):
             self.sessionID = sessionID
             type = "createWorkflow"
             self.folder = folder
             self.kind = kind
+            self.roles = roles.isEmpty ? nil : roles
             self.size = size
         case .activateWorkflow(let workflowID):
             type = "activateWorkflow"

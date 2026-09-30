@@ -11,30 +11,24 @@ struct WorkflowTerminalSurface: View {
     @State private var focusRequest = 0
 
     var body: some View {
-        VStack(spacing: 0) {
-            if workflow.restored && workflow.kind != .singleAgent {
-                Label(
-                    workflow.terminalID == 0
-                        ? "Restored tab — the shell couldn't restart."
-                        : "Restored tab — started a fresh shell. Previous terminal contents aren't restored.",
-                    systemImage: "arrow.clockwise"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("restoredWorkflowNotice")
-            }
-            if workflow.terminalID == 0 {
-                if workflow.kind == .singleAgent {
-                    restoredAgent
-                } else {
-                    ContentUnavailableView(
-                        "Shell Couldn't Restart", systemImage: "terminal",
-                        description: Text("Open a new workflow to try again."))
+        if workflow.kind == .agents {
+            AgentWorkflowSurface(workflow: workflow, isSelected: isSelected)
+        } else {
+            VStack(spacing: 0) {
+                if workflow.restored && workflow.kind != .singleAgent {
+                    RestoredWorkflowNotice(workflow: workflow)
                 }
-            } else {
-                terminal
+                if workflow.terminalID == 0 {
+                    if workflow.kind == .singleAgent {
+                        restoredAgent
+                    } else {
+                        ContentUnavailableView(
+                            "Shell Couldn't Restart", systemImage: "terminal",
+                            description: Text("Open a new workflow to try again."))
+                    }
+                } else {
+                    terminal
+                }
             }
         }
     }
@@ -52,7 +46,10 @@ struct WorkflowTerminalSurface: View {
     }
 
     private var terminal: some View {
-        TerminalSurface(workflow: workflow, isSelected: isSelected, focusRequest: focusRequest) {
+        TerminalSurface(
+            terminalID: workflow.terminalID, isSelected: isSelected, focusRequest: focusRequest,
+            subject: workflow.kind == .singleAgent ? "Agent" : "Shell", isCancelled: workflow.status == .cancelled
+        ) {
             try await draft.activate(client: bridgeClient, workflowID: workflow.id)
         }
         // A started agent gets a new terminal, so the emulator must be rebuilt for it.

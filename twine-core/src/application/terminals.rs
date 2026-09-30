@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -6,6 +7,7 @@ use tracing::{debug, warn};
 use super::{Application, ApplicationError, CommandDisposition, Inner, RequestId, rejection};
 use crate::event::{CommandResult, EventKind, StateEvent};
 use crate::terminal::{TerminalChunk, TerminalExit, TerminalId, TerminalSize, TerminalStatus};
+use crate::workflow::{Workflow, WorkflowKind, WorkflowStatus, timestamp};
 
 impl Application {
     /// Starts a shell and records it as running, or rejects the command if the shell can't start.
@@ -52,7 +54,7 @@ impl Application {
                 .workflows
                 .workflows
                 .iter()
-                .any(|workflow| workflow.terminal_id == terminal_id)
+                .any(|workflow| workflow.terminal_ids().contains(&terminal_id))
             {
                 return Ok(CommandDisposition::Rejected {
                     code: "terminalOwnedByWorkflow".to_owned(),
@@ -144,7 +146,8 @@ impl Application {
 }
 
 impl Inner {
-    /// Records how a shell ended, in the terminal's status and as an event.
+    /// Records how a shell ended, in the terminal's status and as an event, and ends the workflow
+    /// that owns it once all of that workflow's shells have ended.
     pub(super) fn record_terminal_exit(
         &mut self,
         terminal_id: TerminalId,
@@ -168,48 +171,136 @@ impl Inner {
                 },
             ),
         };
-        if let Some(workflow) = self
-            .workflows
-            .workflows
-            .iter_mut()
-            .find(|workflow| workflow.terminal_id == terminal_id)
+        self.terminals.insert(terminal_id, status);
+        if let Some(workflow) = self.workflows.workflows.iter_mut().find(|workflow| {
+            workflow.status == WorkflowStatus::Running
+                && workflow.terminal_ids().contains(&terminal_id)
+        }) && let Some(status) = ended_status(workflow, &self.terminals)
         {
-            // A cancelled agent keeps its cancelled status. Any other exit only means the process
-            // ended, never that the work succeeded.
-            if workflow.status != crate::workflow::WorkflowStatus::Cancelled {
-                workflow.status = match &status {
-                    TerminalStatus::Exited(_) => crate::workflow::WorkflowStatus::Exited,
-                    TerminalStatus::Failed { .. } => crate::workflow::WorkflowStatus::Failed,
-                    TerminalStatus::Running => return,
-                };
-                workflow.ended_at = Some(crate::workflow::timestamp().max(workflow.started_at));
-                if workflow.kind == crate::workflow::WorkflowKind::SingleAgent {
-                    if let Err(error) = self
-                        .folders
-                        .store()
-                        .update_agent_status(workflow.workflow_id, workflow.status)
-                    {
-                        warn!(%error, "failed to record the agent's exit");
-                    }
-                    // Recording the trace exit event belongs here once traces exist (TWINE-23).
-                    tracing::info!(
-                        workflow_id = workflow.workflow_id.0,
-                        status = ?workflow.status,
-                        "agent exited"
-                    );
-                }
-                let workflow = workflow.clone();
+            // Only a running workflow ends here, so a cancelled agent keeps its cancelled status. An
+            // exit only means the processes ended, never that the work succeeded.
+            workflow.status = status;
+            workflow.ended_at = Some(timestamp().max(workflow.started_at));
+            if workflow.kind == WorkflowKind::SingleAgent {
                 if let Err(error) = self
-                    .events
-                    .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))
+                    .folders
+                    .store()
+                    .update_agent_status(workflow.workflow_id, workflow.status)
                 {
-                    warn!(%error, "failed to record workflow exit");
+                    warn!(%error, "failed to record the agent's exit");
                 }
+                // Recording the trace exit event belongs here once traces exist (TWINE-23).
+                tracing::info!(
+                    workflow_id = workflow.workflow_id.0,
+                    status = ?workflow.status,
+                    "agent exited"
+                );
+            }
+            let workflow = workflow.clone();
+            if let Err(error) = self
+                .events
+                .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))
+            {
+                warn!(%error, "failed to record workflow exit");
             }
         }
-        self.terminals.insert(terminal_id, status);
         if let Err(error) = self.events.append(EventKind::State(event)) {
             warn!(terminal_id = terminal_id.value(), %error, "failed to record terminal exit");
         }
+    }
+}
+
+/// A workflow runs while any shell it owns runs. Once all have ended it has failed if any failed or
+/// couldn't restart, and otherwise exited. A shell exiting never means the work succeeded.
+fn ended_status(
+    workflow: &Workflow,
+    terminals: &HashMap<TerminalId, TerminalStatus>,
+) -> Option<WorkflowStatus> {
+    let mut failed = false;
+    for terminal_id in workflow.shells() {
+        match terminals.get(&terminal_id) {
+            Some(TerminalStatus::Running) => return None,
+            Some(TerminalStatus::Exited(_)) => {}
+            Some(TerminalStatus::Failed { .. }) | None => failed = true,
+        }
+    }
+    Some(if failed {
+        WorkflowStatus::Failed
+    } else {
+        WorkflowStatus::Exited
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workflow::{Agent, AgentId, SessionId, WorkflowId, WorkflowKind};
+
+    fn workflow(terminal_id: u64, agent_terminal_ids: &[u64]) -> Workflow {
+        Workflow {
+            workflow_id: WorkflowId(1),
+            session_id: SessionId(1),
+            name: "Agents".to_owned(),
+            kind: if agent_terminal_ids.is_empty() {
+                WorkflowKind::Terminal
+            } else {
+                WorkflowKind::Agents
+            },
+            harness: None,
+            terminal_id: TerminalId::from_value(terminal_id),
+            agents: agent_terminal_ids
+                .iter()
+                .zip(1..)
+                .map(|(terminal_id, agent_id)| Agent {
+                    agent_id: AgentId(agent_id),
+                    role: "Worker".to_owned(),
+                    terminal_id: TerminalId::from_value(*terminal_id),
+                })
+                .collect(),
+            status: WorkflowStatus::Running,
+            started_at: 0,
+            ended_at: None,
+            restored: false,
+        }
+    }
+
+    #[test]
+    fn a_workflow_ends_after_all_of_its_shells_and_fails_if_any_did() {
+        let exited = TerminalStatus::Exited(TerminalExit {
+            exit_code: 0,
+            signal: None,
+        });
+        let failed = TerminalStatus::Failed {
+            message: "wait failed".to_owned(),
+        };
+        let terminals = HashMap::from([
+            (TerminalId::from_value(1), TerminalStatus::Running),
+            (TerminalId::from_value(2), exited.clone()),
+            (TerminalId::from_value(3), exited),
+            (TerminalId::from_value(4), failed),
+        ]);
+        assert_eq!(ended_status(&workflow(1, &[]), &terminals), None);
+        assert_eq!(
+            ended_status(&workflow(2, &[]), &terminals),
+            Some(WorkflowStatus::Exited)
+        );
+        assert_eq!(
+            ended_status(&workflow(4, &[]), &terminals),
+            Some(WorkflowStatus::Failed)
+        );
+        assert_eq!(ended_status(&workflow(0, &[2, 1]), &terminals), None);
+        assert_eq!(
+            ended_status(&workflow(0, &[2, 3]), &terminals),
+            Some(WorkflowStatus::Exited)
+        );
+        assert_eq!(
+            ended_status(&workflow(0, &[2, 4]), &terminals),
+            Some(WorkflowStatus::Failed)
+        );
+        // An agent whose shell couldn't restart has no terminal.
+        assert_eq!(
+            ended_status(&workflow(0, &[0, 3]), &terminals),
+            Some(WorkflowStatus::Failed)
+        );
     }
 }

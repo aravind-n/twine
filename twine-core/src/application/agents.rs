@@ -277,6 +277,7 @@ mod tests {
                     folder: folder.to_owned(),
                     session_id: None,
                     kind: WorkflowKind::Draft,
+                    roles: Vec::new(),
                     size: SIZE,
                 },
             )
@@ -292,6 +293,7 @@ mod tests {
                     folder: folder.to_owned(),
                     session_id: None,
                     kind: WorkflowKind::Draft,
+                    roles: Vec::new(),
                     size: SIZE,
                 },
             )

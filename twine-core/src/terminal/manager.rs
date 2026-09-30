@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -37,6 +37,9 @@ pub(crate) struct TerminalManager {
     output: Arc<TerminalStream>,
     #[cfg(test)]
     test_shell: Option<PathBuf>,
+    /// How many more default shells may start before a start fails.
+    #[cfg(test)]
+    test_starts_before_failure: std::sync::atomic::AtomicUsize,
     sessions: Mutex<HashMap<TerminalId, TerminalSession>>,
 }
 
@@ -46,6 +49,8 @@ impl TerminalManager {
             output,
             #[cfg(test)]
             test_shell: None,
+            #[cfg(test)]
+            test_starts_before_failure: std::sync::atomic::AtomicUsize::new(usize::MAX),
             sessions: Mutex::new(HashMap::new()),
         }
     }
@@ -55,12 +60,32 @@ impl TerminalManager {
         self.test_shell = Some(shell);
     }
 
+    /// Makes every default shell start after the next `starts` fail.
+    #[cfg(test)]
+    pub(crate) fn fail_starts_after(&self, starts: usize) {
+        self.test_starts_before_failure
+            .store(starts, Ordering::Release);
+    }
+
     pub(crate) fn start_default_shell(
         &self,
         working_directory: &Path,
         size: TerminalSize,
         on_exit: ExitCallback,
     ) -> Result<TerminalId, TerminalError> {
+        #[cfg(test)]
+        if self
+            .test_starts_before_failure
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |starts| {
+                starts.checked_sub(1)
+            })
+            .is_err()
+        {
+            return Err(TerminalError::Pty {
+                operation: "start a test shell",
+                message: "the test made this start fail".to_owned(),
+            });
+        }
         let working_directory = canonical_working_directory(working_directory)?;
         let command = default_shell_command(&working_directory);
         #[cfg(test)]
@@ -257,6 +282,35 @@ impl TerminalManager {
         Ok(())
     }
 
+    /// Closes the terminals together, so their hang-up grace periods overlap instead of adding up.
+    /// Every open one closes even if another wasn't open; the first that wasn't is the error.
+    pub(crate) fn close_all(&self, terminal_ids: &[TerminalId]) -> Result<(), TerminalError> {
+        let mut result = Ok(());
+        let mut sessions = Vec::with_capacity(terminal_ids.len());
+        {
+            let mut open = self.lock_sessions()?;
+            for &terminal_id in terminal_ids {
+                if let Some(session) = open.remove(&terminal_id) {
+                    sessions.push((terminal_id, session));
+                } else {
+                    warn!(
+                        terminal_id = terminal_id.value(),
+                        "terminal to close is not open"
+                    );
+                    if result.is_ok() {
+                        result = Err(TerminalError::NotOpen { terminal_id });
+                    }
+                }
+            }
+        }
+        for (terminal_id, _) in &sessions {
+            let _ = self.output.cancel(*terminal_id);
+        }
+        stop_sessions(sessions);
+        debug!(count = terminal_ids.len(), "terminal processes closed");
+        result
+    }
+
     pub(crate) fn shutdown(&self) {
         let mut sessions = match self.sessions.lock() {
             Ok(sessions) => sessions,
@@ -267,10 +321,10 @@ impl TerminalManager {
         };
         let owned_sessions = std::mem::take(&mut *sessions);
         drop(sessions);
-        for (terminal_id, session) in owned_sessions {
-            let _ = self.output.cancel(terminal_id);
-            stop_session(terminal_id, session);
+        for terminal_id in owned_sessions.keys() {
+            let _ = self.output.cancel(*terminal_id);
         }
+        stop_sessions(owned_sessions.into_iter().collect());
     }
 
     fn lock_sessions(
@@ -309,6 +363,39 @@ fn spawn_terminal_supervisor(
             operation: "start process supervisor",
             message: error.to_string(),
         })
+}
+
+/// Stops sessions on worker threads, so each one's hang-up grace period overlaps the others'. If a
+/// worker can't start, the ones that did, and this thread, stop its sessions instead.
+fn stop_sessions(sessions: Vec<(TerminalId, TerminalSession)>) {
+    let extra_workers = sessions.len().saturating_sub(1);
+    let pending = Mutex::new(sessions);
+    let stop_pending = || {
+        loop {
+            // Pop before stopping, so the lock isn't held while a session stops.
+            let next = pending.lock().unwrap_or_else(PoisonError::into_inner).pop();
+            let Some((terminal_id, session)) = next else {
+                break;
+            };
+            stop_session(terminal_id, session);
+        }
+    };
+    thread::scope(|scope| {
+        let workers: Vec<_> = (0..extra_workers)
+            .map_while(|_| {
+                thread::Builder::new()
+                    .name("terminal-stop".to_owned())
+                    .spawn_scoped(scope, stop_pending)
+                    .ok()
+            })
+            .collect();
+        stop_pending();
+        for worker in workers {
+            if worker.join().is_err() {
+                warn!("terminal stop thread panicked");
+            }
+        }
+    });
 }
 
 fn stop_session(terminal_id: TerminalId, session: TerminalSession) {
@@ -628,9 +715,10 @@ mod tests {
             )
             .expect("shell with a detached descendant should start");
 
+        // The shell exits once Python has started, which can take seconds on a busy CI host.
         assert_eq!(
             exit_receiver
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(Duration::from_secs(10))
                 .expect("supervisor should report the primary shell exit")
                 .0,
             terminal_id
@@ -765,6 +853,70 @@ mod tests {
         }
         manager.shutdown();
         assert_ne!(quiet_id, noisy_id);
+        std::fs::remove_dir_all(directory).expect("test directory should be removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn close_all_stops_terminals_together_and_reports_one_that_was_not_open() {
+        let stream = Arc::new(
+            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+        );
+        let manager = TerminalManager::new(Arc::clone(&stream));
+        let directory = unique_test_directory();
+        std::fs::create_dir(&directory).expect("test directory should be created");
+        // Each shell ignores the hangup, so closing it waits out the whole grace period.
+        let start = |name: &str| {
+            let mut shell = CommandBuilder::new("/bin/sh");
+            shell.args([
+                "-c",
+                &format!(
+                    "trap '' HUP; echo $$ > \"$TWINE_TEST_DIR/{name}.pid\"; \
+                     while :; do sleep 1; done"
+                ),
+            ]);
+            shell.env("TWINE_TEST_DIR", &directory);
+            let terminal_id = manager
+                .start_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+                .expect("shell should start");
+            (
+                terminal_id,
+                read_process_id(&directory.join(format!("{name}.pid"))),
+            )
+        };
+
+        let (single, _) = start("single");
+        let started = Instant::now();
+        manager
+            .close_all(&[single])
+            .expect("the shell should close");
+        let one = started.elapsed();
+
+        let shells = ["first", "second", "third"].map(start);
+        let missing = TerminalId::from_value(u64::MAX);
+        let started = Instant::now();
+        let result = manager.close_all(&[shells[0].0, missing, shells[1].0, shells[2].0]);
+        let three = started.elapsed();
+        assert!(
+            matches!(result, Err(TerminalError::NotOpen { terminal_id }) if terminal_id == missing)
+        );
+        assert!(
+            manager
+                .lock_sessions()
+                .expect("sessions should lock")
+                .is_empty()
+        );
+        for (_, process_id) in shells {
+            assert!(
+                !process_exists(process_id),
+                "process {process_id} survived close_all"
+            );
+        }
+        // Closed together, three shells take about as long as one, not three times as long.
+        assert!(
+            three < one * 2,
+            "closing three shells took {three:?}; closing one took {one:?}"
+        );
         std::fs::remove_dir_all(directory).expect("test directory should be removed");
     }
 

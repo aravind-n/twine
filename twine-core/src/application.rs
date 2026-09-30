@@ -69,6 +69,8 @@ pub enum Command {
         folder: PathBuf,
         session_id: Option<SessionId>,
         kind: WorkflowKind,
+        /// One role per agent, in order. Agents workflows need at least one; other kinds take none.
+        roles: Vec<String>,
         size: TerminalSize,
     },
     ActivateWorkflow {
@@ -286,8 +288,9 @@ impl Application {
                 folder,
                 session_id,
                 kind,
+                roles,
                 size,
-            } => self.create_workflow(request_id, &folder, session_id, kind, size)?,
+            } => self.create_workflow(request_id, &folder, session_id, kind, &roles, size)?,
             Command::ActivateWorkflow { workflow_id } => {
                 self.activate_workflow(request_id, workflow_id)?
             }

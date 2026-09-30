@@ -10,6 +10,8 @@ extension FocusedValues {
 
 struct WorkflowActions {
     let create: () -> Void
+    /// Opens an agents workflow with one agent per role, in order.
+    let createAgents: ([String]) -> Void
     let close: (() -> Void)?
     let cancelAgent: (() -> Void)?
 }
@@ -18,6 +20,10 @@ struct WorkflowActions {
 ///
 /// They replace New Window: the core has one open folder, so a second window could only mirror it.
 struct FolderCommands: Commands {
+    #if DEBUG
+        private static let testRoles = ["Implementer", "Reviewer", "Coordinator"]
+    #endif
+
     let bridgeClient: BridgeClient
     let editor: FileEditorModel
     @FocusedBinding(\.isChoosingFolder) private var isChoosingFolder
@@ -33,6 +39,17 @@ struct FolderCommands: Commands {
             Button("Cancel Agent") { workflowActions?.cancelAgent?() }
                 .keyboardShortcut(".")
                 .disabled(workflowActions?.cancelAgent == nil || !isRunning)
+            #if DEBUG
+                // Until harnesses can launch, agents run shells, and only debug builds open them.
+                Menu("New Test Workflow") {
+                    ForEach(1...Self.testRoles.count, id: \.self) { count in
+                        Button(count == 1 ? "1 Agent" : "\(count) Agents") {
+                            workflowActions?.createAgents(Array(Self.testRoles.prefix(count)))
+                        }
+                    }
+                }
+                .disabled(workflowActions == nil || !isRunning)
+            #endif
             Divider()
             Button("Open Folder…") {
                 isChoosingFolder = true

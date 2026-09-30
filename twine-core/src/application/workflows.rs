@@ -5,7 +5,8 @@ use crate::event::{CommandResult, EventKind, StateEvent};
 use crate::folder::Folders;
 use crate::terminal::{TerminalId, TerminalSize, TerminalStatus};
 use crate::workflow::{
-    SessionId, Workflow, WorkflowId, WorkflowKind, WorkflowState, WorkflowStatus, timestamp,
+    Agent, AgentId, MAX_AGENTS, SessionId, Workflow, WorkflowId, WorkflowKind, WorkflowState,
+    WorkflowStatus, timestamp, valid_name,
 };
 
 impl Application {
@@ -60,14 +61,13 @@ impl Application {
         folder: &Path,
         session_id: Option<SessionId>,
         kind: WorkflowKind,
+        roles: &[String],
         size: TerminalSize,
     ) -> Result<CommandDisposition, ApplicationError> {
-        if kind == WorkflowKind::SingleAgent {
-            return Ok(reject(
-                "invalidWorkflowKind",
-                "Start an agent from a new workflow tab.",
-            ));
-        }
+        let roles = match agent_roles(kind, roles) {
+            Ok(roles) => roles,
+            Err(rejection) => return Ok(rejection),
+        };
         let mut inner = self.lock_inner()?;
         if inner.folders.state().open_folder.as_deref() != Some(folder) {
             return Ok(reject(
@@ -86,34 +86,54 @@ impl Application {
                 "Select the session again before opening a workflow.",
             ));
         }
-        let terminal_id = match self.start_terminal(folder, size) {
-            Ok(id) => id,
-            Err(error) => return Ok(super::rejection("terminalStartFailed", &error)),
-        };
+        // An agents workflow has no shell of its own. Each of its agents gets one instead.
+        let mut terminal_ids = Vec::with_capacity(roles.len().max(1));
+        for _ in 0..roles.len().max(1) {
+            match self.start_terminal(folder, size) {
+                Ok(terminal_id) => terminal_ids.push(terminal_id),
+                Err(error) => {
+                    drop(inner);
+                    let _ = self.terminals.close_all(&terminal_ids);
+                    return Ok(super::rejection("terminalStartFailed", &error));
+                }
+            }
+        }
         let name = match kind {
             WorkflowKind::Draft => "New workflow",
             WorkflowKind::Terminal | WorkflowKind::SingleAgent => "Terminal",
+            WorkflowKind::Agents => "Agents",
         };
         let persisted = (|| -> Result<_, ApplicationError> {
             let session_id = match selected {
                 Some(id) => id,
                 None => inner.add_session(folder, "Session")?,
             };
-            let workflow_id = inner
+            let (workflow_id, agent_ids) = inner
                 .folders
                 .store()
-                .create_workflow(session_id, name, kind)?;
-            Ok((session_id, workflow_id))
+                .create_workflow(session_id, name, kind, &roles)?;
+            Ok((session_id, workflow_id, agent_ids))
         })();
-        let (session_id, workflow_id) = match persisted {
+        let (session_id, workflow_id, agent_ids) = match persisted {
             Ok(ids) => ids,
             Err(error) => {
                 drop(inner);
-                let _ = self.terminals.close(terminal_id);
+                let _ = self.terminals.close_all(&terminal_ids);
                 return Err(error);
             }
         };
-        inner.terminals.insert(terminal_id, TerminalStatus::Running);
+        for &terminal_id in &terminal_ids {
+            inner.terminals.insert(terminal_id, TerminalStatus::Running);
+        }
+        let (terminal_id, agents) = match kind {
+            WorkflowKind::Draft | WorkflowKind::Terminal | WorkflowKind::SingleAgent => {
+                (terminal_ids[0], Vec::new())
+            }
+            WorkflowKind::Agents => (
+                TerminalId::from_value(0),
+                agents(agent_ids, &roles, terminal_ids),
+            ),
+        };
         let workflow = Workflow {
             workflow_id,
             session_id,
@@ -121,6 +141,7 @@ impl Application {
             kind,
             harness: None,
             terminal_id,
+            agents,
             status: WorkflowStatus::Running,
             started_at: timestamp(),
             ended_at: None,
@@ -155,11 +176,14 @@ impl Application {
             ));
         };
         let mut workflow = inner.workflows.workflows[index].clone();
-        if workflow.kind != WorkflowKind::Draft && workflow.kind != WorkflowKind::Terminal {
-            return Ok(reject(
-                "workflowNotDraft",
-                "The workflow is already configured.",
-            ));
+        match workflow.kind {
+            WorkflowKind::Draft | WorkflowKind::Terminal => {}
+            WorkflowKind::SingleAgent | WorkflowKind::Agents => {
+                return Ok(reject(
+                    "workflowNotDraft",
+                    "The workflow is already configured.",
+                ));
+            }
         }
         inner.folders.store().update_workflow(
             workflow_id,
@@ -185,7 +209,7 @@ impl Application {
         request_id: RequestId,
         workflow_id: WorkflowId,
     ) -> Result<CommandDisposition, ApplicationError> {
-        let terminal_id = {
+        let terminal_ids = {
             let mut inner = self.lock_inner()?;
             let Some(index) = inner
                 .workflows
@@ -204,16 +228,16 @@ impl Application {
             workflow
                 .ended_at
                 .get_or_insert(timestamp().max(workflow.started_at));
-            inner.terminals.remove(&workflow.terminal_id);
-            let terminal_id = workflow.terminal_id;
+            let terminal_ids = workflow.terminal_ids();
+            for terminal_id in &terminal_ids {
+                inner.terminals.remove(terminal_id);
+            }
             inner
                 .events
                 .append(EventKind::State(StateEvent::WorkflowChanged(workflow)))?;
-            terminal_id
+            terminal_ids
         };
-        if terminal_id.value() != 0 {
-            self.terminals.close(terminal_id)?;
-        }
+        self.terminals.close_all(&terminal_ids)?;
         self.lock_inner()?
             .events
             .append(EventKind::CommandCompleted {
@@ -249,27 +273,7 @@ impl Application {
             workflows: Vec::new(),
         };
         for stored in stored {
-            if stored.kind == WorkflowKind::SingleAgent {
-                // The agent's process and terminal are gone. Its work didn't finish.
-                inner.workflows.workflows.push(Workflow {
-                    workflow_id: stored.workflow_id,
-                    session_id: stored.session_id,
-                    name: stored.name,
-                    kind: stored.kind,
-                    harness: stored.harness,
-                    terminal_id: TerminalId::from_value(0),
-                    // Only an agent that was still running when Twine stopped was interrupted.
-                    status: match stored.agent_status {
-                        Some(status) if status != WorkflowStatus::Running => status,
-                        _ => WorkflowStatus::Interrupted,
-                    },
-                    started_at: timestamp(),
-                    ended_at: Some(timestamp()),
-                    restored: true,
-                });
-                continue;
-            }
-            let (terminal_id, status) = match self.start_terminal(
+            let mut restart = || match self.start_terminal(
                 &folder,
                 TerminalSize {
                     rows: 24,
@@ -280,25 +284,56 @@ impl Application {
             ) {
                 Ok(id) => {
                     inner.terminals.insert(id, TerminalStatus::Running);
-                    (id, WorkflowStatus::Running)
+                    id
                 }
                 Err(error) => {
                     tracing::warn!(%error, "failed to restart a restored workflow shell");
-                    (TerminalId::from_value(0), WorkflowStatus::Failed)
+                    TerminalId::from_value(0)
                 }
             };
-            inner.workflows.workflows.push(Workflow {
+            // An agents workflow has no shell of its own; each of its agents gets a fresh one.
+            let (terminal_id, agents) = match stored.kind {
+                WorkflowKind::Draft | WorkflowKind::Terminal => (restart(), Vec::new()),
+                // A single agent's process and terminal are gone, and it doesn't restart.
+                WorkflowKind::SingleAgent => (TerminalId::from_value(0), Vec::new()),
+                WorkflowKind::Agents => {
+                    let agents: Vec<_> = stored
+                        .agents
+                        .into_iter()
+                        .map(|agent| Agent {
+                            agent_id: agent.agent_id,
+                            role: agent.role,
+                            terminal_id: restart(),
+                        })
+                        .collect();
+                    (TerminalId::from_value(0), agents)
+                }
+            };
+            let mut workflow = Workflow {
                 workflow_id: stored.workflow_id,
                 session_id: stored.session_id,
                 name: stored.name,
                 kind: stored.kind,
-                harness: None,
+                harness: stored.harness,
                 terminal_id,
-                status,
+                agents,
+                status: WorkflowStatus::Running,
                 started_at: timestamp(),
-                ended_at: (status == WorkflowStatus::Failed).then(timestamp),
+                ended_at: None,
                 restored: true,
-            });
+            };
+            if workflow.kind == WorkflowKind::SingleAgent {
+                // Only an agent that was still running when Twine stopped was interrupted.
+                workflow.status = match stored.agent_status {
+                    Some(status) if status != WorkflowStatus::Running => status,
+                    _ => WorkflowStatus::Interrupted,
+                };
+                workflow.ended_at = Some(workflow.started_at);
+            } else if workflow.terminal_ids().is_empty() {
+                workflow.status = WorkflowStatus::Failed;
+                workflow.ended_at = Some(workflow.started_at);
+            }
+            inner.workflows.workflows.push(workflow);
         }
         inner.publish_workflows()?;
         Ok(())
@@ -334,13 +369,51 @@ impl Application {
             }
             (disposition, terminal_ids)
         };
-        for terminal_id in terminal_ids {
-            self.terminals.close(terminal_id)?;
-        }
+        self.terminals.close_all(&terminal_ids)?;
         self.files.clear();
         self.restore_workflows()?;
         Ok(disposition)
     }
+}
+
+/// The trimmed roles, if a workflow of this kind can be created with them. Single agents start from
+/// drafts instead, agents workflows need 1–[`MAX_AGENTS`] valid roles, and other kinds take none.
+fn agent_roles(kind: WorkflowKind, roles: &[String]) -> Result<Vec<&str>, CommandDisposition> {
+    if kind == WorkflowKind::SingleAgent {
+        return Err(reject(
+            "invalidWorkflowKind",
+            "Start an agent from a new workflow tab.",
+        ));
+    }
+    let roles: Vec<&str> = roles.iter().map(|role| role.trim()).collect();
+    let valid = if kind == WorkflowKind::Agents {
+        (1..=MAX_AGENTS).contains(&roles.len()) && roles.iter().all(|role| valid_name(role))
+    } else {
+        roles.is_empty()
+    };
+    if !valid {
+        return Err(reject(
+            "invalidAgents",
+            &format!(
+                "An agents workflow needs 1–{MAX_AGENTS} roles of 1–200 characters on one line, \
+                 and other workflows take none."
+            ),
+        ));
+    }
+    Ok(roles)
+}
+
+fn agents(agent_ids: Vec<AgentId>, roles: &[&str], terminal_ids: Vec<TerminalId>) -> Vec<Agent> {
+    agent_ids
+        .into_iter()
+        .zip(roles)
+        .zip(terminal_ids)
+        .map(|((agent_id, role), terminal_id)| Agent {
+            agent_id,
+            role: (*role).to_owned(),
+            terminal_id,
+        })
+        .collect()
 }
 
 pub(super) fn reject(code: &str, message: &str) -> CommandDisposition {
@@ -376,25 +449,44 @@ mod tests {
         application
     }
 
+    fn request(
+        application: &Application,
+        folder: &Path,
+        kind: WorkflowKind,
+        roles: &[&str],
+    ) -> CommandDisposition {
+        application
+            .handle_command(
+                RequestId(2),
+                Command::CreateWorkflow {
+                    folder: folder.to_owned(),
+                    session_id: None,
+                    kind,
+                    roles: roles.iter().map(|role| (*role).to_owned()).collect(),
+                    size: TerminalSize {
+                        rows: 24,
+                        columns: 80,
+                        pixel_width: 800,
+                        pixel_height: 480,
+                    },
+                },
+            )
+            .unwrap()
+            .disposition
+    }
+
     fn create(application: &Application, folder: &Path, kind: WorkflowKind) -> Workflow {
+        create_with_roles(application, folder, kind, &[])
+    }
+
+    fn create_with_roles(
+        application: &Application,
+        folder: &Path,
+        kind: WorkflowKind,
+        roles: &[&str],
+    ) -> Workflow {
         assert_eq!(
-            application
-                .handle_command(
-                    RequestId(2),
-                    Command::CreateWorkflow {
-                        folder: folder.to_owned(),
-                        session_id: None,
-                        kind,
-                        size: TerminalSize {
-                            rows: 24,
-                            columns: 80,
-                            pixel_width: 800,
-                            pixel_height: 480
-                        },
-                    }
-                )
-                .unwrap()
-                .disposition,
+            request(application, folder, kind, roles),
             CommandDisposition::Accepted
         );
         application
@@ -405,6 +497,32 @@ mod tests {
             .last()
             .unwrap()
             .clone()
+    }
+
+    fn roles(workflow: &Workflow) -> Vec<&str> {
+        workflow
+            .agents
+            .iter()
+            .map(|agent| agent.role.as_str())
+            .collect()
+    }
+
+    fn read_when_written(path: &Path) -> String {
+        let mut contents = String::new();
+        wait_until(|| {
+            contents = std::fs::read_to_string(path).unwrap_or_default();
+            contents.ends_with('\n')
+        });
+        contents
+    }
+
+    fn process_exists(pid: &str) -> bool {
+        std::process::Command::new("kill")
+            .args(["-0", pid])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success()
     }
 
     fn wait_until(mut condition: impl FnMut() -> bool) {
@@ -656,6 +774,7 @@ mod tests {
                                 folder: folder.path().to_owned(),
                                 session_id: None,
                                 kind: WorkflowKind::Terminal,
+                                roles: Vec::new(),
                                 size: TerminalSize {
                                     rows: 24,
                                     columns: 80,
@@ -701,6 +820,18 @@ mod tests {
                 },
             )
             .unwrap();
+        let agents = create_with_roles(
+            &application,
+            folder.path(),
+            WorkflowKind::Agents,
+            &["Implementer", "Reviewer"],
+        );
+        for terminal_id in agents.terminal_ids() {
+            write(&application, terminal_id, "exit\n");
+        }
+        wait_until(|| {
+            application.snapshot().unwrap().workflows.workflows[1].status == WorkflowStatus::Exited
+        });
         let mut state = snapshot.workflows;
         let events = application.events_after(snapshot.sequence, 128).unwrap();
         for (index, event) in events.iter().enumerate() {
@@ -860,5 +991,260 @@ mod tests {
             )
             .unwrap();
         assert!(application.snapshot().unwrap().terminals.is_empty());
+    }
+
+    #[test]
+    fn agents_run_their_own_shells_and_closing_the_workflow_stops_every_one() {
+        let folder = tempfile::tempdir().unwrap();
+        let application = application(folder.path());
+        let workflow = create_with_roles(
+            &application,
+            folder.path(),
+            WorkflowKind::Agents,
+            &["Implementer", " Reviewer ", "Coordinator"],
+        );
+        assert_eq!(workflow.name, "Agents");
+        assert_eq!(roles(&workflow), ["Implementer", "Reviewer", "Coordinator"]);
+        assert_eq!(workflow.terminal_id, TerminalId::from_value(0));
+        let terminal_ids = workflow.terminal_ids();
+        assert_eq!(terminal_ids.len(), 3);
+        let snapshot = application.snapshot().unwrap();
+        assert_eq!(
+            snapshot
+                .terminals
+                .iter()
+                .map(|terminal| (terminal.terminal_id, terminal.status.clone()))
+                .collect::<Vec<_>>(),
+            terminal_ids
+                .iter()
+                .map(|terminal_id| (*terminal_id, TerminalStatus::Running))
+                .collect::<Vec<_>>()
+        );
+        for (index, terminal_id) in terminal_ids.iter().enumerate() {
+            write(
+                &application,
+                *terminal_id,
+                &format!("echo $$ > {index}.pid\n"),
+            );
+        }
+        let pids: Vec<_> = (0..terminal_ids.len())
+            .map(|index| read_when_written(&folder.path().join(format!("{index}.pid"))))
+            .collect();
+        assert_ne!(pids[0], pids[1]);
+        assert_ne!(pids[1], pids[2]);
+        assert_ne!(pids[0], pids[2]);
+
+        let sequence = application.snapshot().unwrap().sequence;
+        assert_eq!(
+            application
+                .handle_command(
+                    RequestId(3),
+                    Command::CloseWorkflow {
+                        workflow_id: workflow.workflow_id,
+                    },
+                )
+                .unwrap()
+                .disposition,
+            CommandDisposition::Accepted
+        );
+        let snapshot = application.snapshot().unwrap();
+        assert!(snapshot.workflows.workflows.is_empty());
+        assert!(snapshot.terminals.is_empty());
+        for terminal_id in terminal_ids {
+            assert!(
+                application
+                    .write_terminal_input(terminal_id, b"\n")
+                    .is_err()
+            );
+        }
+        for pid in &pids {
+            wait_until(|| !process_exists(pid.trim()));
+        }
+        let closed = application
+            .events_after(sequence, 32)
+            .unwrap()
+            .into_iter()
+            .find_map(|event| match event.kind {
+                EventKind::State(StateEvent::WorkflowChanged(workflow)) => Some(workflow),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(closed.status, WorkflowStatus::Closed);
+        assert_eq!(closed.agents, workflow.agents);
+    }
+
+    #[test]
+    fn invalid_roles_are_rejected_before_any_shell_starts() {
+        let folder = tempfile::tempdir().unwrap();
+        let application = application(folder.path());
+        let before = application.snapshot().unwrap();
+        let long = "a".repeat(201);
+        let nine = ["Worker"; MAX_AGENTS + 1];
+        let cases: [(WorkflowKind, &[&str]); 7] = [
+            (WorkflowKind::Agents, &[]),
+            (WorkflowKind::Agents, &nine),
+            (WorkflowKind::Agents, &["Implementer", "  "]),
+            (WorkflowKind::Agents, &["two\nlines"]),
+            (WorkflowKind::Agents, &[long.as_str()]),
+            (WorkflowKind::Terminal, &["Implementer"]),
+            (WorkflowKind::Draft, &["Implementer"]),
+        ];
+        for (kind, roles) in cases {
+            assert!(
+                matches!(
+                    request(&application, folder.path(), kind, roles),
+                    CommandDisposition::Rejected { ref code, .. } if code == "invalidAgents"
+                ),
+                "{kind:?} with {roles:?} should be rejected"
+            );
+        }
+        assert_eq!(application.snapshot().unwrap(), before);
+
+        let most = create_with_roles(
+            &application,
+            folder.path(),
+            WorkflowKind::Agents,
+            &["Worker"; MAX_AGENTS],
+        );
+        assert_eq!(most.terminal_ids().len(), MAX_AGENTS);
+        let one = create_with_roles(
+            &application,
+            folder.path(),
+            WorkflowKind::Agents,
+            &[&"a".repeat(200)],
+        );
+        assert_eq!(one.agents.len(), 1);
+    }
+
+    #[test]
+    fn an_agents_workflow_ends_when_its_last_agent_exits_and_not_before() {
+        let folder = tempfile::tempdir().unwrap();
+        let application = application(folder.path());
+        let workflow = create_with_roles(
+            &application,
+            folder.path(),
+            WorkflowKind::Agents,
+            &["Implementer", "Reviewer"],
+        );
+        let [first, second] = [
+            workflow.agents[0].terminal_id,
+            workflow.agents[1].terminal_id,
+        ];
+        let sequence = application.snapshot().unwrap().sequence;
+        write(&application, first, "exit 3\n");
+        wait_until(|| {
+            application
+                .snapshot()
+                .unwrap()
+                .terminals
+                .iter()
+                .any(|terminal| {
+                    terminal.terminal_id == first
+                        && matches!(terminal.status, TerminalStatus::Exited(_))
+                })
+        });
+        let running = application.snapshot().unwrap().workflows.workflows[0].clone();
+        assert_eq!(running.status, WorkflowStatus::Running);
+        assert_eq!(running.ended_at, None);
+
+        write(&application, second, "exit 4\n");
+        wait_until(|| {
+            application.snapshot().unwrap().workflows.workflows[0].status == WorkflowStatus::Exited
+        });
+        let ended = application.snapshot().unwrap().workflows.workflows[0].clone();
+        assert!(ended.ended_at.unwrap() >= ended.started_at);
+        let events = application.events_after(sequence, 32).unwrap();
+        let exits = |terminal_id| {
+            events.iter().position(|event| {
+                matches!(event.kind, EventKind::State(StateEvent::TerminalExited { terminal_id: id, .. }) if id == terminal_id)
+            })
+        };
+        let workflow_changes: Vec<_> = events
+            .iter()
+            .enumerate()
+            .filter(|(_, event)| {
+                matches!(event.kind, EventKind::State(StateEvent::WorkflowChanged(_)))
+            })
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(workflow_changes.len(), 1, "{events:?}");
+        assert!(exits(first).unwrap() < workflow_changes[0]);
+        assert!(workflow_changes[0] < exits(second).unwrap());
+    }
+
+    #[test]
+    fn an_agents_workflow_is_not_a_draft_and_owns_its_agents_terminals() {
+        let folder = tempfile::tempdir().unwrap();
+        let application = application(folder.path());
+        let workflow = create_with_roles(
+            &application,
+            folder.path(),
+            WorkflowKind::Agents,
+            &["Implementer", "Reviewer"],
+        );
+        for command in [
+            Command::ActivateWorkflow {
+                workflow_id: workflow.workflow_id,
+            },
+            Command::NameDraftWorkflow {
+                workflow_id: workflow.workflow_id,
+                name: "Terminal".to_owned(),
+            },
+        ] {
+            assert!(matches!(
+                application.handle_command(RequestId(3), command).unwrap().disposition,
+                CommandDisposition::Rejected { ref code, .. } if code == "workflowNotDraft"
+            ));
+        }
+        let receipt = application
+            .handle_command(
+                RequestId(4),
+                Command::CloseTerminal {
+                    terminal_id: workflow.agents[1].terminal_id,
+                },
+            )
+            .unwrap();
+        assert!(
+            matches!(receipt.disposition, CommandDisposition::Rejected { ref code, .. } if code == "terminalOwnedByWorkflow")
+        );
+        assert_eq!(
+            application.snapshot().unwrap().workflows.workflows,
+            vec![workflow.clone()]
+        );
+        write(
+            &application,
+            workflow.agents[1].terminal_id,
+            "touch alive\n",
+        );
+        wait_until(|| folder.path().join("alive").exists());
+    }
+
+    #[test]
+    fn a_shell_that_fails_to_start_stops_the_agents_started_before_it() {
+        let folder = tempfile::tempdir().unwrap();
+        let application = application(folder.path());
+        let before = application.snapshot().unwrap();
+        application.terminals.fail_starts_after(2);
+        assert!(matches!(
+            request(
+                &application,
+                folder.path(),
+                WorkflowKind::Agents,
+                &["Implementer", "Reviewer", "Coordinator"],
+            ),
+            CommandDisposition::Rejected { ref code, .. } if code == "terminalStartFailed"
+        ));
+        assert_eq!(application.snapshot().unwrap(), before);
+        // The two shells that started were stopped rather than left running without a workflow.
+        for terminal_id in 1..=2 {
+            assert!(
+                application
+                    .write_terminal_input(TerminalId::from_value(terminal_id), b"\n")
+                    .is_err()
+            );
+        }
+        application.terminals.fail_starts_after(usize::MAX);
+        let workflow = create(&application, folder.path(), WorkflowKind::Terminal);
+        assert_eq!(workflow.workflow_id, WorkflowId(1), "nothing was stored");
     }
 }

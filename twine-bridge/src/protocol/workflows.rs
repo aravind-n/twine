@@ -66,9 +66,18 @@ pub(super) struct WireWorkflow<'a> {
     kind: &'static str,
     harness: Option<&'static str>,
     terminal_id: u64,
+    agents: Vec<WireAgent<'a>>,
     status: &'static str,
     started_at: u64,
     ended_at: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WireAgent<'a> {
+    agent_id: u64,
+    role: &'a str,
+    terminal_id: u64,
 }
 
 impl<'a> From<&'a Workflow> for WireWorkflow<'a> {
@@ -82,6 +91,7 @@ impl<'a> From<&'a Workflow> for WireWorkflow<'a> {
                 WorkflowKind::Draft => "draft",
                 WorkflowKind::Terminal => "terminal",
                 WorkflowKind::SingleAgent => "singleAgent",
+                WorkflowKind::Agents => "agents",
             },
             harness: workflow.harness.map(|harness| match harness {
                 HarnessId::Codex => "codex",
@@ -89,6 +99,15 @@ impl<'a> From<&'a Workflow> for WireWorkflow<'a> {
                 HarnessId::Pi => "pi",
             }),
             terminal_id: workflow.terminal_id.value(),
+            agents: workflow
+                .agents
+                .iter()
+                .map(|agent| WireAgent {
+                    agent_id: agent.agent_id.0,
+                    role: &agent.role,
+                    terminal_id: agent.terminal_id.value(),
+                })
+                .collect(),
             status: match workflow.status {
                 WorkflowStatus::Running => "running",
                 WorkflowStatus::Exited => "exited",
@@ -109,6 +128,8 @@ struct RawCreateWorkflow {
     session_id: Option<u64>,
     folder: PathBuf,
     kind: RawWorkflowKind,
+    #[serde(default)]
+    roles: Vec<String>,
     size: RawTerminalSize,
 }
 
@@ -117,6 +138,7 @@ struct RawCreateWorkflow {
 enum RawWorkflowKind {
     Draft,
     Terminal,
+    Agents,
 }
 
 #[derive(Deserialize)]
@@ -195,7 +217,9 @@ pub(super) fn decode_command(command_type: &str, raw: &Value) -> Result<Command,
                 kind: match command.kind {
                     RawWorkflowKind::Draft => WorkflowKind::Draft,
                     RawWorkflowKind::Terminal => WorkflowKind::Terminal,
+                    RawWorkflowKind::Agents => WorkflowKind::Agents,
                 },
+                roles: command.roles,
                 size: TerminalSize {
                     rows: command.size.rows,
                     columns: command.size.columns,
@@ -258,7 +282,8 @@ pub(super) fn decode_command(command_type: &str, raw: &Value) -> Result<Command,
 
 #[cfg(test)]
 mod tests {
-    use twine_core::{SessionId, TerminalId};
+    use serde_json::json;
+    use twine_core::{Agent, AgentId, SessionId, TerminalId};
 
     use super::*;
 
@@ -270,6 +295,7 @@ mod tests {
             name: "Claude Code".to_owned(),
             kind: WorkflowKind::SingleAgent,
             harness: Some(harness),
+            agents: Vec::new(),
             terminal_id: TerminalId::from_value(2),
             status,
             started_at: 1,
@@ -302,5 +328,89 @@ mod tests {
             assert_eq!(json["harness"], harness_name);
             assert_eq!(json["status"], status_name);
         }
+    }
+
+    fn create_workflow(command: &Value) -> Result<Command, BridgeError> {
+        decode_command("createWorkflow", command)
+    }
+
+    #[test]
+    fn create_workflow_decodes_agent_roles_and_defaults_to_none() {
+        let size = json!({ "rows": 24, "columns": 80, "pixelWidth": 800, "pixelHeight": 480 });
+        let Command::CreateWorkflow { kind, roles, .. } = create_workflow(&json!({
+            "folder": "/folder",
+            "sessionId": 2,
+            "kind": "agents",
+            "roles": ["Implementer", "Reviewer"],
+            "size": size,
+        }))
+        .unwrap() else {
+            panic!("expected a create workflow command");
+        };
+        assert_eq!(kind, WorkflowKind::Agents);
+        assert_eq!(roles, ["Implementer", "Reviewer"]);
+
+        let Command::CreateWorkflow { kind, roles, .. } =
+            create_workflow(&json!({ "folder": "/folder", "kind": "terminal", "size": size }))
+                .unwrap()
+        else {
+            panic!("expected a create workflow command");
+        };
+        assert_eq!(kind, WorkflowKind::Terminal);
+        assert!(roles.is_empty());
+
+        assert!(matches!(
+            create_workflow(&json!({
+                "folder": "/folder", "kind": "agents", "roles": [7], "size": size,
+            })),
+            Err(BridgeError::MalformedCommand)
+        ));
+    }
+
+    #[test]
+    fn workflows_serialize_their_agents_in_role_order() {
+        let workflow = Workflow {
+            workflow_id: WorkflowId(3),
+            session_id: SessionId(1),
+            name: "Agents".to_owned(),
+            kind: WorkflowKind::Agents,
+            harness: None,
+            terminal_id: TerminalId::from_value(0),
+            agents: vec![
+                Agent {
+                    agent_id: AgentId(5),
+                    role: "Implementer".to_owned(),
+                    terminal_id: TerminalId::from_value(8),
+                },
+                Agent {
+                    agent_id: AgentId(6),
+                    role: "Reviewer".to_owned(),
+                    terminal_id: TerminalId::from_value(0),
+                },
+            ],
+            status: WorkflowStatus::Running,
+            started_at: 10,
+            ended_at: None,
+            restored: true,
+        };
+        assert_eq!(
+            serde_json::to_value(WireWorkflow::from(&workflow)).unwrap(),
+            json!({
+                "restored": true,
+                "workflowId": 3,
+                "sessionId": 1,
+                "name": "Agents",
+                "kind": "agents",
+                "harness": null,
+                "terminalId": 0,
+                "agents": [
+                    { "agentId": 5, "role": "Implementer", "terminalId": 8 },
+                    { "agentId": 6, "role": "Reviewer", "terminalId": 0 },
+                ],
+                "status": "running",
+                "startedAt": 10,
+                "endedAt": null,
+            })
+        );
     }
 }

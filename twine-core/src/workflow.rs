@@ -12,11 +12,21 @@ pub struct SessionId(pub u64);
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct WorkflowId(pub u64);
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct AgentId(pub u64);
+
+/// The most agents one workflow can run. They all run at once, so this is the workflow types' limit
+/// on agents running in parallel.
+pub(crate) const MAX_AGENTS: usize = crate::workflow_type::MAX_PARALLEL_AGENTS as usize;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WorkflowKind {
     Draft,
     Terminal,
     SingleAgent,
+    /// One agent per role, each with its own terminal. Until harnesses can launch, every agent runs
+    /// the default shell.
+    Agents,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -56,12 +66,46 @@ pub struct Workflow {
     pub kind: WorkflowKind,
     /// The harness filling a single-agent workflow's role.
     pub harness: Option<HarnessId>,
+    /// The workflow's own shell, or a single agent's harness. Zero when it couldn't restart, and for
+    /// agents workflows, whose agents have the terminals instead.
     pub terminal_id: TerminalId,
+    /// In role order. Empty unless the workflow's kind is [`WorkflowKind::Agents`].
+    pub agents: Vec<Agent>,
     pub status: WorkflowStatus,
     pub started_at: u64,
     pub ended_at: Option<u64>,
-    /// Restored workflow metadata now backed by a fresh shell, without its previous transcript.
+    /// Restored workflow metadata now backed by fresh shells, without the previous transcripts.
     pub restored: bool,
+}
+
+/// One process filling one role in a workflow.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Agent {
+    pub agent_id: AgentId,
+    pub role: String,
+    /// Zero when the agent's shell couldn't restart.
+    pub terminal_id: TerminalId,
+}
+
+impl Workflow {
+    /// Every process the workflow owns: its agents' in an agents workflow, and otherwise its own
+    /// shell or harness. One that couldn't restart is zero.
+    pub(crate) fn shells(&self) -> Vec<TerminalId> {
+        match self.kind {
+            WorkflowKind::Draft | WorkflowKind::Terminal | WorkflowKind::SingleAgent => {
+                vec![self.terminal_id]
+            }
+            WorkflowKind::Agents => self.agents.iter().map(|agent| agent.terminal_id).collect(),
+        }
+    }
+
+    /// The workflow's live shells.
+    pub(crate) fn terminal_ids(&self) -> Vec<TerminalId> {
+        self.shells()
+            .into_iter()
+            .filter(|terminal_id| terminal_id.value() != 0)
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -73,6 +117,11 @@ pub struct WorkflowState {
     pub sessions: Vec<Session>,
     /// All workflows in the open folder, including sessions that aren't selected.
     pub workflows: Vec<Workflow>,
+}
+
+/// Whether a session name or agent role is 1–200 characters on one line.
+pub(crate) fn valid_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().count() <= 200 && !name.chars().any(char::is_control)
 }
 
 pub(crate) fn timestamp() -> u64 {
