@@ -79,36 +79,16 @@ struct NewTabChoices: View {
             ChoicesHeading(
                 title: "Choose a workflow", message: "Pick a workflow type, or start typing to use Terminal.")
 
+            // These two lightweight launch paths stay mounted even when a short card must scroll.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: NewTabLayout.spacing) { quickChoices }
+                    .frame(minWidth: 2 * NewTabLayout.minimumChoiceWidth + NewTabLayout.spacing)
+                VStack(spacing: NewTabLayout.spacing) { quickChoices }
+            }
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumGraphChoiceWidth))],
                 spacing: NewTabLayout.spacing
             ) {
-                ForEach(WorkflowChoice.allCases) { choice in
-                    if choice.opensMenu {
-                        Menu {
-                            ForEach(CoreHarness.allCases) { harness in
-                                Button(harness.displayName) { self.harness = harness }
-                                    .accessibilityIdentifier("harness-\(harness.rawValue)")
-                            }
-                        } label: {
-                            ChoiceTile(choice: choice)
-                        }
-                        .menuStyle(.button)
-                        .menuIndicator(.hidden)
-                        .buttonStyle(.plain)
-                        .help(choice.detail)
-                        .accessibilityIdentifier("workflowChoice-\(choice.rawValue)")
-                    } else {
-                        Button {
-                            choose(choice)
-                        } label: {
-                            ChoiceTile(choice: choice)
-                        }
-                        .buttonStyle(.plain)
-                        .help(choice.detail)
-                        .accessibilityIdentifier("workflowChoice-\(choice.rawValue)")
-                    }
-                }
                 ForEach(catalog) { type in
                     Button {
                         selectedType = type
@@ -121,6 +101,35 @@ struct NewTabChoices: View {
                         type.reference.builtin == nil
                             ? "workflowChoice-\(type.id)" : "workflowChoice-\(type.definition.name)")
                 }
+            }
+        }
+    }
+
+    private var quickChoices: some View {
+        ForEach(WorkflowChoice.allCases) { choice in
+            if choice.opensMenu {
+                Menu {
+                    ForEach(CoreHarness.allCases) { harness in
+                        Button(harness.displayName) { self.harness = harness }
+                            .accessibilityIdentifier("harness-\(harness.rawValue)")
+                    }
+                } label: {
+                    ChoiceTile(choice: choice)
+                }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .help(choice.detail)
+                .accessibilityIdentifier("workflowChoice-\(choice.rawValue)")
+            } else {
+                Button {
+                    choose(choice)
+                } label: {
+                    ChoiceTile(choice: choice)
+                }
+                .buttonStyle(.plain)
+                .help(choice.detail)
+                .accessibilityIdentifier("workflowChoice-\(choice.rawValue)")
             }
         }
     }
