@@ -70,8 +70,13 @@ fn preview(value: &Value) -> String {
 
 fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     let input: Value = serde_json::from_slice(bytes).ok()?;
+    // Native Codex subagents have separate turns and SubagentStop lifecycles. Their
+    // parent tool call is recorded, but a child prompt must not replace this role's span.
+    if input["agent_id"].is_string() {
+        return None;
+    }
     // Require a turn id so a delayed hook can never finish a different prompt.
-    let turn_id = input["turn_id"].as_str()?;
+    let turn_id = input["turn_id"].as_str().filter(|id| !id.is_empty())?;
     let (kind, title, detail) = match input["hook_event_name"].as_str()? {
         "UserPromptSubmit" => {
             let prompt = input["prompt"].as_str()?;
@@ -166,6 +171,7 @@ mod tests {
         assert!(step.detail.contains("exit_code"));
         assert!(parse(b"invalid").is_none());
         assert!(parse(br#"{"hook_event_name":"Stop"}"#).is_none());
+        assert!(parse(br#"{"hook_event_name":"Stop","turn_id":""}"#).is_none());
         assert!(parse(br#"{"hook_event_name":"Interrupt","turn_id":"turn-1"}"#).is_none());
     }
 

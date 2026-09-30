@@ -929,6 +929,53 @@ mod tests {
     }
 
     #[test]
+    fn codex_child_hooks_do_not_replace_or_interrupt_the_root_prompt() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let mut app = Application::with_event_capacity(4096).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        let terminal = start_codex(&app, id);
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit", "turn_id":"root", "prompt":"Root task"}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit", "agent_id":"child", "turn_id":"child-turn", "prompt":"Child task"}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PreToolUse", "agent_id":"child", "turn_id":"child-turn", "tool_use_id":"child-tool", "tool_name":"Bash", "tool_input":{"command":"child command"}}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PostToolUse", "agent_id":"child", "turn_id":"child-turn", "tool_use_id":"child-tool", "tool_name":"Bash", "tool_input":{"command":"child command"}, "tool_response":"done"}),
+        );
+        let page = trace_for_terminal(&app, id, terminal);
+        assert_eq!(page.spans.len(), 1);
+        assert_eq!(page.spans[0].title, "Root task");
+        assert_eq!(page.spans[0].status, TraceSpanStatus::Running);
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"Stop", "turn_id":"root"}),
+        );
+        let page = trace_for_terminal(&app, id, terminal);
+        assert_eq!(page.spans.len(), 1);
+        assert_eq!(page.spans[0].status, TraceSpanStatus::Completed);
+        let events = app
+            .trace_events(page.spans[0].span_id, None, 20)
+            .unwrap()
+            .events;
+        assert_eq!(events.len(), 3); // Process start, root prompt, root response.
+        assert!(!events.iter().any(|event| event.message.contains("child")));
+    }
+
+    #[test]
     fn codex_without_activity_keeps_the_agent_span_and_terminal() {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
