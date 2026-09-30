@@ -167,7 +167,10 @@ const MIGRATIONS: &[&str] = &[
     // 9: Single-agent lifecycle includes interruption without rebuilding history's parent table.
     "ALTER TABLE workflows ADD COLUMN lifecycle_status TEXT CHECK
         (lifecycle_status IN ('running', 'exited', 'failed', 'cancelled', 'interrupted'));
-    UPDATE workflows SET lifecycle_status = agent_status WHERE kind = 'single_agent'"
+    UPDATE workflows SET lifecycle_status = agent_status WHERE kind = 'single_agent'",
+    // 10: Assignment spans end on explicit completion, independently of process lifetimes.
+    // Existing spans retain their recorded lifecycle semantics.
+    "ALTER TABLE trace_spans ADD COLUMN work_span INTEGER NOT NULL DEFAULT 0 CHECK (work_span IN (0, 1))"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
@@ -784,6 +787,45 @@ mod tests {
             .unwrap();
         assert_eq!(store.connection.last_insert_rowid(), 81);
         assert_eq!(store.workflows(Path::new("/folder")).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migration_from_version_nine_preserves_process_spans_and_terminal_anchors() {
+        let connection = Connection::open_in_memory().unwrap();
+        for migration in &MIGRATIONS[..9] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 9).unwrap();
+        connection.execute_batch(
+            "INSERT INTO sessions (id, folder, name, started_at) VALUES (1, '/folder', 'Work', 100);
+             INSERT INTO workflows (id, session_id, name, kind) VALUES (1, 1, 'Adversarial', 'agents');
+             INSERT INTO trace_lanes (id, workflow_id, lane_key, name, is_agent, role, harness)
+             VALUES (1, 1, 'agent:1', 'Implementer', 1, 'implementer', 'pi');
+             INSERT INTO trace_spans (id, lane_id, title, started_at, ended_at, status, terminal_id, run_generation)
+             VALUES (1, 1, 'Implement', 100, 200, 'exited', 99, 1);
+             INSERT INTO trace_events (id, workflow_id, span_id, timestamp, kind, message, terminal_id, byte_offset, boundary_sizes)
+             VALUES (1, 1, 1, 100, 'processStarted', 'Process started.', 99, 0, X''),
+                    (2, 1, 1, 200, 'processExited', 'Process exited with code 0.', 99, 42, X'');"
+        ).unwrap();
+        let store = Store::with_connection(connection).unwrap();
+        let page = store
+            .workflow_trace(crate::WorkflowId(1), None, 10)
+            .unwrap();
+        let span = &page.spans[0];
+        assert_eq!(span.title, "Implement");
+        assert_eq!((span.started_at, span.ended_at), (100, Some(200)));
+        assert_eq!(span.status, crate::TraceSpanStatus::Exited);
+        let events = store.trace_events(span.span_id, None, 10).unwrap().events;
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].kind, crate::TraceEventKind::ProcessExited);
+        assert_eq!(
+            events[1].anchor,
+            Some(crate::TraceAnchor {
+                terminal_id: crate::TerminalId::from_value(99),
+                byte_offset: 42,
+                boundary_sizes: Some(vec![]),
+            })
+        );
     }
 
     #[test]

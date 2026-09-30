@@ -277,10 +277,46 @@ impl Application {
             let Some(run) = &mut workflow.run else {
                 return Ok(reject("notWorkflowRun", "This workflow has no stages."));
             };
+            let previous_sequence = run.traces.last().map_or(0, |event| event.sequence);
+            let anchor = workflow
+                .agents
+                .iter()
+                .find(|agent| agent.agent_id == agent_id)
+                .and_then(|agent| match self.terminals.observe(agent.terminal_id) {
+                    Ok(observation) => Some(crate::TraceAnchor {
+                        terminal_id: agent.terminal_id,
+                        byte_offset: observation.byte_offset,
+                        boundary_sizes: observation.boundary_sizes,
+                    }),
+                    Err(error) => {
+                        tracing::warn!(%error, "couldn't observe completion terminal boundary");
+                        None
+                    }
+                });
             let advance = match run.complete(agent_id.0, generation, signal) {
                 Ok(advance) => advance,
                 Err(error) => return Ok(super::rejection("invalidCompletion", &error)),
             };
+            let completion_anchors: HashMap<_, _> = run
+                .traces
+                .iter()
+                .filter(|event| event.generation == generation && event.kind == "roleCompleted")
+                .filter_map(|event| Some((event.agent_id?, event.anchor.clone()?)))
+                .collect();
+            for event in run
+                .traces
+                .iter_mut()
+                .filter(|event| event.sequence > previous_sequence)
+            {
+                // Parallel senders can finish before this completion advances the stage. Their
+                // handoffs retain each sender's own completion boundary, even after it exits.
+                event.anchor = match event.agent_id {
+                    Some(source) if source != agent_id.0 => {
+                        completion_anchors.get(&source).cloned()
+                    }
+                    _ => anchor.clone(),
+                };
+            }
             let running = run.status == RunStatus::Running;
             workflow.status = workflow_status(run.status);
             if !running {
@@ -718,11 +754,46 @@ mod tests {
                     .iter()
                     .any(|event| event.message.contains("Stage completed"))
             );
-            assert!(
-                events
-                    .iter()
-                    .all(|event| event.message.starts_with(&span.title))
+            let completion = events
+                .iter()
+                .find(|event| {
+                    event.message.contains("Marked done:")
+                        || event.message.contains("Approved:")
+                        || event.message.contains("Requested changes:")
+                })
+                .unwrap();
+            assert!(completion.message.contains("Result or feedback"));
+            assert_eq!(span.status, crate::TraceSpanStatus::Completed);
+            assert_eq!(
+                span.ended_at,
+                Some(completion.timestamp.max(span.started_at))
             );
+            assert!(completion.anchor.is_some());
+            if let Some(handoff) = events
+                .iter()
+                .find(|event| event.message.contains("Handoff delivered"))
+            {
+                assert_eq!(span.started_at, handoff.timestamp);
+                assert!(handoff.message.contains("Result or feedback"));
+                assert!(handoff.anchor.is_some());
+            } else {
+                let start = events
+                    .iter()
+                    .find(|event| event.message.contains("Stage started"))
+                    .unwrap();
+                assert_eq!(span.started_at, start.timestamp);
+            }
+        }
+        for round in 1..=invocations / 2 {
+            for stage in ["Implement", "Review"] {
+                assert_eq!(
+                    page.spans
+                        .iter()
+                        .filter(|span| span.title == format!("{stage} · Round {round}"))
+                        .count(),
+                    1
+                );
+            }
         }
         let before = page.summary.revision;
         // Saving the same accepted state again never duplicates events or invocation spans.
@@ -775,6 +846,50 @@ mod tests {
         assert_eq!(traces.iter().filter(|t| t.kind == "handoff").count(), 4);
         let page = app.workflow_trace(id, None, 200).unwrap();
         assert_eq!(page.summary.span_count, 5);
+        for (task, label) in [
+            ("First sub-task", "Worker 1"),
+            ("Second sub-task", "Worker 2"),
+        ] {
+            let lane = page.lanes.iter().find(|lane| lane.name == label).unwrap();
+            let spans: Vec<_> = page
+                .spans
+                .iter()
+                .filter(|span| span.lane_id == lane.lane_id)
+                .collect();
+            assert_eq!(spans.len(), 1);
+            let span = spans[0];
+            assert_eq!(span.title, task);
+            assert_eq!(span.status, crate::TraceSpanStatus::Completed);
+            let events = app.trace_events(span.span_id, None, 200).unwrap().events;
+            let handoff = events
+                .iter()
+                .find(|event| event.message.contains("Handoff delivered"))
+                .unwrap();
+            assert!(handoff.message.contains(task));
+            assert_eq!(span.started_at, handoff.timestamp);
+            let completion = events
+                .iter()
+                .find(|event| event.message.contains("Marked done: Result or feedback"))
+                .unwrap();
+            assert_eq!(
+                span.ended_at,
+                Some(completion.timestamp.max(span.started_at))
+            );
+            assert!(handoff.anchor.is_some() && completion.anchor.is_some());
+            assert_eq!(
+                completion.anchor.as_ref().unwrap().terminal_id,
+                span.terminal_id.unwrap()
+            );
+            assert!(
+                events
+                    .iter()
+                    .any(|event| event.kind == crate::TraceEventKind::ProcessStarted)
+            );
+            assert!(events.iter().any(|event| matches!(
+                event.kind,
+                crate::TraceEventKind::ProcessStopped | crate::TraceEventKind::ProcessExited
+            )));
+        }
         let handoffs = page
             .spans
             .iter()
@@ -782,6 +897,7 @@ mod tests {
             .filter(|event| event.message.contains("Handoff delivered"))
             .count();
         assert_eq!(handoffs, 4);
+        assert_gather_anchors(&app, &page);
         accepted(&app, Command::CloseWorkflow { workflow_id: id });
         assert_eq!(
             app.workflow_trace(id, None, 200)
@@ -789,6 +905,254 @@ mod tests {
                 .summary
                 .span_count,
             5
+        );
+    }
+
+    fn assert_gather_anchors(app: &Application, page: &crate::WorkflowTracePage) {
+        let gather = page
+            .spans
+            .iter()
+            .find(|span| span.title == "Gather")
+            .unwrap();
+        let gathered = app.trace_events(gather.span_id, None, 200).unwrap().events;
+        for worker in ["Worker 1", "Worker 2"] {
+            let lane = page.lanes.iter().find(|lane| lane.name == worker).unwrap();
+            let span = page
+                .spans
+                .iter()
+                .find(|span| span.lane_id == lane.lane_id)
+                .unwrap();
+            let events = app.trace_events(span.span_id, None, 200).unwrap().events;
+            let completion = events
+                .iter()
+                .find(|event| event.message.contains("Marked done:"))
+                .unwrap();
+            let handoff = gathered
+                .iter()
+                .find(|event| event.message.contains(&format!("{worker} → Coordinator")))
+                .unwrap();
+            assert_eq!(handoff.anchor, completion.anchor);
+            assert_eq!(
+                handoff.anchor.as_ref().unwrap().terminal_id,
+                span.terminal_id.unwrap()
+            );
+        }
+    }
+
+    fn launch_coordinator_workers(app: &Application, folder: &Path) -> WorkflowId {
+        let id = launch(app, folder, BuiltinType::Coordinator);
+        let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
+        accepted(
+            app,
+            Command::CompleteWorkflowRole {
+                workflow_id: id,
+                agent_id: workflow.agents[0].agent_id,
+                generation: 1,
+                signal: CompletionSignal {
+                    decision: Decision::Done,
+                    summary: "Split the task".into(),
+                    assignments: (1..=2)
+                        .map(|instance| crate::Assignment {
+                            role: "worker".into(),
+                            instance,
+                            task: format!("Task {instance}"),
+                            files: vec![],
+                        })
+                        .collect(),
+                },
+            },
+        );
+        id
+    }
+
+    #[test]
+    fn coordinator_assignments_finish_independently_and_cancellation_stops_only_unfinished_work() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(folder.path(), bin.path(), "echo ready; sleep 60");
+        let id = launch_coordinator_workers(&app, folder.path());
+        let page = app.workflow_trace(id, None, 200).unwrap();
+        let workers: Vec<_> = page
+            .spans
+            .iter()
+            .filter(|span| span.title.starts_with("Task "))
+            .collect();
+        assert_eq!(workers.len(), 2);
+        assert!(
+            workers
+                .iter()
+                .all(|span| span.is_live && span.ended_at.is_none())
+        );
+        let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
+        let first = workers.iter().find(|span| span.title == "Task 1").unwrap();
+        let terminal = first.terminal_id.unwrap();
+        wait_for(&app, id, |_| {
+            app.terminals.observe(terminal).unwrap().byte_offset > 0
+        });
+        let size = TerminalSize {
+            columns: 120,
+            ..SIZE
+        };
+        app.terminals.resize(terminal, size).unwrap();
+        let boundary = app.terminals.observe(terminal).unwrap();
+        accepted(
+            &app,
+            Command::CompleteWorkflowRole {
+                workflow_id: id,
+                agent_id: workflow.agents[1].agent_id,
+                generation: 2,
+                signal: CompletionSignal {
+                    decision: Decision::Done,
+                    summary: "Finished Task 1".into(),
+                    assignments: vec![],
+                },
+            },
+        );
+        let page = app.workflow_trace(id, None, 200).unwrap();
+        let finished = page
+            .spans
+            .iter()
+            .find(|span| span.title == "Task 1")
+            .unwrap();
+        assert_eq!(finished.status, crate::TraceSpanStatus::Completed);
+        let events = app
+            .trace_events(finished.span_id, None, 200)
+            .unwrap()
+            .events;
+        let completion = events
+            .iter()
+            .find(|event| event.message.contains("Marked done: Finished Task 1"))
+            .unwrap();
+        let anchor = completion.anchor.as_ref().unwrap();
+        // Observation includes all output accepted before completion and the resize boundary.
+        assert_eq!(anchor.byte_offset, boundary.byte_offset);
+        assert_eq!(anchor.boundary_sizes, Some(vec![size]));
+        assert_eq!(anchor.terminal_id, terminal);
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == crate::TraceEventKind::ProcessStopped)
+        );
+        let unfinished = page
+            .spans
+            .iter()
+            .find(|span| span.title == "Task 2")
+            .unwrap();
+        assert!(unfinished.is_live && unfinished.ended_at.is_none());
+        let finished = finished.clone();
+        accepted(&app, Command::CancelWorkflowRun { workflow_id: id });
+        let page = app.workflow_trace(id, None, 200).unwrap();
+        assert_eq!(
+            page.spans
+                .iter()
+                .find(|span| span.title == "Task 1")
+                .unwrap(),
+            &finished
+        );
+        let stopped = page
+            .spans
+            .iter()
+            .find(|span| span.title == "Task 2")
+            .unwrap();
+        assert_eq!(stopped.status, crate::TraceSpanStatus::Stopped);
+        assert!(!stopped.is_live && stopped.ended_at.is_some());
+        let events = app.trace_events(stopped.span_id, None, 200).unwrap().events;
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == crate::TraceEventKind::ProcessStopped
+                    && event.anchor.as_ref().unwrap().terminal_id == stopped.terminal_id.unwrap())
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| event.message.contains("Marked done"))
+        );
+    }
+
+    #[test]
+    fn a_process_failure_does_not_end_an_assignment_before_accepted_completion() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(folder.path(), bin.path(), "sleep 60");
+        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
+        let agent = &workflow.agents[0];
+        app.lock_inner()
+            .unwrap()
+            .record_terminal_exit(agent.terminal_id, Err("Injected process failure".into()));
+        let span = app.workflow_trace(id, None, 200).unwrap().spans[0].clone();
+        assert_eq!(span.status, crate::TraceSpanStatus::Running);
+        assert!(span.is_live && span.ended_at.is_none());
+        let events = app.trace_events(span.span_id, None, 200).unwrap().events;
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == crate::TraceEventKind::ProcessFailed
+                    && event.anchor.is_some())
+        );
+        accepted(
+            &app,
+            Command::CompleteWorkflowRole {
+                workflow_id: id,
+                agent_id: agent.agent_id,
+                generation: 1,
+                signal: CompletionSignal {
+                    decision: Decision::Done,
+                    summary: "Recovered the result".into(),
+                    assignments: vec![],
+                },
+            },
+        );
+        let page = app.workflow_trace(id, None, 200).unwrap();
+        let completed = page
+            .spans
+            .iter()
+            .find(|candidate| candidate.span_id == span.span_id)
+            .unwrap();
+        assert_eq!(completed.status, crate::TraceSpanStatus::Completed);
+        let events = app.trace_events(span.span_id, None, 200).unwrap().events;
+        let completion = events
+            .iter()
+            .find(|event| event.message.contains("Marked done: Recovered the result"))
+            .unwrap();
+        assert_eq!(
+            completed.ended_at,
+            Some(completion.timestamp.max(completed.started_at))
+        );
+        accepted(&app, Command::CancelWorkflowRun { workflow_id: id });
+    }
+
+    #[test]
+    fn closing_an_exited_agent_stops_its_unfinished_assignment() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(folder.path(), bin.path(), "exit 0");
+        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        wait_for(&app, id, |_| {
+            app.lock_inner()
+                .unwrap()
+                .terminals
+                .values()
+                .all(|status| !matches!(status, TerminalStatus::Running))
+        });
+        let span = app.workflow_trace(id, None, 200).unwrap().spans[0].clone();
+        assert_eq!(span.status, crate::TraceSpanStatus::Running);
+        assert!(span.is_live && span.ended_at.is_none());
+        accepted(&app, Command::CloseWorkflow { workflow_id: id });
+        let closed = app.workflow_trace(id, None, 200).unwrap().spans[0].clone();
+        assert_eq!(closed.span_id, span.span_id);
+        assert_eq!(closed.status, crate::TraceSpanStatus::Stopped);
+        let events = app.trace_events(closed.span_id, None, 200).unwrap().events;
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == crate::TraceEventKind::ProcessExited)
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.message.contains("Assignment stopped"))
         );
     }
 
@@ -813,6 +1177,19 @@ mod tests {
         let run = first.run.unwrap();
         assert_eq!(run.stage_index, 0);
         assert_eq!(first.status, WorkflowStatus::Running);
+        let assignment = app.workflow_trace(id, None, 200).unwrap().spans[0].clone();
+        assert_eq!(assignment.status, crate::TraceSpanStatus::Running);
+        assert!(assignment.is_live && assignment.ended_at.is_none());
+        let events = app
+            .trace_events(assignment.span_id, None, 200)
+            .unwrap()
+            .events;
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == crate::TraceEventKind::ProcessExited
+                    && event.anchor.is_some())
+        );
         accepted(
             &app,
             Command::CompleteWorkflowRole {
@@ -825,6 +1202,25 @@ mod tests {
                     assignments: vec![],
                 },
             },
+        );
+        let page = app.workflow_trace(id, None, 200).unwrap();
+        let completed = page
+            .spans
+            .iter()
+            .find(|span| span.span_id == assignment.span_id)
+            .unwrap();
+        assert_eq!(completed.status, crate::TraceSpanStatus::Completed);
+        let events = app
+            .trace_events(completed.span_id, None, 200)
+            .unwrap()
+            .events;
+        let completion = events
+            .iter()
+            .find(|event| event.message.contains("Marked done: User result"))
+            .unwrap();
+        assert_eq!(
+            completed.ended_at,
+            Some(completion.timestamp.max(completed.started_at))
         );
         assert_eq!(
             app.snapshot().unwrap().workflows.workflows[0]
@@ -872,6 +1268,72 @@ mod tests {
         let next = restored.terminals.reserve_terminal().unwrap();
         restored.terminals.cancel_reserved_terminal(next).unwrap();
         assert_eq!(next.value(), marker.value() + 1);
+    }
+
+    #[test]
+    fn an_incoming_assignment_is_live_while_its_process_launch_waits_on_storage() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = Arc::new(application(folder.path(), bin.path(), "sleep 60"));
+        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
+        let stalled = app
+            .terminal_output
+            .stall_recording_worker(workflow.agents[0].terminal_id);
+        let completing = Arc::clone(&app);
+        let completion = thread::spawn(move || {
+            accepted(
+                &completing,
+                Command::CompleteWorkflowRole {
+                    workflow_id: id,
+                    agent_id: workflow.agents[0].agent_id,
+                    generation: 1,
+                    signal: CompletionSignal {
+                        decision: Decision::Done,
+                        summary: "Ready for review".into(),
+                        assignments: vec![],
+                    },
+                },
+            );
+        });
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !app.terminal_output.allocation_is_pending() {
+            assert!(
+                Instant::now() < deadline,
+                "review launch did not reach transcript allocation"
+            );
+            thread::yield_now();
+        }
+        let (sent, received) = std::sync::mpsc::sync_channel(1);
+        let observing = Arc::clone(&app);
+        let observer = thread::spawn(move || {
+            sent.send(observing.workflow_trace(id, None, 200).unwrap())
+                .unwrap();
+        });
+        let page = received
+            .recv_timeout(Duration::from_secs(1))
+            .expect("traces remain readable during launch");
+        let span = page
+            .spans
+            .iter()
+            .find(|span| span.title == "Review · Round 1")
+            .unwrap();
+        assert!(span.is_live && span.terminal_id.is_none() && span.ended_at.is_none());
+        let span_id = span.span_id;
+        let events = app.trace_events(span_id, None, 200).unwrap().events;
+        assert_eq!(span.started_at, events[0].timestamp);
+        assert!(events[0].message.contains("Ready for review"));
+        drop(stalled);
+        observer.join().unwrap();
+        completion.join().unwrap();
+        let page = app.workflow_trace(id, None, 200).unwrap();
+        let span = page
+            .spans
+            .iter()
+            .find(|span| span.span_id == span_id)
+            .unwrap();
+        assert!(span.is_live && span.terminal_id.is_some());
+        accepted(&app, Command::CancelWorkflowRun { workflow_id: id });
     }
 
     #[test]
@@ -1083,8 +1545,10 @@ mod tests {
         );
         let id = launch(&app, folder.path(), BuiltinType::Adversarial);
         let failure = fail_run_updates(data.path());
+        let before = app.workflow_trace(id, None, 200).unwrap();
         submit_helper(&app, id);
         let snapshot = app.snapshot().unwrap();
+        assert_eq!(app.workflow_trace(id, None, 200).unwrap(), before);
         assert_eq!(
             snapshot.workflows.workflows[0]
                 .run
@@ -1107,8 +1571,25 @@ mod tests {
             .execute_batch("DROP TRIGGER reject_run_update")
             .unwrap();
         submit_helper(&app, id);
+        let snapshot = app.snapshot().unwrap();
+        let page = app.workflow_trace(id, None, 200).unwrap();
+        assert_eq!(page.summary.span_count, before.summary.span_count + 1);
+        let first = page
+            .spans
+            .iter()
+            .find(|span| span.span_id == before.spans[0].span_id)
+            .unwrap();
+        assert_eq!(first.status, crate::TraceSpanStatus::Completed);
+        let events = app.trace_events(first.span_id, None, 200).unwrap().events;
         assert_eq!(
-            app.snapshot().unwrap().workflows.workflows[0]
+            events
+                .iter()
+                .filter(|event| event.message.contains("Marked done:"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            snapshot.workflows.workflows[0]
                 .run
                 .as_ref()
                 .unwrap()

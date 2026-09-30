@@ -75,6 +75,7 @@ impl<'a> From<&'a TraceSpan> for WireSpan<'a> {
             is_live: span.is_live,
             status: match span.status {
                 TraceSpanStatus::Running => "running",
+                TraceSpanStatus::Completed => "completed",
                 TraceSpanStatus::Exited => "exited",
                 TraceSpanStatus::Failed => "failed",
                 TraceSpanStatus::Stopped => "stopped",
@@ -185,6 +186,27 @@ pub(crate) fn encode_trace_events(page: &TraceEventsPage) -> Result<Vec<u8>, ser
 mod tests {
     use super::*;
     use twine_core::{TerminalId, TraceAnchor, TraceEventId, TraceSpanId, WorkflowId};
+
+    #[test]
+    fn work_completion_is_distinct_from_legacy_process_exit_on_the_wire() {
+        for (status, name) in [
+            (TraceSpanStatus::Completed, "completed"),
+            (TraceSpanStatus::Exited, "exited"),
+        ] {
+            let span = TraceSpan {
+                span_id: TraceSpanId(1),
+                lane_id: twine_core::TraceLaneId(1),
+                title: "Work".into(),
+                started_at: 100,
+                ended_at: Some(200),
+                status,
+                terminal_id: Some(TerminalId::from_value(99)),
+                is_live: false,
+            };
+            let value = serde_json::to_value(WireSpan::from(&span)).unwrap();
+            assert_eq!(value["status"], name);
+        }
+    }
 
     #[test]
     fn event_pages_keep_optional_anchors_and_cursor_ids() {

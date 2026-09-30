@@ -24,6 +24,19 @@ nonisolated private func tracePage(workflowID: UInt64, spanID: UInt64) -> CoreWo
 }
 
 struct TraceTimelineTests {
+    @Test func assignmentCompletionAndLegacyProcessExitRemainDistinct() throws {
+        for (status, label) in [("completed", "Completed"), ("exited", "Exited")] {
+            let data = Data(
+                """
+                {"spanId":1,"laneId":1,"title":"Work","startedAt":100,
+                 "endedAt":200,"status":"\(status)","terminalId":90,"isLive":false}
+                """.utf8)
+            let span = try JSONDecoder().decode(CoreTraceSpan.self, from: data)
+            #expect(span.statusLabel == label)
+            #expect(span.end(at: 500) == 200)
+        }
+    }
+
     @Test func narrowPanelPreservesASelectableTimelineBesideDetails() {
         let layout = TracePanelLayout(width: 372, showsDetails: true)
         #expect(layout.timelineViewportWidth >= 90)
@@ -68,6 +81,18 @@ struct TraceTimelineTests {
         let placement = layout.placements(spans: [historical], width: 0, now: 5_000)[0]
         #expect(placement.width == 40)
         #expect(placement.offset.isFinite)
+    }
+
+    @Test func unfinishedOwnedAssignmentContinuesAfterItsProcessExit() throws {
+        let data = Data(
+            """
+            {"spanId":1,"laneId":1,"title":"Implement · Round 1","startedAt":100,
+             "endedAt":null,"status":"running","terminalId":90,"isLive":true}
+            """.utf8)
+        let span = try JSONDecoder().decode(CoreTraceSpan.self, from: data)
+        #expect(span.end(at: 500) == 500)
+        #expect(span.statusLabel == "Running")
+        #expect(span.statusSymbol == "circle.fill")
     }
 
     @Test func optionalAnchorsAndStableIdentifiersDecode() throws {

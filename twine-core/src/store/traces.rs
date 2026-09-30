@@ -109,6 +109,30 @@ impl Store {
         for (id, ending) in endings {
             changed |= finish_span(&transaction, *id, ending)?.is_some();
         }
+        // A process may already have exited while its assignment still awaits completion.
+        let unfinished = {
+            let mut statement = transaction.prepare(
+                "SELECT s.id FROM trace_spans s JOIN trace_lanes l ON l.id = s.lane_id
+                 WHERE l.workflow_id = ?1 AND s.work_span = 1 AND s.status = 'running'",
+            )?;
+            statement
+                .query_map([sql_integer(workflow_id.0)?], |row| unsigned_column(row, 0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for id in unfinished {
+            changed |= finish_span(
+                &transaction,
+                TraceSpanId(id),
+                &TraceEnding {
+                    observed_at: closed_at,
+                    status: TraceSpanStatus::Stopped,
+                    kind: TraceEventKind::WorkflowEvent,
+                    message: "Assignment stopped when its workflow was closed.",
+                    anchor: None,
+                },
+            )?
+            .is_some();
+        }
         transaction.commit()?;
         Ok(changed)
     }
@@ -179,7 +203,7 @@ impl Store {
             .map_err(StoreError::from)?;
         let mut statement = transaction
             .prepare(
-                "SELECT s.id, s.lane_id, s.title, s.started_at, s.ended_at, s.status, s.terminal_id
+                "SELECT s.id, s.lane_id, s.title, s.started_at, s.ended_at, s.status, s.terminal_id, s.work_span
              FROM trace_spans s JOIN trace_lanes l ON l.id = s.lane_id
              WHERE l.workflow_id = ?1 AND (?2 IS NULL OR s.id < ?2) ORDER BY s.id DESC LIMIT ?3",
             )
@@ -281,6 +305,24 @@ pub(super) fn insert_span(
     transaction: &Transaction<'_>,
     new: &NewTraceSpan<'_>,
 ) -> Result<TraceSpanId, StoreError> {
+    let span_id = insert_span_record(transaction, new)?;
+    insert_event(
+        transaction,
+        new.workflow_id,
+        span_id,
+        new.started_at,
+        TraceEventKind::ProcessStarted,
+        "Process started.",
+        new.anchor.as_ref(),
+    )?;
+    Ok(span_id)
+}
+
+/// Inserts the interval separately from process events, so a handoff can precede launch.
+pub(super) fn insert_span_record(
+    transaction: &Transaction<'_>,
+    new: &NewTraceSpan<'_>,
+) -> Result<TraceSpanId, StoreError> {
     transaction.execute(
         "INSERT INTO trace_lanes (workflow_id, lane_key, name, is_agent, role, harness)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -315,14 +357,6 @@ pub(super) fn insert_span(
         ],
     )?;
     let span_id = transaction.last_insert_rowid();
-    transaction.execute(
-            "INSERT INTO trace_events (workflow_id, span_id, timestamp, kind, message, terminal_id, byte_offset, boundary_sizes)
-             VALUES (?1, ?2, ?3, 'processStarted', ?4, ?5, ?6, ?7)",
-            params![sql_integer(new.workflow_id.0)?, span_id, sql_integer(new.started_at)?,
-                "Process started.", terminal_id,
-                new.anchor.as_ref().map(|anchor| sql_integer(anchor.byte_offset)).transpose()?,
-                encode_boundary_sizes(new.anchor.as_ref())],
-        )?;
     Ok(TraceSpanId(
         u64::try_from(span_id).map_err(|_| StoreError::InvalidIdentifier)?,
     ))
@@ -333,37 +367,71 @@ pub(super) fn finish_span(
     span_id: TraceSpanId,
     ending: &TraceEnding<'_>,
 ) -> Result<Option<WorkflowId>, StoreError> {
-    let active: Option<(i64, i64)> = transaction
+    let active: Option<(i64, i64, bool, String)> = transaction
         .query_row(
-            "SELECT l.workflow_id, s.started_at FROM trace_spans s
-             JOIN trace_lanes l ON l.id = s.lane_id WHERE s.id = ?1 AND s.status = 'running'",
+            "SELECT l.workflow_id, s.started_at, s.work_span, s.status FROM trace_spans s
+             JOIN trace_lanes l ON l.id = s.lane_id WHERE s.id = ?1",
             [sql_integer(span_id.0)?],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()?;
-    let Some((workflow_id, started_at)) = active else {
+    let Some((workflow_id, started_at, work_span, status)) = active else {
         return Ok(None);
     };
+    if !work_span && status != "running" {
+        return Ok(None);
+    }
     let ended_at = sql_integer(ending.observed_at)?.max(started_at);
-    transaction.execute(
-        "UPDATE trace_spans SET ended_at = ?2, status = ?3 WHERE id = ?1",
-        params![
-            sql_integer(span_id.0)?,
-            ended_at,
-            status_name(ending.status)
-        ],
+    // An exit or process failure leaves assigned work awaiting an explicit completion. A stop
+    // may end unfinished work, but cannot overwrite an accepted completion.
+    if status == "running"
+        && (!work_span
+            || !matches!(
+                ending.kind,
+                TraceEventKind::ProcessExited | TraceEventKind::ProcessFailed
+            ))
+    {
+        transaction.execute(
+            "UPDATE trace_spans SET ended_at = ?2, status = ?3 WHERE id = ?1",
+            params![
+                sql_integer(span_id.0)?,
+                ended_at,
+                status_name(ending.status)
+            ],
+        )?;
+    }
+    let workflow_id =
+        WorkflowId(u64::try_from(workflow_id).map_err(|_| StoreError::InvalidIdentifier)?);
+    insert_event(
+        transaction,
+        workflow_id,
+        span_id,
+        u64::try_from(ended_at).map_err(|_| StoreError::InvalidIdentifier)?,
+        ending.kind,
+        ending.message,
+        ending.anchor.as_ref(),
     )?;
+    Ok(Some(workflow_id))
+}
+
+pub(super) fn insert_event(
+    transaction: &Transaction<'_>,
+    workflow_id: WorkflowId,
+    span_id: TraceSpanId,
+    timestamp: u64,
+    kind: TraceEventKind,
+    message: &str,
+    anchor: Option<&TraceAnchor>,
+) -> Result<(), StoreError> {
     transaction.execute(
             "INSERT INTO trace_events (workflow_id, span_id, timestamp, kind, message, terminal_id, byte_offset, boundary_sizes)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![workflow_id, sql_integer(span_id.0)?, ended_at, kind_name(ending.kind), ending.message,
-                ending.anchor.as_ref().map(|anchor| sql_integer(anchor.terminal_id.value())).transpose()?,
-                ending.anchor.as_ref().map(|anchor| sql_integer(anchor.byte_offset)).transpose()?,
-                encode_boundary_sizes(ending.anchor.as_ref())],
+            params![sql_integer(workflow_id.0)?, sql_integer(span_id.0)?, sql_integer(timestamp)?, kind_name(kind), message,
+                anchor.map(|anchor| sql_integer(anchor.terminal_id.value())).transpose()?,
+                anchor.map(|anchor| sql_integer(anchor.byte_offset)).transpose()?,
+                encode_boundary_sizes(anchor)],
         )?;
-    Ok(Some(WorkflowId(
-        u64::try_from(workflow_id).map_err(|_| StoreError::InvalidIdentifier)?,
-    )))
+    Ok(())
 }
 
 fn summary(connection: &Connection, id: WorkflowId) -> Result<TraceSummary, StoreError> {
@@ -423,6 +491,7 @@ fn read_span(row: &Row<'_>) -> rusqlite::Result<TraceSpan> {
     let name: String = row.get(5)?;
     let status = match name.as_str() {
         "running" => TraceSpanStatus::Running,
+        "exited" if row.get::<_, bool>(7)? => TraceSpanStatus::Completed,
         "exited" => TraceSpanStatus::Exited,
         "failed" => TraceSpanStatus::Failed,
         "stopped" => TraceSpanStatus::Stopped,
@@ -460,7 +529,8 @@ fn read_kind(row: &Row<'_>, index: usize) -> rusqlite::Result<TraceEventKind> {
 const fn status_name(status: TraceSpanStatus) -> &'static str {
     match status {
         TraceSpanStatus::Running => "running",
-        TraceSpanStatus::Exited => "exited",
+        // The work_span column distinguishes completion from legacy process exit on disk.
+        TraceSpanStatus::Completed | TraceSpanStatus::Exited => "exited",
         TraceSpanStatus::Failed => "failed",
         TraceSpanStatus::Stopped => "stopped",
     }
