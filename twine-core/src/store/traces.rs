@@ -32,6 +32,48 @@ pub(crate) struct TraceEnding<'a> {
 }
 
 impl Store {
+    /// Once Twine's first integration mark arrives, retain the process event while replacing its
+    /// lifetime interval with command intervals. Historical spans are never rewritten.
+    pub(crate) fn activate_command_trace(
+        &mut self,
+        placeholder: TraceSpanId,
+    ) -> Result<(), StoreError> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
+            "UPDATE trace_events SET span_id = NULL WHERE span_id = ?1",
+            [sql_integer(placeholder.0)?],
+        )?;
+        transaction.execute(
+            "DELETE FROM trace_spans WHERE id = ?1 AND status = 'running'",
+            [sql_integer(placeholder.0)?],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn start_command_trace(
+        &mut self,
+        new: &NewTraceSpan<'_>,
+    ) -> Result<TraceSpanId, StoreError> {
+        let transaction = self.connection.transaction()?;
+        let span = insert_span_record(&transaction, new)?;
+        transaction.execute(
+            "UPDATE trace_spans SET work_span = 1 WHERE id = ?1",
+            [sql_integer(span.0)?],
+        )?;
+        insert_event(
+            &transaction,
+            new.workflow_id,
+            span,
+            new.started_at,
+            TraceEventKind::WorkflowEvent,
+            "Command started.",
+            new.anchor.as_ref(),
+        )?;
+        transaction.commit()?;
+        Ok(span)
+    }
+
     /// The span and its start event commit together; no terminal text is inspected.
     pub(crate) fn start_trace_span(
         &mut self,

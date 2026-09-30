@@ -6,12 +6,15 @@ mod launcher;
 mod manager;
 mod process;
 mod pty;
+mod shell;
 mod stream;
 mod transcript;
 
 #[cfg(not(test))]
 pub(crate) use launcher::login_shell;
 pub(crate) use manager::{TerminalManager, TerminalObservation};
+pub(crate) use shell::ShellMark;
+pub(crate) use stream::ShellObservation;
 pub(crate) use stream::{ReplayPosition, TerminalStream};
 pub(crate) use transcript::Recording;
 pub(crate) use transcript::TranscriptRecorder;

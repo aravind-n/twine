@@ -1,0 +1,21 @@
+status is-interactive; or return
+set -g _twine_active 0
+function _twine_preexec --on-event fish_preexec
+    set -l command_hex (builtin printf '%s' "$argv[1]" | /usr/bin/od -An -v -tx1 | /usr/bin/tr -d ' \n')
+    builtin printf '\033]133;C;twine=@TOKEN@;command=%s\007' "$command_hex"
+    set -g _twine_active 1
+end
+function _twine_postexec --on-event fish_postexec
+    set -l result $status
+    builtin printf '\033]133;D;twine=@TOKEN@;%s\007' "$result"
+    set -g _twine_active 0
+end
+function _twine_exit --on-event fish_exit
+    set -l result $status
+    if test $_twine_active = 1
+        builtin printf '\033]133;D;twine=@TOKEN@;%s\007' "$result"
+    end
+end
+function _twine_prompt --on-event fish_prompt
+    builtin printf '\033]133;A;twine=@TOKEN@\007'
+end

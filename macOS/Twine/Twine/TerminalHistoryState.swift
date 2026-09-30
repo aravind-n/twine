@@ -20,36 +20,62 @@ final class TerminalHistoryState {
             return
         }
         let replay = TerminalReplay()
+        var endOffset: UInt64? = target.readToCurrentEnd ? nil : target.anchor.byteOffset
         do {
+            try markCommandStart(target, replay: replay)
             // Even an anchor at zero checks retention; an expired prefix cannot be guessed.
             repeat {
-                let remaining = target.anchor.byteOffset - replay.offset
-                let limit = UInt32(max(1, min(remaining, 64 * 1024)))
-                let result = try await client.terminalTranscript(
-                    terminalID: target.anchor.terminalID, offset: replay.offset, limit: limit)
-                try Task.checkCancellation()
-                guard let page = result else {
-                    status = .expired
-                    return
-                }
-                guard page.replayAvailable || (target.anchor.byteOffset == 0 && page.endOffset == 0) else {
-                    status = .expired
-                    return
-                }
-                if remaining == 0 { break }
-                guard page.nextOffset > replay.offset, page.nextOffset <= target.anchor.byteOffset else {
+                let remaining = endOffset.map { $0 - replay.offset } ?? 64 * 1024
+                let page = try await retainedPage(target, replay: replay, remaining: remaining, client: client)
+                if endOffset == nil { endOffset = page.endOffset }
+                if reachedEnd(page, replay: replay, endOffset: endOffset, remaining: remaining) { break }
+                guard page.nextOffset > replay.offset, page.nextOffset <= (endOffset ?? 0) else {
                     throw CoreFailure.unexpectedCommandResult
                 }
                 try replay.append(page)
+                try markCommandStart(target, replay: replay)
                 await Task.yield()
-            } while replay.offset < target.anchor.byteOffset
+            } while replay.offset < (endOffset ?? 0)
             try Task.checkCancellation()
-            try replay.applyBoundarySizes(boundarySizes)
+            if !target.readToCurrentEnd { try replay.applyBoundarySizes(boundarySizes) }
             status = .ready(replay)
+        } catch HistoryFailure.expired {
+            status = .expired
         } catch is CancellationError {
             return
         } catch {
             if !Task.isCancelled { status = .failed(error.localizedDescription) }
         }
     }
+    private enum HistoryFailure: Error { case expired }
+
+    private func reachedEnd(
+        _ page: CoreTranscriptPage, replay: TerminalReplay, endOffset: UInt64?, remaining: UInt64
+    ) -> Bool {
+        remaining == 0 || (page.nextOffset == replay.offset && replay.offset == endOffset)
+    }
+
+    private func retainedPage(
+        _ target: TraceTerminalTarget, replay: TerminalReplay, remaining: UInt64, client: CoreClient
+    ) async throws -> CoreTranscriptPage {
+        var readBytes = min(remaining, 64 * 1024)
+        if let start = target.outputStartAnchor, start.byteOffset > replay.offset {
+            readBytes = min(readBytes, start.byteOffset - replay.offset)
+        }
+        let page = try await client.terminalTranscript(
+            terminalID: target.anchor.terminalID, offset: replay.offset, limit: UInt32(max(1, readBytes)))
+        try Task.checkCancellation()
+        guard let page, page.replayAvailable || (target.anchor.byteOffset == 0 && page.endOffset == 0) else {
+            throw HistoryFailure.expired
+        }
+        return page
+    }
+
+    private func markCommandStart(_ target: TraceTerminalTarget, replay: TerminalReplay) throws {
+        guard let start = target.outputStartAnchor, replay.offset == start.byteOffset else { return }
+        guard let sizes = start.boundarySizes else { throw HistoryFailure.expired }
+        try replay.applyBoundarySizes(sizes)
+        replay.markOutputStart()
+    }
+
 }

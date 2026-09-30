@@ -56,4 +56,29 @@ struct TerminalReplayTests {
                 .init(offset: 1, nextOffset: 2, endOffset: 2, sizes: [], bytes: Data([65]), replayAvailable: true))
         }
     }
+
+    @Test func commandStartSurvivesEarlierOutputReflowAndRetiresWhenTrimmed() throws {
+        let replay = TerminalReplay()
+        let prefix = Data((String(repeating: "earlier ", count: 8) + "\r\n").utf8)
+        try replay.append(
+            .init(
+                offset: 0, nextOffset: UInt64(prefix.count), endOffset: UInt64(prefix.count), sizes: [],
+                bytes: prefix, replayAvailable: true))
+        replay.markOutputStart()
+        let output = Data("COMMAND_OUTPUT\r\n".utf8)
+        try replay.append(
+            .init(
+                offset: replay.offset, nextOffset: replay.offset + UInt64(output.count), endOffset: 0,
+                sizes: [], bytes: output, replayAvailable: true))
+        try replay.applyBoundarySizes([.init(rows: 24, columns: 20)])
+        let range = try #require(replay.outputStartRange)
+        #expect((replay.text as NSString).substring(from: range.location).hasPrefix("COMMAND_OUTPUT"))
+        let flood = Data(String(repeating: "retained\r\n", count: 5000).utf8)
+        try replay.append(
+            .init(
+                offset: replay.offset, nextOffset: replay.offset + UInt64(flood.count), endOffset: 0,
+                sizes: [], bytes: flood, replayAvailable: true))
+        #expect(!replay.text.contains("COMMAND_OUTPUT"))
+        #expect(replay.outputStartRange?.location == 0)
+    }
 }

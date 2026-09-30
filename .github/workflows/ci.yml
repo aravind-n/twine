@@ -67,11 +67,15 @@ jobs:
           rust: 'true'
           rust-components: rustfmt clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Install fish for shell integration tests
+        run: command -v fish >/dev/null || brew install fish
       - name: Check Rust formatting
         run: cargo fmt --all --check
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Run Rust tests
+        env:
+          TWINE_REQUIRE_FISH_TESTS: '1'
         run: cargo test --workspace --locked
 
   library-build:

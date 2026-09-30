@@ -17,12 +17,15 @@ struct ReplayState {
 #[derive(Debug, Default)]
 pub(crate) struct ReplayPosition {
     inner: Mutex<ReplayState>,
+    pub(super) finished: AtomicBool,
+    integrated_shell: AtomicBool,
 }
 
 impl ReplayPosition {
     pub(crate) fn observe(&self) -> Result<super::TerminalObservation, TerminalError> {
         let replay = self.inner.lock().map_err(|_| TerminalError::Poisoned)?;
         Ok(super::TerminalObservation {
+            integrated_shell: self.integrated_shell.load(Ordering::Acquire),
             observed_at: crate::workflow::timestamp(),
             byte_offset: replay.offset,
             boundary_sizes: replay
@@ -39,7 +42,6 @@ enum StreamState {
     Finished,
 }
 
-#[derive(Debug)]
 struct StreamEntry {
     next_offset: Arc<AtomicU64>,
     reserved_offset: u64,
@@ -48,13 +50,81 @@ struct StreamEntry {
     sizes: Vec<TranscriptSize>,
     geometry_lost: bool,
     replay_position: Arc<ReplayPosition>,
+    shell_decoder: Option<super::shell::ShellDecoder>,
 }
 
-#[derive(Debug)]
 struct StreamInner {
     buffered_bytes: usize,
     chunks: VecDeque<TerminalChunk>,
     entries: HashMap<TerminalId, StreamEntry>,
+    shell_observations: VecDeque<ShellObservation>,
+    shell_losses: HashMap<TerminalId, super::TerminalObservation>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ShellObservation {
+    pub terminal_id: TerminalId,
+    pub mark: super::ShellMark,
+    pub observation: super::TerminalObservation,
+}
+
+impl StreamInner {
+    fn observe_shell(&mut self, chunk: &TerminalChunk, recorded: bool) {
+        let terminal_id = chunk.terminal_id;
+        let offset = chunk.offset;
+        let marks = self
+            .entries
+            .get_mut(&terminal_id)
+            .and_then(|entry| entry.shell_decoder.as_mut())
+            .map(|decoder| decoder.feed(&chunk.bytes, offset))
+            .unwrap_or_default();
+        for (mark, byte_offset) in marks {
+            let replay = self
+                .entries
+                .get(&terminal_id)
+                .and_then(|entry| entry.replay_position.inner.lock().ok());
+            let boundary_sizes = replay.as_ref().and_then(|position| {
+                (recorded && position.lost_at.is_none_or(|lost| lost != byte_offset)).then(|| {
+                    position
+                        .sizes
+                        .iter()
+                        .filter(|size| size.offset == byte_offset)
+                        .map(|size| size.size)
+                        .collect()
+                })
+            });
+            let observation = super::TerminalObservation {
+                integrated_shell: true,
+                observed_at: crate::workflow::timestamp(),
+                byte_offset,
+                boundary_sizes,
+            };
+            drop(replay);
+            // Metadata never blocks terminal output. On overflow stop tracking this shell and
+            // expose the lost boundary instead of inventing command endings.
+            if self.shell_observations.len() >= 256 {
+                self.shell_observations
+                    .retain(|item| item.terminal_id != terminal_id);
+                if let Some(entry) = self.entries.get_mut(&terminal_id) {
+                    entry.shell_decoder = None;
+                }
+                self.shell_losses.insert(terminal_id, observation);
+                break;
+            }
+            let lost = mark == super::ShellMark::Lost;
+            self.shell_observations.push_back(ShellObservation {
+                terminal_id,
+                mark,
+                observation,
+            });
+            if lost {
+                if let Some(entry) = self.entries.get_mut(&terminal_id) {
+                    entry.shell_decoder = None;
+                }
+                break;
+            }
+        }
+    }
 }
 
 pub(crate) struct TerminalStream {
@@ -95,6 +165,8 @@ impl TerminalStream {
                 buffered_bytes: 0,
                 chunks: VecDeque::new(),
                 entries: HashMap::new(),
+                shell_observations: VecDeque::new(),
+                shell_losses: HashMap::new(),
             }),
             space_available: Condvar::new(),
             transcripts,
@@ -115,9 +187,58 @@ impl TerminalStream {
                 sizes: Vec::new(),
                 geometry_lost: false,
                 replay_position: Arc::new(ReplayPosition::default()),
+                shell_decoder: None,
             },
         );
         Ok(terminal_id)
+    }
+
+    pub(super) fn integrate_shell(
+        &self,
+        terminal_id: TerminalId,
+        token: String,
+    ) -> Result<(), TerminalError> {
+        let mut inner = self.lock_inner()?;
+        let entry = inner
+            .entries
+            .get_mut(&terminal_id)
+            .ok_or(TerminalError::NotOpen { terminal_id })?;
+        entry
+            .replay_position
+            .integrated_shell
+            .store(true, Ordering::Release);
+        entry.shell_decoder = Some(super::shell::ShellDecoder::new(token));
+        Ok(())
+    }
+
+    pub(crate) fn take_shell_observations(&self) -> Result<Vec<ShellObservation>, TerminalError> {
+        let mut inner = self.lock_inner()?;
+        let mut observations: Vec<_> = inner.shell_observations.drain(..).collect();
+        observations.extend(
+            inner
+                .shell_losses
+                .drain()
+                .map(|(terminal_id, observation)| ShellObservation {
+                    terminal_id,
+                    mark: super::ShellMark::Lost,
+                    observation,
+                }),
+        );
+        Ok(observations)
+    }
+
+    pub(crate) fn reader_finished(&self, id: TerminalId) -> bool {
+        self.lock_inner().ok().is_none_or(|inner| {
+            !inner
+                .shell_observations
+                .iter()
+                .any(|item| item.terminal_id == id)
+                && !inner.shell_losses.contains_key(&id)
+                && inner
+                    .entries
+                    .get(&id)
+                    .is_none_or(|entry| entry.replay_position.finished.load(Ordering::Acquire))
+        })
     }
 
     pub(super) fn publish_blocking(
@@ -176,6 +297,7 @@ impl TerminalStream {
         // Recording failures are exposed by transcript reads. Live output and input remain usable.
         // Accepted recording survives a subsequent cancellation of the live queue.
         let mut inner = self.lock_inner()?;
+        inner.observe_shell(&chunk, recording.is_ok());
         if recording.is_ok()
             && let Some(entry) = inner.entries.get_mut(&terminal_id)
         {
@@ -304,6 +426,10 @@ impl TerminalStream {
             .entries
             .get_mut(&terminal_id)
             .ok_or(TerminalError::NotOpen { terminal_id })?;
+        entry
+            .replay_position
+            .finished
+            .store(true, Ordering::Release);
         if entry.state == StreamState::Open {
             entry.state = StreamState::Finished;
         }
@@ -314,6 +440,12 @@ impl TerminalStream {
 
     pub(super) fn cancel(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
         let mut inner = self.lock_inner()?;
+        if let Some(entry) = inner.entries.get(&terminal_id) {
+            entry
+                .replay_position
+                .finished
+                .store(true, Ordering::Release);
+        }
         inner
             .entries
             .get(&terminal_id)
@@ -414,6 +546,105 @@ mod tests {
     use super::*;
 
     const TEST_TIMEOUT: Duration = Duration::from_secs(2);
+
+    #[test]
+    fn finished_reader_waits_for_queued_boundaries_and_loss_disables_decoding() {
+        let stream = TerminalStream::for_test(4096, 4).unwrap();
+        let id = stream.open().unwrap();
+        stream.integrate_shell(id, "test".into()).unwrap();
+        assert!(
+            stream
+                .replay_position(id)
+                .unwrap()
+                .observe()
+                .unwrap()
+                .integrated_shell
+        );
+        stream
+            .publish_blocking(id, b"\x1b]133;D;twine=test;1\x07".to_vec())
+            .unwrap();
+        stream.finish(id).unwrap();
+        stream.next_chunk().unwrap();
+        assert!(!stream.reader_finished(id));
+        assert_eq!(
+            stream.take_shell_observations().unwrap()[0].mark,
+            super::super::ShellMark::CommandEnd(1)
+        );
+        assert!(stream.reader_finished(id));
+
+        let id = stream.open().unwrap();
+        stream.integrate_shell(id, "test".into()).unwrap();
+        stream
+            .publish_blocking(
+                id,
+                b"\x1b]133;L;twine=test\x07\x1b]133;C;twine=test;command=66616c7365\x07".to_vec(),
+            )
+            .unwrap();
+        stream
+            .publish_blocking(id, b"\x1b]133;A;twine=test\x07".to_vec())
+            .unwrap();
+        let observations = stream.take_shell_observations().unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].mark, super::super::ShellMark::Lost);
+    }
+
+    #[test]
+    fn metadata_overflow_reports_loss_even_for_another_terminal() {
+        let stream = TerminalStream::for_test(16384, 4).unwrap();
+        let first = stream.open().unwrap();
+        let second = stream.open().unwrap();
+        stream.integrate_shell(first, "first".into()).unwrap();
+        stream.integrate_shell(second, "second".into()).unwrap();
+        let marks = b"\x1b]133;A;twine=first\x07".repeat(128);
+        stream.publish_blocking(first, marks.clone()).unwrap();
+        stream.publish_blocking(first, marks).unwrap();
+        let output = b"\x1b]133;C;twine=second;command=66616c7365\x07output".to_vec();
+        stream.publish_blocking(second, output.clone()).unwrap();
+        let observations = stream.take_shell_observations().unwrap();
+        assert!(
+            observations.iter().any(
+                |item| item.terminal_id == second && item.mark == super::super::ShellMark::Lost
+            )
+        );
+        assert!(stream.take_shell_observations().unwrap().is_empty());
+        stream.next_chunk().unwrap();
+        stream.next_chunk().unwrap();
+        assert_eq!(stream.next_chunk().unwrap().unwrap().bytes, output);
+    }
+
+    #[test]
+    fn shell_anchor_keeps_resizes_at_its_exact_boundary() {
+        let stream = TerminalStream::for_test(4096, 4).unwrap();
+        let id = stream.open().unwrap();
+        stream.integrate_shell(id, "test".into()).unwrap();
+        let bytes = b"\x1b]133;C;twine=test;command=66616c7365\x07".to_vec();
+        let boundary = bytes.len() as u64;
+        stream
+            .lock_inner()
+            .unwrap()
+            .entries
+            .get_mut(&id)
+            .unwrap()
+            .reserved_offset = boundary;
+        let size = TerminalSize {
+            rows: 37,
+            columns: 95,
+            pixel_width: 950,
+            pixel_height: 740,
+        };
+        stream.record_size(id, size).unwrap();
+        stream.lock_inner().unwrap().observe_shell(
+            &TerminalChunk {
+                terminal_id: id,
+                offset: 0,
+                bytes,
+            },
+            true,
+        );
+        let observations = stream.take_shell_observations().unwrap();
+        assert_eq!(observations[0].observation.byte_offset, boundary);
+        assert_eq!(observations[0].observation.boundary_sizes, Some(vec![size]));
+    }
 
     #[test]
     fn retained_output_counter_survives_finish_drain_and_cancel() {
