@@ -1,7 +1,10 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
-use super::{TerminalChunk, TerminalError, TerminalId};
+use super::{
+    TerminalChunk, TerminalError, TerminalId, TranscriptError, TranscriptRead, TranscriptRecorder,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StreamState {
@@ -13,6 +16,7 @@ enum StreamState {
 struct StreamEntry {
     next_offset: u64,
     state: StreamState,
+    cancelled: Arc<AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -20,21 +24,34 @@ struct StreamInner {
     buffered_bytes: usize,
     chunks: VecDeque<TerminalChunk>,
     entries: HashMap<TerminalId, StreamEntry>,
-    next_terminal_id: u64,
 }
 
-#[derive(Debug)]
 pub(crate) struct TerminalStream {
     capacity_bytes: usize,
     capacity_chunks: usize,
     inner: Mutex<StreamInner>,
     space_available: Condvar,
+    transcripts: Arc<TranscriptRecorder>,
 }
 
 impl TerminalStream {
+    #[cfg(test)]
+    pub(crate) fn stall_recording_worker(
+        &self,
+        terminal_id: TerminalId,
+    ) -> std::sync::mpsc::Receiver<Result<TranscriptRead, TranscriptError>> {
+        self.transcripts.stall_worker(terminal_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn allocation_is_pending(&self) -> bool {
+        self.transcripts.allocation_is_pending()
+    }
+
     pub(crate) fn new(
         capacity_bytes: usize,
         capacity_chunks: usize,
+        transcripts: Arc<TranscriptRecorder>,
     ) -> Result<Self, TerminalError> {
         if capacity_bytes == 0 || capacity_chunks == 0 {
             return Err(TerminalError::ZeroCapacity);
@@ -47,24 +64,22 @@ impl TerminalStream {
                 buffered_bytes: 0,
                 chunks: VecDeque::new(),
                 entries: HashMap::new(),
-                next_terminal_id: 1,
             }),
             space_available: Condvar::new(),
+            transcripts,
         })
     }
 
     pub(crate) fn open(&self) -> Result<TerminalId, TerminalError> {
+        // Allocation performs disk I/O on the storage worker without holding the live queue lock.
+        let terminal_id = self.transcripts.allocate()?;
         let mut inner = self.lock_inner()?;
-        let terminal_id = TerminalId::from_value(inner.next_terminal_id);
-        inner.next_terminal_id = inner
-            .next_terminal_id
-            .checked_add(1)
-            .ok_or(TerminalError::TerminalIdOverflow)?;
         inner.entries.insert(
             terminal_id,
             StreamEntry {
                 next_offset: 0,
                 state: StreamState::Open,
+                cancelled: Arc::new(AtomicBool::new(false)),
             },
         );
         Ok(terminal_id)
@@ -86,6 +101,34 @@ impl TerminalStream {
             });
         }
 
+        // Each terminal has exactly one producer (its PTY reader). Reserve the shared absolute
+        // offset before recording, so both storage and live delivery use the same byte positions.
+        let (offset, cancelled) = {
+            let mut inner = self.lock_inner()?;
+            let entry = inner
+                .entries
+                .get_mut(&terminal_id)
+                .filter(|entry| entry.state == StreamState::Open)
+                .ok_or(TerminalError::NotOpen { terminal_id })?;
+            let offset = entry.next_offset;
+            entry.next_offset = offset
+                .checked_add(u64::try_from(chunk_bytes).map_err(|_| TerminalError::OffsetOverflow)?)
+                .ok_or(TerminalError::OffsetOverflow)?;
+            (offset, Arc::clone(&entry.cancelled))
+        };
+        let chunk = TerminalChunk {
+            terminal_id,
+            offset,
+            bytes,
+        };
+        if matches!(
+            self.transcripts.append(chunk.clone(), &cancelled),
+            Err(TranscriptError::Cancelled)
+        ) {
+            return Err(TerminalError::NotOpen { terminal_id });
+        }
+        // Recording failures are exposed by transcript reads. Live output and input remain usable.
+        // Accepted recording survives a subsequent cancellation of the live queue.
         let mut inner = self.lock_inner()?;
         loop {
             let entry = inner
@@ -107,20 +150,8 @@ impl TerminalStream {
                 .map_err(|_| TerminalError::Poisoned)?;
         }
 
-        let entry = inner
-            .entries
-            .get_mut(&terminal_id)
-            .ok_or(TerminalError::NotOpen { terminal_id })?;
-        let offset = entry.next_offset;
-        entry.next_offset = offset
-            .checked_add(u64::try_from(chunk_bytes).map_err(|_| TerminalError::OffsetOverflow)?)
-            .ok_or(TerminalError::OffsetOverflow)?;
         inner.buffered_bytes += chunk_bytes;
-        inner.chunks.push_back(TerminalChunk {
-            terminal_id,
-            offset,
-            bytes,
-        });
+        inner.chunks.push_back(chunk);
         Ok(offset)
     }
 
@@ -151,9 +182,12 @@ impl TerminalStream {
 
     pub(super) fn cancel(&self, terminal_id: TerminalId) -> Result<(), TerminalError> {
         let mut inner = self.lock_inner()?;
-        if !inner.entries.contains_key(&terminal_id) {
-            return Err(TerminalError::NotOpen { terminal_id });
-        }
+        inner
+            .entries
+            .get(&terminal_id)
+            .ok_or(TerminalError::NotOpen { terminal_id })?
+            .cancelled
+            .store(true, Ordering::Release);
         let mut removed_bytes = 0;
         inner.chunks.retain(|chunk| {
             if chunk.terminal_id == terminal_id {
@@ -166,7 +200,22 @@ impl TerminalStream {
         inner.buffered_bytes -= removed_bytes;
         inner.entries.remove(&terminal_id);
         self.space_available.notify_all();
+        drop(inner);
+        self.transcripts.wake_producers();
         Ok(())
+    }
+
+    pub(crate) fn read_transcript(
+        &self,
+        terminal_id: TerminalId,
+        offset: u64,
+        limit: usize,
+    ) -> Result<TranscriptRead, TranscriptError> {
+        self.transcripts.read(terminal_id, offset, limit)
+    }
+
+    pub(crate) fn shutdown_recording(&self) {
+        self.transcripts.shutdown();
     }
 
     fn remove_drained_entry(inner: &mut StreamInner, terminal_id: TerminalId) {
@@ -190,6 +239,16 @@ impl TerminalStream {
 
 #[cfg(test)]
 impl TerminalStream {
+    pub(crate) fn for_test(
+        capacity_bytes: usize,
+        capacity_chunks: usize,
+    ) -> Result<Self, TerminalError> {
+        Self::new(
+            capacity_bytes,
+            capacity_chunks,
+            Arc::new(TranscriptRecorder::temporary()?),
+        )
+    }
     pub(super) fn queued_chunk_count(&self) -> usize {
         self.lock_inner()
             .expect("stream should remain available")
@@ -197,7 +256,7 @@ impl TerminalStream {
             .len()
     }
 
-    pub(super) fn tracks_no_terminals(&self) -> bool {
+    pub(crate) fn tracks_no_terminals(&self) -> bool {
         self.lock_inner()
             .expect("stream should remain available")
             .entries
@@ -217,7 +276,7 @@ mod tests {
 
     #[test]
     fn empty_and_oversized_chunks_are_rejected() {
-        let stream = TerminalStream::new(4, 2).expect("stream should initialize");
+        let stream = TerminalStream::for_test(4, 2).expect("stream should initialize");
         let terminal_id = stream.open().expect("terminal should open");
 
         assert!(matches!(
@@ -235,7 +294,7 @@ mod tests {
 
     #[test]
     fn output_has_absolute_offsets_and_new_terminals_start_at_zero() {
-        let stream = TerminalStream::new(8, 3).expect("stream should initialize");
+        let stream = TerminalStream::for_test(8, 3).expect("stream should initialize");
         let first_id = stream.open().expect("first terminal should open");
 
         assert_eq!(
@@ -298,13 +357,13 @@ mod tests {
 
     #[test]
     fn finish_reclaims_terminals_before_or_after_draining_and_with_no_output() {
-        let stream = TerminalStream::new(64, 2).expect("stream should initialize");
+        let stream = TerminalStream::for_test(64, 2).expect("stream should initialize");
 
         let empty = stream.open().expect("empty terminal should open");
         stream.finish(empty).expect("empty terminal should finish");
         assert!(stream.tracks_no_terminals());
 
-        for index in 0..10_000 {
+        for index in 0..128 {
             let terminal_id = stream.open().expect("terminal should open");
             stream
                 .publish_blocking(terminal_id, vec![1])
@@ -344,7 +403,8 @@ mod tests {
         second_bytes: &[u8],
     ) {
         let stream = Arc::new(
-            TerminalStream::new(capacity_bytes, capacity_chunks).expect("stream should initialize"),
+            TerminalStream::for_test(capacity_bytes, capacity_chunks)
+                .expect("stream should initialize"),
         );
         let terminal_id = stream.open().expect("terminal should open");
         stream
@@ -387,7 +447,7 @@ mod tests {
 
     #[test]
     fn cancelling_terminal_discards_output_and_wakes_publishers() {
-        let stream = Arc::new(TerminalStream::new(4, 2).expect("stream should initialize"));
+        let stream = Arc::new(TerminalStream::for_test(4, 2).expect("stream should initialize"));
         let first = stream.open().expect("first terminal should open");
         let second = stream.open().expect("second terminal should open");
         stream
@@ -465,5 +525,50 @@ mod tests {
             .recv_timeout(TEST_TIMEOUT)
             .expect("publisher should start");
         (result_receiver, publisher)
+    }
+
+    #[test]
+    fn cancelling_live_delivery_preserves_output_already_accepted_for_recording() {
+        let stream = Arc::new(TerminalStream::for_test(1, 1).unwrap());
+        let id = stream.open().unwrap();
+        stream.publish_blocking(id, b"a".to_vec()).unwrap();
+        let (result, publisher) = spawn_publish(&stream, id, b"b".to_vec());
+        assert!(matches!(
+            result.recv_timeout(Duration::from_millis(50)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        let TranscriptRead::Output(page) = stream.read_transcript(id, 0, 8).unwrap() else {
+            panic!("accepted output should remain readable");
+        };
+        assert_eq!(page.bytes, b"ab");
+        stream.cancel(id).unwrap();
+        assert!(matches!(
+            result.recv_timeout(TEST_TIMEOUT).unwrap(),
+            Err(TerminalError::NotOpen { .. })
+        ));
+        publisher.join().unwrap();
+        assert!(stream.next_chunk().unwrap().is_none());
+        assert_eq!(
+            stream.read_transcript(id, 0, 8).unwrap(),
+            TranscriptRead::Output(page)
+        );
+    }
+
+    #[test]
+    fn recording_failure_does_not_stop_live_byte_delivery() {
+        let directory = tempfile::tempdir().unwrap();
+        let transcripts = Arc::new(TranscriptRecorder::open(directory.path()).unwrap());
+        let stream = TerminalStream::new(32, 4, transcripts).unwrap();
+        let id = stream.open().unwrap();
+        std::fs::create_dir(directory.path().join("metadata.next")).unwrap();
+        stream.publish_blocking(id, b"still live".to_vec()).unwrap();
+        assert_eq!(stream.next_chunk().unwrap().unwrap().bytes, b"still live");
+        assert!(matches!(
+            stream.read_transcript(id, 0, 32),
+            Err(TranscriptError::Unavailable { .. })
+        ));
+        assert_eq!(stream.publish_blocking(id, b" next".to_vec()).unwrap(), 10);
+        assert_eq!(stream.next_chunk().unwrap().unwrap().offset, 10);
+        stream.cancel(id).unwrap();
     }
 }

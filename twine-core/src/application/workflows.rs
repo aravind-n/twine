@@ -55,6 +55,10 @@ impl Application {
         Ok(CommandDisposition::Accepted)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one lifetime command coordinates all role shells, persistence, and failure cleanup"
+    )]
     pub(super) fn create_workflow(
         &self,
         request_id: RequestId,
@@ -68,7 +72,7 @@ impl Application {
             Ok(roles) => roles,
             Err(rejection) => return Ok(rejection),
         };
-        let mut inner = self.lock_inner()?;
+        let inner = self.lock_inner()?;
         if inner.folders.state().open_folder.as_deref() != Some(folder) {
             return Ok(reject(
                 "folderChanged",
@@ -86,13 +90,32 @@ impl Application {
                 "Select the session again before opening a workflow.",
             ));
         }
-        // An agents workflow has no shell of its own. Each of its agents gets one instead.
-        let mut terminal_ids = Vec::with_capacity(roles.len().max(1));
+        // Lifetime commands keep folder/selection validation valid while transcript allocation
+        // waits without application state. Reserve every agent's stream before starting shells.
+        drop(inner);
+        let mut reserved = Vec::with_capacity(roles.len().max(1));
         for _ in 0..roles.len().max(1) {
-            match self.start_terminal(folder, size) {
+            match self.terminals.reserve_terminal() {
+                Ok(terminal_id) => reserved.push(terminal_id),
+                Err(error) => {
+                    for terminal_id in reserved {
+                        let _ = self.terminals.cancel_reserved_terminal(terminal_id);
+                    }
+                    return Ok(super::rejection("terminalStartFailed", &error));
+                }
+            }
+        }
+        // Hold state throughout startup so creation is published before any shell's exit.
+        let mut inner = self.lock_inner()?;
+        let mut terminal_ids = Vec::with_capacity(reserved.len());
+        for (index, &terminal_id) in reserved.iter().enumerate() {
+            match self.start_terminal(terminal_id, folder, size) {
                 Ok(terminal_id) => terminal_ids.push(terminal_id),
                 Err(error) => {
                     drop(inner);
+                    for &terminal_id in &reserved[index + 1..] {
+                        let _ = self.terminals.cancel_reserved_terminal(terminal_id);
+                    }
                     let _ = self.terminals.close_all(&terminal_ids);
                     return Ok(super::rejection("terminalStartFailed", &error));
                 }
@@ -247,8 +270,12 @@ impl Application {
         Ok(CommandDisposition::Accepted)
     }
 
-    /// Loads tabs from SQLite and gives each one a new shell. No terminal bytes or process IDs
-    /// are persisted. Failed shell starts keep their tab so the user can see and close it.
+    /// Loads tabs from SQLite and gives each one a new shell and terminal ID. Earlier transcripts
+    /// remain independently readable until pruned. Failed starts keep their tab for inspection.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "restoration keeps workflow and agent metadata paired with their fresh terminals"
+    )]
     pub(super) fn restore_workflows(&self) -> Result<(), ApplicationError> {
         let mut inner = self.lock_inner()?;
         let Some(folder) = inner.folders.state().open_folder.clone() else {
@@ -266,22 +293,49 @@ impl Application {
             .or_else(|| sessions.first())
             .cloned();
         let stored = inner.folders.store().workflows(&folder)?;
+        drop(inner);
+        let reserved: Vec<_> = stored
+            .iter()
+            .map(|workflow| {
+                let shells = match workflow.kind {
+                    WorkflowKind::Draft | WorkflowKind::Terminal => 1,
+                    // Single-agent harnesses never restart; multi-agent workflows restore shells.
+                    WorkflowKind::SingleAgent => 0,
+                    WorkflowKind::Agents => workflow.agents.len(),
+                };
+                (0..shells)
+                    .map(|_| {
+                        self.terminals
+                            .reserve_terminal()
+                            .map_err(ApplicationError::from)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let mut inner = self.lock_inner()?;
         inner.workflows = WorkflowState {
             sessions_initialized,
             session,
             sessions,
             workflows: Vec::new(),
         };
-        for stored in stored {
-            let mut restart = || match self.start_terminal(
-                &folder,
-                TerminalSize {
-                    rows: 24,
-                    columns: 80,
-                    pixel_width: 800,
-                    pixel_height: 480,
-                },
-            ) {
+        for (stored, reserved) in stored.into_iter().zip(reserved) {
+            let mut reserved = reserved.into_iter();
+            let mut restart = || match reserved
+                .next()
+                .expect("each restored shell has a transcript reservation")
+                .and_then(|id| {
+                    self.start_terminal(
+                        id,
+                        &folder,
+                        TerminalSize {
+                            rows: 24,
+                            columns: 80,
+                            pixel_width: 800,
+                            pixel_height: 480,
+                        },
+                    )
+                }) {
                 Ok(id) => {
                     inner.terminals.insert(id, TerminalStatus::Running);
                     id
@@ -1230,11 +1284,15 @@ mod tests {
                 &application,
                 folder.path(),
                 WorkflowKind::Agents,
-                &["Implementer", "Reviewer", "Coordinator"],
+                &["Implementer", "Reviewer", "Coordinator", "Observer"],
             ),
             CommandDisposition::Rejected { ref code, .. } if code == "terminalStartFailed"
         ));
         assert_eq!(application.snapshot().unwrap(), before);
+        assert!(
+            application.terminal_output.tracks_no_terminals(),
+            "started shells and unused reservations must all be released"
+        );
         // The two shells that started were stopped rather than left running without a workflow.
         for terminal_id in 1..=2 {
             assert!(

@@ -74,7 +74,7 @@ pub struct Workflow {
     pub status: WorkflowStatus,
     pub started_at: u64,
     pub ended_at: Option<u64>,
-    /// Restored workflow metadata now backed by fresh shells, without the previous transcripts.
+    /// Restored workflow metadata now backed by fresh shells and new terminal transcripts.
     pub restored: bool,
 }
 

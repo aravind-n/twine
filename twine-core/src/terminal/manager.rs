@@ -69,6 +69,7 @@ impl TerminalManager {
 
     pub(crate) fn start_default_shell(
         &self,
+        terminal_id: TerminalId,
         working_directory: &Path,
         size: TerminalSize,
         on_exit: ExitCallback,
@@ -81,12 +82,19 @@ impl TerminalManager {
             })
             .is_err()
         {
+            let _ = self.output.cancel(terminal_id);
             return Err(TerminalError::Pty {
                 operation: "start a test shell",
                 message: "the test made this start fail".to_owned(),
             });
         }
-        let working_directory = canonical_working_directory(working_directory)?;
+        let working_directory = match canonical_working_directory(working_directory) {
+            Ok(path) => path,
+            Err(error) => {
+                let _ = self.output.cancel(terminal_id);
+                return Err(error);
+            }
+        };
         let command = default_shell_command(&working_directory);
         #[cfg(test)]
         let command = if let Some(shell) = &self.test_shell {
@@ -96,12 +104,29 @@ impl TerminalManager {
         } else {
             command
         };
-        self.start_command(command, size, Some(working_directory), on_exit)
+        self.start_command(terminal_id, command, size, Some(working_directory), on_exit)
+    }
+
+    pub(crate) fn reserve_terminal(&self) -> Result<TerminalId, TerminalError> {
+        self.output.open()
+    }
+
+    /// Releases a reserved stream when a workflow cannot start all of its shells.
+    pub(crate) fn cancel_reserved_terminal(
+        &self,
+        terminal_id: TerminalId,
+    ) -> Result<(), TerminalError> {
+        self.output.cancel(terminal_id)
     }
 
     /// Starts `program` in `working_directory` with the given environment `PATH`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the reserved ID keeps transcript allocation outside application-state locks"
+    )]
     pub(crate) fn start_program(
         &self,
+        terminal_id: TerminalId,
         working_directory: &Path,
         program: &Path,
         arguments: &[OsString],
@@ -109,9 +134,15 @@ impl TerminalManager {
         size: TerminalSize,
         on_exit: ExitCallback,
     ) -> Result<TerminalId, TerminalError> {
-        let working_directory = canonical_working_directory(working_directory)?;
+        let working_directory = match canonical_working_directory(working_directory) {
+            Ok(path) => path,
+            Err(error) => {
+                let _ = self.output.cancel(terminal_id);
+                return Err(error);
+            }
+        };
         let command = program_launcher_command(&working_directory, program, arguments, path);
-        self.start_command(command, size, Some(working_directory), on_exit)
+        self.start_command(terminal_id, command, size, Some(working_directory), on_exit)
     }
 
     /// The last size the terminal was given, if it is open.
@@ -134,12 +165,19 @@ impl TerminalManager {
 
     fn start_command(
         &self,
+        terminal_id: TerminalId,
         command: CommandBuilder,
         size: TerminalSize,
         working_directory_handshake: Option<PathBuf>,
         on_exit: ExitCallback,
     ) -> Result<TerminalId, TerminalError> {
-        let starting = spawn_terminal_process(command, size, working_directory_handshake)?;
+        let starting = match spawn_terminal_process(command, size, working_directory_handshake) {
+            Ok(starting) => starting,
+            Err(error) => {
+                let _ = self.output.cancel(terminal_id);
+                return Err(error);
+            }
+        };
         let StartingTerminal {
             master,
             reader,
@@ -147,14 +185,6 @@ impl TerminalManager {
             child,
             reader_descriptor,
         } = starting;
-        let terminal_id = match self.output.open() {
-            Ok(terminal_id) => terminal_id,
-            Err(error) => {
-                terminate_unobserved_child(&child);
-                return Err(error);
-            }
-        };
-
         let reader_cancelled = Arc::new(AtomicBool::new(false));
         let reader_thread = match spawn_terminal_reader(
             Arc::clone(&self.output),
@@ -332,6 +362,18 @@ impl TerminalManager {
     ) -> Result<MutexGuard<'_, HashMap<TerminalId, TerminalSession>>, TerminalError> {
         self.sessions.lock().map_err(|_| TerminalError::Poisoned)
     }
+
+    #[cfg(test)]
+    fn start_test_command(
+        &self,
+        command: CommandBuilder,
+        size: TerminalSize,
+        working_directory_handshake: Option<PathBuf>,
+        on_exit: ExitCallback,
+    ) -> Result<TerminalId, TerminalError> {
+        let id = self.reserve_terminal()?;
+        self.start_command(id, command, size, working_directory_handshake, on_exit)
+    }
 }
 
 impl Drop for TerminalManager {
@@ -445,7 +487,7 @@ mod tests {
     #[test]
     fn shell_output_is_ordered_and_has_absolute_byte_offsets() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -454,7 +496,7 @@ mod tests {
         let mut command = shell_launcher_command(&directory, Path::new("/bin/sh"));
         command.env("TERM", "xterm-256color");
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -539,7 +581,7 @@ mod tests {
     #[test]
     fn shell_start_fails_if_working_directory_disappears_before_launch() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -548,7 +590,7 @@ mod tests {
         std::fs::remove_dir(&directory).expect("test working directory should be removed");
 
         let error = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -568,14 +610,14 @@ mod tests {
     #[test]
     fn closing_terminal_terminates_a_running_child() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(stream);
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
         let mut command = CommandBuilder::new("/bin/sh");
         command.args(["-c", "trap '' HUP; while :; do sleep 1; done"]);
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -608,7 +650,7 @@ mod tests {
     #[test]
     fn closing_terminal_does_not_wait_for_output_written_on_hangup() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(stream);
         // Like an interactive shell restoring terminal modes as it exits.
@@ -618,7 +660,7 @@ mod tests {
             "trap 'printf restore; exit' HUP; while :; do sleep 0.01; done",
         ]);
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -645,7 +687,7 @@ mod tests {
     #[test]
     fn shell_exit_terminates_descendants_that_keep_the_pty_open() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(stream);
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
@@ -655,7 +697,7 @@ mod tests {
             "trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & exit 0",
         ]);
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -688,7 +730,7 @@ mod tests {
     #[test]
     fn close_cancels_reader_when_detached_descendant_keeps_slave_open() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(stream);
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
@@ -700,7 +742,7 @@ mod tests {
         ]);
         command.env("TWINE_TEST_READY", &ready_path);
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 command,
                 TerminalSize {
                     rows: 24,
@@ -748,12 +790,13 @@ mod tests {
     #[test]
     fn input_remains_responsive_when_output_queue_is_full() {
         let stream = Arc::new(
-            TerminalStream::new(READ_CHUNK_BYTES, 1).expect("terminal stream should initialize"),
+            TerminalStream::for_test(READ_CHUNK_BYTES, 1)
+                .expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
         let terminal_id = manager
-            .start_command(
+            .start_test_command(
                 CommandBuilder::new("/usr/bin/yes"),
                 TerminalSize {
                     rows: 24,
@@ -790,11 +833,53 @@ mod tests {
         manager.close(terminal_id).expect("terminal should close");
     }
 
+    #[test]
+    fn input_and_shutdown_remain_responsive_when_recording_queue_is_full() {
+        let directory = tempfile::tempdir().unwrap();
+        let transcripts =
+            Arc::new(super::super::TranscriptRecorder::open(directory.path()).unwrap());
+        let stream =
+            Arc::new(TerminalStream::new(8 * 1024 * 1024, 1024, Arc::clone(&transcripts)).unwrap());
+        let manager = TerminalManager::new(Arc::clone(&stream));
+        let (sent, received) = mpsc::sync_channel(1);
+        let id = manager
+            .start_test_command(
+                CommandBuilder::new("/usr/bin/yes"),
+                test_terminal_size(),
+                None,
+                Arc::new(move |id, exit| {
+                    let _ = sent.send((id, exit));
+                }),
+            )
+            .unwrap();
+        let stalled = transcripts.stall_worker(id);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !transcripts.recording_queue_is_full() {
+            assert!(Instant::now() < deadline, "recording queue did not fill");
+            thread::sleep(Duration::from_millis(5));
+        }
+        manager.resize(id, test_terminal_size()).unwrap();
+        manager.write_input(id, b"\x03").unwrap();
+        assert_eq!(received.recv_timeout(Duration::from_secs(2)).unwrap().0, id);
+        let start = Instant::now();
+        manager.shutdown();
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(stream.tracks_no_terminals());
+        drop(stalled);
+        transcripts.shutdown();
+        let reopened = super::super::TranscriptRecorder::open(directory.path()).unwrap();
+        assert!(matches!(
+            reopened.read(id, 0, 1).unwrap(),
+            super::super::TranscriptRead::Output(_)
+        ));
+    }
+
     #[cfg(unix)]
     #[test]
     fn shutdown_reaps_multiple_shells_and_descendants_with_a_full_output_queue() {
         let stream = Arc::new(
-            TerminalStream::new(READ_CHUNK_BYTES, 1).expect("terminal stream should initialize"),
+            TerminalStream::for_test(READ_CHUNK_BYTES, 1)
+                .expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -810,7 +895,7 @@ mod tests {
         ]);
         quiet_shell.env("TWINE_TEST_DIR", &directory);
         let quiet_id = manager
-            .start_command(quiet_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(quiet_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
             .expect("shell with descendant should start");
 
         let mut noisy_shell = CommandBuilder::new("/bin/sh");
@@ -820,7 +905,7 @@ mod tests {
         ]);
         noisy_shell.env("TWINE_TEST_DIR", &directory);
         let noisy_id = manager
-            .start_command(noisy_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(noisy_shell, test_terminal_size(), None, Arc::new(|_, _| {}))
             .expect("output-heavy shell should start");
 
         let process_ids = ["shell.pid", "descendant.pid", "noisy.pid"]
@@ -860,7 +945,7 @@ mod tests {
     #[test]
     fn close_all_stops_terminals_together_and_reports_one_that_was_not_open() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -877,7 +962,7 @@ mod tests {
             ]);
             shell.env("TWINE_TEST_DIR", &directory);
             let terminal_id = manager
-                .start_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+                .start_test_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
                 .expect("shell should start");
             (
                 terminal_id,
@@ -924,7 +1009,8 @@ mod tests {
     #[test]
     fn shutdown_kills_background_job_in_another_process_group() {
         let stream = Arc::new(
-            TerminalStream::new(READ_CHUNK_BYTES, 16).expect("terminal stream should initialize"),
+            TerminalStream::for_test(READ_CHUNK_BYTES, 16)
+                .expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -940,7 +1026,7 @@ mod tests {
         ]);
         shell.env("TWINE_TEST_DIR", &directory);
         manager
-            .start_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(shell, test_terminal_size(), None, Arc::new(|_, _| {}))
             .expect("shell should start");
 
         let shell_id = read_process_id(&directory.join("shell.pid"));
@@ -970,7 +1056,7 @@ mod tests {
     #[test]
     fn shutdown_recovers_poisoned_session_and_child_locks() {
         let stream = Arc::new(
-            TerminalStream::new(64 * 1024, 256).expect("terminal stream should initialize"),
+            TerminalStream::for_test(64 * 1024, 256).expect("terminal stream should initialize"),
         );
         let manager = TerminalManager::new(Arc::clone(&stream));
         let directory = unique_test_directory();
@@ -982,7 +1068,7 @@ mod tests {
         ]);
         command.env("TWINE_TEST_DIR", &directory);
         let terminal_id = manager
-            .start_command(command, test_terminal_size(), None, Arc::new(|_, _| {}))
+            .start_test_command(command, test_terminal_size(), None, Arc::new(|_, _| {}))
             .expect("shell should start");
         let process_id = read_process_id(&directory.join("shell.pid"));
         let child = Arc::clone(
