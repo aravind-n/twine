@@ -129,10 +129,15 @@ impl TwineClient {
         &self,
         terminal_id: u64,
         bytes: &[u8],
+        user_input: bool,
     ) -> Result<(), BridgeError> {
-        Ok(self
-            .application
-            .write_terminal_input(TerminalId::from_value(terminal_id), bytes)?)
+        let terminal = TerminalId::from_value(terminal_id);
+        if user_input {
+            self.application.write_terminal_input(terminal, bytes)?;
+        } else {
+            self.application.write_terminal_response(terminal, bytes)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn resize_terminal(

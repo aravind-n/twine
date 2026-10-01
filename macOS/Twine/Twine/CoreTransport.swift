@@ -74,10 +74,15 @@ nonisolated protocol CoreTransport: Sendable {
     func nextTerminalChunk() async throws -> CoreTerminalChunk?
     func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async throws -> CoreTranscriptPage?
     func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws
+    func writeTerminalResponse(terminalID: UInt64, bytes: Data) async throws
     func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) async throws
 }
 
 extension CoreTransport {
+    func writeTerminalResponse(terminalID: UInt64, bytes: Data) async throws {
+        try await writeTerminalInput(terminalID: terminalID, bytes: bytes)
+    }
+
     /// Test transports without harnesses report that none are installed.
     func harnessModels(_ request: HarnessModelsRequest) async throws -> CoreHarnessModelsResult {
         .failed("\(request.harness.displayName) isn't available.")

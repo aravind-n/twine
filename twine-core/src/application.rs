@@ -24,6 +24,7 @@ mod harness_steps;
 #[cfg(test)]
 mod recovery;
 mod resume_agents;
+mod run_inputs;
 mod runs;
 mod sessions;
 mod terminals;

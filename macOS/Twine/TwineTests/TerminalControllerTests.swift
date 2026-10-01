@@ -6,6 +6,26 @@ import Testing
 @testable import Twine
 
 struct TerminalControllerTests {
+    @Test @MainActor func enhancedReturnUsesTheUserInputRoute() async throws {
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.terminals = [.init(terminalID: 41, status: .running)]
+        let transport = DelayedStartTransport(snapshot: snapshot)
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await client.waitUntilRunning()
+        let controller = TerminalController(coreClient: client, terminalID: 41, failureMessage: .constant(nil))
+        let view = MetalTerminalView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        view.terminalDelegate = controller
+        controller.start(view: view)
+        defer { controller.stop() }
+        view.feed(byteArray: Array("\u{1B}[>8u".utf8)[...])
+        view.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        try await waitUntil { !(await transport.userInput).isEmpty }
+        #expect(await transport.userInput == Data("\u{1B}[13u".utf8))
+        #expect(await transport.terminalResponses.isEmpty)
+    }
+
     @Test @MainActor func automaticRepliesDoNotActivateAndUserBytesWaitForActivationInOrder() async throws {
         var snapshot = CoreSnapshot.testReady()
         snapshot.terminals = [.init(terminalID: 41, status: .running)]
@@ -28,12 +48,16 @@ struct TerminalControllerTests {
         try await waitUntil { !(await transport.input).isEmpty }
         #expect(activationCount == 0)
         let automaticReply = await transport.input
+        #expect(await transport.terminalResponses == automaticReply)
+        #expect(await transport.userInput.isEmpty)
 
         view.insertText("first", replacementRange: NSRange(location: NSNotFound, length: 0))
         view.insertText("second", replacementRange: NSRange(location: NSNotFound, length: 0))
         #expect(await transport.input == automaticReply)
         try await waitUntil { await transport.input == automaticReply + Data("firstsecond".utf8) }
         #expect(activationCount == 2)
+        #expect(await transport.userInput == Data("firstsecond".utf8))
+        #expect(await transport.terminalResponses == automaticReply)
     }
 
     @Test(arguments: [

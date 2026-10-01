@@ -136,6 +136,14 @@ TwineStatus twine_client_write_terminal_input(
     size_t input_length
 );
 
+// Sends terminal-generated protocol replies. Pointer and size contracts match user input.
+TwineStatus twine_client_write_terminal_response(
+    TwineClient *client,
+    uint64_t terminal_id,
+    const uint8_t *input_bytes,
+    size_t input_length
+);
+
 TwineStatus twine_client_resize_terminal(
     TwineClient *client,
     uint64_t terminal_id,
