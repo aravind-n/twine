@@ -157,7 +157,7 @@ impl Store {
             agents.entry(workflow_id).or_default().push(agent);
         }
         let mut statement = self.connection.prepare(
-            "SELECT w.id, w.session_id, w.name, w.kind, w.harness, w.lifecycle_status, r.state FROM workflows w
+            "SELECT w.id, w.session_id, w.name, w.kind, w.harness_id, w.lifecycle_status, r.state FROM workflows w
              LEFT JOIN workflow_runs r ON r.workflow_id = w.id
              JOIN sessions s ON s.id = w.session_id WHERE s.folder = ?1 AND w.closed_at IS NULL ORDER BY w.id",
         )?;
@@ -246,7 +246,7 @@ impl Store {
         harness: Option<HarnessId>,
     ) -> Result<(), StoreError> {
         self.connection.execute(
-            "UPDATE workflows SET name = ?2, kind = ?3, harness = ?4 WHERE id = ?1",
+            "UPDATE workflows SET name = ?2, kind = ?3, harness_id = ?4 WHERE id = ?1",
             params![
                 sql_integer(id.0)?,
                 name,
@@ -341,6 +341,9 @@ pub(super) fn harness_name(harness: HarnessId) -> &'static str {
         HarnessId::Codex => "codex",
         HarnessId::ClaudeCode => "claude_code",
         HarnessId::Pi => "pi",
+        HarnessId::Antigravity => "antigravity",
+        HarnessId::Omp => "omp",
+        HarnessId::Opencode => "opencode",
     }
 }
 
@@ -349,6 +352,9 @@ fn harness_from_name(name: &str) -> Option<HarnessId> {
         "codex" => Some(HarnessId::Codex),
         "claude_code" => Some(HarnessId::ClaudeCode),
         "pi" => Some(HarnessId::Pi),
+        "antigravity" => Some(HarnessId::Antigravity),
+        "omp" => Some(HarnessId::Omp),
+        "opencode" => Some(HarnessId::Opencode),
         _ => None,
     }
 }
@@ -356,6 +362,44 @@ fn harness_from_name(name: &str) -> Option<HarnessId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_harness_workflows_keep_their_harness_after_reopening_the_store() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("store.sqlite");
+        let folder = Path::new("/folder");
+        {
+            let mut store = Store::open(&database).unwrap();
+            let session = store.create_session(folder, "Session", 1).unwrap();
+            for harness in [HarnessId::Antigravity, HarnessId::Omp, HarnessId::Opencode] {
+                let (id, _) = store
+                    .create_workflow(session, "New workflow", WorkflowKind::Draft, &[])
+                    .unwrap();
+                store
+                    .update_workflow(
+                        id,
+                        harness.definition().name,
+                        WorkflowKind::SingleAgent,
+                        Some(harness),
+                    )
+                    .unwrap();
+                store
+                    .update_agent_status(id, WorkflowStatus::Cancelled)
+                    .unwrap();
+            }
+        }
+        let reopened = Store::open(&database).unwrap();
+        let workflows = reopened.workflows(folder).unwrap();
+        assert_eq!(workflows.len(), 3);
+        for (workflow, harness) in
+            workflows
+                .iter()
+                .zip([HarnessId::Antigravity, HarnessId::Omp, HarnessId::Opencode])
+        {
+            assert_eq!(workflow.harness, Some(harness));
+            assert_eq!(workflow.agent_status, Some(WorkflowStatus::Cancelled));
+        }
+    }
 
     #[test]
     fn an_agent_that_cant_be_stored_rolls_back_its_whole_workflow() {

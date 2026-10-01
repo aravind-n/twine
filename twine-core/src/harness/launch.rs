@@ -40,18 +40,31 @@ pub(crate) fn launch_arguments(harness: HarnessId, options: LaunchOptions<'_>) -
         effort,
         yolo,
     } = options;
+    if harness == HarnessId::Opencode {
+        // A private server keeps tools and their child processes within this terminal's lifetime.
+        arguments.push(OsString::from("--standalone"));
+    }
     if yolo {
         match harness {
             HarnessId::Codex => {
                 arguments.push(OsString::from("--dangerously-bypass-approvals-and-sandbox"));
             }
-            HarnessId::ClaudeCode => {
+            HarnessId::ClaudeCode | HarnessId::Antigravity => {
                 arguments.push(OsString::from("--dangerously-skip-permissions"));
             }
-            HarnessId::Pi => {}
+            HarnessId::Pi | HarnessId::Opencode => {}
+            HarnessId::Omp => {
+                arguments.push(OsString::from("--auto-approve"));
+            }
         }
     }
     if let Some(model) = model {
+        let model = match (harness, effort) {
+            (HarnessId::Opencode, Some(variant)) => {
+                format!("{}#{variant}", model.split('#').next().unwrap_or(model))
+            }
+            _ => model.to_owned(),
+        };
         arguments.extend([OsString::from("--model"), OsString::from(model)]);
     }
     if let Some(effort) = effort {
@@ -62,12 +75,14 @@ pub(crate) fn launch_arguments(harness: HarnessId, options: LaunchOptions<'_>) -
                     OsString::from(format!("model_reasoning_effort=\"{effort}\"")),
                 ]);
             }
-            HarnessId::ClaudeCode => {
+            HarnessId::ClaudeCode | HarnessId::Antigravity => {
                 arguments.extend([OsString::from("--effort"), OsString::from(effort)]);
             }
-            HarnessId::Pi => {
+            HarnessId::Pi | HarnessId::Omp => {
                 arguments.extend([OsString::from("--thinking"), OsString::from(effort)]);
             }
+            // OpenCode's variant is part of the selected model; the default has no known variants.
+            HarnessId::Opencode => {}
         }
     }
     arguments
@@ -75,15 +90,33 @@ pub(crate) fn launch_arguments(harness: HarnessId, options: LaunchOptions<'_>) -
 
 /// A launch's optional model and effort, trimmed, or `None` when either is given but invalid.
 pub(crate) fn validate_options<'a>(
+    harness: HarnessId,
     model: Option<&'a str>,
     effort: Option<&'a str>,
     yolo: bool,
 ) -> Option<LaunchOptions<'a>> {
     Some(LaunchOptions {
         model: model.map_or(Some(None), |model| validate_model(model).map(Some))?,
-        effort: effort.map_or(Some(None), |effort| validate_effort(effort).map(Some))?,
+        effort: effort.map_or(Some(None), |effort| {
+            if harness == HarnessId::Opencode {
+                validate_variant(effort).map(Some)
+            } else {
+                validate_effort(effort).map(Some)
+            }
+        })?,
         yolo,
     })
+}
+
+/// A named variant carried after `#` in a model selector, including custom punctuation and case.
+pub(crate) fn validate_variant(variant: &str) -> Option<&str> {
+    let variant = variant.trim();
+    (!variant.is_empty()
+        && variant.len() <= MAX_MODEL_BYTES
+        && variant
+            .chars()
+            .all(|c| !c.is_whitespace() && !c.is_control() && c != '#'))
+    .then_some(variant)
 }
 
 /// An effort level: one short lowercase word, as every harness names them.
@@ -117,7 +150,7 @@ mod tests {
         let arguments = |harness| {
             launch_arguments(
                 harness,
-                validate_options(Some("m1"), Some("high"), true).unwrap(),
+                validate_options(harness, Some("m1"), Some("high"), true).unwrap(),
             )
             .into_iter()
             .map(|argument| argument.into_string().unwrap())
@@ -147,13 +180,86 @@ mod tests {
             arguments(HarnessId::Pi),
             ["--model", "m1", "--thinking", "high"]
         );
+        assert_eq!(
+            arguments(HarnessId::Antigravity),
+            [
+                "--dangerously-skip-permissions",
+                "--model",
+                "m1",
+                "--effort",
+                "high"
+            ]
+        );
+        assert!(launch_arguments(HarnessId::Antigravity, LaunchOptions::default()).is_empty());
         assert!(launch_arguments(HarnessId::Pi, LaunchOptions::default()).is_empty());
         assert_eq!(
-            validate_options(Some(" m "), None, false)
+            arguments(HarnessId::Omp),
+            ["--auto-approve", "--model", "m1", "--thinking", "high"]
+        );
+        assert!(launch_arguments(HarnessId::Omp, LaunchOptions::default()).is_empty());
+        assert_eq!(
+            arguments(HarnessId::Opencode),
+            ["--standalone", "--model", "m1#high"]
+        );
+    }
+
+    #[test]
+    fn opencode_variants_keep_named_selectors_and_other_harnesses_validation() {
+        for (model, effort, expected) in [
+            (
+                Some("local/model#deep"),
+                None,
+                vec!["--standalone", "--model", "local/model#deep"],
+            ),
+            (
+                Some("local/model#low"),
+                Some("high"),
+                vec!["--standalone", "--model", "local/model#high"],
+            ),
+            (None, Some("high"), vec!["--standalone"]),
+        ] {
+            assert_eq!(
+                launch_arguments(
+                    HarnessId::Opencode,
+                    validate_options(HarnessId::Opencode, model, effort, true).unwrap()
+                ),
+                expected.into_iter().map(OsString::from).collect::<Vec<_>>()
+            );
+        }
+        assert_eq!(
+            validate_options(HarnessId::Codex, Some(" m "), None, false)
                 .map(|options| (options.model(), options.effort())),
             Some((Some("m"), None))
         );
-        assert_eq!(validate_options(None, Some("High"), false), None);
+        assert_eq!(
+            validate_options(HarnessId::Codex, None, Some("High"), false),
+            None
+        );
+        for variant in ["custom-name", "custom_name", "High", "high"] {
+            let options = validate_options(
+                HarnessId::Opencode,
+                Some("local/model"),
+                Some(variant),
+                false,
+            )
+            .unwrap();
+            assert_eq!(
+                launch_arguments(HarnessId::Opencode, options),
+                ["--standalone", "--model", &format!("local/model#{variant}")].map(OsString::from)
+            );
+        }
+        for variant in ["bad#variant", "bad variant", "bad\nvariant", ""] {
+            assert!(
+                validate_options(
+                    HarnessId::Opencode,
+                    Some("local/model"),
+                    Some(variant),
+                    false
+                )
+                .is_none()
+            );
+            assert!(validate_options(HarnessId::Codex, Some("m1"), Some(variant), false).is_none());
+        }
         assert_eq!(validate_effort(" xhigh "), Some("xhigh"));
         for bad in ["", "High", "a b", "\"x", "x=1"] {
             assert_eq!(validate_effort(bad), None, "{bad:?}");

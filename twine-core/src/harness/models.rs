@@ -14,10 +14,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
-use super::launch::validate_effort;
+use super::launch::{validate_effort, validate_model, validate_variant};
 use super::{HarnessError, HarnessId, LocatedHarness};
 
 const LIST_TIMEOUT: Duration = Duration::from_secs(20);
+const OPENCODE_CATALOG_GRACE: Duration = Duration::from_secs(2);
 /// Codex's catalog carries each model's instructions, so it runs to hundreds of KiB.
 const MAX_LIST_OUTPUT: u64 = 4 * 1024 * 1024;
 
@@ -70,6 +71,9 @@ impl HarnessId {
             Self::Codex => &["debug", "models"],
             Self::ClaudeCode => &["--help"],
             Self::Pi => &["--list-models"],
+            Self::Antigravity => &["models"],
+            Self::Omp => &["models", "--json"],
+            Self::Opencode => &["api", "model.list"],
         }
     }
 
@@ -110,8 +114,130 @@ impl HarnessId {
                 efforts: help_levels(output, "--effort <level>"),
                 supports_yolo: true,
             }),
+            Self::Antigravity => Ok(HarnessModels {
+                models: parse_antigravity(output).ok_or(ModelListError::Unreadable(name))?,
+                allows_custom: false,
+                efforts: Vec::new(),
+                supports_yolo: true,
+            }),
+            Self::Omp => Ok(HarnessModels {
+                models: parse_omp(output).ok_or(ModelListError::Unreadable(name))?,
+                allows_custom: true,
+                efforts: Vec::new(),
+                supports_yolo: true,
+            }),
+            Self::Opencode => Ok(HarnessModels {
+                models: parse_opencode(output).ok_or(ModelListError::Unreadable(name))?,
+                allows_custom: true,
+                // Variants require an explicit model, so the default offers no effort choices.
+                efforts: Vec::new(),
+                // OpenCode v2's interactive mini command doesn't accept --auto.
+                supports_yolo: false,
+            }),
         }
     }
+}
+
+/// `OpenCode` v2's CLI API returns the current catalog and each model's named variants.
+fn parse_opencode(output: &str) -> Option<Vec<HarnessModel>> {
+    #[derive(Deserialize)]
+    struct Catalog {
+        data: Vec<Entry>,
+    }
+    #[derive(Deserialize)]
+    struct Entry {
+        #[serde(rename = "providerID")]
+        provider: String,
+        id: String,
+        name: String,
+        #[serde(default)]
+        variants: Vec<Variant>,
+    }
+    #[derive(Deserialize)]
+    struct Variant {
+        id: String,
+    }
+    serde_json::from_str::<Catalog>(output)
+        .ok()?
+        .data
+        .into_iter()
+        .map(|entry| {
+            if entry.provider.is_empty() || entry.id.is_empty() {
+                return None;
+            }
+            let selector = format!("{}/{}", entry.provider, entry.id);
+            Some(HarnessModel {
+                id: validate_model(&selector)?.to_owned(),
+                name: entry.name,
+                group: Some(entry.provider),
+                efforts: Some(
+                    entry
+                        .variants
+                        .into_iter()
+                        .filter_map(|variant| validate_variant(&variant.id).map(str::to_owned))
+                        .collect(),
+                ),
+            })
+        })
+        .collect()
+}
+
+/// OMP's JSON catalog provides exact selectors and each model's supported thinking levels.
+fn parse_omp(output: &str) -> Option<Vec<HarnessModel>> {
+    #[derive(Deserialize)]
+    struct Catalog {
+        models: Vec<Entry>,
+    }
+    #[derive(Deserialize)]
+    struct Entry {
+        selector: String,
+        provider: String,
+        name: String,
+        #[serde(default)]
+        thinking: Option<Vec<String>>,
+    }
+    serde_json::from_str::<Catalog>(output)
+        .ok()?
+        .models
+        .into_iter()
+        .map(|entry| {
+            Some(HarnessModel {
+                id: validate_model(&entry.selector)?.to_owned(),
+                name: entry.name,
+                group: Some(entry.provider),
+                // A null list means the model doesn't reason; don't inherit global levels.
+                efforts: Some(
+                    entry
+                        .thinking
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|level| validate_effort(level).is_some())
+                        .collect(),
+                ),
+            })
+        })
+        .collect()
+}
+
+/// Antigravity's tab-separated model IDs and display names, in its picker order.
+fn parse_antigravity(output: &str) -> Option<Vec<HarnessModel>> {
+    let models: Vec<HarnessModel> = output
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .map(|(id, name)| {
+            let name = name.trim();
+            if name.is_empty() {
+                return None;
+            }
+            Some(HarnessModel {
+                id: validate_model(id)?.to_owned(),
+                name: name.to_owned(),
+                group: None,
+                efforts: None,
+            })
+        })
+        .collect::<Option<_>>()?;
+    (!models.is_empty()).then_some(models)
 }
 
 /// Codex's catalog, as its model picker shows it: listed models in priority order.
@@ -237,7 +363,7 @@ fn help_levels(help: &str, option: &str) -> Vec<String> {
         (None, Some(colon)) => &description[colon + 1..],
         (None, None) => return Vec::new(),
     };
-    list.split(',')
+    list.split([',', '|'])
         .filter_map(|level| validate_effort(level).map(str::to_owned))
         .collect()
 }
@@ -253,6 +379,7 @@ impl ModelListRequest {
     /// Finds the harness with `locate`, then lists its models, all on a new thread.
     pub(crate) fn spawn(
         harness: HarnessId,
+        folder: Option<std::path::PathBuf>,
         locate: impl FnOnce() -> Result<LocatedHarness, HarnessError> + Send + 'static,
     ) -> Self {
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -262,7 +389,13 @@ impl ModelListRequest {
             .name("harness-models".into())
             .spawn(move || {
                 let result = locate().map_err(ModelListError::from).and_then(|located| {
-                    list_models(harness, &located.program, &located.path, &flag)
+                    list_models(
+                        harness,
+                        &located.program,
+                        &located.path,
+                        folder.as_deref(),
+                        &flag,
+                    )
                 });
                 let _ = sender.send(result);
             });
@@ -297,14 +430,52 @@ fn list_models(
     harness: HarnessId,
     program: &Path,
     path: &OsString,
+    folder: Option<&Path>,
     cancelled: &AtomicBool,
 ) -> Result<HarnessModels, ModelListError> {
     let name = harness.definition().name;
-    let run = |arguments| run(program, arguments, path, name, LIST_TIMEOUT, cancelled);
-    let mut models = harness.parse_models(&run(harness.model_list_arguments())?)?;
-    // pi's thinking levels are in its help, so read them from a second, quick run.
-    if harness == HarnessId::Pi {
-        models.efforts = help_levels(&run(&["--help"])?, "--thinking <level>");
+    let directory = if harness == HarnessId::Opencode {
+        folder
+    } else {
+        None
+    };
+    let run = |arguments| {
+        run(
+            program,
+            arguments,
+            path,
+            directory,
+            name,
+            LIST_TIMEOUT,
+            cancelled,
+        )
+    };
+    // The shared server uses its own default location unless the nested query is explicit.
+    let location =
+        directory.map(|directory| format!("location[directory]={}", directory.display()));
+    let mut arguments = harness.model_list_arguments().to_vec();
+    if let Some(location) = &location {
+        arguments.extend(["--param", location.as_str()]);
+    }
+    let mut models = harness.parse_models(&run(&arguments)?)?;
+    // A new v2 location can return its snapshot before provider plugins settle.
+    let deadline = Instant::now() + OPENCODE_CATALOG_GRACE;
+    while harness == HarnessId::Opencode && models.models.is_empty() && Instant::now() < deadline {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(ModelListError::Cancelled);
+        }
+        thread::sleep(Duration::from_millis(100));
+        models = harness.parse_models(&run(&arguments)?)?;
+    }
+    // These catalogs omit default-model effort levels, which their help lists instead.
+    let effort_option = match harness {
+        HarnessId::Pi => Some("--thinking <level>"),
+        HarnessId::Antigravity => Some("--effort"),
+        HarnessId::Omp => Some("--thinking=<value>"),
+        HarnessId::Codex | HarnessId::ClaudeCode | HarnessId::Opencode => None,
+    };
+    if let Some(option) = effort_option {
+        models.efforts = help_levels(&run(&["--help"])?, option);
     }
     Ok(models)
 }
@@ -315,6 +486,7 @@ fn run(
     program: &Path,
     arguments: &[&str],
     path: &OsString,
+    directory: Option<&Path>,
     name: &'static str,
     timeout: Duration,
     cancelled: &AtomicBool,
@@ -327,7 +499,11 @@ fn run(
     let mut output = tempfile::tempfile().map_err(failed)?;
     let stdout = output.try_clone().map_err(failed)?;
     // Its own process group, so stopping it also stops anything it started, like a wrapper's binary.
-    let child = std::os::unix::process::CommandExt::process_group(&mut Command::new(program), 0)
+    let mut command = Command::new(program);
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
+    let child = std::os::unix::process::CommandExt::process_group(&mut command, 0)
         .args(arguments)
         .env("PATH", path)
         .env("NO_COLOR", "1")
@@ -450,6 +626,208 @@ mod tests {
     }
 
     #[test]
+    fn omp_lists_exact_selectors_and_model_specific_thinking_levels() {
+        let output = r#"{"models":[
+            {"selector":"local/plain","provider":"local","name":"Plain model","thinking":null},
+            {"selector":"local/path/model","provider":"local","name":"Reasoning model","thinking":["low","high","BAD"]}
+        ]}"#;
+        let models = HarnessId::Omp.parse_models(output).unwrap();
+        assert_eq!(models.models.len(), 2);
+        assert_eq!(models.models[0].name, "Plain model");
+        assert_eq!(models.models[0].efforts, Some(vec![]));
+        assert_eq!(models.models[1].id, "local/path/model");
+        assert_eq!(models.models[1].group.as_deref(), Some("local"));
+        assert_eq!(
+            models.models[1].efforts,
+            Some(vec!["low".into(), "high".into()])
+        );
+        assert!(models.allows_custom && models.supports_yolo);
+        assert!(
+            HarnessId::Omp
+                .parse_models(r#"{"models":[]}"#)
+                .unwrap()
+                .models
+                .is_empty()
+        );
+        for unreadable in [
+            "not json",
+            "{}",
+            r#"{"models":[{"selector":"--flag","provider":"local","name":"Bad"}]}"#,
+        ] {
+            assert!(HarnessId::Omp.parse_models(unreadable).is_err());
+        }
+    }
+
+    #[test]
+    fn omp_discovers_models_and_thinking_levels_from_its_cli() {
+        let directory = tempfile::tempdir().unwrap();
+        let program = stub(
+            directory.path(),
+            "omp",
+            "case \"$1 $2\" in\n'models --json') printf '%s\\n' '{\"models\":[{\"selector\":\"local/model\",\"provider\":\"local\",\"name\":\"Model\",\"thinking\":[\"high\"]}]}' ;;\n\
+             '--help ') printf '      --thinking=<value>  Set thinking level: off, minimal, low, medium, high, xhigh, max, auto\\n      --service-tier=<value>  Service tier\\n' ;;\n\
+             *) exit 1 ;;\nesac",
+        );
+        let models = list_models(
+            HarnessId::Omp,
+            &program,
+            &OsString::from("/bin:/usr/bin"),
+            None,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert_eq!(models.models[0].id, "local/model");
+        assert_eq!(
+            models.efforts,
+            [
+                "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"
+            ]
+        );
+    }
+
+    #[test]
+    fn opencode_lists_provider_selectors_and_model_specific_variants() {
+        let output = r#"{"location":{"directory":"/folder"},"data":[
+            {"providerID":"opencode","id":"plain","name":"Plain","variants":[]},
+            {"providerID":"local","id":"path/model","name":"Reasoning",
+             "variants":[{"id":"low"},{"id":"high"},{"id":"custom-name"},{"id":"Custom_Name"},{"id":"bad#variant"}]}
+        ]}"#;
+        let models = HarnessId::Opencode.parse_models(output).unwrap();
+        assert_eq!(models.models[0].id, "opencode/plain");
+        assert_eq!(models.models[0].efforts, Some(vec![]));
+        assert_eq!(models.models[1].id, "local/path/model");
+        assert_eq!(models.models[1].name, "Reasoning");
+        assert_eq!(models.models[1].group.as_deref(), Some("local"));
+        assert_eq!(
+            models.models[1].efforts,
+            Some(vec![
+                "low".into(),
+                "high".into(),
+                "custom-name".into(),
+                "Custom_Name".into()
+            ])
+        );
+        assert!(models.efforts.is_empty());
+        assert!(models.allows_custom && !models.supports_yolo);
+        assert!(
+            HarnessId::Opencode
+                .parse_models(r#"{"data":[]}"#)
+                .unwrap()
+                .models
+                .is_empty()
+        );
+        for unreadable in [
+            "",
+            "not json",
+            "{}",
+            r#"{"data":[{"providerID":"","id":"model","name":"Bad"}]}"#,
+        ] {
+            assert!(HarnessId::Opencode.parse_models(unreadable).is_err());
+        }
+    }
+
+    #[test]
+    fn opencode_discovers_model_variants_through_its_cli_api() {
+        let directory = tempfile::tempdir().unwrap();
+        let program = stub(
+            directory.path(),
+            "opencode",
+            r#"
+            [ "$#" -eq 2 ] && [ "$1 $2" = 'api model.list' ] || exit 1
+            printf '%s\n' '{"data":[{"providerID":"local","id":"model","name":"Model","variants":[{"id":"high"}]}]}'
+        "#,
+        );
+        let models = list_models(
+            HarnessId::Opencode,
+            &program,
+            &OsString::from("/bin:/usr/bin"),
+            None,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert_eq!(models.models[0].id, "local/model");
+        assert_eq!(models.models[0].efforts, Some(vec!["high".into()]));
+        assert!(models.efforts.is_empty() && !models.supports_yolo);
+    }
+
+    #[test]
+    fn opencode_discovers_each_folders_catalog_after_provider_startup() {
+        let directory = tempfile::tempdir().unwrap();
+        let program = stub(
+            directory.path(),
+            "opencode",
+            r#"
+            [ "$1 $2 $3" = 'api model.list --param' ] || exit 1
+            catalog_location=${4#*=}
+            [ "${4%%=*}" = 'location[directory]' ] && [ "$catalog_location" -ef "$PWD" ] || exit 1
+            if [ ! -f ready ]; then
+                touch ready
+                printf '%s\n' '{"data":[]}'
+            else
+                cat catalog.json
+            fi
+        "#,
+        );
+        for (folder, variant) in [("first", "custom-name"), ("second", "Custom_Name")] {
+            let path = directory.path().join(folder);
+            std::fs::create_dir(&path).unwrap();
+            std::fs::write(path.join("catalog.json"), serde_json::to_vec(&serde_json::json!({
+                "data": [{"providerID": "local", "id": folder, "name": folder, "variants": [{"id": variant}]}]
+            })).unwrap()).unwrap();
+            let models = list_models(
+                HarnessId::Opencode,
+                &program,
+                &OsString::from("/bin:/usr/bin"),
+                Some(&path),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            assert_eq!(models.models[0].id, format!("local/{folder}"));
+            assert_eq!(models.models[0].efforts, Some(vec![variant.into()]));
+        }
+    }
+
+    #[test]
+    fn antigravity_lists_model_ids_and_names_without_losing_spaces() {
+        let output = "Fetching available models...\n\
+                      gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n\
+                      claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n";
+        let models = HarnessId::Antigravity.parse_models(output).unwrap();
+        assert_eq!(models.models.len(), 2);
+        assert_eq!(models.models[0].id, "gemini-3.8-flash-high");
+        assert_eq!(models.models[0].name, "Gemini 3.8 Flash (High)");
+        assert_eq!(models.models[1].name, "Claude Sonnet 4.6 (Thinking)");
+        assert!(!models.allows_custom);
+        assert!(models.supports_yolo);
+        for unreadable in ["not a model list", "", "--flag\tBad model", "model\t"] {
+            assert!(HarnessId::Antigravity.parse_models(unreadable).is_err());
+        }
+    }
+
+    #[test]
+    fn antigravity_reads_models_and_effort_levels_from_its_cli() {
+        let directory = tempfile::tempdir().unwrap();
+        let program = stub(
+            directory.path(),
+            "agy",
+            "case \"$1\" in\nmodels) printf 'gemini-3.8-flash-high\\tGemini 3.8 Flash (High)\\n' ;;\n\
+             --help) printf '  --effort  Reasoning effort for the current CLI session (low|medium|high)\\n  --model  Model\\n' ;;\n\
+             *) exit 1 ;;\nesac",
+        );
+        let models = list_models(
+            HarnessId::Antigravity,
+            &program,
+            &OsString::from("/bin:/usr/bin"),
+            None,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert_eq!(models.models[0].id, "gemini-3.8-flash-high");
+        assert_eq!(models.efforts, ["low", "medium", "high"]);
+        assert!(models.supports_yolo);
+    }
+
+    #[test]
     fn claude_code_offers_the_aliases_its_help_names_and_custom_names() {
         let output = "  --fallback-model <model>   Enable fallback\n\
                       \x20 --model <model>            Model for the current session. Provide\n\
@@ -509,15 +887,16 @@ mod tests {
         );
         let path = OsString::from("/bin:/usr/bin");
         let running = AtomicBool::new(false);
-        let models = list_models(HarnessId::Pi, &program, &path, &running).unwrap();
+        let models = list_models(HarnessId::Pi, &program, &path, None, &running).unwrap();
         assert_eq!(models.models[0].id, "local/m1");
         assert_eq!(models.efforts, ["off", "low", "high"]);
-        assert!(list_models(HarnessId::Codex, &program, &path, &running).is_err());
+        assert!(list_models(HarnessId::Codex, &program, &path, None, &running).is_err());
         assert!(
             list_models(
                 HarnessId::Pi,
                 &directory.path().join("missing"),
                 &path,
+                None,
                 &running
             )
             .is_err()
@@ -525,7 +904,7 @@ mod tests {
         // An empty list from a harness that failed is a failure, not "no models".
         let broken = stub(directory.path(), "claude", "exit 1");
         assert!(matches!(
-            list_models(HarnessId::ClaudeCode, &broken, &path, &running),
+            list_models(HarnessId::ClaudeCode, &broken, &path, None, &running),
             Err(ModelListError::Failed("Claude Code"))
         ));
     }
@@ -547,6 +926,7 @@ mod tests {
                 &slow,
                 &[],
                 &path,
+                None,
                 "pi",
                 Duration::from_millis(300),
                 &running
@@ -567,6 +947,7 @@ mod tests {
                 &wrapper,
                 &[],
                 &path,
+                None,
                 "pi",
                 Duration::from_millis(300),
                 &running
@@ -585,7 +966,7 @@ mod tests {
         }
         let flood = stub(directory.path(), "flood", "exec yes model");
         assert!(matches!(
-            run(&flood, &[], &path, "pi", LIST_TIMEOUT, &running),
+            run(&flood, &[], &path, None, "pi", LIST_TIMEOUT, &running),
             Err(ModelListError::Unreadable("pi"))
         ));
     }
@@ -599,7 +980,7 @@ mod tests {
             "pi",
             &format!("echo $$ > '{}'; exec sleep 60", pid_file.display()),
         );
-        let request = ModelListRequest::spawn(HarnessId::Pi, move || {
+        let request = ModelListRequest::spawn(HarnessId::Pi, None, move || {
             Ok(LocatedHarness {
                 program: slow,
                 path: OsString::from("/bin:/usr/bin"),

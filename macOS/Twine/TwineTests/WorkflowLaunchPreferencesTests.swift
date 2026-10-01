@@ -17,15 +17,18 @@ struct WorkflowLaunchPreferencesTests {
                     .init(harness: .piAgent, model: "local/m1", effort: "high", yolo: true),
                     .init(harness: .claudeCode),
                     .init(harness: .codex),
+                    .init(harness: .antigravity, model: "gemini-3.8-flash-high", effort: "high", yolo: true),
+                    .init(harness: .omp, model: "local/model", effort: "max", yolo: true),
                 ]
             ],
             for: first)
         let reloaded = WorkflowLaunchPreferences(defaults: try #require(UserDefaults(suiteName: suite)))
         let workers = reloaded.choices(for: type(id: 1, version: 2))["worker"]
-        #expect(workers?.map(\.harness) == [.piAgent, .claudeCode, .codex])
+        #expect(workers?.map(\.harness) == [.piAgent, .claudeCode, .codex, .antigravity, .omp])
         #expect(workers?.first == .init(harness: .piAgent, model: "local/m1", effort: "high", yolo: true))
-        #expect(workers?.last?.model == nil)
-        #expect(workers?.last?.yolo == false)
+        #expect(
+            workers?[3] == .init(harness: .antigravity, model: "gemini-3.8-flash-high", effort: "high", yolo: true))
+        #expect(workers?.last == .init(harness: .omp, model: "local/model", effort: "max", yolo: true))
         #expect(
             reloaded.choices(for: type(id: 2, version: 1))["worker"] == [
                 .init(harness: .codex), .init(harness: .codex),
@@ -49,6 +52,17 @@ struct WorkflowLaunchPreferencesTests {
                     .init(harness: .piAgent), .init(harness: .claudeCode), .init(harness: .codex, model: "m"),
                     .init(harness: .codex, model: "m"),
                 ])
+    }
+
+    @Test func opencodeModelVariantsPersistAcrossRelaunch() throws {
+        let suite = "TwineLaunchTests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let choice = HarnessChoice(harness: .opencode, model: "opencode/space-bunny-free", effort: "high", yolo: false)
+        WorkflowLaunchPreferences(defaults: defaults).remember(
+            ["worker": [choice]], for: type(id: 1, version: 1, min: 1, max: 1))
+        let reloaded = WorkflowLaunchPreferences(defaults: try #require(UserDefaults(suiteName: suite)))
+        #expect(reloaded.choices(for: type(id: 1, version: 2, min: 1, max: 1))["worker"] == [choice])
     }
 
     @Test func harnessesSavedBeforeModelsExistedStillLoad() throws {

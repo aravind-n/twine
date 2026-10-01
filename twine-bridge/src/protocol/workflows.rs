@@ -99,6 +99,9 @@ impl<'a> From<&'a Workflow> for WireWorkflow<'a> {
                 HarnessId::Codex => "codex",
                 HarnessId::ClaudeCode => "claudeCode",
                 HarnessId::Pi => "pi",
+                HarnessId::Antigravity => "antigravity",
+                HarnessId::Omp => "omp",
+                HarnessId::Opencode => "opencode",
             }),
             terminal_id: workflow.terminal_id.value(),
             agents: workflow
@@ -150,6 +153,9 @@ enum RawHarness {
     Codex,
     ClaudeCode,
     Pi,
+    Antigravity,
+    Omp,
+    Opencode,
 }
 
 #[derive(Deserialize)]
@@ -268,6 +274,9 @@ pub(super) fn decode_command(command_type: &str, raw: &Value) -> Result<Command,
                     RawHarness::Codex => HarnessId::Codex,
                     RawHarness::ClaudeCode => HarnessId::ClaudeCode,
                     RawHarness::Pi => HarnessId::Pi,
+                    RawHarness::Antigravity => HarnessId::Antigravity,
+                    RawHarness::Omp => HarnessId::Omp,
+                    RawHarness::Opencode => HarnessId::Opencode,
                 },
                 prompt: command.prompt,
                 size: TerminalSize {
@@ -337,6 +346,19 @@ mod tests {
                 WorkflowStatus::Interrupted,
                 "pi",
                 "interrupted",
+            ),
+            (
+                HarnessId::Antigravity,
+                WorkflowStatus::Running,
+                "antigravity",
+                "running",
+            ),
+            (HarnessId::Omp, WorkflowStatus::Running, "omp", "running"),
+            (
+                HarnessId::Opencode,
+                WorkflowStatus::Running,
+                "opencode",
+                "running",
             ),
         ] {
             let json =

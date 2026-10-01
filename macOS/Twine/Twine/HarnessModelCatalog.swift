@@ -34,8 +34,8 @@ struct ListedHarnessModels: Equatable {
     }
 }
 
-/// Each harness's models and effort levels, listed once while Twine runs. A harness that couldn't
-/// list them is asked again the next time a picker appears.
+/// Models and effort levels, with OpenCode catalogs scoped to the requesting folder.
+/// A harness that couldn't list them is asked again the next time a picker appears.
 @Observable
 final class HarnessModelCatalog {
     enum Entry: Equatable {
@@ -50,42 +50,60 @@ final class HarnessModelCatalog {
         var models: CoreHarnessModels? { listed?.models }
     }
 
-    private(set) var entries: [CoreHarness: Entry] = [:]
-    /// Listings in flight, which only `load` waits on, so they don't need observing.
-    @ObservationIgnored private var listings: [CoreHarness: Task<Void, Never>] = [:]
+    private struct Key: Hashable {
+        let harness: CoreHarness
+        let folder: String?
 
-    func entry(for harness: CoreHarness) -> Entry { entries[harness] ?? .loading }
+        init(_ harness: CoreHarness, folder: String?) {
+            self.harness = harness
+            self.folder = harness == .opencode ? folder : nil
+        }
+    }
+
+    private var entries: [Key: Entry] = [:]
+    /// Listings in flight, which only `load` waits on, so they don't need observing.
+    @ObservationIgnored private var listings: [Key: Task<Void, Never>] = [:]
+
+    func entry(for harness: CoreHarness, folder: String? = nil) -> Entry {
+        entries[Key(harness, folder: folder)] ?? .loading
+    }
 
     /// Lists the models of every harness that doesn't have them yet, all at once, and waits for them.
     /// The catalog owns each listing, so a picker that goes away doesn't stop one others wait on.
     func load(using client: CoreClient) async {
+        let folder = client.snapshot?.folders.openFolder
         for harness in CoreHarness.allCases {
-            switch entries[harness] {
+            let key = Key(harness, folder: folder)
+            switch entries[key] {
+            case .listed(let listed) where harness == .opencode && listed.models.models.isEmpty:
+                entries[key] = .loading
+                listings[key] = Task { await list(key, using: client) }
             case nil, .failed:
-                entries[harness] = .loading
-                listings[harness] = Task { await list(harness, using: client) }
+                entries[key] = .loading
+                listings[key] = Task { await list(key, using: client) }
             case .loading, .listed:
                 break
             }
         }
-        for listing in listings.values { await listing.value }
+        let currentListings = CoreHarness.allCases.compactMap { listings[Key($0, folder: folder)] }
+        for listing in currentListings { await listing.value }
     }
 
-    private func list(_ harness: CoreHarness, using client: CoreClient) async {
-        defer { listings[harness] = nil }
+    private func list(_ key: Key, using client: CoreClient) async {
+        defer { listings[key] = nil }
         do {
-            switch try await client.harnessModels(harness) {
-            case .listed(let models): entries[harness] = .listed(ListedHarnessModels(models))
-            case .failed(let message): entries[harness] = .failed(message)
+            switch try await client.harnessModels(key.harness, folder: key.folder) {
+            case .listed(let models): entries[key] = .listed(ListedHarnessModels(models))
+            case .failed(let message): entries[key] = .failed(message)
             }
         } catch CoreFailure.notRunning {
             // The core isn't ready yet, so the next picker asks again.
-            entries[harness] = nil
+            entries[key] = nil
         } catch {
-            let name = harness.rawValue
+            let name = key.harness.rawValue
             let reason = error.localizedDescription
             harnessModelsLogger.error("Listing \(name, privacy: .public) models failed: \(reason, privacy: .public)")
-            entries[harness] = .failed(reason)
+            entries[key] = .failed(reason)
         }
     }
 }

@@ -58,7 +58,7 @@ struct WorkflowLaunchForm: View {
                 hasLoaded = true
             }
         }
-        .task { await catalog.load(using: client) }
+        .task(id: client.snapshot?.folders.openFolder) { await catalog.load(using: client) }
     }
 
     /// The role that starts the run, which the user talks to first.

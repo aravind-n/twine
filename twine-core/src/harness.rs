@@ -32,6 +32,9 @@ pub enum HarnessId {
     Codex,
     ClaudeCode,
     Pi,
+    Antigravity,
+    Omp,
+    Opencode,
 }
 
 /// How to launch one harness. Adding a harness means adding a definition here.
@@ -41,22 +44,54 @@ pub(crate) struct HarnessDefinition {
     pub binary: &'static str,
     /// Whether the harness reads a prompt that starts with `@` as a file path.
     pub reads_at_prefix_as_file: bool,
+    /// A flag for an initial prompt that keeps the harness interactive, when it needs one.
+    pub prompt_option: Option<&'static str>,
+    /// An explicit interactive subcommand, when positional prompts could select another command.
+    pub subcommand: Option<&'static str>,
 }
 
 static CODEX: HarnessDefinition = HarnessDefinition {
     name: "Codex",
     binary: "codex",
     reads_at_prefix_as_file: false,
+    prompt_option: None,
+    subcommand: None,
 };
 static CLAUDE_CODE: HarnessDefinition = HarnessDefinition {
     name: "Claude Code",
     binary: "claude",
     reads_at_prefix_as_file: false,
+    prompt_option: None,
+    subcommand: None,
 };
 static PI: HarnessDefinition = HarnessDefinition {
     name: "pi",
     binary: "pi",
     reads_at_prefix_as_file: true,
+    prompt_option: None,
+    subcommand: None,
+};
+static ANTIGRAVITY: HarnessDefinition = HarnessDefinition {
+    name: "Antigravity",
+    binary: "agy",
+    reads_at_prefix_as_file: false,
+    prompt_option: Some("--prompt-interactive"),
+    subcommand: None,
+};
+static OMP: HarnessDefinition = HarnessDefinition {
+    name: "OMP",
+    binary: "omp",
+    // OMP treats everything after `--` as literal text, including `@` prefixes.
+    reads_at_prefix_as_file: false,
+    prompt_option: None,
+    subcommand: Some("launch"),
+};
+static OPENCODE: HarnessDefinition = HarnessDefinition {
+    name: "OpenCode",
+    binary: "opencode",
+    reads_at_prefix_as_file: false,
+    prompt_option: Some("--prompt"),
+    subcommand: Some("mini"),
 };
 
 impl HarnessId {
@@ -65,19 +100,25 @@ impl HarnessId {
             Self::Codex => &CODEX,
             Self::ClaudeCode => &CLAUDE_CODE,
             Self::Pi => &PI,
+            Self::Antigravity => &ANTIGRAVITY,
+            Self::Omp => &OMP,
+            Self::Opencode => &OPENCODE,
         }
     }
 }
 
 impl HarnessDefinition {
-    /// The launch arguments for `prompt`, which follows `--` so a leading dash is never a flag.
+    /// An interactive prompt, protected from being read as a flag even with a leading dash.
     pub(crate) fn arguments(&self, prompt: &str) -> Vec<OsString> {
         let prompt = if self.reads_at_prefix_as_file && prompt.starts_with('@') {
             format!(" {prompt}")
         } else {
             prompt.to_owned()
         };
-        vec![OsString::from("--"), OsString::from(prompt)]
+        match self.prompt_option {
+            Some(option) => vec![OsString::from(format!("{option}={prompt}"))],
+            None => vec![OsString::from("--"), OsString::from(prompt)],
+        }
     }
 }
 
@@ -261,6 +302,44 @@ mod tests {
     }
 
     #[test]
+    fn antigravity_keeps_initial_prompts_interactive_and_literal() {
+        let definition = HarnessId::Antigravity.definition();
+        assert_eq!(definition.binary, "agy");
+        for prompt in ["-fix it", "@README.md summarize", "first line\nsecond line"] {
+            assert_eq!(
+                definition.arguments(prompt),
+                [OsString::from(format!("--prompt-interactive={prompt}"))]
+            );
+        }
+    }
+
+    #[test]
+    fn omp_treats_flag_file_and_command_shaped_prompts_as_literal_text() {
+        let definition = HarnessId::Omp.definition();
+        assert_eq!(definition.binary, "omp");
+        assert_eq!(definition.subcommand, Some("launch"));
+        for prompt in ["-fix it", "@README.md", "models", "line one\nline two"] {
+            assert_eq!(
+                definition.arguments(prompt),
+                ["--", prompt].map(OsString::from)
+            );
+        }
+    }
+
+    #[test]
+    fn opencode_keeps_prompts_out_of_its_directory_and_command_arguments() {
+        let definition = HarnessId::Opencode.definition();
+        assert_eq!(definition.binary, "opencode");
+        assert_eq!(definition.subcommand, Some("mini"));
+        for prompt in ["-fix it", "@README.md", "models", "line one\nline two"] {
+            assert_eq!(
+                definition.arguments(prompt),
+                [OsString::from(format!("--prompt={prompt}"))]
+            );
+        }
+    }
+
+    #[test]
     fn parses_path_between_markers_and_ignores_banners() {
         assert_eq!(
             parse_path(b"PATH=/wrong\nbanner\n__TWINE_PATH__/a:/b__TWINE_END__\n"),
@@ -318,6 +397,8 @@ mod tests {
             name: "Test",
             binary: "twine-test-harness",
             reads_at_prefix_as_file: false,
+            prompt_option: None,
+            subcommand: None,
         };
         let missing = HarnessDefinition {
             binary: "twine-no-such-harness",

@@ -99,16 +99,21 @@ struct HarnessModelTests {
 
         await catalog.load(using: client)
         #expect(catalog.entry(for: .codex).models != nil)
+        #expect(catalog.entry(for: .antigravity).models != nil)
+        #expect(catalog.entry(for: .omp).models != nil)
+        #expect(catalog.entry(for: .opencode).models != nil)
         guard case .failed(let message) = catalog.entry(for: .piAgent) else {
             Issue.record("pi's listing should have failed")
             return
         }
         #expect(message.contains("pi crashed"))
-        #expect(await transport.modelRequests.count == 3)
+        #expect(await transport.modelRequests.count == CoreHarness.allCases.count)
 
         await transport.failModels(.piAgent, with: nil)
         await catalog.load(using: client)
-        #expect(await transport.modelRequests.count == 4, "Only the failed harness is asked again")
+        #expect(
+            await transport.modelRequests.count == CoreHarness.allCases.count + 1,
+            "Only the failed harness is asked again")
         #expect(catalog.entry(for: .piAgent).models != nil)
     }
 
@@ -128,6 +133,44 @@ struct HarnessModelTests {
         closedPicker.cancel()
         await catalog.load(using: client)
         #expect(CoreHarness.allCases.allSatisfy { catalog.entry(for: $0).models != nil })
-        #expect(await transport.modelRequests.count == 3, "Each harness is listed once")
+        #expect(await transport.modelRequests.count == CoreHarness.allCases.count, "Each harness is listed once")
+    }
+
+    @Test func opencodeCatalogsFollowFoldersAndLateResponsesStayWithTheirFolder() async throws {
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.folders.openFolder = "/first"
+        let transport = DelayedStartTransport(snapshot: snapshot)
+        let first = CoreHarnessModelsResult.listed(
+            .init(
+                models: [.init(id: "local/first", name: "First", efforts: ["custom-name"])], allowsCustom: true,
+                efforts: [], supportsYolo: false))
+        let second = CoreHarnessModelsResult.listed(
+            .init(
+                models: [.init(id: "local/second", name: "Second", efforts: ["Custom_Name"])], allowsCustom: true,
+                efforts: [], supportsYolo: false))
+        await transport.setModels(first, folder: "/first", held: true)
+        await transport.setModels(second, folder: "/second")
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await waitUntil { client.runState == .running }
+        let catalog = HarnessModelCatalog()
+        let firstLoad = Task { await catalog.load(using: client) }
+        try await waitUntil { await transport.modelFolders == ["/first"] }
+        await transport.setOpenFolder("/second")
+        try await waitUntil { client.snapshot?.folders.openFolder == "/second" }
+        await catalog.load(using: client)
+        #expect(catalog.entry(for: .opencode, folder: "/second").models?.models.first?.id == "local/second")
+        await transport.releaseModels(folder: "/first")
+        await firstLoad.value
+        #expect(catalog.entry(for: .opencode, folder: "/first").models?.models.first?.id == "local/first")
+        #expect(catalog.entry(for: .opencode, folder: "/second").models?.models.first?.id == "local/second")
+        await transport.setOpenFolder("/first")
+        try await waitUntil { client.snapshot?.folders.openFolder == "/first" }
+        await catalog.load(using: client)
+        #expect(await transport.modelFolders == ["/first", "/second"])
+        var choice = HarnessChoice(harness: .opencode, model: "local/first", effort: "custom-name", yolo: true)
+        choice.fit(to: catalog.entry(for: .opencode, folder: "/first").models)
+        #expect(choice.effort == "custom-name" && !choice.yolo)
     }
 }

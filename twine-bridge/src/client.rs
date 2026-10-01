@@ -29,7 +29,9 @@ impl TwineClient {
         let text = std::str::from_utf8(bytes).map_err(|_| BridgeError::InvalidUtf8)?;
         let request: protocol::harnesses::ModelsRequest =
             serde_json::from_str(text).map_err(|_| BridgeError::MalformedCommand)?;
-        Ok(self.application.request_harness_models(request.harness))
+        Ok(self
+            .application
+            .request_harness_models(request.harness, request.folder))
     }
 
     pub(crate) fn poll_files(&self, bytes: &[u8]) -> Result<Vec<u8>, BridgeError> {

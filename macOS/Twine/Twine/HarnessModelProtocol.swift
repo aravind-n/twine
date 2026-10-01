@@ -44,6 +44,7 @@ nonisolated enum CoreHarnessModelsResult: Decodable, Equatable, Sendable {
 
 nonisolated struct HarnessModelsRequest: Encodable, Sendable {
     let harness: CoreHarness
+    var folder: String?
 }
 
 /// A harness with the model and effort level to start it with. `nil` leaves each to the harness's

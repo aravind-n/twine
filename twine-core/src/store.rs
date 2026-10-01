@@ -175,7 +175,17 @@ const MIGRATIONS: &[&str] = &[
     // 11: Correlate asynchronous harness events with the prompt that owns them.
     "ALTER TABLE trace_spans ADD COLUMN harness_turn_id TEXT;
      CREATE UNIQUE INDEX trace_harness_turn ON trace_spans(terminal_id, harness_turn_id)
-     WHERE harness_turn_id IS NOT NULL"
+     WHERE harness_turn_id IS NOT NULL",
+    // 12: Extend harness choices without rebuilding history's parent table. The legacy harness
+    // column's CHECK constraint remains; new reads and writes use harness_id instead.
+    "ALTER TABLE workflows ADD COLUMN harness_id TEXT CHECK
+        (harness_id IN ('codex', 'claude_code', 'pi', 'antigravity', 'omp'));
+     UPDATE workflows SET harness_id = harness",
+    // 13: Keep the checked column for existing databases and use an extensible harness ID.
+    // Rust validates harness choices; retaining the parent table preserves dependent history.
+    "ALTER TABLE workflows RENAME COLUMN harness_id TO legacy_harness_id;
+     ALTER TABLE workflows ADD COLUMN harness_id TEXT;
+     UPDATE workflows SET harness_id = legacy_harness_id"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
@@ -399,6 +409,190 @@ mod tests {
         assert_eq!(
             schema_version(&reopened.connection),
             i64::try_from(MIGRATIONS.len()).expect("the migration count fits in i64")
+        );
+    }
+
+    fn legacy_workflow_history() -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+        for migration in &MIGRATIONS[..11] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 11).unwrap();
+        connection.execute_batch(
+            "INSERT INTO sessions (id, folder, name, started_at) VALUES (1, '/folder', 'Session', 123);
+             INSERT INTO workflows (id, session_id, name, kind, harness, lifecycle_status, closed_at)
+                 VALUES (1, 1, 'Claude Code', 'single_agent', 'claude_code', 'cancelled', 456),
+                        (2, 1, 'Agents', 'agents', NULL, NULL, NULL),
+                        (99, 1, 'Deleted', 'draft', NULL, NULL, NULL);
+             DELETE FROM workflows WHERE id = 99;
+             INSERT INTO agents (id, workflow_id, role) VALUES (7, 2, 'Worker');
+             INSERT INTO workflow_runs (workflow_id, state, trace_sequence) VALUES (2, 'kept run state', 3);
+             INSERT INTO trace_lanes (id, workflow_id, lane_key, name, is_agent, harness)
+                 VALUES (8, 2, 'worker', 'Worker', 1, 'pi');
+             INSERT INTO trace_spans (id, lane_id, title, started_at, status, harness_turn_id)
+                 VALUES (9, 8, 'Task', 123, 'running', 'turn-1');
+             INSERT INTO trace_events (id, workflow_id, span_id, timestamp, kind, message)
+                 VALUES (10, 2, 9, 123, 'processStarted', 'Started');"
+        ).unwrap();
+        connection
+    }
+
+    #[test]
+    fn new_harness_migration_preserves_workflows_and_dependent_history() {
+        let connection = legacy_workflow_history();
+        let mut store = Store::with_connection(connection).unwrap();
+        let preserved: (String, String, i64) = store
+            .connection
+            .query_row(
+                "SELECT harness_id, lifecycle_status, closed_at FROM workflows WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(preserved, ("claude_code".into(), "cancelled".into(), 456));
+        let run: (String, i64) = store
+            .connection
+            .query_row(
+                "SELECT state, trace_sequence FROM workflow_runs WHERE workflow_id = 2",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(run, ("kept run state".into(), 3));
+        for (table, id) in [
+            ("agents", 7),
+            ("trace_lanes", 8),
+            ("trace_spans", 9),
+            ("trace_events", 10),
+        ] {
+            let stored: i64 = store
+                .connection
+                .query_row(&format!("SELECT id FROM {table}"), [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(stored, id);
+        }
+        assert!(
+            store
+                .connection
+                .prepare("PRAGMA foreign_key_check")
+                .unwrap()
+                .query([])
+                .unwrap()
+                .next()
+                .unwrap()
+                .is_none()
+        );
+        for harness in [
+            crate::HarnessId::Antigravity,
+            crate::HarnessId::Omp,
+            crate::HarnessId::Opencode,
+        ] {
+            store
+                .update_workflow(
+                    crate::WorkflowId(1),
+                    harness.definition().name,
+                    crate::WorkflowKind::SingleAgent,
+                    Some(harness),
+                )
+                .unwrap();
+            let stored: String = store
+                .connection
+                .query_row("SELECT harness_id FROM workflows WHERE id = 1", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(stored, super::workflows::harness_name(harness));
+        }
+        let (id, _) = store
+            .create_workflow(SessionId(1), "New", crate::WorkflowKind::Draft, &[])
+            .unwrap();
+        assert!(id.0 > 99, "Deleted workflow IDs must not be reused");
+        store
+            .connection
+            .execute("DELETE FROM workflows WHERE id = 2", [])
+            .unwrap();
+        for table in [
+            "agents",
+            "workflow_runs",
+            "trace_lanes",
+            "trace_spans",
+            "trace_events",
+        ] {
+            let remaining: i64 = store
+                .connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(
+                remaining, 0,
+                "Deleting a workflow still cascades to {table}"
+            );
+        }
+    }
+
+    #[test]
+    fn extensible_harness_migration_preserves_version_twelve_choices_and_history() {
+        let connection = legacy_workflow_history();
+        connection.execute_batch(MIGRATIONS[11]).unwrap();
+        connection.pragma_update(None, "user_version", 12).unwrap();
+        connection
+            .execute("UPDATE workflows SET harness_id = 'omp' WHERE id = 1", [])
+            .unwrap();
+        let mut store = Store::with_connection(connection).unwrap();
+        let preserved: (String, String, i64) = store
+            .connection
+            .query_row(
+                "SELECT harness_id, lifecycle_status, closed_at FROM workflows WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(preserved, ("omp".into(), "cancelled".into(), 456));
+        store
+            .update_workflow(
+                crate::WorkflowId(1),
+                "OpenCode",
+                crate::WorkflowKind::SingleAgent,
+                Some(crate::HarnessId::Opencode),
+            )
+            .unwrap();
+        let harness: String = store
+            .connection
+            .query_row("SELECT harness_id FROM workflows WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(harness, "opencode");
+        for (table, id) in [
+            ("agents", 7),
+            ("trace_lanes", 8),
+            ("trace_spans", 9),
+            ("trace_events", 10),
+        ] {
+            let stored: i64 = store
+                .connection
+                .query_row(&format!("SELECT id FROM {table}"), [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(stored, id);
+        }
+        let (id, _) = store
+            .create_workflow(SessionId(1), "New", crate::WorkflowKind::Draft, &[])
+            .unwrap();
+        assert!(id.0 > 99);
+        assert!(
+            store
+                .connection
+                .prepare("PRAGMA foreign_key_check")
+                .unwrap()
+                .query([])
+                .unwrap()
+                .next()
+                .unwrap()
+                .is_none()
         );
     }
 

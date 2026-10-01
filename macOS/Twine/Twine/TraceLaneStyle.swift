@@ -8,6 +8,9 @@ enum TraceLaneStyle {
         case "terminal", "codex": return .roleBlue
         case "claude", "claude-code": return .roleOrange
         case "pi": return .rolePurple
+        case "antigravity": return .roleGreen
+        case "omp": return .rolePurple
+        case "opencode": return .roleBlue
         default:
             let colors: [Color] = [.roleBlue, .roleOrange, .rolePurple, .roleGreen]
             let hash = identity(for: lane).utf8.reduce(UInt64(1_469_598_103_934_665_603)) {
@@ -24,6 +27,9 @@ enum TraceLaneStyle {
         case "codex": "terminal.fill"
         case "claude", "claude-code": "sparkle"
         case "pi": "circle.grid.2x2"
+        case "antigravity": "sparkles"
+        case "omp": "circle.hexagongrid"
+        case "opencode": "chevron.left.forwardslash.chevron.right"
         default: "person.crop.circle"
         }
     }

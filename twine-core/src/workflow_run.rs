@@ -174,6 +174,7 @@ impl WorkflowRun {
             for (index, choice) in selected.iter().enumerate() {
                 let instance = u8::try_from(index + 1).map_err(|_| RunError::HarnessChoices)?;
                 let options = crate::harness::launch::validate_options(
+                    choice.harness,
                     choice.model.as_deref(),
                     choice.effort.as_deref(),
                     choice.yolo,

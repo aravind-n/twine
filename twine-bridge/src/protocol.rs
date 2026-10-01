@@ -561,6 +561,30 @@ mod tests {
                 "harness": "pi", {size}}}}}"#
         ));
         assert!(matches!(interactive, Command::StartAgent { ref prompt, .. } if prompt.is_empty()));
+        let antigravity = decode(&format!(
+            r#"{{"requestId": 6, "command": {{"type": "startAgent", "workflowId": 7,
+                "harness": "antigravity", "prompt": "-fix it", {size}}}}}"#
+        ));
+        assert!(matches!(
+            antigravity,
+            Command::StartAgent { harness: twine_core::HarnessId::Antigravity, ref prompt, .. }
+                if prompt == "-fix it"
+        ));
+        let omp = decode(&format!(
+            r#"{{"requestId": 7, "command": {{"type": "startAgent", "workflowId": 7,
+                "harness": "omp", "prompt": "models", {size}}}}}"#
+        ));
+        assert!(
+            matches!(omp, Command::StartAgent { harness: twine_core::HarnessId::Omp, ref prompt, .. } if prompt == "models")
+        );
+        let opencode = decode(&format!(
+            r#"{{"requestId": 8, "command": {{"type": "startAgent", "workflowId": 7,
+                "harness": "opencode", "prompt": "@README.md", "model": "opencode/space-bunny-free", "effort": "high", {size}}}}}"#
+        ));
+        assert!(
+            matches!(opencode, Command::StartAgent { harness: twine_core::HarnessId::Opencode, ref prompt, ref model, ref effort, .. }
+            if prompt == "@README.md" && model.as_deref() == Some("opencode/space-bunny-free") && effort.as_deref() == Some("high"))
+        );
         let chosen = decode(&format!(
             r#"{{"requestId": 5, "command": {{"type": "startAgent", "workflowId": 7, "harness": "codex",
                 "model": "gpt-6", "effort": "high", "yolo": true, {size}}}}}"#
@@ -630,13 +654,23 @@ mod tests {
             r#"{"requestId":1,"command":{"type":"startWorkflowRun","workflowId":3,
             "workflowType":{"user":{"type_id":7,"version":2}},"prompt":"Task",
             "roleLaunches":[{"role":"worker","harness":"codex"},
-                {"role":"worker","harness":"claudeCode","model":"opus","effort":"max","yolo":true}],
+                {"role":"worker","harness":"claudeCode","model":"opus","effort":"max","yolo":true},
+                {"role":"worker","harness":"antigravity","model":"gemini-3.8-flash-high","effort":"high"},
+                {"role":"worker","harness":"omp","model":"local/model","effort":"max","yolo":true},
+                {"role":"worker","harness":"opencode","model":"opencode/space-bunny-free","effort":"high"}],
             "size":{"rows":24,"columns":80,"pixelWidth":800,"pixelHeight":480}}}"#,
         );
         assert!(
             matches!(command, Command::StartWorkflowRun { workflow_type: twine_core::WorkflowTypeRef::User { type_id: 7, version: 2 }, ref roles, .. }
-            if roles.len() == 2 && roles[1].harness == twine_core::HarnessId::ClaudeCode
+            if roles.len() == 5 && roles[1].harness == twine_core::HarnessId::ClaudeCode
                 && roles[1].model.as_deref() == Some("opus") && roles[1].effort.as_deref() == Some("max")
+                && roles[2].harness == twine_core::HarnessId::Antigravity
+                && roles[2].model.as_deref() == Some("gemini-3.8-flash-high")
+                && roles[2].effort.as_deref() == Some("high")
+                && roles[3].harness == twine_core::HarnessId::Omp && roles[3].yolo
+                && roles[3].model.as_deref() == Some("local/model") && roles[3].effort.as_deref() == Some("max")
+                && roles[4].harness == twine_core::HarnessId::Opencode
+                && roles[4].model.as_deref() == Some("opencode/space-bunny-free") && roles[4].effort.as_deref() == Some("high")
                 && roles[1].yolo && !roles[0].yolo)
         );
         let command = decode(
