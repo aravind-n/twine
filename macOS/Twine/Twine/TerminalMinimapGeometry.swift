@@ -25,7 +25,7 @@ nonisolated struct TerminalMinimapGeometry: Equatable {
     }
 
     static func strokeRect(_ stroke: CGRect, in size: CGSize, expanded: Bool) -> CGRect {
-        // Only the expanded rail reserves a lane for numbered Activity points. Applying
+        // Only the expanded rail reserves a lane for numbered trace points. Applying
         // that gutter to the 14pt rail collapses every word into a single pixel.
         let inset: CGFloat = expanded ? 4 : 2
         let trailing: CGFloat = expanded ? 11 : 2

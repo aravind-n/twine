@@ -1,7 +1,7 @@
 import OSLog
 import SwiftUI
 
-/// Reveal Activity in the mounted terminal, or open its saved output when the row is no longer there.
+/// Reveal Traces in the mounted terminal, or open its saved output when the row is no longer there.
 struct TerminalTraceNavigation: ViewModifier {
     @Environment(CoreClient.self) private var client
     @Environment(TraceTerminalNavigation.self) private var navigation

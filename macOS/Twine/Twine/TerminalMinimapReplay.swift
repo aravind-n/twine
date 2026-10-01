@@ -1,7 +1,7 @@
 import Foundation
 import SwiftTerm
 
-/// Resolve trace byte boundaries through the same ANSI/resize replay as Activity's output viewer.
+/// Resolve trace byte boundaries through the same ANSI/resize replay as Traces' output viewer.
 /// Device replies remain confined to the replay emulator and never reach the live shell.
 @MainActor
 final class TerminalMinimapReplay {
@@ -106,7 +106,7 @@ final class TerminalMinimapReplay {
     func discardExpiredAnchors() {
         let terminal = replay.terminal
         // Full-screen applications temporarily replace the visible buffer. Their rows cannot
-        // represent normal-buffer Activity points, and must not invalidate those retained rows.
+        // represent normal-buffer trace points, and must not invalidate those retained rows.
         guard !terminal.isCurrentBufferAlternate else { return }
         var rows: [ObjectIdentifier: Int] = [:]
         for row in 0..<TerminalMinimapGeometry.lineCount(in: terminal) {

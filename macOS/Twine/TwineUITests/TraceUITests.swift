@@ -22,12 +22,12 @@ extension TwineUITests {
         defer { app.terminate() }
         let header = app.buttons["tracesHeader"]
         XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(header.label, "Activity, collapsed")
+        XCTAssertEqual(header.label, "Traces, collapsed")
         app.buttons["workflowChoice-Terminal"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         attachWindow(in: app, name: "\(appearance), Traces collapsed")
         header.click()
-        XCTAssertEqual(header.label, "Activity, expanded")
+        XCTAssertEqual(header.label, "Traces, expanded")
         let span = app.buttons["traceSpan-1"]
         XCTAssertTrue(span.waitForExistence(timeout: 10), app.debugDescription)
         span.click()
@@ -56,7 +56,7 @@ extension TwineUITests {
         XCTAssertTrue(span.isHittable)
         header.click()
         XCTAssertTrue(span.waitForNonExistence(timeout: 5))
-        XCTAssertEqual(header.label, "Activity, collapsed")
+        XCTAssertEqual(header.label, "Traces, collapsed")
     }
 
     @MainActor
@@ -76,7 +76,7 @@ extension TwineUITests {
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
         app.launch()
         XCTAssertTrue(header.waitForExistence(timeout: 10))
-        XCTAssertEqual(header.label, "Activity, collapsed")
+        XCTAssertEqual(header.label, "Traces, collapsed")
         header.click()
         let historical = app.buttons["traceSpan-1"]
         XCTAssertTrue(historical.waitForExistence(timeout: 10), app.debugDescription)

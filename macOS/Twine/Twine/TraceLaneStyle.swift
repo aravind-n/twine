@@ -4,7 +4,7 @@ extension EnvironmentValues {
     @Entry var traceLaneColors: [UInt64: Color] = [:]
 }
 
-/// Keep role symbols, and distinguish neighboring tracks with stable colors across Activity and minimaps.
+/// Keep role symbols, and distinguish neighboring tracks with stable colors across Traces and minimaps.
 enum TraceLaneStyle {
     static func colors(for lanes: [CoreTraceLane], retaining previous: [UInt64: Color] = [:]) -> [UInt64: Color] {
         let palette: [Color] = [.roleBlue, .roleGreen, .rolePurple, .roleOrange]

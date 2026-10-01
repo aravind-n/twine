@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// One point per Activity step, with the same identity, ordering, lane, and recorded anchor.
+/// One point per trace step, with the same identity, ordering, lane, and recorded anchor.
 nonisolated struct TraceMinimapMarker: Identifiable, Equatable {
     let step: TraceSequenceLayout.Step
     let lane: CoreTraceLane
@@ -59,7 +59,7 @@ final class TraceMinimapState {
         } catch is CancellationError {
             return
         } catch {
-            if readGeneration == generation { failureMessage = "Activity markers couldn't load." }
+            if readGeneration == generation { failureMessage = "Trace markers couldn't load." }
         }
     }
 }

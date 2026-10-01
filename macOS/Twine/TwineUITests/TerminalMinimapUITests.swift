@@ -61,7 +61,7 @@ extension TwineUITests {
         XCTAssertTrue(returnToLive.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.textViews["terminalHistoryText"].exists)
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "terminalMinimap").firstMatch.exists)
-        attachScreenshot(of: app, named: "Minimap point and matching Activity step")
+        attachScreenshot(of: app, named: "Minimap point and matching trace step")
         returnToLive.click()
         XCTAssertTrue(app.textViews["terminalHistoryText"].waitForNonExistence(timeout: 5))
         app.typeText("echo returned > minimap-returned\r")

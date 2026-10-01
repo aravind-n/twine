@@ -58,7 +58,7 @@ advance a stage.
 **Mark done…** is always available for an unfinished active role, including after its process
 exits. Its form also supports review decisions and worker assignments. Review loops stop at the
 type's limit; **Cancel workflow** stops all its agents. Runs restored after quitting or a crash
-resume their unfinished active agents when every one has a recorded harness session. Otherwise they remain interrupted with their saved output. The Activity panel shows each
+resume their unfinished active agents when every one has a recorded harness session. Otherwise they remain interrupted with their saved output. The Traces panel shows each
 role's stage invocations on compact agent tracks in shared start order, with equal spacing
 regardless of pauses. Select a step to focus a seven-step window and inspect its stage
 changes, completions, and handoffs; this history survives reopening the app.
@@ -170,7 +170,7 @@ Use the two buttons at the top right, **⌘D** to split right, or **⇧⌘D** to
 Each split starts a shell in the same folder; run any command or coding agent there.
 Up to four panes share the same Bento styling and draggable dividers as agent workflows.
 **⌘[** and **⌘]** move keyboard focus. Each pane has a close button; **⌘W** closes the focused
-pane, and closing the tab closes its panes. Pane layouts survive reopening. Activity combines
+pane, and closing the tab closes its panes. Pane layouts survive reopening. The Traces panel combines
 all panes in a tab into one set of tracks, and selecting an event focuses its owning pane.
 
 Paste a clipboard screenshot with **⌘V**, or drop images and files onto any terminal or agent
@@ -188,10 +188,10 @@ Click or drag the visible-region indicator to scroll. With the rail focused, use
 Page Up/Down, Home, and End keys. **Return to live** resumes following the latest output.
 Each Bento pane keeps its own position.
 
-Minimap points use the same step IDs, numbers, role colors, and selection as **Activity**.
-Selecting a point opens that step in Activity and scrolls the live terminal to its recorded
+Minimap points use the same step IDs, numbers, role colors, and selection as **Traces**.
+Selecting a point opens that step in Traces and scrolls the live terminal to its recorded
 position. Points are placed by terminal row;
-Activity spaces steps by start order. Loading **Older activity** adds those steps to the
+the Traces panel spaces steps by start order. Loading **Older traces** adds those steps to the
 map when their output is still available. Output without an available anchor remains
 scrollable without a guessed point. Historical output also has its own minimap.
 
@@ -203,9 +203,9 @@ Codex and Claude Code use session IDs; pi and OMP use session files. Antigravity
 support exact-ID resume but don't expose launch observers, so use **Resume Session…** to supply
 the conversation/session ID once. The same action is available for older tabs without a captured
 session. Twine never guesses the latest conversation. Cancelled or failed agents remain stopped.
-**Saved output** opens earlier invocations, including an idle shell with no Activity step.
+**Saved output** opens earlier invocations, including an idle shell with no trace step.
 Live views and ANSI replay retain up to 100,000 rows in memory; the raw transcript limits below
-apply independently. Draft launch surfaces do not create Activity lanes until used as terminals.
+apply independently. Draft launch surfaces do not create trace lanes until used as terminals.
 
 Retention is capped at **64 MiB per terminal** and **512 MiB across all terminals**. Output is stored
 in segments of at most **1 MiB**, with at most **512 segments** and **1,024 terminal metadata entries**.

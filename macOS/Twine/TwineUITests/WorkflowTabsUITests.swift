@@ -53,7 +53,7 @@ extension TwineUITests {
         XCTAssertTrue(app.staticTexts["No Open Tabs"].waitForExistence(timeout: 5))
         XCTAssertTrue(workflowProcessExits(firstPID))
         app.buttons["tracesHeader"].click()
-        XCTAssertTrue(app.staticTexts["No activity yet"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["No traces yet"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertFalse(app.buttons["copyTraceLog"].exists)
         app.buttons["tracesHeader"].click()
         app.typeKey("t", modifierFlags: .command)

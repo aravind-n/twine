@@ -89,7 +89,7 @@ extension TwineUITests {
         XCTAssertTrue(root.waitForNonExistence(timeout: 5), "The sidebar must remain collapsible")
         let traces = app.descendants(matching: .any).matching(identifier: "tracesHeader").firstMatch
         XCTAssertTrue(traces.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(traces.label, "Activity, collapsed")
+        XCTAssertEqual(traces.label, "Traces, collapsed")
         XCTAssertEqual(traces.frame.height, 48, accuracy: 1)
 
         // The terminal takes typing on open; the subsequent checks also type without clicking it.

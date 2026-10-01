@@ -17,7 +17,7 @@ nonisolated struct TraceTerminalTarget: Equatable, Identifiable, Sendable {
 @MainActor
 @Observable
 final class TraceTerminalNavigation {
-    /// Saved output, opened automatically when the live terminal cannot reveal an Activity point.
+    /// Saved output, opened automatically when the live terminal cannot reveal a trace point.
     var target: TraceTerminalTarget? {
         didSet { if target != nil { scrollTarget = nil } }
     }
