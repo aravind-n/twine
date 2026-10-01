@@ -48,7 +48,15 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     );
     let (kind, title) = match input["type"].as_str()? {
         "prompt" => (StepKind::Prompt, truncate(&detail, 160)),
-        "response" => (StepKind::Responded, "Finished responding".into()),
+        "response" => (
+            StepKind::Responded,
+            if input["stop_reason"] == "length" {
+                "Output limit reached"
+            } else {
+                "Finished responding"
+            }
+            .into(),
+        ),
         event @ ("tool_start" | "tool_end") => {
             let tool = input["tool_name"].as_str()?;
             let target = input["target"].as_str().unwrap_or_default();
@@ -136,6 +144,23 @@ mod tests {
         }
         let step = parse(br#"{"type":"tool_start","turn_id":"1","tool_name":"custom"}"#).unwrap();
         assert_eq!(step.title, "Call custom");
+    }
+
+    #[test]
+    fn pi_truncated_responses_report_the_output_limit() {
+        let step = parse(
+            br#"{"type":"response","turn_id":"1","stop_reason":"length","detail":"Partial response"}"#,
+        )
+        .unwrap();
+        assert_eq!(step.kind, StepKind::Responded);
+        assert_eq!(step.title, "Output limit reached");
+        assert_eq!(step.detail, "Partial response");
+        assert_eq!(
+            parse(br#"{"type":"response","turn_id":"1"}"#)
+                .unwrap()
+                .title,
+            "Finished responding"
+        );
     }
 
     #[test]
@@ -255,7 +280,7 @@ emit('agent_settled', {});
 prompt('x'.repeat(2033) + '😀' + 'x'.repeat(100));
 emit('tool_execution_start', {toolCallId:'emoji', toolName:'bash', args:{command:'x'.repeat(145) + '😀' + 'x'.repeat(100)}});
 result('emoji', 'x'.repeat(2033) + '😀' + 'x'.repeat(100));
-emit('message_end', {message:{role:'assistant', stopReason:'stop', content:[{type:'text', text:'Done'}]}});
+emit('message_end', {message:{role:'assistant', stopReason:'length', content:[{type:'text', text:'Partial response'}]}});
 emit('agent_settled', {});
 // Delivery is asynchronous; allow the bounded queue to drain before shutdown.
 await delay(500);
@@ -294,6 +319,7 @@ emit('session_shutdown', {});
         assert_eq!(steps[13].kind, StepKind::ToolStarted);
         assert_eq!(steps[14].kind, StepKind::ToolFinished);
         assert_eq!(steps[15].kind, StepKind::Responded);
+        assert_eq!(steps[15].title, "Output limit reached");
         assert!(
             steps
                 .iter()

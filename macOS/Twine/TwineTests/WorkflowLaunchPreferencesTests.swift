@@ -5,6 +5,28 @@ import Testing
 
 @MainActor
 struct WorkflowLaunchPreferencesTests {
+    @Test func explicitLaunchSuiteIsIsolatedFromOtherLaunches() throws {
+        let first = "TwineLaunchTests-\(UUID())"
+        let second = "TwineLaunchTests-\(UUID())"
+        let firstStore = WorkflowLaunchPreferences.defaultStore(environment: ["TWINE_PREFERENCES_SUITE": first])
+        let secondStore = WorkflowLaunchPreferences.defaultStore(environment: ["TWINE_PREFERENCES_SUITE": second])
+        defer {
+            firstStore.removePersistentDomain(forName: first)
+            secondStore.removePersistentDomain(forName: second)
+        }
+        let choice = HarnessChoice(harness: .piAgent, model: "spark1/qwen38-27b")
+        WorkflowLaunchPreferences(defaults: firstStore).remember(
+            ["worker": [choice]], for: type(id: 1, version: 1, min: 1, max: 1))
+        let reloaded = WorkflowLaunchPreferences.defaultStore(environment: ["TWINE_PREFERENCES_SUITE": first])
+        #expect(
+            WorkflowLaunchPreferences(defaults: reloaded).choices(for: type(id: 1, version: 1, min: 1, max: 1))[
+                "worker"] == [choice])
+        #expect(
+            WorkflowLaunchPreferences(defaults: secondStore).choices(for: type(id: 1, version: 1, min: 1, max: 1))[
+                "worker"] == [.init(harness: .codex)])
+        #expect(WorkflowLaunchPreferences.defaultStore(environment: [:]) === UserDefaults.standard)
+    }
+
     @Test func lastHarnessesPersistByTypeAndAcrossNewCustomVersions() throws {
         let suite = "TwineLaunchTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))

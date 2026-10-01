@@ -1937,10 +1937,39 @@ mod tests {
             .args(["-c", &command])
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .unwrap();
         child.stdin.take().unwrap().write_all(signal).unwrap();
-        assert!(child.wait().unwrap().success());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            app.poll_workflow_signals().unwrap();
+            if let Some(status) = child.try_wait().unwrap() {
+                // Rejections return actionable feedback and a failing exit status.
+                assert!(!status.success());
+                return;
+            }
+            let remains = app
+                .run_processes
+                .lock()
+                .unwrap()
+                .get(&id)
+                .is_some_and(|processes| {
+                    processes
+                        .inboxes
+                        .values()
+                        .any(|(_, inbox)| inbox.command() == command)
+                });
+            if !remains {
+                // This test helper runs outside the owned harness's process group. Simulate
+                // the cancellation an accepted completion applies to the real helper.
+                child.kill().unwrap();
+                child.wait().unwrap();
+                return;
+            }
+            assert!(Instant::now() < deadline, "completion wasn't processed");
+            thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]

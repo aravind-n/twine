@@ -20,8 +20,8 @@ impl CompletionInbox {
             .tempdir()?;
         let script = directory.path().join("complete");
         // dirname is evaluated before entering the directory; the path may contain spaces.
-        // mkdir prevents two submissions from overwriting one another. Twine removes the lock
-        // after consuming a rejected submission, allowing the agent to correct it.
+        // mkdir prevents overlapping submissions and receipts. The helper releases the lock
+        // after reading a rejection, allowing the agent to correct it.
         fs::write(
             &script,
             concat!(
@@ -29,10 +29,27 @@ impl CompletionInbox {
                 "cd -- \"$(dirname -- \"$0\")\"\n",
                 "mkdir pending\n",
                 "trap 'rm -f submission.tmp; rmdir pending 2>/dev/null || true' EXIT\n",
+                "rm -f response.txt response.tmp\n",
                 "head -c 65537 > submission.tmp\n",
                 "mv submission.tmp submission.json\n",
+                // A timeout must not unlock an outstanding submission or receipt. Only a
+                // consumed rejection or disposal of the accepted role releases this lock.
                 "trap - EXIT\n",
-                "echo 'Completion submitted to Twine. Check response.txt if it is rejected.'\n",
+                // An accepted completion stops this role's terminal, including this helper.
+                // Returning before validation lets the harness miss a rejection or start an
+                // unnecessary model turn while Twine is stopping the completed process.
+                "attempt=0\n",
+                "while [ \"$attempt\" -lt 200 ]; do\n",
+                "  if [ -f response.txt ]; then\n",
+                "    cat response.txt >&2\n",
+                "    rmdir pending\n",
+                "    exit 1\n",
+                "  fi\n",
+                "  sleep 0.05\n",
+                "  attempt=$((attempt + 1))\n",
+                "done\n",
+                "echo 'Timed out waiting for Twine to accept or reject completion.' >&2\n",
+                "exit 1\n",
             ),
         )?;
         fs::set_permissions(&script, fs::Permissions::from_mode(0o700))?;
@@ -55,7 +72,6 @@ impl CompletionInbox {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
             Err(_) => {
                 let _ = fs::remove_file(&path);
-                let _ = fs::remove_dir(self.directory.path().join("pending"));
                 return Some(Err("Couldn't read the completion submission.".to_owned()));
             }
         };
@@ -70,16 +86,27 @@ impl CompletionInbox {
             if bytes.len() > MAX_SIGNAL_BYTES {
                 return Err("Completion exceeds 64 KiB.".to_owned());
             }
-            serde_json::from_slice(&bytes)
-                .map_err(|_| "Use the completion JSON format from your instructions.".to_owned())
+            serde_json::from_slice(&bytes).map_err(|_| {
+                concat!(
+                    "Invalid completion JSON. Submit an object with decision and summary, ",
+                    "for example {\"decision\":\"done\",\"summary\":\"Finished\"}. ",
+                    "Use only a decision allowed by your role's instructions. ",
+                    "Omit assignments unless your role must delegate; each assignment needs ",
+                    "a role ID, a positive integer instance (for example 1, not a model name), ",
+                    "a task string, and a files array. Correct the submission and retry.",
+                )
+                .to_owned()
+            })
         })();
         let _ = fs::remove_file(path);
-        let _ = fs::remove_dir(self.directory.path().join("pending"));
         Some(result)
     }
 
     pub(crate) fn reject(&self, message: &str) {
-        let _ = fs::write(self.directory.path().join("response.txt"), message);
+        let temporary = self.directory.path().join("response.tmp");
+        if fs::write(&temporary, message).is_ok() {
+            let _ = fs::rename(temporary, self.directory.path().join("response.txt"));
+        }
     }
 
     #[cfg(test)]
@@ -92,6 +119,8 @@ impl CompletionInbox {
 mod tests {
     use std::io::Write;
     use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::{Duration, Instant};
 
     use super::*;
 
@@ -102,6 +131,7 @@ mod tests {
             let mut child = Command::new(inbox.directory.path().join("complete"))
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())
+                .stderr(Stdio::piped())
                 .spawn()
                 .unwrap();
             child
@@ -110,10 +140,31 @@ mod tests {
                 .unwrap()
                 .write_all(json.as_bytes())
                 .unwrap();
-            assert!(child.wait().unwrap().success());
-            let result = inbox.take().unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let result = loop {
+                if let Some(result) = inbox.take() {
+                    break result;
+                }
+                assert!(Instant::now() < deadline, "helper didn't submit its JSON");
+                thread::sleep(Duration::from_millis(5));
+            };
             assert_eq!(result.is_ok(), json.starts_with('{'));
             assert!(inbox.take().is_none());
+            assert!(inbox.directory.path().join("pending").exists());
+            if let Err(message) = result {
+                inbox.reject(&message);
+                let output = child.wait_with_output().unwrap();
+                assert!(!output.status.success());
+                assert_eq!(String::from_utf8_lossy(&output.stderr), message);
+                assert!(!inbox.directory.path().join("pending").exists());
+            } else {
+                // The previous rejection was cleared. A valid submission cannot return to
+                // the harness before Twine stops its terminal on acceptance.
+                thread::sleep(Duration::from_millis(100));
+                assert!(child.try_wait().unwrap().is_none());
+                child.kill().unwrap();
+                child.wait().unwrap();
+            }
         }
     }
 
@@ -126,5 +177,23 @@ mod tests {
         std::os::unix::fs::symlink("/dev/zero", path).unwrap();
         assert!(inbox.take().unwrap().is_err());
         assert!(inbox.take().is_none());
+    }
+
+    #[test]
+    fn malformed_assignments_get_actionable_feedback_without_echoing_input() {
+        let inbox = CompletionInbox::new().unwrap();
+        let path = inbox.directory.path().join("submission.json");
+        fs::write(
+            &path,
+            r#"{"decision":"done","summary":"private summary","assignments":[{"role":"reviewer","instance":"model-name","task":"Check","files":["review.json"]}]}"#,
+        )
+        .unwrap();
+        let message = inbox.take().unwrap().unwrap_err();
+        assert!(message.contains("positive integer instance"));
+        assert!(message.contains("Omit assignments unless your role must delegate"));
+        assert!(!message.contains("private summary"));
+        assert!(!message.contains("model-name"));
+        fs::write(&path, r#"{"decision":"done","summary":"Finished"}"#).unwrap();
+        assert!(inbox.take().unwrap().is_ok());
     }
 }

@@ -11,6 +11,7 @@ export default function (pi) {
   let active;
   let sessionFile;
   let response = "";
+  let responseStopReason;
   let responseSucceeded = false;
   let pending;
   let closed = false;
@@ -106,10 +107,11 @@ export default function (pi) {
     // Pi drains queued follow-ups before agent_settled. Finish an answered prompt before
     // the next one, while steering during a tool/model turn still interrupts the old span.
     if (active && responseSucceeded && ![...calls.values()].some(call => call.turn_id === active)) {
-      send({ type: "response", turn_id: active, detail: response });
+      send({ type: "response", turn_id: active, detail: response, stop_reason: responseStopReason });
     }
     active = randomUUID();
     response = "";
+    responseStopReason = undefined;
     responseSucceeded = false;
     send({ type: "prompt", turn_id: active,
       detail: textContent(event.message.content) || "[Image prompt]" });
@@ -133,13 +135,14 @@ export default function (pi) {
   observe("message_end", event => {
     if (event.message?.role !== "assistant") return;
     response = textContent(event.message.content);
+    responseStopReason = event.message.stopReason;
     responseSucceeded = ["stop", "length"].includes(event.message.stopReason)
       && !(Array.isArray(event.message.content) && event.message.content.some(block => block.type === "toolCall"));
   });
   // Pi settles after retries. OMP marks continuing agent_end notifications explicitly.
   observe(isOmp ? "agent_end" : "agent_settled", event => {
     if (isOmp && event.willContinue) return;
-    if (active && responseSucceeded) send({ type: "response", turn_id: active, detail: response });
+    if (active && responseSucceeded) send({ type: "response", turn_id: active, detail: response, stop_reason: responseStopReason });
     active = undefined;
     calls.clear();
   });
