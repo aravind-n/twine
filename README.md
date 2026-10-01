@@ -266,7 +266,8 @@ make check                # Rust and Swift lint plus unit tests
 make check-rust           # Rust only: rustfmt check, Clippy, workspace tests
 make check-macos          # Swift only: swift-format lint, SwiftLint, unit tests
 make fmt                  # format Rust and Swift
-make ui-test-macos        # functional UI tests; they take over the desktop
+make ui-test-macos        # 12 default UI tests; they take over the desktop
+make ui-test-macos-all    # all UI tests, including retired tests and the launch benchmark
 make ui-test-macos-visual # optional appearance and screenshot checks
 make ui-test-macos ONLY='testFolderWindowInLightAppearance testFolderWindowInDarkAppearance'
 make ui-test-macos ONLY=testLaunchPerformance
@@ -277,7 +278,11 @@ The generated framework includes its C header and module map and is ignored by G
 
 `make build-macos-release` builds the universal Release app. Each build replaces the local framework with the Debug or Release profile it needs.
 
-Linting prepares the framework before resolving the app's packages. `ONLY` accepts one UI test name or a quoted, space-separated list, including optional tests. Omitting it runs the functional UI suite, excluding duplicate appearance checks, screenshot-only minimap checks, and the launch benchmark. `make ui-test-macos-visual` runs the optional visual checks. CI uses the same default selection through `make ui-test-macos-built`, which reuses its existing build-for-testing products; set `UI_TEST_DERIVED_DATA` to their DerivedData directory.
+Linting prepares the framework before resolving the app's packages. The default UI suite runs the 12 tests listed in `UI_DEFAULT_TESTS` in the Makefile. The other 34 tests are retired from default runs; their source stays in place and they still build. Add a test to `UI_DEFAULT_TESTS` to re-enable it by default.
+
+`ONLY` accepts one UI test name or a quoted, space-separated list, including retired tests, and overrides the default selection. `make ui-test-macos-all` runs all 46 UI tests, including the appearance checks and launch benchmark. `make ui-test-macos-visual` runs the optional visual checks.
+
+CI uses the same default selection through `make ui-test-macos-built`, which reuses its existing build-for-testing products; set `UI_TEST_DERIVED_DATA` to their DerivedData directory. Add `ALL=1` to that command to run the full suite using those products. An explicit `ONLY` selection takes precedence over `ALL=1`. All UI test runs take over the desktop.
 
 SwiftLint runs the version pinned in `Package.resolved`, through `macOS/Twine/Scripts/swiftlint.sh`.
 

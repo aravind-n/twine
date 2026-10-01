@@ -12,18 +12,32 @@ XCODE_BUILD_ARGS ?=
 RELEASE_SCRIPT := bash .github/release/release.sh
 
 UI_TEST_DERIVED_DATA ?= /tmp/twine-uitests
+# Tests outside this list are retired from default runs, but remain available with ONLY or ALL=1.
+# Add a test here to re-enable it in local and CI default runs.
+UI_DEFAULT_TESTS := testRelaunchOpensLastFolderAndReturnsToStartPage \
+	testSessionsOwnTabsAndRestoreFreshShellsAfterRelaunch \
+	testQuitStopsShellAndDescendant \
+	testSingleAgentStartsInteractivelyTakesInputAndCancels \
+	testAgentReceivesTerminalColorsBeforeItsStartupProbeTimesOut \
+	testForceQuitPreservesAgentOutputAndCanResumeItsSession \
+	testAdversarialHarnessSelectionUserCompletionReviewLoopAndTraces \
+	testWorkflowDesignerKeyboardEntryValidationAndBuiltinCopy \
+	testBentoPanesKeepEachShellAndMoveTheKeyboardBetweenThem \
+	testTerminalSplitsResizeKeepTheirNeighborAndRestoreOutput \
+	testFileEditingUndoSaveAndConflictChoices \
+	testClearedTraceOpensSavedInputAndOutputWithoutAScrollbackWarning
 UI_VISUAL_TESTS := testFolderWindowInDarkAppearance \
 	testDraftAndFooterAtMinimumWindowSizeInDarkAppearance \
 	testTracesInDarkAppearance testCoordinatorGraphInDarkAppearance \
 	testShortOutputMinimapInBothAppearances
-UI_OPTIONAL_TESTS := $(UI_VISUAL_TESTS) testLaunchPerformance
 UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 	$(addprefix -only-testing:TwineUITests/TwineUITests/,$(ONLY)),\
-	-only-testing:TwineUITests $(addprefix -skip-testing:TwineUITests/TwineUITests/,$(UI_OPTIONAL_TESTS)))
+	$(if $(filter 1,$(ALL)),-only-testing:TwineUITests,\
+		$(addprefix -only-testing:TwineUITests/TwineUITests/,$(UI_DEFAULT_TESTS))))
 
 .PHONY: help fmt-rust lint-rust test-rust check-rust clean-rust \
 	framework framework-release build-macos build-macos-release fmt-macos lint-macos \
-	test-macos ui-test-macos ui-test-macos-built ui-test-macos-visual check-macos clean-macos \
+	test-macos ui-test-macos ui-test-macos-built ui-test-macos-all ui-test-macos-visual check-macos clean-macos \
 	fmt lint test check clean release-build-app release-bundle release-package check-release check-release-scripts
 
 help:
@@ -51,8 +65,9 @@ help:
 	@echo '  fmt-macos             Format Swift code'
 	@echo '  lint-macos            Prepare the framework, then run swift-format lint and SwiftLint'
 	@echo '  test-macos            Run the Swift unit tests, after the Debug framework'
-	@echo '  ui-test-macos         Run UI tests, or select tests with ONLY="testA testB"; takes over the desktop'
-	@echo '  ui-test-macos-built   Run UI tests using existing build-for-testing products'
+	@echo '  ui-test-macos         Run the default UI tests, or select with ONLY="testA testB"; takes over the desktop'
+	@echo '  ui-test-macos-built   Run UI tests using existing build-for-testing products (ALL=1 includes retired tests)'
+	@echo '  ui-test-macos-all     Run all UI tests, including retired tests and the launch benchmark; takes over the desktop'
 	@echo '  ui-test-macos-visual  Run optional appearance and screenshot checks; takes over the desktop'
 	@echo '  check-macos           Run lint-macos and test-macos'
 	@echo '  clean-macos           Remove the framework, package caches, and Xcode build output'
@@ -124,6 +139,9 @@ ui-test-macos: framework
 
 ui-test-macos-built:
 	$(XCODEBUILD_DEBUG) -derivedDataPath "$(UI_TEST_DERIVED_DATA)" test-without-building $(UI_TEST_ARGS)
+
+ui-test-macos-all:
+	$(MAKE) ui-test-macos ALL=1
 
 ui-test-macos-visual:
 	$(MAKE) ui-test-macos ONLY="$(UI_VISUAL_TESTS)"
