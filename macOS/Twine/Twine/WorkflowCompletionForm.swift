@@ -6,6 +6,9 @@ struct WorkflowCompletionForm: View {
     let workflowID: UInt64
     let generation: UInt64
     let agent: CoreWorkflowRun.Agent
+    /// The run started without a task, so finishing the first stage records it.
+    var needsTask = false
+    @State private var task = ""
     @State private var decision = CoreCompletionSignal.Decision.approve
     @State private var summary = ""
     @State private var tasks: [String: String] = [:]
@@ -23,6 +26,11 @@ struct WorkflowCompletionForm: View {
                             Text("Approve").tag(CoreCompletionSignal.Decision.approve)
                             Text("Request changes").tag(CoreCompletionSignal.Decision.requestChanges)
                         }.pickerStyle(.segmented)
+                    }
+                    if needsTask {
+                        TextField("Task you gave the agent", text: $task, axis: .vertical)
+                            .textFieldStyle(.roundedBorder).lineLimit(2...6)
+                            .accessibilityIdentifier("completionTask")
                     }
                     TextField(agent.reviewer ? "Review feedback" : "Result summary", text: $summary, axis: .vertical)
                         .textFieldStyle(.roundedBorder).lineLimit(3...6)
@@ -64,7 +72,7 @@ struct WorkflowCompletionForm: View {
                     files: (files[target.id] ?? "").split(separator: "\n").map {
                         $0.trimmingCharacters(in: .whitespacesAndNewlines)
                     }.filter { !$0.isEmpty })
-            })
+            }, task: needsTask ? task : "")
         isSubmitting = true
         failure = nil
         Task {

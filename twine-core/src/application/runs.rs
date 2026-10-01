@@ -147,8 +147,22 @@ impl Application {
             match self.terminals.reserve_terminal() {
                 Ok(reserved) => {
                     let prompt = run.instructions(agent.agent_id, &inbox.command());
+                    let options = crate::harness::launch::validate_options(
+                        agent.model.as_deref(),
+                        agent.effort.as_deref(),
+                        agent.yolo,
+                    )
+                    .unwrap_or_else(|| {
+                        // A stored choice that no longer validates starts with the harness's defaults.
+                        tracing::warn!(
+                            agent_id = agent.agent_id,
+                            harness = ?agent.harness,
+                            "stored model choice no longer validates; starting with the harness defaults"
+                        );
+                        crate::harness::launch::LaunchOptions::default()
+                    });
                     let (arguments, hooks) =
-                        self.harness_arguments(agent.harness, reserved, &prompt);
+                        self.harness_arguments(agent.harness, reserved, options, &prompt);
                     prepared.push(PreparedAgent {
                         agent,
                         inbox,
@@ -652,7 +666,7 @@ mod tests {
     }
 
     fn launch(app: &Application, folder: &Path, builtin: BuiltinType) -> WorkflowId {
-        launch_with_size(app, folder, builtin, SIZE)
+        launch_with_size(app, folder, builtin, SIZE, "Test the workflow")
     }
 
     fn launch_with_size(
@@ -660,6 +674,7 @@ mod tests {
         folder: &Path,
         builtin: BuiltinType,
         run_size: TerminalSize,
+        prompt: &str,
     ) -> WorkflowId {
         accepted(
             app,
@@ -685,6 +700,9 @@ mod tests {
             .iter()
             .flat_map(|r| {
                 (0..r.instances.min).map(|_| RoleLaunch {
+                    model: None,
+                    effort: None,
+                    yolo: false,
                     role: r.id.0.clone(),
                     harness: HarnessId::Pi,
                 })
@@ -695,7 +713,7 @@ mod tests {
             Command::StartWorkflowRun {
                 workflow_id: id,
                 workflow_type: WorkflowTypeRef::Builtin(builtin),
-                prompt: "Test the workflow".into(),
+                prompt: prompt.into(),
                 roles,
                 size: run_size,
             },
@@ -996,6 +1014,7 @@ mod tests {
                 agent_id: workflow.agents[0].agent_id,
                 generation: 1,
                 signal: CompletionSignal {
+                    task: String::new(),
                     decision: Decision::Done,
                     summary: "Split the task".into(),
                     assignments: (1..=2)
@@ -1010,6 +1029,15 @@ mod tests {
             },
         );
         id
+    }
+
+    fn done_signal(summary: &str) -> CompletionSignal {
+        CompletionSignal {
+            decision: Decision::Done,
+            summary: summary.into(),
+            assignments: vec![],
+            task: String::new(),
+        }
     }
 
     #[test]
@@ -1048,11 +1076,7 @@ mod tests {
                 workflow_id: id,
                 agent_id: workflow.agents[1].agent_id,
                 generation: 2,
-                signal: CompletionSignal {
-                    decision: Decision::Done,
-                    summary: "Finished Task 1".into(),
-                    assignments: vec![],
-                },
+                signal: done_signal("Finished Task 1"),
             },
         );
         let page = app.workflow_trace(id, None, 200).unwrap();
@@ -1145,6 +1169,7 @@ mod tests {
                 agent_id: agent.agent_id,
                 generation: 1,
                 signal: CompletionSignal {
+                    task: String::new(),
                     decision: Decision::Done,
                     summary: "Recovered the result".into(),
                     assignments: vec![],
@@ -1244,6 +1269,7 @@ mod tests {
                 agent_id: first.agents[0].agent_id,
                 generation: run.generation,
                 signal: CompletionSignal {
+                    task: String::new(),
                     decision: Decision::Done,
                     summary: "User result".into(),
                     assignments: vec![],
@@ -1336,6 +1362,7 @@ mod tests {
                     agent_id: workflow.agents[0].agent_id,
                     generation: 1,
                     signal: CompletionSignal {
+                        task: String::new(),
                         decision: Decision::Done,
                         summary: "Ready for review".into(),
                         assignments: vec![],
@@ -1414,6 +1441,9 @@ mod tests {
                     prompt: "Test a stalled launch".into(),
                     roles: ["implementer", "reviewer"]
                         .map(|role| RoleLaunch {
+                            model: None,
+                            effort: None,
+                            yolo: false,
                             role: role.into(),
                             harness: HarnessId::Pi,
                         })
@@ -1483,6 +1513,7 @@ mod tests {
             folder.path(),
             BuiltinType::Adversarial,
             TerminalSize { rows: 0, ..SIZE },
+            "Test the workflow",
         );
         let workflow = wait_for(&app, id, |w| w.status == WorkflowStatus::Failed);
         assert!(workflow.terminal_ids().is_empty());
@@ -1551,7 +1582,133 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_run_without_a_prompt_asks_the_first_agent_and_passes_the_reported_task_on() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        // Each agent records its launch prompt, the last argument, in its own file, written whole.
+        let app = application(
+            folder.path(),
+            bin.path(),
+            r#"for last; do :; done; printf '%s' "$last" > "p-$$.tmp"; mv "p-$$.tmp" "prompt-$$.txt"; sleep 60"#,
+        );
+        let id = launch_with_size(&app, folder.path(), BuiltinType::Adversarial, SIZE, "");
+        let prompts = |count: usize| {
+            let deadline = Instant::now() + Duration::from_secs(15);
+            loop {
+                let found: Vec<String> = std::fs::read_dir(folder.path())
+                    .unwrap()
+                    .filter_map(Result::ok)
+                    .filter(|entry| entry.file_name().to_string_lossy().starts_with("prompt-"))
+                    .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+                    .filter(|text| !text.is_empty())
+                    .collect();
+                if found.len() >= count {
+                    return found;
+                }
+                assert!(Instant::now() < deadline, "agent prompts timed out");
+                thread::sleep(Duration::from_millis(10));
+            }
+        };
+        assert!(prompts(1)[0].contains("ask them what they want done"));
+
+        // A completion without the task goes back to the agent to correct.
+        submit_helper(&app, id);
+        let run = app.snapshot().unwrap().workflows.workflows[0]
+            .run
+            .clone()
+            .unwrap();
+        assert_eq!(run.generation, 1);
+        let response = app.run_processes.lock().unwrap()[&id]
+            .inboxes
+            .values()
+            .next()
+            .unwrap()
+            .1
+            .response();
+        assert!(response.contains("task"), "{response}");
+
+        submit_signal(
+            &app,
+            id,
+            br#"{"decision":"done","summary":"Done","task":"Add a toggle"}"#,
+        );
+        wait_for(&app, id, |w| {
+            w.run.as_ref().is_some_and(|run| run.generation == 2)
+        });
+        assert!(
+            prompts(2)
+                .iter()
+                .any(|prompt| prompt.contains("Task:\nAdd a toggle"))
+        );
+    }
+
+    #[test]
+    fn each_role_starts_with_its_chosen_model_and_effort() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        // Each agent records its arguments, written whole, in its own file.
+        let app = application(
+            folder.path(),
+            bin.path(),
+            r#"printf '%s ' "$@" > "a-$$.tmp"; mv "a-$$.tmp" "args-$$.txt"; sleep 60"#,
+        );
+        accepted(
+            &app,
+            Command::CreateWorkflow {
+                folder: folder.path().to_owned(),
+                session_id: None,
+                kind: WorkflowKind::Draft,
+                roles: vec![],
+                size: SIZE,
+            },
+        );
+        let id = app.snapshot().unwrap().workflows.workflows[0].workflow_id;
+        let role = |role: &str, model: Option<&str>| RoleLaunch {
+            role: role.into(),
+            harness: HarnessId::Pi,
+            model: model.map(str::to_owned),
+            effort: model.map(|_| "high".to_owned()),
+            yolo: true,
+        };
+        accepted(
+            &app,
+            Command::StartWorkflowRun {
+                workflow_id: id,
+                workflow_type: WorkflowTypeRef::Builtin(BuiltinType::Adversarial),
+                prompt: "Task".into(),
+                roles: vec![
+                    role("implementer", Some("local/m1")),
+                    role("reviewer", None),
+                ],
+                size: SIZE,
+            },
+        );
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let arguments = loop {
+            let found: Vec<String> = std::fs::read_dir(folder.path())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with("args-"))
+                .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+                .collect();
+            if let Some(found) = found.into_iter().next() {
+                break found;
+            }
+            assert!(Instant::now() < deadline, "the implementer never started");
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert!(
+            arguments.contains("--model local/m1 --thinking high "),
+            "{arguments}"
+        );
+    }
+
     fn submit_helper(app: &Application, id: WorkflowId) {
+        submit_signal(app, id, br#"{"decision":"done","summary":"Finished"}"#);
+    }
+
+    fn submit_signal(app: &Application, id: WorkflowId, signal: &[u8]) {
         use std::io::Write;
         use std::process::{Command as Process, Stdio};
         let command = app.run_processes.lock().unwrap()[&id]
@@ -1567,12 +1724,7 @@ mod tests {
             .stdout(Stdio::null())
             .spawn()
             .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(br#"{"decision":"done","summary":"Finished"}"#)
-            .unwrap();
+        child.stdin.take().unwrap().write_all(signal).unwrap();
         assert!(child.wait().unwrap().success());
     }
 
@@ -1694,6 +1846,9 @@ mod tests {
                     .roles
                     .iter()
                     .map(|role| RoleLaunch {
+                        model: None,
+                        effort: None,
+                        yolo: false,
                         role: role.id.0.clone(),
                         harness: HarnessId::Pi,
                     })
@@ -1736,8 +1891,8 @@ mod tests {
         accepted(&app, Command::StartWorkflowRun { workflow_id: id,
             workflow_type: WorkflowTypeRef::Builtin(BuiltinType::Adversarial),
             prompt: "This is a small smoke test. Implementer: create proof.txt containing exactly 'Twine workflow works' followed by a newline, then submit completion using the supplied command. Reviewer: read proof.txt, approve if correct, and submit the explicit review decision. Do not use git, install tools, or change anything else. Execute the completion command; do not merely describe it.".into(),
-            roles: vec![RoleLaunch { role: "implementer".into(), harness: HarnessId::Codex },
-                        RoleLaunch { role: "reviewer".into(), harness: HarnessId::Codex }], size: SIZE });
+            roles: vec![RoleLaunch { role: "implementer".into(), harness: HarnessId::Codex, model: None, effort: None, yolo: false },
+                        RoleLaunch { role: "reviewer".into(), harness: HarnessId::Codex, model: None, effort: None, yolo: false }], size: SIZE });
         let deadline = Instant::now() + Duration::from_secs(240);
         let mut terminal_output = Vec::new();
         loop {

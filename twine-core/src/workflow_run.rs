@@ -19,6 +19,15 @@ mod recovery;
 pub struct RoleLaunch {
     pub role: String,
     pub harness: HarnessId,
+    /// The harness's model, or its own default when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The harness's effort level, or its own default when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// Skips the harness's permission prompts, where it has them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yolo: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -47,6 +56,9 @@ pub struct CompletionSignal {
     pub summary: String,
     #[serde(default)]
     pub assignments: Vec<Assignment>,
+    /// The user's task, restated in full. Required while the run doesn't know its task yet.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub task: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -68,6 +80,15 @@ pub struct RunAgent {
     pub instance: u8,
     pub label: String,
     pub harness: HarnessId,
+    /// The harness's model, or its own default when absent. Missing in older run records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The harness's effort level, or its own default when absent. Missing in older run records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// Skips the harness's permission prompts, where it has them. Missing in older run records.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yolo: bool,
     /// Defaults for records saved before per-agent lifecycle tracking was introduced.
     #[serde(default)]
     pub status: RunAgentStatus,
@@ -102,12 +123,17 @@ pub struct WorkflowTrace {
     pub anchor: Option<crate::TraceAnchor>,
 }
 
+/// The most a task, typed up front or reported by the first stage, can hold.
+const MAX_TASK_BYTES: usize = 32 * 1024;
+
 /// Serializable run state. A run pins both its type reference and definition. Processes and
 /// completion mailboxes are deliberately absent; restoring an active run interrupts it.
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowRun {
     pub workflow_type: WorkflowType,
+    /// The task. Empty until the first stage reports it when the run starts without one.
     pub prompt: String,
     pub agents: Vec<RunAgent>,
     pub stage_index: usize,
@@ -130,7 +156,7 @@ impl WorkflowRun {
         choices: &[RoleLaunch],
     ) -> Result<Self, RunError> {
         validate(&workflow_type.definition).map_err(|_| RunError::InvalidType)?;
-        if prompt.trim().is_empty() || prompt.len() > 32 * 1024 {
+        if prompt.len() > MAX_TASK_BYTES {
             return Err(RunError::Prompt);
         }
         let definition = &workflow_type.definition;
@@ -147,6 +173,12 @@ impl WorkflowRun {
             }
             for (index, choice) in selected.iter().enumerate() {
                 let instance = u8::try_from(index + 1).map_err(|_| RunError::HarnessChoices)?;
+                let options = crate::harness::launch::validate_options(
+                    choice.model.as_deref(),
+                    choice.effort.as_deref(),
+                    choice.yolo,
+                )
+                .ok_or(RunError::Model)?;
                 agents.push(RunAgent {
                     agent_id: 0,
                     role: role.id.0.clone(),
@@ -157,6 +189,9 @@ impl WorkflowRun {
                         role.name.clone()
                     },
                     harness: choice.harness,
+                    model: options.model().map(str::to_owned),
+                    effort: options.effort().map(str::to_owned),
+                    yolo: options.yolo(),
                     status: RunAgentStatus::Waiting,
                 });
             }
@@ -234,38 +269,8 @@ impl WorkflowRun {
         {
             return Err(RunError::StaleSignal);
         }
-        if serde_json::to_vec(&signal)
-            .map_err(|_| RunError::SignalTooLarge)?
-            .len()
-            > completion::MAX_SIGNAL_BYTES
-        {
-            return Err(RunError::SignalTooLarge);
-        }
+        self.validate(agent_id, &signal)?;
         let reviewer = self.is_reviewer(agent_id);
-        if reviewer == (signal.decision == Decision::Done) {
-            return Err(RunError::Decision);
-        }
-        if signal.decision == Decision::RequestChanges && signal.summary.trim().is_empty() {
-            return Err(RunError::Feedback);
-        }
-        let targets = self.assignment_targets(agent_id);
-        if signal.assignments.len() != targets.len()
-            || targets.iter().any(|target| {
-                let assignments: Vec<_> = signal
-                    .assignments
-                    .iter()
-                    .filter(|a| a.role == target.role && a.instance == target.instance)
-                    .collect();
-                assignments.len() != 1
-                    || assignments[0].task.trim().is_empty()
-                    || assignments[0]
-                        .files
-                        .iter()
-                        .any(|file| file.trim().is_empty())
-            })
-        {
-            return Err(RunError::Assignments);
-        }
         let decision = self.record_completion(agent_id, signal);
         // A review decision is the completion rule for the whole stage, even when other roles
         // are helping the reviewer. AllRolesDone instead waits for every role instance.
@@ -276,6 +281,9 @@ impl WorkflowRun {
                 .all(|a| self.completions.contains_key(&a.agent_id));
         if !stage_done {
             return Ok(false);
+        }
+        if self.needs_task() {
+            self.adopt_reported_task();
         }
         self.trace("stageCompleted", None, None, "Stage completed");
         // A review decision can stop other participants without completing their work.
@@ -327,6 +335,72 @@ impl WorkflowRun {
             }
         }
         Ok(true)
+    }
+
+    /// Checks a signal's size, decision, feedback, task, and assignments against the agent's role.
+    fn validate(&self, agent_id: u64, signal: &CompletionSignal) -> Result<(), RunError> {
+        if serde_json::to_vec(signal)
+            .map_err(|_| RunError::SignalTooLarge)?
+            .len()
+            > completion::MAX_SIGNAL_BYTES
+        {
+            return Err(RunError::SignalTooLarge);
+        }
+        let reviewer = self.is_reviewer(agent_id);
+        if reviewer == (signal.decision == Decision::Done) {
+            return Err(RunError::Decision);
+        }
+        if signal.decision == Decision::RequestChanges && signal.summary.trim().is_empty() {
+            return Err(RunError::Feedback);
+        }
+        if self.needs_task()
+            && (signal.task.trim().is_empty() || signal.task.len() > MAX_TASK_BYTES)
+        {
+            return Err(RunError::Task);
+        }
+        let targets = self.assignment_targets(agent_id);
+        if signal.assignments.len() != targets.len()
+            || targets.iter().any(|target| {
+                let assignments: Vec<_> = signal
+                    .assignments
+                    .iter()
+                    .filter(|a| a.role == target.role && a.instance == target.instance)
+                    .collect();
+                assignments.len() != 1
+                    || assignments[0].task.trim().is_empty()
+                    || assignments[0]
+                        .files
+                        .iter()
+                        .any(|file| file.trim().is_empty())
+            })
+        {
+            return Err(RunError::Assignments);
+        }
+        Ok(())
+    }
+
+    /// Every agent in the first stage reports the task the user gave it. Later stages get the one
+    /// task when they agree, or each agent's, labeled, when they differ.
+    fn adopt_reported_task(&mut self) {
+        let reported: Vec<(&str, &str)> = self
+            .agents
+            .iter()
+            .filter_map(|agent| {
+                let task = self.completions.get(&agent.agent_id)?.task.trim();
+                (!task.is_empty()).then_some((agent.label.as_str(), task))
+            })
+            .collect();
+        self.prompt = match reported.as_slice() {
+            [] => String::new(),
+            [(_, task), rest @ ..] if rest.iter().all(|(_, other)| other == task) => {
+                (*task).to_owned()
+            }
+            _ => reported
+                .iter()
+                .map(|(label, task)| format!("{label}: {task}"))
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        };
     }
 
     fn record_completion(&mut self, agent_id: u64, signal: CompletionSignal) -> Decision {
@@ -409,6 +483,12 @@ impl WorkflowRun {
         }
     }
 
+    /// Whether the run started without a task and nobody has reported it yet.
+    #[must_use]
+    pub fn needs_task(&self) -> bool {
+        self.prompt.trim().is_empty()
+    }
+
     pub(crate) fn instructions(&self, agent_id: u64, command: &str) -> String {
         let agent = self
             .agents
@@ -440,6 +520,17 @@ impl WorkflowRun {
                     files: vec!["relative/file".to_owned()],
                 })
                 .collect(),
+            task: if self.needs_task() {
+                "The user's task, restated in full".to_owned()
+            } else {
+                String::new()
+            },
+        };
+        let task = if self.needs_task() {
+            "The user gives you the task in this terminal. If they haven't yet, ask them what they \
+             want done. Include it, restated in full, as task when you submit your completion."
+        } else {
+            self.prompt.as_str()
         };
         let assignment = self
             .assignments
@@ -451,7 +542,7 @@ impl WorkflowRun {
             agent.label,
             stage.name,
             role.instructions,
-            self.prompt,
+            task,
             self.incoming.get(&agent_id).map_or("None", String::as_str),
             command,
             serde_json::to_string_pretty(&example).expect("signal serializes"),
@@ -516,8 +607,12 @@ pub enum RunError {
     InvalidType,
     #[error("Enter a prompt of at most 32 KiB.")]
     Prompt,
+    #[error("Include the user's task, restated in full and at most 32 KiB, as task.")]
+    Task,
     #[error("Choose a harness for each role within the type's instance limits.")]
     HarnessChoices,
+    #[error("Choose each role's model and effort from the lists, or type one model name.")]
+    Model,
     #[error("This stage has already advanced or this agent has already finished.")]
     StaleSignal,
     #[error("This role needs an explicit review decision, or done for a non-review role.")]
@@ -541,6 +636,9 @@ mod tests {
             .iter()
             .flat_map(|r| {
                 (0..r.instances.min).map(|_| RoleLaunch {
+                    model: None,
+                    effort: None,
+                    yolo: false,
                     role: r.id.0.clone(),
                     harness: HarnessId::Codex,
                 })
@@ -563,6 +661,7 @@ mod tests {
 
     fn signal(decision: Decision) -> CompletionSignal {
         CompletionSignal {
+            task: String::new(),
             decision,
             summary: "Specific result or feedback".into(),
             assignments: vec![],
@@ -584,6 +683,119 @@ mod tests {
         run.complete(1, 3, signal(Decision::Done)).unwrap();
         run.complete(2, 4, signal(Decision::Approve)).unwrap();
         assert_eq!(run.status, RunStatus::Completed);
+    }
+
+    #[test]
+    fn a_run_without_a_task_takes_it_from_the_first_completion() {
+        let mut run = run(BuiltinType::Adversarial.definition());
+        run.prompt = String::new();
+        assert!(run.needs_task());
+        let first = run.instructions(1, "complete");
+        assert!(first.contains("ask them what they want done"));
+        assert!(first.contains("\"task\": \"The user's task, restated in full\""));
+
+        let previous = run.clone();
+        assert!(matches!(
+            run.complete(1, 1, signal(Decision::Done)),
+            Err(RunError::Task)
+        ));
+        let mut oversized = signal(Decision::Done);
+        oversized.task = "x".repeat(MAX_TASK_BYTES + 1);
+        assert!(matches!(run.complete(1, 1, oversized), Err(RunError::Task)));
+        assert_eq!(run, previous);
+        let mut largest = run.clone();
+        let mut full = signal(Decision::Done);
+        full.task = "x".repeat(MAX_TASK_BYTES);
+        largest.complete(1, 1, full).unwrap();
+
+        let mut done = signal(Decision::Done);
+        done.task = "  Add a dark mode toggle  ".into();
+        run.complete(1, 1, done).unwrap();
+        assert_eq!(run.prompt, "Add a dark mode toggle");
+        let review = run.instructions(2, "complete");
+        assert!(review.contains("Task:\nAdd a dark mode toggle"));
+        assert!(!review.contains("\"task\""));
+        // A review loop back to the first stage keeps the task and doesn't ask for it again.
+        run.complete(2, 2, signal(Decision::RequestChanges))
+            .unwrap();
+        let again = run.instructions(1, "complete");
+        assert!(again.contains("Task:\nAdd a dark mode toggle"));
+        assert!(!again.contains("ask them what they want done"));
+        run.complete(1, 3, signal(Decision::Done)).unwrap();
+        run.complete(2, 4, signal(Decision::Approve)).unwrap();
+        assert_eq!(run.status, RunStatus::Completed);
+    }
+
+    #[test]
+    fn every_parallel_first_agent_reports_its_task_and_later_stages_get_them_all() {
+        let mut definition = BuiltinType::Coordinator.definition();
+        // Workers start the run in parallel, then the coordinator gathers.
+        definition.stages.remove(0);
+        definition.handoffs.remove(0);
+        let mut run = run(definition);
+        run.prompt = String::new();
+        let workers: Vec<_> = run.active_agents().iter().map(|a| a.agent_id).collect();
+        assert_eq!(workers.len(), 2);
+        let gather = run
+            .agents
+            .iter()
+            .find(|a| a.role == "coordinator")
+            .unwrap()
+            .agent_id;
+
+        let mut first = signal(Decision::Done);
+        first.task = "Build the API".into();
+        run.complete(workers[1], 1, first).unwrap();
+        // Until the stage finishes, the other worker must report its task too.
+        assert!(matches!(
+            run.complete(workers[0], 1, signal(Decision::Done)),
+            Err(RunError::Task)
+        ));
+        let mut second = signal(Decision::Done);
+        second.task = "Build the UI".into();
+        run.complete(workers[0], 1, second).unwrap();
+        assert!(run.prompt.contains("Worker 1: Build the UI"));
+        assert!(run.prompt.contains("Worker 2: Build the API"));
+        assert!(
+            run.instructions(gather, "complete")
+                .contains("Worker 2: Build the API")
+        );
+    }
+
+    #[test]
+    fn each_role_keeps_its_model_and_effort_and_invalid_ones_are_rejected() {
+        let launch = |model: &str, effort: &str| {
+            WorkflowRun::new(
+                WorkflowType {
+                    reference: WorkflowTypeRef::Builtin(BuiltinType::Adversarial),
+                    definition: BuiltinType::Adversarial.definition(),
+                },
+                "Task".into(),
+                &[
+                    RoleLaunch {
+                        role: "implementer".into(),
+                        harness: HarnessId::Codex,
+                        model: Some(model.into()),
+                        effort: Some(effort.into()),
+                        yolo: true,
+                    },
+                    RoleLaunch {
+                        role: "reviewer".into(),
+                        harness: HarnessId::Pi,
+                        model: None,
+                        effort: None,
+                        yolo: false,
+                    },
+                ],
+            )
+        };
+        let run = launch(" gpt-6 ", "xhigh").unwrap();
+        assert_eq!(run.agents[0].model.as_deref(), Some("gpt-6"));
+        assert_eq!(run.agents[0].effort.as_deref(), Some("xhigh"));
+        assert!(run.agents[0].yolo && !run.agents[1].yolo);
+        assert_eq!(run.agents[1].model, None);
+        assert!(matches!(launch("-c", "high"), Err(RunError::Model)));
+        assert!(matches!(launch("gpt-6", "x=1"), Err(RunError::Model)));
     }
 
     #[test]

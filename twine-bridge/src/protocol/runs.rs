@@ -17,6 +17,8 @@ pub(super) struct WireRun<'a> {
     workflow_type: &'a twine_core::WorkflowType,
     status: RunStatus,
     message: Option<&'a str>,
+    /// The first stage still has to report the task the user gave it.
+    needs_task: bool,
     agents: Vec<WireRunAgent<'a>>,
 }
 
@@ -51,6 +53,7 @@ impl<'a> From<&'a WorkflowRun> for WireRun<'a> {
             workflow_type: &run.workflow_type,
             status: run.status,
             message: run.message.as_deref(),
+            needs_task: run.needs_task(),
             agents: run
                 .agents
                 .iter()
@@ -83,6 +86,8 @@ impl<'a> From<&'a WorkflowRun> for WireRun<'a> {
 struct RawStart {
     workflow_id: u64,
     workflow_type: WorkflowTypeRef,
+    /// Without one, the first stage asks the user for the task.
+    #[serde(default)]
     prompt: String,
     #[serde(rename = "roleLaunches")]
     roles: Vec<RoleLaunch>,
@@ -176,5 +181,10 @@ mod tests {
         assert_eq!(wire["agents"][0]["harness"], "claudeCode");
         assert_eq!(wire["agents"][0]["active"], true);
         assert_eq!(wire["agents"][0]["status"], "running");
+        assert_eq!(wire["needsTask"], false);
+        let mut untold = run.clone();
+        untold.prompt = String::new();
+        let wire = serde_json::to_value(WireRun::from(&untold)).unwrap();
+        assert_eq!(wire["needsTask"], true);
     }
 }

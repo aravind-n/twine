@@ -64,7 +64,8 @@ extension TwineUITests {
         jump.click()
         let history = app.textViews["terminalHistoryText"]
         XCTAssertTrue(history.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(subtabs[3].value as? String, "Selected")
+        func assertFocused(_ index: Int) { assertAgentHasKeyboard(index, subtabs: subtabs, in: app) }
+        assertFocused(3)
         XCTAssertEqual(app.buttons["workflowTab-2"].value as? String, "Selected")
         history.click()
         app.typeText("touch must-not-reach-live\r")
@@ -77,16 +78,26 @@ extension TwineUITests {
         XCTAssertTrue(livePane.waitForExistence(timeout: 5), app.debugDescription)
         livePane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .withOffset(CGVector(dx: 0, dy: 80)).click()
-        XCTAssertEqual(subtabs[0].value as? String, "Selected")
+        assertFocused(0)
         XCTAssertTrue(history.exists)
         history.click()
         attachScreenshot(of: app, named: "Trace output in the selected Bento agent")
         XCTAssertTrue(app.buttons["returnToLive"].isHittable, app.debugDescription)
         app.buttons["returnToLive"].click()
         XCTAssertTrue(history.waitForNonExistence(timeout: 5))
-        XCTAssertEqual(subtabs[3].value as? String, "Selected")
+        assertFocused(3)
         app.typeText("echo $TWINE_AGENT > returned-to-live\r")
         waitForFile(folder.appending(path: "returned-to-live"), containing: "agent3", in: app)
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appending(path: "must-not-reach-live").path))
+    }
+
+    /// Tiled Bento panes show no subtabs, so the focused pane names the agent with the keyboard.
+    @MainActor
+    private func assertAgentHasKeyboard(_ index: Int, subtabs: [XCUIElement], in app: XCUIApplication) {
+        if subtabs[index].exists {
+            XCTAssertEqual(subtabs[index].value as? String, "Selected", app.debugDescription)
+        } else {
+            XCTAssertEqual(app.menuButtons["agentPane-\(index + 1)"].value as? String, "Focused", app.debugDescription)
+        }
     }
 }

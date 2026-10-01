@@ -75,7 +75,7 @@ struct FolderView: View {
         .onChange(of: editor.path) {
             if htmlNavigationURL?.path != editor.path { htmlNavigationURL = nil }
         }
-        .focusedSceneValue(\.closeFile, editor.path.map { _ in { editor.select(nil) } })
+        .focusedSceneValue(\.openFilePath, editor.path)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left") {

@@ -27,7 +27,9 @@ nonisolated private struct CommandPayload: Encodable {
     var workflowID: UInt64?
     var name: String?
     var harness: CoreHarness?
-    var prompt: String?
+    var model: String?
+    var effort: String?
+    var yolo: Bool?
     var workflowType: CoreWorkflowType.Reference?
     var roleLaunches: [CoreRoleLaunch]?
     var agentID: UInt64?
@@ -38,7 +40,7 @@ nonisolated private struct CommandPayload: Encodable {
     var terminalID: UInt64?
 
     private enum CodingKeys: String, CodingKey {
-        case path, folder, kind, roles, size, type, workingDirectory, name, harness, prompt
+        case path, folder, kind, roles, size, type, workingDirectory, name, harness, model, effort, yolo
         case terminalID = "terminalId"
         case workflowID = "workflowId"
         case sessionID = "sessionId"
@@ -95,11 +97,10 @@ nonisolated private struct CommandPayload: Encodable {
 
     private mutating func configureRun(_ command: CoreCommand) {
         switch command {
-        case .startWorkflowRun(let workflowID, let workflowType, let prompt, let roles, let size):
+        case .startWorkflowRun(let workflowID, let workflowType, let roles, let size):
             type = "startWorkflowRun"
             self.workflowID = workflowID
             self.workflowType = workflowType
-            self.prompt = prompt
             self.roleLaunches = roles
             self.size = size
         case .completeWorkflowRole(let workflowID, let agentID, let generation, let signal):
@@ -155,11 +156,13 @@ nonisolated private struct CommandPayload: Encodable {
         case .closeWorkflow(let workflowID):
             type = "closeWorkflow"
             self.workflowID = workflowID
-        case .startAgent(let workflowID, let harness, let prompt, let size):
+        case .startAgent(let workflowID, let choice, let size):
             type = "startAgent"
             self.workflowID = workflowID
-            self.harness = harness
-            self.prompt = prompt
+            self.harness = choice.harness
+            self.model = choice.model
+            self.effort = choice.effort
+            self.yolo = choice.yolo ? true : nil
             self.size = size
         case .cancelAgent(let workflowID):
             type = "cancelAgent"

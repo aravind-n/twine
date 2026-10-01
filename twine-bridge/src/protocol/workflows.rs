@@ -155,8 +155,18 @@ enum RawHarness {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawStartAgent {
+    /// The harness's model, or its own default when absent.
+    #[serde(default)]
+    model: Option<String>,
+    /// The harness's effort level, or its own default when absent.
+    #[serde(default)]
+    effort: Option<String>,
+    #[serde(default)]
+    yolo: bool,
     workflow_id: u64,
     harness: RawHarness,
+    /// Without one, the agent starts interactively.
+    #[serde(default)]
     prompt: String,
     size: RawTerminalSize,
 }
@@ -250,6 +260,9 @@ pub(super) fn decode_command(command_type: &str, raw: &Value) -> Result<Command,
             let command: RawStartAgent =
                 serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
             Ok(Command::StartAgent {
+                model: command.model,
+                effort: command.effort,
+                yolo: command.yolo,
                 workflow_id: WorkflowId(command.workflow_id),
                 harness: match command.harness {
                     RawHarness::Codex => HarnessId::Codex,

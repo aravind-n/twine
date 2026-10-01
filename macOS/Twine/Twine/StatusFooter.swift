@@ -27,6 +27,16 @@ struct StatusFooter: View {
                         .monospacedDigit()
                         .accessibilityIdentifier("workflowElapsed")
                         .fixedSize()
+                    if let message = state.message {
+                        separator
+                        Text(message)
+                            .foregroundStyle(Color.statusNeedsAttention)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help(message)
+                            .accessibilityIdentifier("workflowMessage")
+                            .layoutPriority(-1)
+                    }
                 }
                 Spacer(minLength: 0)
             }

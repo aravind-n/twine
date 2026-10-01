@@ -3,12 +3,30 @@ import Foundation
 nonisolated struct CoreRoleLaunch: Codable, Equatable, Sendable {
     let role: String
     let harness: CoreHarness
+    var model: String?
+    var effort: String?
+    /// Left out unless set, like the core's own records.
+    var yolo: Bool?
+
+    init(role: String, harness: CoreHarness, model: String? = nil, effort: String? = nil, yolo: Bool = false) {
+        self.role = role
+        self.harness = harness
+        self.model = model
+        self.effort = effort
+        self.yolo = yolo ? true : nil
+    }
+
+    init(role: String, choice: HarnessChoice) {
+        self.init(role: role, harness: choice.harness, model: choice.model, effort: choice.effort, yolo: choice.yolo)
+    }
 }
 
 nonisolated struct CoreCompletionSignal: Codable, Equatable, Sendable {
     var decision: Decision
     var summary: String
     var assignments: [Assignment] = []
+    /// The user's task, restated in full, while the run still needs it.
+    var task = ""
 
     enum Decision: String, Codable, Sendable { case done, approve, requestChanges }
     struct Assignment: Codable, Equatable, Sendable {
@@ -24,12 +42,14 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
     let stage: String
     let status: Status
     let message: String?
+    /// The first stage still has to report the task the user gave it.
+    let needsTask: Bool
     let agents: [Agent]
     var stageID: String?
     var workflowType: CoreWorkflowType?
 
     private enum CodingKeys: String, CodingKey {
-        case generation, stage, status, message, agents, workflowType
+        case generation, stage, status, message, needsTask, agents, workflowType
         case stageID = "stageId"
     }
 
@@ -46,6 +66,15 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
         var instance: Int?
         var status: AgentStatus?
         var id: UInt64 { agentId }
+
+        /// Doing its stage's work now: an exited or failed process isn't, even before Mark done.
+        var isWorking: Bool {
+            guard active && !done else { return false }
+            switch status {
+            case nil, .waiting, .running: return true
+            case .completed, .exited, .failed, .cancelled, .interrupted: return false
+            }
+        }
     }
 
     enum AgentStatus: String, Decodable, Sendable {

@@ -73,10 +73,16 @@ mod tests {
             "Task".into(),
             &[
                 RoleLaunch {
+                    model: None,
+                    effort: None,
+                    yolo: false,
                     role: "implementer".into(),
                     harness: HarnessId::Pi,
                 },
                 RoleLaunch {
+                    model: None,
+                    effort: None,
+                    yolo: false,
                     role: "reviewer".into(),
                     harness: HarnessId::Pi,
                 },
@@ -91,6 +97,7 @@ mod tests {
 
     fn signal(decision: Decision) -> CompletionSignal {
         CompletionSignal {
+            task: String::new(),
             decision,
             summary: "Explicit feedback".into(),
             assignments: vec![],

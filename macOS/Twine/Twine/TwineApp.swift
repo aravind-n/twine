@@ -14,6 +14,7 @@ struct TwineApp: App {
     @NSApplicationDelegateAdaptor(AppTerminationDelegate.self) private var terminationDelegate
     @State private var coreClient = CoreClient(transport: CoreWorker(dataDirectory: Self.dataDirectory))
     @State private var fileEditor = FileEditorModel()
+    @State private var harnessModels = HarnessModelCatalog()
     @State private var workflowLayouts = WorkflowLayouts(
         fileURL: Self.dataDirectory.appending(path: "workflow-layouts.json"))
 
@@ -40,6 +41,7 @@ struct TwineApp: App {
                 .environment(coreClient)
                 .environment(fileEditor)
                 .environment(workflowLayouts)
+                .environment(harnessModels)
                 .task {
                     terminationDelegate.attach(to: coreClient, editor: fileEditor, layouts: workflowLayouts)
                     // Workflows appear with the core's first snapshot, so their layouts must be ready first.

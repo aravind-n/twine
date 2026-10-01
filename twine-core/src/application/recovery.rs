@@ -94,6 +94,9 @@ mod tests {
                 prompt: "Crash fixture".into(),
                 roles: ["implementer", "reviewer"]
                     .map(|role| RoleLaunch {
+                        model: None,
+                        effort: None,
+                        yolo: false,
                         role: role.into(),
                         harness: HarnessId::Pi,
                     })
@@ -113,6 +116,7 @@ mod tests {
                 agent_id: crate::AgentId(run.active_agents()[0].agent_id),
                 generation: run.generation,
                 signal: CompletionSignal {
+                    task: String::new(),
                     decision,
                     summary: "Explicit completion".into(),
                     assignments: vec![],
@@ -200,6 +204,9 @@ mod tests {
         command(
             &app,
             Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
                 workflow_id: single,
                 harness: HarnessId::Pi,
                 prompt: "Crash fixture".into(),

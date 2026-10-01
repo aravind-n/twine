@@ -12,7 +12,7 @@ _Avoid_: Workspace, project
 A named body of work inside a folder, listed in the sidebar next to the folder's files. A session contains workflows.
 
 **Workflow**:
-One top-level tab in a session, created from a workflow type and given its own prompt.
+One top-level tab in a session, created from a workflow type. Its task comes from the user, typed to its first agent.
 
 **Workflow type**:
 The reusable definition a workflow is created from: its roles, stages, and handoffs. Built-in types are Terminal, Single agent, Adversarial, and Coordinator. Users can define their own.

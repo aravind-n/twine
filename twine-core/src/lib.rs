@@ -29,6 +29,7 @@ pub use files::{
     FileSaveRequest, FileSnapshot, FileVersion, TEXT_LIMIT,
 };
 pub use folder::{FolderState, RecentFolder, UnavailableFolder, UnavailableReason};
+pub use harness::models::{HarnessModel, HarnessModels, ModelListError, ModelListRequest};
 pub use harness::{HarnessError, HarnessId};
 pub use store::StoreError;
 pub use terminal::{

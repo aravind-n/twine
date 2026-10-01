@@ -32,12 +32,10 @@ struct WorkflowTypeInspector: View {
             .padding(NewTabLayout.padding)
         }
         .frame(
-            width: 480,
+            width: 600,
             height: min(
                 600,
-                WorkflowGraphLayout(
-                    definition: type.definition, width: 480, compact: false
-                ).size.height + 160)
+                WorkflowGraphLayout(definition: type.definition, counts: run.roleCounts, width: 600).size.height + 160)
         )
         .background(Color(nsColor: .windowBackgroundColor), in: .rect(cornerRadius: CornerRadius.panel))
         .overlay {
