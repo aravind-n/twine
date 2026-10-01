@@ -51,7 +51,7 @@ final class CoreClient {
                     ignoredCommandResults.insert(receipt.requestID)
                 }
             case .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .nameDraftWorkflow,
-                .refreshGitBranch, .startWorkflowRun, .completeWorkflowRole, .cancelWorkflowRun:
+                .refreshGitBranch, .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun, .cancelWorkflowRun:
                 break
             }
         }

@@ -54,6 +54,14 @@ pub(super) fn wait_for_child(child: &SharedChild) -> Result<TerminalExit, String
     }
 }
 
+/// Checks the owned child without reaping it or signaling its process group.
+pub(super) fn child_is_running(child: &SharedChild) -> bool {
+    let Ok(mut process) = child.lock() else {
+        return false;
+    };
+    process.exit.is_none() && matches!(child_exited_without_reaping(&mut process), Ok(false))
+}
+
 pub(super) fn terminate_unobserved_child(child: &SharedChild) {
     terminate_child(child);
 }

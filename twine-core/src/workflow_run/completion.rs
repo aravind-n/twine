@@ -29,21 +29,25 @@ impl CompletionInbox {
                 "cd -- \"$(dirname -- \"$0\")\"\n",
                 "mkdir pending\n",
                 "trap 'rm -f submission.tmp; rmdir pending 2>/dev/null || true' EXIT\n",
-                "rm -f response.txt response.tmp\n",
+                "rm -f response.txt response.tmp accepted acknowledged\n",
                 "head -c 65537 > submission.tmp\n",
                 "mv submission.tmp submission.json\n",
                 // A timeout must not unlock an outstanding submission or receipt. Only a
-                // consumed rejection or disposal of the accepted role releases this lock.
+                // consumed receipt or disposal of the stopped role releases this lock.
                 "trap - EXIT\n",
-                // An accepted completion stops this role's terminal, including this helper.
-                // Returning before validation lets the harness miss a rejection or start an
-                // unnecessary model turn while Twine is stopping the completed process.
+                // Wait for validation before returning to the interactive harness. Twine retains
+                // this mailbox until the helper acknowledges acceptance or consumes rejection.
                 "attempt=0\n",
                 "while [ \"$attempt\" -lt 200 ]; do\n",
                 "  if [ -f response.txt ]; then\n",
                 "    cat response.txt >&2\n",
                 "    rmdir pending\n",
                 "    exit 1\n",
+                "  fi\n",
+                "  if [ -f accepted ]; then\n",
+                "    touch acknowledged\n",
+                "    echo 'Completion accepted by Twine.'\n",
+                "    exit 0\n",
                 "  fi\n",
                 "  sleep 0.05\n",
                 "  attempt=$((attempt + 1))\n",
@@ -109,6 +113,18 @@ impl CompletionInbox {
         }
     }
 
+    pub(crate) fn accept(&self) {
+        if let Err(error) = fs::write(self.directory.path().join("accepted"), []) {
+            tracing::warn!(%error, "couldn't acknowledge workflow completion");
+        }
+    }
+
+    /// A user completion has no waiting helper; a harness completion acknowledges its receipt.
+    pub(crate) fn receipt_pending(&self) -> bool {
+        self.directory.path().join("pending").exists()
+            && !self.directory.path().join("acknowledged").exists()
+    }
+
     #[cfg(test)]
     pub(crate) fn response(&self) -> String {
         fs::read_to_string(self.directory.path().join("response.txt")).unwrap()
@@ -158,12 +174,14 @@ mod tests {
                 assert_eq!(String::from_utf8_lossy(&output.stderr), message);
                 assert!(!inbox.directory.path().join("pending").exists());
             } else {
-                // The previous rejection was cleared. A valid submission cannot return to
-                // the harness before Twine stops its terminal on acceptance.
+                // A valid submission cannot return before acceptance is durably recorded.
                 thread::sleep(Duration::from_millis(100));
                 assert!(child.try_wait().unwrap().is_none());
-                child.kill().unwrap();
-                child.wait().unwrap();
+                inbox.accept();
+                let output = child.wait_with_output().unwrap();
+                assert!(output.status.success());
+                assert_eq!(output.stderr.len(), 0);
+                assert!(!inbox.receipt_pending());
             }
         }
     }

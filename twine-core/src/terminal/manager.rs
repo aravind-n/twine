@@ -13,7 +13,9 @@ use tracing::{debug, warn};
 use super::launcher::{
     canonical_working_directory, default_shell_command, program_launcher_command,
 };
-use super::process::{SharedChild, terminate_child, terminate_unobserved_child, wait_for_child};
+use super::process::{
+    SharedChild, child_is_running, terminate_child, terminate_unobserved_child, wait_for_child,
+};
 use super::pty::{StartingTerminal, spawn_terminal_process, spawn_terminal_reader};
 use super::{TerminalError, TerminalExit, TerminalId, TerminalSize, TerminalStream};
 
@@ -209,6 +211,21 @@ impl TerminalManager {
     /// The last size the terminal was given, if it is open.
     pub(crate) fn size(&self, terminal_id: TerminalId) -> Option<TerminalSize> {
         Some(self.lock_sessions().ok()?.get(&terminal_id)?.size)
+    }
+
+    /// The supervisor closes input before publishing an exit to application state.
+    pub(crate) fn is_running(&self, terminal_id: TerminalId) -> bool {
+        let Some((child, input_closed)) = self.lock_sessions().ok().and_then(|sessions| {
+            sessions.get(&terminal_id).map(|session| {
+                (
+                    Arc::clone(&session.child),
+                    Arc::clone(&session.input_closed),
+                )
+            })
+        }) else {
+            return false;
+        };
+        !input_closed.load(Ordering::Acquire) && child_is_running(&child)
     }
 
     /// Stops the process but keeps the terminal open, so its output stays readable until closed.

@@ -134,6 +134,12 @@ pub enum Command {
         generation: u64,
         signal: crate::CompletionSignal,
     },
+    /// A follow-up to a first-stage agent starts another cycle with the same conversations.
+    ContinueWorkflowRun {
+        workflow_id: WorkflowId,
+        agent_id: crate::AgentId,
+        generation: u64,
+    },
     CancelWorkflowRun {
         workflow_id: WorkflowId,
     },
@@ -419,6 +425,11 @@ impl Application {
                 generation,
                 signal,
             } => self.complete_workflow_role(workflow_id, agent_id, generation, signal)?,
+            Command::ContinueWorkflowRun {
+                workflow_id,
+                agent_id,
+                generation,
+            } => self.continue_workflow_run(workflow_id, agent_id, generation)?,
             Command::CancelWorkflowRun { workflow_id } => self.cancel_workflow_run(workflow_id)?,
             Command::StartTerminal {
                 working_directory,

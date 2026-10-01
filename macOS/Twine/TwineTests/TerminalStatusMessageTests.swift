@@ -5,10 +5,15 @@ import Testing
 struct TerminalStatusMessageTests {
     private let hangup = CoreTerminalState.Status.exited(.init(exitCode: 1, signal: "Hangup: 1"))
 
-    @Test(arguments: [CoreTerminalState.Status.running, .exited(.init(exitCode: 1, signal: "Hangup: 1"))])
-    func acceptedCompletionExplainsTheStopBeforeAndAfterTheExitArrives(status: CoreTerminalState.Status) {
+    @Test func acceptedCompletionLeavesALiveTerminalUnobstructed() {
         #expect(
-            TerminalStatusMessage.text(subject: "Agent", terminalStatus: status, agentStatus: .completed)
+            TerminalStatusMessage.text(subject: "Agent", terminalStatus: .running, agentStatus: .completed)
+                == nil)
+    }
+
+    @Test func aCompletedAssignmentRemainsVisibleAfterItsTerminalExits() {
+        #expect(
+            TerminalStatusMessage.text(subject: "Agent", terminalStatus: hangup, agentStatus: .completed)
                 == "Agent completed")
     }
 

@@ -16,6 +16,9 @@ pub(super) struct HarnessRecording {
     ended_since: Option<Instant>,
     session_observed_at: Option<Instant>,
     has_session_start: bool,
+    /// Live processes retain earlier assignment turns so delayed hooks stay in their round.
+    turn_spans: HashMap<String, crate::TraceSpanId>,
+    turn_order: VecDeque<String>,
 }
 
 const HOOK_GRACE: Duration = Duration::from_millis(1500);
@@ -79,9 +82,14 @@ impl HarnessRecording {
             if matches!(step.kind, StepKind::Prompt | StepKind::SessionStarted) {
                 return Ok(Some(index));
             }
-            if self.single_agent
+            if (self.single_agent
                 && (!self.active
-                    || !store.has_harness_turn(terminal_id, step.turn_id.as_deref())?)
+                    || !store.has_harness_turn(terminal_id, step.turn_id.as_deref())?))
+                || (!self.single_agent
+                    && step
+                        .turn_id
+                        .as_ref()
+                        .is_some_and(|turn| !self.turn_spans.contains_key(turn)))
             {
                 if let Some(prompt) = self.pending.iter().position(|other| {
                     other.step.kind == StepKind::Prompt && other.step.turn_id == step.turn_id
@@ -219,6 +227,8 @@ impl Application {
                 ended_since: None,
                 session_observed_at: None,
                 has_session_start: false,
+                turn_spans: HashMap::new(),
+                turn_order: VecDeque::new(),
             },
         );
         Ok(())
@@ -271,14 +281,35 @@ impl Application {
                     boundary_sizes: item.observation.boundary_sizes.clone(),
                 };
                 match inner.folders.store().record_harness_step(
-                    recording.workflow_id,
-                    recording.single_agent,
-                    !recording.active,
+                    crate::store::HarnessStepContext {
+                        workflow_id: recording.workflow_id,
+                        single_agent: recording.single_agent,
+                        activate: !recording.active,
+                        span: item
+                            .step
+                            .turn_id
+                            .as_ref()
+                            .and_then(|turn| recording.turn_spans.get(turn))
+                            .copied(),
+                    },
                     &item.step,
                     item.observation.observed_at,
                     &anchor,
                 ) {
                     Ok(span) => {
+                        if !recording.single_agent
+                            && item.step.kind == StepKind::Prompt
+                            && let (Some(turn), Some(span)) = (&item.step.turn_id, span)
+                            && !recording.turn_spans.contains_key(turn)
+                        {
+                            if recording.turn_order.len() == 256
+                                && let Some(oldest) = recording.turn_order.pop_front()
+                            {
+                                recording.turn_spans.remove(&oldest);
+                            }
+                            recording.turn_order.push_back(turn.clone());
+                            recording.turn_spans.insert(turn.clone(), span);
+                        }
                         if !recording.active && span.is_some() {
                             inner.trace_spans.remove(&terminal_id);
                             inner
@@ -306,10 +337,11 @@ impl Application {
                 recording.pending.extend(recording.inbox.take(256));
             }
             if inner.terminals.get(&terminal_id) != Some(&crate::TerminalStatus::Running)
-                || !inner.workflows.workflows.iter().any(|w| {
-                    w.workflow_id == recording.workflow_id
-                        && w.status == crate::WorkflowStatus::Running
-                })
+                || !inner
+                    .workflows
+                    .workflows
+                    .iter()
+                    .any(|w| w.workflow_id == recording.workflow_id)
             {
                 recording.ended_since.get_or_insert_with(Instant::now);
             }
@@ -1796,6 +1828,110 @@ mod tests {
         assert_eq!(
             reopened.workflow_trace(id, None, 20).unwrap().spans[0].status,
             TraceSpanStatus::Stopped
+        );
+    }
+
+    #[test]
+    fn reused_assignments_keep_delayed_hooks_in_their_original_turn() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let mut app = Application::with_event_capacity(4096).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        start_adversarial(&app, id);
+        let original = workflow(&app, id);
+        let implementer = &original.agents[0];
+        let terminal = implementer.terminal_id;
+        wait_for_output(&app, terminal, b"READY");
+        let old_span = app.workflow_trace(id, None, 20).unwrap().spans[0].span_id;
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit", "prompt_id":"old", "prompt":"First assignment"}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PreToolUse", "prompt_id":"old", "tool_use_id":"old-tool", "tool_name":"Bash", "tool_input":{"command":"make old-test"}}),
+        );
+        let complete = |agent_id, generation, decision| {
+            accepted(
+                &app,
+                Command::CompleteWorkflowRole {
+                    workflow_id: id,
+                    agent_id,
+                    generation,
+                    signal: CompletionSignal {
+                        task: String::new(),
+                        decision,
+                        summary: "Result or feedback".into(),
+                        assignments: vec![],
+                    },
+                },
+            );
+        };
+        complete(implementer.agent_id, 1, Decision::Done);
+        let review = workflow(&app, id);
+        complete(review.agents[1].agent_id, 2, Decision::RequestChanges);
+        assert_eq!(workflow(&app, id).agents[0].terminal_id, terminal);
+        let new_span = app
+            .workflow_trace(id, None, 20)
+            .unwrap()
+            .spans
+            .iter()
+            .filter(|span| span.terminal_id == Some(terminal))
+            .max_by_key(|span| span.span_id.0)
+            .unwrap()
+            .span_id;
+        assert_ne!(old_span, new_span);
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit", "prompt_id":"new", "prompt":"Fix the feedback"}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"PostToolUseFailure", "prompt_id":"old", "tool_use_id":"old-tool", "tool_name":"Bash", "tool_input":{"command":"make old-test"}, "error":"old failure"}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"Stop", "prompt_id":"old"}),
+        );
+        let old_events = app.trace_events(old_span, None, 100).unwrap().events;
+        assert!(
+            old_events
+                .iter()
+                .any(|event| event.message.starts_with("Failed: Run make old-test"))
+        );
+        assert!(
+            old_events
+                .iter()
+                .any(|event| event.message == "Finished responding")
+        );
+        let new_events = app.trace_events(new_span, None, 100).unwrap().events;
+        assert!(
+            new_events
+                .iter()
+                .any(|event| event.message.contains("Fix the feedback"))
+        );
+        assert!(
+            new_events
+                .iter()
+                .all(|event| !event.message.contains("old-test")
+                    && event.message != "Finished responding")
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"Stop", "prompt_id":"new"}),
+        );
+        assert!(
+            app.trace_events(new_span, None, 100)
+                .unwrap()
+                .events
+                .iter()
+                .any(|event| event.message == "Finished responding")
         );
     }
 

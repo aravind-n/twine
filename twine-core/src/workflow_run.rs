@@ -256,6 +256,62 @@ impl WorkflowRun {
             .collect()
     }
 
+    /// A user follow-up starts fresh work while keeping the workflow's agents and trace history.
+    pub(crate) fn continue_with(
+        &mut self,
+        agent_id: u64,
+        generation: u64,
+    ) -> Result<bool, RunError> {
+        let first = &self.workflow_type.definition.stages[0];
+        if !self.agents.iter().any(|agent| {
+            agent.agent_id == agent_id && first.roles.iter().any(|role| role.0 == agent.role)
+        }) {
+            return Err(RunError::StaleSignal);
+        }
+        if generation > self.generation {
+            return Err(RunError::StaleSignal);
+        }
+        // Input can arrive before Swift consumes the latest state, or queue behind an earlier
+        // continuation. A running workflow needs no reset, and old-cycle input still reaches the
+        // conversation without starting the same cycle twice.
+        if self.status == RunStatus::Running
+            || self
+                .traces
+                .iter()
+                .any(|event| event.kind == "workflowContinued" && event.generation > generation)
+        {
+            return Ok(false);
+        }
+        if !matches!(self.status, RunStatus::Completed | RunStatus::LimitReached) {
+            return Err(RunError::StaleSignal);
+        }
+        let next_generation = self
+            .generation
+            .checked_add(1)
+            .ok_or(RunError::StaleSignal)?;
+        self.stage_index = 0;
+        self.generation = next_generation;
+        self.status = RunStatus::Running;
+        self.prompt.clear();
+        self.completions.clear();
+        self.rounds.clear();
+        self.incoming.clear();
+        self.assignments.clear();
+        self.message = None;
+        for agent in &mut self.agents {
+            if first.roles.iter().any(|role| role.0 == agent.role) {
+                agent.status = RunAgentStatus::Waiting;
+            }
+        }
+        self.trace(
+            "workflowContinued",
+            Some(agent_id),
+            None,
+            "Continuing with a new task",
+        );
+        Ok(true)
+    }
+
     /// Validate fully before accepting a completion; failed signals never partially advance a run.
     pub(crate) fn complete(
         &mut self,
@@ -684,6 +740,42 @@ mod tests {
         run.complete(1, 3, signal(Decision::Done)).unwrap();
         run.complete(2, 4, signal(Decision::Approve)).unwrap();
         assert_eq!(run.status, RunStatus::Completed);
+    }
+
+    #[test]
+    fn a_follow_up_starts_new_work_without_reusing_old_completions_or_feedback() {
+        let mut run = run(BuiltinType::Adversarial.definition());
+        run.complete(1, 1, signal(Decision::Done)).unwrap();
+        run.complete(2, 2, signal(Decision::RequestChanges))
+            .unwrap();
+        run.complete(1, 3, signal(Decision::Done)).unwrap();
+        run.complete(2, 4, signal(Decision::Approve)).unwrap();
+        let history = run.traces.clone();
+        assert!(run.continue_with(2, 4).is_err());
+        assert!(run.continue_with(1, u64::MAX).is_err());
+        assert!(run.continue_with(1, 4).unwrap());
+        assert_eq!(run.status, RunStatus::Running);
+        assert_eq!(run.stage_index, 0);
+        assert_eq!(run.generation, 5);
+        assert!(run.needs_task());
+        assert!(run.completions.is_empty() && run.incoming.is_empty() && run.rounds.is_empty());
+        assert!(run.traces.starts_with(&history));
+        assert!(!run.continue_with(1, 4).unwrap());
+        assert!(run.complete(1, 3, signal(Decision::Done)).is_err());
+        assert!(matches!(
+            run.complete(1, 5, signal(Decision::Done)),
+            Err(RunError::Task)
+        ));
+        let mut completion = signal(Decision::Done);
+        completion.task = "A new task".into();
+        run.complete(1, 5, completion).unwrap();
+        assert_eq!(run.prompt, "A new task");
+        assert!(
+            run.instructions(2, "complete")
+                .contains("Task:\nA new task")
+        );
+        run.complete(2, 6, signal(Decision::Approve)).unwrap();
+        assert!(!run.continue_with(1, 4).unwrap());
     }
 
     #[test]

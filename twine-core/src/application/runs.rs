@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use super::workflows::reject;
 use super::{Application, ApplicationError, CommandDisposition};
@@ -19,7 +20,28 @@ pub(super) struct RunProcesses {
     size: TerminalSize,
     harnesses: HashMap<HarnessId, LocatedHarness>,
     inboxes: HashMap<AgentId, (u64, CompletionInbox)>,
+    /// Accepted helpers keep their receipt until they consume it; their harness remains alive.
+    retired_inboxes: std::collections::VecDeque<(Instant, CompletionInbox)>,
     resumed_sessions: HashMap<AgentId, String>,
+}
+
+impl RunProcesses {
+    fn retire_inbox(&mut self, inbox: CompletionInbox) {
+        self.reap_inboxes();
+        if inbox.receipt_pending() {
+            // Normally one receipt per live agent is outstanding. Bound abandoned helpers too.
+            if self.retired_inboxes.len() == 64 {
+                self.retired_inboxes.pop_front();
+            }
+            self.retired_inboxes.push_back((Instant::now(), inbox));
+        }
+    }
+
+    fn reap_inboxes(&mut self) {
+        self.retired_inboxes.retain(|(accepted_at, inbox)| {
+            inbox.receipt_pending() && accepted_at.elapsed() < Duration::from_secs(15)
+        });
+    }
 }
 
 struct PreparedAgent {
@@ -28,6 +50,8 @@ struct PreparedAgent {
     reserved: TerminalId,
     arguments: Vec<std::ffi::OsString>,
     hooks: Option<crate::harness::steps::StepInbox>,
+    /// Existing interactive agents receive the next assignment in their terminal.
+    continuation: Option<String>,
 }
 
 impl Application {
@@ -132,6 +156,7 @@ impl Application {
                     size,
                     harnesses,
                     inboxes: HashMap::new(),
+                    retired_inboxes: std::collections::VecDeque::new(),
                     resumed_sessions: HashMap::new(),
                 },
             );
@@ -225,6 +250,7 @@ impl Application {
                     size: super::resume_agents::RESTORED_SIZE,
                     harnesses,
                     inboxes: HashMap::new(),
+                    retired_inboxes: std::collections::VecDeque::new(),
                     resumed_sessions: sessions,
                 },
             );
@@ -235,6 +261,7 @@ impl Application {
         &self,
         run: &mut WorkflowRun,
         sessions: &HashMap<AgentId, String>,
+        live_terminals: &HashMap<AgentId, TerminalId>,
     ) -> Vec<PreparedAgent> {
         let active: Vec<_> = run
             .active_agents()
@@ -249,9 +276,20 @@ impl Application {
                 run.finish(RunStatus::Failed, "Couldn't create the completion command.");
                 break;
             };
+            let prompt = run.instructions(agent.agent_id, &inbox.command());
+            if let Some(&terminal) = live_terminals.get(&AgentId(agent.agent_id)) {
+                prepared.push(PreparedAgent {
+                    agent,
+                    inbox,
+                    reserved: terminal,
+                    arguments: Vec::new(),
+                    hooks: None,
+                    continuation: Some(prompt),
+                });
+                continue;
+            }
             match self.terminals.reserve_terminal() {
                 Ok(reserved) => {
-                    let prompt = run.instructions(agent.agent_id, &inbox.command());
                     let options = crate::harness::launch::validate_options(
                         agent.harness,
                         agent.model.as_deref(),
@@ -289,6 +327,7 @@ impl Application {
                         reserved,
                         arguments,
                         hooks,
+                        continuation: None,
                     });
                 }
                 Err(error) => {
@@ -325,36 +364,57 @@ impl Application {
             return Ok(());
         };
         let mut workflow = inner.workflows.workflows[index].clone();
+        let mut live_terminals: HashMap<_, _> = workflow
+            .agents
+            .iter()
+            .filter_map(|agent| {
+                (inner.terminals.get(&agent.terminal_id) == Some(&TerminalStatus::Running))
+                    .then_some((agent.agent_id, agent.terminal_id))
+            })
+            .collect();
         drop(inner);
+        live_terminals.retain(|_, terminal| self.terminals.is_running(*terminal));
         let run = workflow.run.as_mut().expect("execution has a run");
         run.trace("stageStarted", None, None, "Stage started");
-        let prepared = self.prepare_workflow_stage(run, &processes.resumed_sessions);
+        let prepared =
+            self.prepare_workflow_stage(run, &processes.resumed_sessions, &live_terminals);
         let mut inner = self.lock_inner()?;
         let mut replaced = Vec::new();
         let mut unused = Vec::new();
         let mut step_hooks = Vec::new();
+        let mut continuations = Vec::new();
         for PreparedAgent {
             agent,
             inbox,
             reserved,
             arguments,
             hooks,
+            continuation,
         } in prepared
         {
             if run.status != RunStatus::Running {
-                unused.push(reserved);
+                if continuation.is_none() {
+                    unused.push(reserved);
+                }
                 continue;
             }
             let located = &processes.harnesses[&agent.harness];
-            match self.terminals.start_program(
-                reserved,
-                &processes.folder,
-                &located.program,
-                &arguments,
-                &located.path,
-                processes.size,
-                Arc::new(self.exit_callback()),
-            ) {
+            let continued = continuation.is_some();
+            let launched = if let Some(prompt) = continuation {
+                continuations.push((reserved, prompt));
+                Ok(reserved)
+            } else {
+                self.terminals.start_program(
+                    reserved,
+                    &processes.folder,
+                    &located.program,
+                    &arguments,
+                    &located.path,
+                    processes.size,
+                    Arc::new(self.exit_callback()),
+                )
+            };
+            match launched {
                 Ok(terminal_id) => {
                     if let Some(hooks) = hooks {
                         step_hooks.push((terminal_id, hooks));
@@ -371,11 +431,31 @@ impl Application {
                         .inboxes
                         .insert(AgentId(agent.agent_id), (run.generation, inbox));
                     run.trace(
-                        "agentStarted",
+                        if continued {
+                            "agentContinued"
+                        } else {
+                            "agentStarted"
+                        },
                         Some(agent.agent_id),
                         None,
-                        "Harness started",
+                        if continued {
+                            "Assignment sent to the existing harness"
+                        } else {
+                            "Harness started"
+                        },
                     );
+                    if continued {
+                        run.traces
+                            .last_mut()
+                            .expect("continuation was traced")
+                            .anchor = self.terminals.observe(terminal_id).ok().map(|observation| {
+                            crate::TraceAnchor {
+                                terminal_id,
+                                byte_offset: observation.byte_offset,
+                                boundary_sizes: observation.boundary_sizes,
+                            }
+                        });
+                    }
                 }
                 Err(error) => {
                     run.finish(
@@ -427,7 +507,39 @@ impl Application {
             })
             .collect();
         self.terminals.close_all(&replaced)?;
-        saved
+        saved?;
+        // PTY writes can wait for the harness to read. Keep them outside application state locks.
+        if workflow.status == WorkflowStatus::Running {
+            for (terminal, prompt) in continuations {
+                // Strip control characters so task text cannot close bracketed paste early.
+                let prompt: String = prompt
+                    .chars()
+                    .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+                    .collect();
+                if let Err(error) = self
+                    .terminals
+                    .write_input(terminal, format!("\x1b[200~{prompt}\x1b[201~\r").as_bytes())
+                {
+                    let mut inner = self.lock_inner()?;
+                    let mut workflow = inner.workflows.workflows[index].clone();
+                    workflow.run.as_mut().expect("workflow has a run").finish(
+                        RunStatus::Failed,
+                        "Couldn't send the next assignment to the agent.",
+                    );
+                    workflow.status = WorkflowStatus::Failed;
+                    workflow.ended_at = Some(timestamp());
+                    let terminals = workflow.terminal_ids();
+                    inner.publish_run_best_effort(index, workflow)?;
+                    drop(inner);
+                    self.stop_run_terminals(
+                        &terminals,
+                        "Assignment delivery failed; agent stopped.",
+                    );
+                    return Err(error.into());
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn complete_workflow_role(
@@ -438,7 +550,7 @@ impl Application {
         signal: CompletionSignal,
     ) -> Result<CommandDisposition, ApplicationError> {
         self.poll_harness_steps()?;
-        let (advance, running, terminal_ids) = {
+        let (advance, running) = {
             let mut inner = self.lock_inner()?;
             let Some(index) = inner
                 .workflows
@@ -500,20 +612,10 @@ impl Application {
             if !running {
                 workflow.ended_at = Some(timestamp());
             }
-            let terminals = if advance {
-                workflow.terminal_ids()
-            } else {
-                workflow
-                    .agents
-                    .iter()
-                    .filter(|a| a.agent_id == agent_id)
-                    .map(|a| a.terminal_id)
-                    .collect()
-            };
             if let Err(error) = inner.publish_run(index, workflow) {
                 return Ok(super::rejection("completionStoreFailed", &error));
             }
-            (advance, running, terminals)
+            (advance, running)
         };
         {
             let mut processes = self
@@ -521,20 +623,66 @@ impl Application {
                 .lock()
                 .map_err(|_| ApplicationError::Poisoned)?;
             if let Some(processes) = processes.get_mut(&workflow_id) {
+                if let Some((_, inbox)) = processes.inboxes.remove(&agent_id) {
+                    inbox.accept();
+                    processes.retire_inbox(inbox);
+                }
                 if advance {
-                    processes.inboxes.clear();
-                } else {
-                    processes.inboxes.remove(&agent_id);
+                    for (_, (_, inbox)) in std::mem::take(&mut processes.inboxes) {
+                        inbox.reject("This assignment ended before completion. Wait for your next assignment.");
+                        processes.retire_inbox(inbox);
+                    }
                 }
             }
         }
-        self.stop_run_terminals(
-            &terminal_ids,
-            "Explicit workflow completion stopped the agent.",
-        );
         if advance && running {
             self.launch_workflow_stage(workflow_id)?;
         }
+        Ok(CommandDisposition::Accepted)
+    }
+
+    pub(super) fn continue_workflow_run(
+        &self,
+        workflow_id: WorkflowId,
+        agent_id: AgentId,
+        generation: u64,
+    ) -> Result<CommandDisposition, ApplicationError> {
+        {
+            let mut inner = self.lock_inner()?;
+            let Some(index) = inner
+                .workflows
+                .workflows
+                .iter()
+                .position(|w| w.workflow_id == workflow_id)
+            else {
+                return Ok(reject(
+                    "workflowNotFound",
+                    "The workflow is no longer open.",
+                ));
+            };
+            let mut workflow = inner.workflows.workflows[index].clone();
+            if !workflow.agents.iter().any(|agent| {
+                agent.agent_id == agent_id
+                    && inner.terminals.get(&agent.terminal_id) == Some(&TerminalStatus::Running)
+            }) {
+                return Ok(reject(
+                    "agentNotRunning",
+                    "This agent's terminal is no longer running.",
+                ));
+            }
+            let Some(run) = workflow.run.as_mut() else {
+                return Ok(reject("notWorkflowRun", "This workflow has no stages."));
+            };
+            match run.continue_with(agent_id.0, generation) {
+                Ok(false) => return Ok(CommandDisposition::Accepted),
+                Ok(true) => {}
+                Err(error) => return Ok(super::rejection("invalidContinuation", &error)),
+            }
+            workflow.status = WorkflowStatus::Running;
+            workflow.ended_at = None;
+            inner.publish_run(index, workflow)?;
+        }
+        self.launch_workflow_stage(workflow_id)?;
         Ok(CommandDisposition::Accepted)
     }
 
@@ -559,7 +707,10 @@ impl Application {
             let Some(run) = &mut workflow.run else {
                 return Ok(reject("notWorkflowRun", "This workflow has no stages."));
             };
-            if run.status != RunStatus::Running {
+            if !matches!(
+                run.status,
+                RunStatus::Running | RunStatus::Completed | RunStatus::LimitReached
+            ) {
                 return Ok(reject("workflowNotRunning", "The workflow isn't running."));
             }
             run.finish(RunStatus::Cancelled, "Workflow cancelled");
@@ -666,16 +817,24 @@ impl Application {
 
     pub(super) fn prune_run_processes(&self) -> Result<(), ApplicationError> {
         let inner = self.lock_inner()?;
-        self.run_processes
+        let mut processes = self
+            .run_processes
             .lock()
-            .map_err(|_| ApplicationError::Poisoned)?
-            .retain(|id, _| {
-                inner
-                    .workflows
-                    .workflows
-                    .iter()
-                    .any(|w| w.workflow_id == *id && w.status == WorkflowStatus::Running)
-            });
+            .map_err(|_| ApplicationError::Poisoned)?;
+        for processes in processes.values_mut() {
+            processes.reap_inboxes();
+        }
+        processes.retain(|id, _| {
+            inner.workflows.workflows.iter().any(|w| {
+                w.workflow_id == *id
+                    && w.run.as_ref().is_some_and(|run| {
+                        matches!(
+                            run.status,
+                            RunStatus::Running | RunStatus::Completed | RunStatus::LimitReached
+                        )
+                    })
+            })
+        });
         Ok(())
     }
 }
@@ -693,7 +852,8 @@ impl super::Inner {
             .iter_mut()
             .find(|tab| tab.agent_id.0 == agent_id)
             .expect("agent tab exists");
-        let previous = (tab.terminal_id.value() != 0).then_some(tab.terminal_id);
+        let previous = (tab.terminal_id.value() != 0 && tab.terminal_id != terminal_id)
+            .then_some(tab.terminal_id);
         if let Some(previous) = previous {
             self.terminals.remove(&previous);
         }
@@ -905,6 +1065,10 @@ mod tests {
     const FAKE: &str = r#"
     while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
     prompt=$2
+    paste_start=$(printf '\033[200~')
+    paste_end=$(printf '\033[201~')
+    while :; do
+    completion=''
     command=$(printf '%s\n' "$prompt" | sed -n "s/^'\(.*\/complete\)' <<.*/\1/p")
     case "$prompt" in
       'You are Implementer '*) echo implement >> order; decision=done ;;
@@ -912,15 +1076,26 @@ mod tests {
           if [ -f request-changes ]; then decision=requestChanges; fi ;;
       'You are Coordinator in the Split '*)
           echo split >> order
-          printf '%s' '{"decision":"done","assignments":[{"role":"worker","instance":1,"task":"First sub-task","files":["first.txt"]},{"role":"worker","instance":2,"task":"Second sub-task","files":["second.txt"]}]}' | "$command"
-          exit ;;
+          completion='{"decision":"done","summary":"Result or feedback","assignments":[{"role":"worker","instance":1,"task":"First sub-task","files":["first.txt"]},{"role":"worker","instance":2,"task":"Second sub-task","files":["second.txt"]}]}' ;;
       'You are Worker 1 '*) echo worker1 >> order; printf '%s' "$prompt" > worker1-prompt
           while [ ! -f worker2-prompt ]; do sleep 0.01; done; decision=done ;;
       'You are Worker 2 '*) echo worker2 >> order; printf '%s' "$prompt" > worker2-prompt
           while [ ! -f worker1-prompt ]; do sleep 0.01; done; decision=done ;;
       'You are Coordinator in the Gather '*) echo gather >> order; printf '%s' "$prompt" > gather-prompt; decision=done ;;
     esac
-    printf '{"decision":"%s","summary":"Result or feedback"}' "$decision" | "$command"
+    if [ -z "$completion" ]; then
+        completion=$(printf '{"decision":"%s","summary":"Result or feedback"}' "$decision")
+    fi
+    printf '%s' "$completion" | "$command"
+    prompt=''
+    while IFS= read -r line; do
+        if [ "$line" = "$paste_end" ]; then break; fi
+        line=${line#"$paste_start"}
+        prompt="$prompt$line
+"
+    done
+    [ -n "$prompt" ] || exit
+    done
     "#;
 
     #[test]
@@ -1005,6 +1180,248 @@ mod tests {
             );
             assert_run_trace_history(&app, &result, if limited { 8 } else { 2 });
         }
+    }
+
+    fn finish_active_stage(app: &Application, workflow: &Workflow, decision: Decision, task: &str) {
+        let run = workflow.run.as_ref().unwrap();
+        for agent in run.active_agents() {
+            accepted(
+                app,
+                Command::CompleteWorkflowRole {
+                    workflow_id: workflow.workflow_id,
+                    agent_id: AgentId(agent.agent_id),
+                    generation: run.generation,
+                    signal: CompletionSignal {
+                        decision: if run.is_reviewer(agent.agent_id) {
+                            decision
+                        } else {
+                            Decision::Done
+                        },
+                        summary: "Result or feedback".into(),
+                        task: task.into(),
+                        assignments: run
+                            .assignment_targets(agent.agent_id)
+                            .iter()
+                            .map(|target| crate::Assignment {
+                                role: target.role.clone(),
+                                instance: target.instance,
+                                task: format!("Task {}", target.instance),
+                                files: vec![format!("{}.txt", target.instance)],
+                            })
+                            .collect(),
+                    },
+                },
+            );
+        }
+    }
+
+    fn finish_remaining_stages(app: &Application, id: WorkflowId) {
+        loop {
+            let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
+            assert_eq!(workflow.workflow_id, id);
+            if workflow.status != WorkflowStatus::Running {
+                break;
+            }
+            finish_active_stage(app, &workflow, Decision::Approve, "");
+        }
+    }
+
+    #[test]
+    fn agents_stay_interactive_and_keep_their_processes_across_handoffs_and_follow_ups() {
+        for builtin in BuiltinType::ALL {
+            let folder = tempfile::tempdir().unwrap();
+            let bin = tempfile::tempdir().unwrap();
+            let app = application(
+                folder.path(),
+                bin.path(),
+                r#"
+                stty -echo
+                echo $$ >> processes
+                while IFS= read -r line; do printf '%s\n' "$line" >> "input-$$"; done
+            "#,
+            );
+            let id = launch(&app, folder.path(), builtin);
+            let first = wait_for(&app, id, |w| !w.terminal_ids().is_empty());
+            let first_agent = first.agents[0].agent_id;
+            let first_terminal = first.agents[0].terminal_id;
+            finish_active_stage(&app, &first, Decision::Approve, "");
+            app.write_terminal_input(first_terminal, b"still interactive after handing off\n")
+                .unwrap();
+            if builtin == BuiltinType::Adversarial {
+                let review = app.snapshot().unwrap().workflows.workflows[0].clone();
+                finish_active_stage(&app, &review, Decision::RequestChanges, "");
+                let implement = app.snapshot().unwrap().workflows.workflows[0].clone();
+                assert_eq!(implement.agents[0].terminal_id, first_terminal);
+                finish_active_stage(&app, &implement, Decision::Approve, "");
+            }
+            finish_remaining_stages(&app, id);
+            let completed = app.snapshot().unwrap().workflows.workflows[0].clone();
+            assert_eq!(completed.status, WorkflowStatus::Completed);
+            let terminals = completed.terminal_ids();
+            assert_eq!(completed.agents[0].terminal_id, first_terminal);
+            for terminal in &terminals {
+                assert_eq!(
+                    app.lock_inner().unwrap().terminals[terminal],
+                    TerminalStatus::Running
+                );
+                app.write_terminal_input(*terminal, b"still interactive after completing\n")
+                    .unwrap();
+            }
+            for _ in 0..2 {
+                accepted(
+                    &app,
+                    Command::ContinueWorkflowRun {
+                        workflow_id: id,
+                        agent_id: first_agent,
+                        generation: completed.run.as_ref().unwrap().generation,
+                    },
+                );
+            }
+            let continued = app.snapshot().unwrap().workflows.workflows[0].clone();
+            assert!(continued.run.as_ref().unwrap().needs_task());
+            assert_eq!(continued.terminal_ids(), terminals);
+            app.write_terminal_input(first_terminal, b"The follow-up task\n")
+                .unwrap();
+            finish_active_stage(&app, &continued, Decision::Approve, "The follow-up task");
+            finish_remaining_stages(&app, id);
+            let finished = app.snapshot().unwrap().workflows.workflows[0].clone();
+            assert_eq!(finished.status, WorkflowStatus::Completed);
+            assert_eq!(finished.terminal_ids(), terminals);
+            assert_eq!(finished.terminal_history, []);
+            assert_eq!(finished.run.as_ref().unwrap().prompt, "The follow-up task");
+            wait_for(&app, id, |_| {
+                std::fs::read_to_string(folder.path().join("processes"))
+                    .is_ok_and(|pids| pids.lines().count() == terminals.len())
+                    && std::fs::read_dir(folder.path())
+                        .unwrap()
+                        .filter_map(Result::ok)
+                        .filter(|entry| entry.file_name().to_string_lossy().starts_with("input-"))
+                        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+                        .any(|text| text.contains("The follow-up task"))
+            });
+            let processes = std::fs::read_to_string(folder.path().join("processes")).unwrap();
+            assert_eq!(processes.lines().count(), terminals.len());
+            assert_live_assignment_history(
+                &app,
+                id,
+                &terminals,
+                if builtin == BuiltinType::Adversarial {
+                    6
+                } else {
+                    8
+                },
+            );
+            accepted(&app, Command::CloseWorkflow { workflow_id: id });
+            for terminal in terminals {
+                assert!(
+                    app.write_terminal_input(terminal, b"after closing\n")
+                        .is_err()
+                );
+            }
+        }
+    }
+
+    fn assert_live_assignment_history(
+        app: &Application,
+        id: WorkflowId,
+        terminals: &[TerminalId],
+        count: usize,
+    ) {
+        let page = app.workflow_trace(id, None, 200).unwrap();
+        let assignments: Vec<_> = page
+            .spans
+            .iter()
+            .filter(|span| span.title != "Shell")
+            .collect();
+        assert_eq!(assignments.len(), count);
+        for span in assignments {
+            assert!(terminals.contains(&span.terminal_id.expect("each assignment has a terminal")));
+            assert_eq!(span.status, crate::TraceSpanStatus::Completed);
+            let events = app.trace_events(span.span_id, None, 200).unwrap().events;
+            if let Some(continuation) = events.iter().find(|event| {
+                event
+                    .message
+                    .contains("Assignment sent to the existing harness")
+            }) {
+                let anchor = continuation
+                    .anchor
+                    .as_ref()
+                    .expect("continuation has a terminal boundary");
+                assert_eq!(anchor.terminal_id, span.terminal_id.unwrap());
+                assert!(
+                    events
+                        .iter()
+                        .all(|event| event.kind != crate::TraceEventKind::ProcessStarted)
+                );
+                let completion = events
+                    .iter()
+                    .find(|event| {
+                        event.message.contains("Marked done") || event.message.contains("Approved:")
+                    })
+                    .unwrap();
+                assert!(anchor.byte_offset <= completion.anchor.as_ref().unwrap().byte_offset);
+            }
+            assert!(
+                events
+                    .iter()
+                    .all(|event| event.kind != crate::TraceEventKind::ProcessStopped)
+            );
+        }
+    }
+
+    #[test]
+    fn reaching_the_review_limit_keeps_agents_live_for_a_fresh_cycle_and_explicit_cancel() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(
+            folder.path(),
+            bin.path(),
+            "while read line; do echo \"$line\"; done",
+        );
+        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        loop {
+            let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
+            if workflow.status != WorkflowStatus::Running {
+                break;
+            }
+            finish_active_stage(&app, &workflow, Decision::RequestChanges, "");
+        }
+        let limited = app.snapshot().unwrap().workflows.workflows[0].clone();
+        assert_eq!(
+            limited.run.as_ref().unwrap().status,
+            RunStatus::LimitReached
+        );
+        let terminals = limited.terminal_ids();
+        for terminal in &terminals {
+            assert!(app.terminals.is_running(*terminal));
+        }
+        accepted(
+            &app,
+            Command::ContinueWorkflowRun {
+                workflow_id: id,
+                agent_id: limited.agents[0].agent_id,
+                generation: limited.run.as_ref().unwrap().generation,
+            },
+        );
+        let continued = app.snapshot().unwrap().workflows.workflows[0].clone();
+        assert_eq!(continued.terminal_ids(), terminals);
+        assert!(continued.run.as_ref().unwrap().rounds.is_empty());
+        finish_active_stage(
+            &app,
+            &continued,
+            Decision::Approve,
+            "A follow-up after the review limit",
+        );
+        finish_remaining_stages(&app, id);
+        assert_eq!(
+            app.snapshot().unwrap().workflows.workflows[0].status,
+            WorkflowStatus::Completed
+        );
+        accepted(&app, Command::CancelWorkflowRun { workflow_id: id });
+        for terminal in terminals {
+            assert!(!app.terminals.is_running(terminal));
+        }
+        assert!(app.run_processes.lock().unwrap().is_empty());
     }
 
     fn assert_run_trace_history(app: &Application, workflow: &Workflow, invocations: u64) {
@@ -1165,10 +1582,7 @@ mod tests {
                     .iter()
                     .any(|event| event.kind == crate::TraceEventKind::ProcessStarted)
             );
-            assert!(events.iter().any(|event| matches!(
-                event.kind,
-                crate::TraceEventKind::ProcessStopped | crate::TraceEventKind::ProcessExited
-            )));
+            assert!(app.terminals.is_running(span.terminal_id.unwrap()));
         }
         let handoffs = page
             .spans
@@ -1317,8 +1731,9 @@ mod tests {
         assert!(
             events
                 .iter()
-                .any(|event| event.kind == crate::TraceEventKind::ProcessStopped)
+                .all(|event| event.kind != crate::TraceEventKind::ProcessStopped)
         );
+        assert!(app.terminals.is_running(terminal));
         let unfinished = page
             .spans
             .iter()
@@ -1327,6 +1742,7 @@ mod tests {
         assert!(unfinished.is_live && unfinished.ended_at.is_none());
         let finished = finished.clone();
         accepted(&app, Command::CancelWorkflowRun { workflow_id: id });
+        assert!(!app.terminals.is_running(terminal));
         let page = app.workflow_trace(id, None, 200).unwrap();
         assert_eq!(
             page.spans
@@ -1944,11 +2360,6 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             app.poll_workflow_signals().unwrap();
-            if let Some(status) = child.try_wait().unwrap() {
-                // Rejections return actionable feedback and a failing exit status.
-                assert!(!status.success());
-                return;
-            }
             let remains = app
                 .run_processes
                 .lock()
@@ -1960,11 +2371,8 @@ mod tests {
                         .values()
                         .any(|(_, inbox)| inbox.command() == command)
                 });
-            if !remains {
-                // This test helper runs outside the owned harness's process group. Simulate
-                // the cancellation an accepted completion applies to the real helper.
-                child.kill().unwrap();
-                child.wait().unwrap();
+            if let Some(status) = child.try_wait().unwrap() {
+                assert_eq!(status.success(), !remains);
                 return;
             }
             assert!(Instant::now() < deadline, "completion wasn't processed");

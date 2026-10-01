@@ -347,7 +347,10 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         "validateWorkflowType" | "saveWorkflowType" => {
             DecodedCommand::Known(workflow_types::decode_command(command_type, &raw.command)?)
         }
-        "startWorkflowRun" | "completeWorkflowRole" | "cancelWorkflowRun" => {
+        "startWorkflowRun"
+        | "completeWorkflowRole"
+        | "continueWorkflowRun"
+        | "cancelWorkflowRun" => {
             DecodedCommand::Known(runs::decode_command(command_type, &raw.command)?)
         }
         "ping" => DecodedCommand::Known(Command::Ping),
@@ -710,6 +713,13 @@ mod tests {
             decode(r#"{"requestId":3,"command":{"type":"cancelWorkflowRun","workflowId":3}}"#);
         assert!(
             matches!(command, Command::CancelWorkflowRun { workflow_id } if workflow_id.0 == 3)
+        );
+        let command = decode(
+            r#"{"requestId":6,"command":{"type":"continueWorkflowRun","workflowId":3,"agentId":4,"generation":5}}"#,
+        );
+        assert!(
+            matches!(command, Command::ContinueWorkflowRun { workflow_id, agent_id, generation: 5 }
+            if workflow_id.0 == 3 && agent_id.0 == 4)
         );
     }
 

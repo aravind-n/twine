@@ -40,7 +40,7 @@ struct TerminalSurface: View {
     var subject = "Shell"
     /// A cancelled agent says so instead of how its process ended.
     var isCancelled = false
-    /// The role's lifecycle explains intentional process stops after a completion or handoff.
+    /// The role's assignment outcome, independent of whether its terminal is still interactive.
     var agentStatus: CoreWorkflowRun.AgentStatus?
     var beforeUserInput: (() async throws -> Void)?
     /// Called after the terminal takes the keyboard, such as when it's clicked.
