@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.1.0] - 2026-10-01
 
-- Tag-triggered draft releases with changelog notes, a universal macOS app ZIP with install
-  instructions, the static C ABI library and header, source, debug symbols, and checksums.
+Initial release of Twine, a native macOS workspace for coordinating coding agents.
 
-[unreleased]: https://github.com/aravind-n/twine/compare/HEAD
+### Known limitations
+
+- The app is ad hoc signed and not notarized. Follow the included install instructions
+  to approve the first launch in macOS Privacy & Security settings.
+- Agent harnesses must be installed and authenticated separately. Tracing and
+  conversation resumption depend on the harness and its version.
+
+[unreleased]: https://github.com/aravind-n/twine/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/aravind-n/twine/releases/tag/v0.1.0

@@ -5,11 +5,10 @@ Detailed usage, integration, development, and release notes. Start with the
 
 ## Install
 
-No prebuilt GitHub Release has been published yet. Use the
-[development setup](#development-setup) to build Twine from source on **macOS 26+**.
-The app targets Apple Silicon and Intel.
+Twine requires **macOS 26+** and supports Apple Silicon and Intel. You can also
+use the [development setup](#development-setup) to build it from source.
 
-When a packaged release is available, download its universal ZIP from
+Download the universal ZIP from
 [GitHub Releases](https://github.com/aravind-n/twine/releases), extract it, move
 `Twine.app` to Applications, and follow its included `README.txt`. The current
 packaging produces an ad hoc signed app that is not notarized. If macOS blocks
