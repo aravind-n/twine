@@ -940,7 +940,7 @@ mod tests {
             .unwrap();
         let snapshot = application.snapshot().unwrap();
         assert_eq!(snapshot.workflows, WorkflowState::default());
-        assert!(snapshot.terminals.is_empty());
+        assert_eq!(snapshot.terminals, []);
         for id in [first.terminal_id, second.terminal_id] {
             assert!(
                 application
@@ -1001,7 +1001,7 @@ mod tests {
             });
             let snapshot = application.snapshot().unwrap();
             assert_eq!(snapshot.workflows, WorkflowState::default());
-            assert!(snapshot.terminals.is_empty());
+            assert_eq!(snapshot.terminals, []);
             assert!(snapshot.folders.open_folder.is_none());
         }
     }
@@ -1123,7 +1123,7 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(application.snapshot().unwrap().terminals.is_empty());
+        assert_eq!(application.snapshot().unwrap().terminals, []);
     }
 
     #[test]
@@ -1149,7 +1149,7 @@ mod tests {
         application
             .handle_command(RequestId(3), Command::CloseFolder)
             .unwrap();
-        assert!(application.snapshot().unwrap().terminals.is_empty());
+        assert_eq!(application.snapshot().unwrap().terminals, []);
         assert!(
             application
                 .events_after(snapshot.sequence, 32)
@@ -1199,7 +1199,7 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(application.snapshot().unwrap().terminals.is_empty());
+        assert_eq!(application.snapshot().unwrap().terminals, []);
     }
 
     #[test]
@@ -1257,8 +1257,8 @@ mod tests {
             CommandDisposition::Accepted
         );
         let snapshot = application.snapshot().unwrap();
-        assert!(snapshot.workflows.workflows.is_empty());
-        assert!(snapshot.terminals.is_empty());
+        assert_eq!(snapshot.workflows.workflows, []);
+        assert_eq!(snapshot.terminals, []);
         for terminal_id in terminal_ids {
             assert!(
                 application

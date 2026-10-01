@@ -405,7 +405,7 @@ mod tests {
         run.finish(RunStatus::Failed, "Couldn't reserve a terminal");
         workflow.status = WorkflowStatus::Failed;
         workflow.ended_at = Some(1);
-        assert!(store.save_workflow_run(&workflow).unwrap().is_empty());
+        assert_eq!(store.save_workflow_run(&workflow).unwrap(), []);
         let page = store.workflow_trace(workflow_id, None, 10).unwrap();
         assert_eq!(page.spans.len(), 1);
         assert_eq!(page.summary.agent_count, 0);

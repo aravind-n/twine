@@ -513,7 +513,7 @@ mod tests {
         );
         let live = workflow(&app);
         assert!(!live.restored);
-        assert!(live.terminal_history.is_empty());
+        assert_eq!(live.terminal_history, []);
         assert_eq!(live.terminal_ids(), vec![live.terminal_id]);
         app.write_terminal_input(live.terminal_id, b"exit\n")
             .unwrap();
@@ -1075,8 +1075,8 @@ mod tests {
         let trace = application
             .workflow_trace(draft.workflow_id, None, 10)
             .unwrap();
-        assert!(trace.spans.is_empty());
-        assert!(trace.lanes.is_empty());
+        assert_eq!(trace.spans, []);
+        assert_eq!(trace.lanes, []);
         let history = application
             .lock_inner()
             .unwrap()

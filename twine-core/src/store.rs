@@ -584,12 +584,7 @@ mod tests {
             .connection
             .execute("DELETE FROM workflows WHERE id = 2", [])
             .unwrap();
-        assert!(
-            store
-                .terminal_history(crate::WorkflowId(2))
-                .unwrap()
-                .is_empty()
-        );
+        assert_eq!(store.terminal_history(crate::WorkflowId(2)).unwrap(), []);
         assert_eq!(
             store.terminal_history(crate::WorkflowId(1)).unwrap().len(),
             1

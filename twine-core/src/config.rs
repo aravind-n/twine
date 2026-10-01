@@ -248,7 +248,7 @@ mod tests {
         for source in ["", "# empty\n", "[appearance]\n", "[terminal]\n"] {
             let loaded = Config::parse(Path::new(PATH), source);
             assert_eq!(loaded.config, Config::default());
-            assert!(loaded.diagnostics.is_empty());
+            assert_eq!(loaded.diagnostics, []);
         }
     }
 
@@ -270,7 +270,7 @@ mod tests {
                 loaded.config.terminal.font_size,
                 FontSize(size.parse::<f64>().unwrap())
             );
-            assert!(loaded.diagnostics.is_empty());
+            assert_eq!(loaded.diagnostics, []);
         }
     }
 
@@ -280,10 +280,10 @@ mod tests {
         assert_eq!(family.config.terminal.font_family, "Menlo");
         assert_eq!(family.config.terminal.font_size, FontSize::default());
         let size = Config::parse(Path::new(PATH), "terminal.font_size = 18\n");
-        assert!(size.config.terminal.font_family.is_empty());
+        assert_eq!(size.config.terminal.font_family, "");
         assert_eq!(size.config.terminal.font_size, FontSize(18.0));
-        assert!(family.diagnostics.is_empty());
-        assert!(size.diagnostics.is_empty());
+        assert_eq!(family.diagnostics, []);
+        assert_eq!(size.diagnostics, []);
     }
 
     #[test]
@@ -363,7 +363,7 @@ mod tests {
             let source = format!("[appearance]\ncolor_scheme = {value}\n");
             let loaded = Config::parse(Path::new(PATH), &source);
             assert_eq!(loaded.config, Config::default());
-            assert!(!loaded.diagnostics.is_empty());
+            assert_ne!(loaded.diagnostics, []);
             let diagnostic = &loaded.diagnostics[0];
             assert_eq!(diagnostic.file, Path::new(PATH));
             assert!(diagnostic.line >= 2);
@@ -445,7 +445,7 @@ mod tests {
         let path = directory.path().join("twine/config.toml");
         let loaded = Config::load(&path);
         assert_eq!(loaded.config, Config::default());
-        assert!(loaded.diagnostics.is_empty());
+        assert_eq!(loaded.diagnostics, []);
         let source = fs::read_to_string(&path).unwrap();
         assert!(source.contains("[appearance]"));
         assert!(source.contains("# color_scheme = \"system\""));
@@ -463,7 +463,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert_eq!(Config::parse(&path, &uncommented).config, Config::default());
-        assert!(Config::parse(&path, &uncommented).diagnostics.is_empty());
+        assert_eq!(Config::parse(&path, &uncommented).diagnostics, []);
 
         let edited = "[appearance]\ncolor_scheme = 'light'\n";
         fs::write(&path, edited).unwrap();
@@ -503,7 +503,7 @@ mod tests {
                 scope.spawn(|| {
                     let loaded = Config::load(&path);
                     assert_eq!(loaded.config, Config::default());
-                    assert!(loaded.diagnostics.is_empty());
+                    assert_eq!(loaded.diagnostics, []);
                 });
             }
         });

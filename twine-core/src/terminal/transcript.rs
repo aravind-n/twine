@@ -640,7 +640,7 @@ mod tests {
         let Some(TranscriptRead::Output(page)) = request.poll().unwrap() else {
             panic!("ordered read completes before the later append");
         };
-        assert!(page.bytes.is_empty());
+        assert_eq!(page.bytes, b"");
     }
 
     #[test]

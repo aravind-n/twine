@@ -617,11 +617,11 @@ mod tests {
                 result: CommandResult::Pong,
             }
         );
-        assert!(
+        assert_eq!(
             application
                 .events_after(events[0].sequence, 16)
-                .expect("up-to-date cursor should succeed")
-                .is_empty()
+                .expect("up-to-date cursor should succeed"),
+            []
         );
     }
 
@@ -739,7 +739,7 @@ mod tests {
 
         let snapshot = application.snapshot().expect("snapshot should succeed");
         assert_eq!(snapshot.sequence, sequence);
-        assert!(snapshot.terminals.is_empty());
+        assert_eq!(snapshot.terminals, []);
     }
 
     #[test]

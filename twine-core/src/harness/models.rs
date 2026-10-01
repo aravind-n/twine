@@ -616,12 +616,12 @@ mod tests {
         assert_eq!(models[0].id, "lmstudio/qwen/qwen3.8-27b");
         assert_eq!(models[0].name, "qwen/qwen3.8-27b");
         assert_eq!(models[1].group.as_deref(), Some("openrouter"));
-        assert!(
+        assert_eq!(
             HarnessId::Pi
                 .parse_models("No models available.\n")
                 .unwrap()
-                .models
-                .is_empty()
+                .models,
+            []
         );
     }
 
@@ -642,12 +642,12 @@ mod tests {
             Some(vec!["low".into(), "high".into()])
         );
         assert!(models.allows_custom && models.supports_yolo);
-        assert!(
+        assert_eq!(
             HarnessId::Omp
                 .parse_models(r#"{"models":[]}"#)
                 .unwrap()
-                .models
-                .is_empty()
+                .models,
+            []
         );
         for unreadable in [
             "not json",
@@ -707,14 +707,14 @@ mod tests {
                 "Custom_Name".into()
             ])
         );
-        assert!(models.efforts.is_empty());
+        assert_eq!(models.efforts, Vec::<String>::new());
         assert!(models.allows_custom && !models.supports_yolo);
-        assert!(
+        assert_eq!(
             HarnessId::Opencode
                 .parse_models(r#"{"data":[]}"#)
                 .unwrap()
-                .models
-                .is_empty()
+                .models,
+            []
         );
         for unreadable in [
             "",

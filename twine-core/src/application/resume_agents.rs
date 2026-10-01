@@ -420,7 +420,7 @@ mod tests {
                     workflow_id: resumed.workflow_id,
                 },
             );
-            assert!(app.snapshot().unwrap().workflows.workflows.is_empty());
+            assert_eq!(app.snapshot().unwrap().workflows.workflows, []);
             assert!(app.terminals.size(resumed.terminal_id).is_none());
         }
     }
@@ -438,11 +438,7 @@ mod tests {
                 path: folder.path().to_owned(),
             },
         );
-        assert!(
-            workflow(&app, original.workflow_id)
-                .terminal_ids()
-                .is_empty()
-        );
+        assert_eq!(workflow(&app, original.workflow_id).terminal_ids(), []);
         let invalid = app
             .handle_command(
                 RequestId(2),
