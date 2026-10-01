@@ -15,6 +15,9 @@ actor DelayedStartTransport {
     private var startRequestID: UInt64?
     private var nextRequestID: UInt64 = 1
     private var eventsToDeliver: [CoreEvent] = []
+    /// The harnesses whose models were requested, in order.
+    private(set) var modelRequests: [CoreHarness] = []
+    private var modelFailures: [CoreHarness: CoreFailure] = [:]
 
     init(snapshot: CoreSnapshot = .testReady()) {
         initialSnapshot = snapshot
@@ -52,6 +55,17 @@ actor DelayedStartTransport {
             break
         }
         return CoreCommandReceipt(requestID: requestID, status: .accepted, error: nil)
+    }
+
+    /// Makes listing `harness`'s models throw, or succeed again when `failure` is nil.
+    func failModels(_ harness: CoreHarness, with failure: CoreFailure?) {
+        modelFailures[harness] = failure
+    }
+
+    func harnessModels(_ request: HarnessModelsRequest) throws -> CoreHarnessModelsResult {
+        modelRequests.append(request.harness)
+        if let failure = modelFailures[request.harness] { throw failure }
+        return .listed(.init(models: [], allowsCustom: false, efforts: [], supportsYolo: true))
     }
 
     func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {

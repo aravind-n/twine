@@ -27,6 +27,9 @@ nonisolated private struct CommandPayload: Encodable {
     var workflowID: UInt64?
     var name: String?
     var harness: CoreHarness?
+    var model: String?
+    var effort: String?
+    var yolo: Bool?
     var workflowType: CoreWorkflowType.Reference?
     var roleLaunches: [CoreRoleLaunch]?
     var agentID: UInt64?
@@ -37,7 +40,7 @@ nonisolated private struct CommandPayload: Encodable {
     var terminalID: UInt64?
 
     private enum CodingKeys: String, CodingKey {
-        case path, folder, kind, roles, size, type, workingDirectory, name, harness
+        case path, folder, kind, roles, size, type, workingDirectory, name, harness, model, effort, yolo
         case terminalID = "terminalId"
         case workflowID = "workflowId"
         case sessionID = "sessionId"
@@ -153,10 +156,13 @@ nonisolated private struct CommandPayload: Encodable {
         case .closeWorkflow(let workflowID):
             type = "closeWorkflow"
             self.workflowID = workflowID
-        case .startAgent(let workflowID, let harness, let size):
+        case .startAgent(let workflowID, let choice, let size):
             type = "startAgent"
             self.workflowID = workflowID
-            self.harness = harness
+            self.harness = choice.harness
+            self.model = choice.model
+            self.effort = choice.effort
+            self.yolo = choice.yolo ? true : nil
             self.size = size
         case .cancelAgent(let workflowID):
             type = "cancelAgent"

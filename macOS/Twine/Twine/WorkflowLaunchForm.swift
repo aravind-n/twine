@@ -6,7 +6,9 @@ struct WorkflowLaunchForm: View {
     let type: CoreWorkflowType
     var isSelected = true
     let back: () -> Void
-    @State private var harnesses: [String: [CoreHarness]] = [:]
+    @Environment(HarnessModelCatalog.self) private var catalog
+    /// Each role's harness choices, one per instance.
+    @State private var choices: [String: [HarnessChoice]] = [:]
     @State private var isStarting = false
     @State private var failure: String?
     @State private var hasLoaded = false
@@ -16,7 +18,7 @@ struct WorkflowLaunchForm: View {
         VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
             Text(type.definition.name).font(.system(size: 14, weight: .bold))
             Text(type.definition.description).font(.caption).foregroundStyle(.secondary)
-            WorkflowGraph(type: type, counts: harnesses.mapValues(\.count))
+            WorkflowGraph(type: type, counts: choices.mapValues(\.count))
             ForEach(type.definition.roles) { role in
                 rolePickers(role)
             }
@@ -42,10 +44,11 @@ struct WorkflowLaunchForm: View {
         }
         .onAppear {
             if !hasLoaded {
-                harnesses = preferences.harnesses(for: type)
+                choices = preferences.choices(for: type)
                 hasLoaded = true
             }
         }
+        .task { await catalog.load(using: client) }
     }
 
     /// The role that starts the run, which the user talks to first.
@@ -57,29 +60,25 @@ struct WorkflowLaunchForm: View {
         VStack(alignment: .leading, spacing: 6) {
             if role.instances.max > role.instances.min {
                 Stepper(
-                    "\(role.name): \(harnesses[role.id]?.count ?? role.instances.min)",
+                    "\(role.name): \(choices[role.id]?.count ?? role.instances.min)",
                     value: Binding(
-                        get: { harnesses[role.id]?.count ?? role.instances.min },
+                        get: { choices[role.id]?.count ?? role.instances.min },
                         set: { count in
-                            let old = harnesses[role.id] ?? []
-                            harnesses[role.id] =
-                                Array(old.prefix(count)) + Array(repeating: .codex, count: max(0, count - old.count))
+                            let old = choices[role.id] ?? []
+                            // A new instance starts like the last one.
+                            let fill = old.last ?? HarnessChoice(harness: .codex)
+                            choices[role.id] =
+                                Array(old.prefix(count)) + Array(repeating: fill, count: max(0, count - old.count))
                         }), in: role.instances.min...role.instances.max)
             }
-            ForEach(0..<(harnesses[role.id]?.count ?? 0), id: \.self) { index in
-                Picker(
-                    selection: Binding(
-                        get: { harnesses[role.id]?[index] ?? .codex },
-                        set: { harnesses[role.id]?[index] = $0 })
-                ) {
-                    ForEach(CoreHarness.allCases) { Text($0.displayName).tag($0) }
-                } label: {
-                    Label(
-                        role.instances.max > 1 ? "\(role.name) \(index + 1)" : role.name,
-                        systemImage: RoleStyle(role: role.name).symbol
-                    ).foregroundStyle(RoleStyle(role: role.name).color)
-                }
-                .accessibilityIdentifier("roleHarness-\(role.id)-\(index)")
+            ForEach(0..<(choices[role.id]?.count ?? 0), id: \.self) { index in
+                HarnessChoiceRow(
+                    title: role.instances.max > 1 ? "\(role.name) \(index + 1)" : role.name,
+                    symbol: RoleStyle(role: role.name).symbol, color: RoleStyle(role: role.name).color,
+                    choice: Binding(
+                        get: { choices[role.id]?[index] ?? HarnessChoice(harness: .codex) },
+                        set: { choices[role.id]?[index] = $0 }),
+                    identifier: "\(role.id)-\(index)")
             }
         }.font(.caption).disabled(isStarting)
     }
@@ -87,9 +86,9 @@ struct WorkflowLaunchForm: View {
     private func start() {
         guard !isStarting else { return }
         let roles = type.definition.roles.flatMap { role in
-            (harnesses[role.id] ?? []).map { CoreRoleLaunch(role: role.id, harness: $0) }
+            (choices[role.id] ?? []).map { CoreRoleLaunch(role: role.id, choice: $0) }
         }
-        let assignments = harnesses
+        let assignments = choices
         isStarting = true
         failure = nil
         Task {
@@ -117,6 +116,7 @@ struct WorkflowLaunchForm: View {
                     ]))
         ) { visible = false }
         .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
+        .environment(HarnessModelCatalog())
         .padding().frame(width: 550)
     } else {
         Button("Show launch form") { visible = true }

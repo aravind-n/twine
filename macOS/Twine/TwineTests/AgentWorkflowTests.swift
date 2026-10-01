@@ -35,7 +35,9 @@ struct AgentWorkflowTests {
     @Test func startAgentEncodesHarnessAndSizeWithoutAPrompt() throws {
         let size = CoreTerminalSize(rows: 24, columns: 80, pixelWidth: 800, pixelHeight: 480)
         let envelope = CommandEnvelope(
-            requestID: 5, command: .startAgent(workflowID: 3, harness: .piAgent, size: size))
+            requestID: 5,
+            command: .startAgent(
+                workflowID: 3, choice: .init(harness: .piAgent, model: "local/m1", effort: "high"), size: size))
         let object = try #require(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope)) as? [String: Any])
         let command = try #require(object["command"] as? [String: Any])
@@ -43,6 +45,13 @@ struct AgentWorkflowTests {
         #expect(command["workflowId"] as? UInt64 == 3)
         #expect(command["harness"] as? String == "pi")
         #expect(command["prompt"] == nil)
+        #expect(command["model"] as? String == "local/m1")
+        #expect(command["effort"] as? String == "high")
+        #expect(command["yolo"] == nil, "YOLO is only sent when chosen")
+        let yolo = CommandEnvelope(
+            requestID: 6, command: .startAgent(workflowID: 3, choice: .init(harness: .codex, yolo: true), size: size))
+        let yoloObject = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(yolo)) as? [String: Any])
+        #expect((yoloObject["command"] as? [String: Any])?["yolo"] as? Bool == true)
     }
 
     private func agent(_ status: CoreWorkflow.Status) -> CoreWorkflow {
@@ -115,14 +124,14 @@ struct AgentWorkflowTests {
 
         await transport.reply(with: .completes(.agentStarted(workflowID: 99)))
         await #expect(throws: CoreFailure.unexpectedCommandResult) {
-            try await client.startAgent(workflowID: 3, harness: .codex)
+            try await client.startAgent(workflowID: 3, choice: .init(harness: .codex))
         }
         await transport.reply(with: .completes(.agentCancelled(workflowID: 99)))
         await #expect(throws: CoreFailure.unexpectedCommandResult) {
             try await client.cancelAgent(workflowID: 3)
         }
         await transport.reply(with: .completes(.agentStarted(workflowID: 3)))
-        try await client.startAgent(workflowID: 3, harness: .codex)
+        try await client.startAgent(workflowID: 3, choice: .init(harness: .codex))
         await transport.reply(with: .completes(.agentCancelled(workflowID: 3)))
         try await client.cancelAgent(workflowID: 3)
     }

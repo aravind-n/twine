@@ -11,6 +11,7 @@ use twine_core::{
 use crate::error::BridgeError;
 
 pub(crate) mod files;
+pub(crate) mod harnesses;
 mod runs;
 mod traces;
 mod workflows;
@@ -514,6 +515,24 @@ mod tests {
                 "harness": "pi", {size}}}}}"#
         ));
         assert!(matches!(interactive, Command::StartAgent { ref prompt, .. } if prompt.is_empty()));
+        let chosen = decode(&format!(
+            r#"{{"requestId": 5, "command": {{"type": "startAgent", "workflowId": 7, "harness": "codex",
+                "model": "gpt-6", "effort": "high", "yolo": true, {size}}}}}"#
+        ));
+        assert!(matches!(
+            chosen,
+            Command::StartAgent { ref model, ref effort, yolo: true, .. }
+                if model.as_deref() == Some("gpt-6") && effort.as_deref() == Some("high")
+        ));
+        assert!(matches!(
+            interactive,
+            Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
+                ..
+            }
+        ));
         let cancel =
             decode(r#"{"requestId": 2, "command": {"type": "cancelAgent", "workflowId": 7}}"#);
         assert!(matches!(cancel, Command::CancelAgent { workflow_id } if workflow_id.0 == 7));
@@ -564,12 +583,15 @@ mod tests {
         let command = decode(
             r#"{"requestId":1,"command":{"type":"startWorkflowRun","workflowId":3,
             "workflowType":{"user":{"type_id":7,"version":2}},"prompt":"Task",
-            "roleLaunches":[{"role":"worker","harness":"codex"},{"role":"worker","harness":"claudeCode"}],
+            "roleLaunches":[{"role":"worker","harness":"codex"},
+                {"role":"worker","harness":"claudeCode","model":"opus","effort":"max","yolo":true}],
             "size":{"rows":24,"columns":80,"pixelWidth":800,"pixelHeight":480}}}"#,
         );
         assert!(
             matches!(command, Command::StartWorkflowRun { workflow_type: twine_core::WorkflowTypeRef::User { type_id: 7, version: 2 }, ref roles, .. }
-            if roles.len() == 2 && roles[1].harness == twine_core::HarnessId::ClaudeCode)
+            if roles.len() == 2 && roles[1].harness == twine_core::HarnessId::ClaudeCode
+                && roles[1].model.as_deref() == Some("opus") && roles[1].effort.as_deref() == Some("max")
+                && roles[1].yolo && !roles[0].yolo)
         );
         let command = decode(
             r#"{"requestId":5,"command":{"type":"startWorkflowRun","workflowId":3,

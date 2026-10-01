@@ -87,6 +87,8 @@ nonisolated enum NewTabLayout {
     static let minimumChoiceHeight: CGFloat = 64
     static let choicePadding: CGFloat = 10
     static let symbolWidth: CGFloat = 16
+    /// The close button's inset from the card's top trailing corner.
+    static let closePadding: CGFloat = 8
 }
 
 /// The subtab strip at the top of a multi-agent workflow's terminal panel.

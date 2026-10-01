@@ -91,10 +91,16 @@ mod tests {
             "Task".into(),
             &[
                 RoleLaunch {
+                    model: None,
+                    effort: None,
+                    yolo: false,
                     role: "implementer".into(),
                     harness: HarnessId::Pi,
                 },
                 RoleLaunch {
+                    model: None,
+                    effort: None,
+                    yolo: false,
                     role: "reviewer".into(),
                     harness: HarnessId::Pi,
                 },

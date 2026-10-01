@@ -118,6 +118,7 @@ impl Application {
         &self,
         harness: HarnessId,
         terminal_id: TerminalId,
+        options: crate::harness::launch::LaunchOptions<'_>,
         prompt: &str,
     ) -> (Vec<OsString>, Option<StepInbox>) {
         let mut arguments = Vec::new();
@@ -142,6 +143,7 @@ impl Application {
                     }
                 })
         };
+        arguments.extend(crate::harness::launch::launch_arguments(harness, options));
         // Without a prompt the harness opens interactively and waits for the user.
         if !prompt.is_empty() {
             arguments.extend(harness.definition().arguments(prompt));
@@ -400,6 +402,9 @@ mod tests {
             .iter()
             .flat_map(|role| {
                 (0..role.instances.min).map(|_| RoleLaunch {
+                    model: None,
+                    effort: None,
+                    yolo: false,
                     role: role.id.0.clone(),
                     harness,
                 })
@@ -450,6 +455,9 @@ mod tests {
         accepted(
             app,
             Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
                 workflow_id: id,
                 harness: HarnessId::ClaudeCode,
                 prompt: "Initial prompt".into(),
@@ -465,6 +473,9 @@ mod tests {
         accepted(
             app,
             Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
                 workflow_id: id,
                 harness: HarnessId::Pi,
                 prompt: "Initial prompt".into(),
@@ -734,6 +745,9 @@ mod tests {
                 "#!/bin/sh\nPATH='{node_path}':\"$PATH\" exec '{quoted}' --no-session --no-extensions --no-skills --no-prompt-templates --no-themes --provider deepseek --model {model} --tools bash \"$@\"\n"
             )).unwrap();
             accepted(&app, Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
                 workflow_id: id, harness: HarnessId::Pi,
                 prompt: "Trace smoke test: use bash to run `printf TWINE45_TRACE_SMOKE` exactly once, then reply Done. Do not read or write files or run other commands.".into(), size: SIZE,
             });
@@ -1130,6 +1144,9 @@ mod tests {
         accepted(
             app,
             Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
                 workflow_id: id,
                 harness: HarnessId::Codex,
                 prompt: "-initial prompt".into(),
@@ -1309,6 +1326,9 @@ mod tests {
         accepted(
             &app,
             Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
                 workflow_id: id,
                 harness: HarnessId::Codex,
                 prompt: "Work without hooks".into(),
@@ -1407,6 +1427,9 @@ mod tests {
             "#!/bin/sh\nexec '{quoted}' --no-alt-screen --sandbox read-only --ask-for-approval never -c '{trust}' \"$@\"\n"
         )).unwrap();
         accepted(&app, Command::StartAgent {
+            model: None,
+            effort: None,
+            yolo: false,
             workflow_id: id, harness: HarnessId::Codex,
             prompt: "Trace smoke test: run the shell command `printf TWINE44_TRACE_SMOKE` exactly once, then reply Done. Do not read or write files or run other tools.".into(), size: SIZE,
         });
@@ -1579,6 +1602,9 @@ mod tests {
         accepted(
             &app,
             Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
                 workflow_id: id,
                 harness: HarnessId::ClaudeCode,
                 prompt: "-initial prompt".into(),

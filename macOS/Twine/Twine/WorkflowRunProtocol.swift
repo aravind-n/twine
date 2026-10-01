@@ -3,6 +3,22 @@ import Foundation
 nonisolated struct CoreRoleLaunch: Codable, Equatable, Sendable {
     let role: String
     let harness: CoreHarness
+    var model: String?
+    var effort: String?
+    /// Left out unless set, like the core's own records.
+    var yolo: Bool?
+
+    init(role: String, harness: CoreHarness, model: String? = nil, effort: String? = nil, yolo: Bool = false) {
+        self.role = role
+        self.harness = harness
+        self.model = model
+        self.effort = effort
+        self.yolo = yolo ? true : nil
+    }
+
+    init(role: String, choice: HarnessChoice) {
+        self.init(role: role, harness: choice.harness, model: choice.model, effort: choice.effort, yolo: choice.yolo)
+    }
 }
 
 nonisolated struct CoreCompletionSignal: Codable, Equatable, Sendable {

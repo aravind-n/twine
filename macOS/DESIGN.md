@@ -156,7 +156,9 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 
 - A draft tab shows the terminal prompt, and a choices card centered over the terminal.
 - Card: 740pt max width, 16pt padding, 14pt radius, and a hairline outline. Use the named `WorkflowChoicesBackground` color: a dark blue-gray fill (RGB 35, 40, 43), with a light variant. Title is 14pt bold, with a caption medium secondary line 10pt below it; leave 14pt before the grid.
-- Choice tiles in an adaptive grid (160pt minimum width, 8pt spacing): 64pt minimum height, 10pt padding, 9pt radius, and a hairline outline. Use the named `WorkflowChoiceBackground` color: a lighter dark fill (RGB 50, 55, 58), with a light variant. Each has a 16pt symbol aligned with its caption semibold title, and a caption medium secondary description capped at two lines. Choices that open a menu, such as picking a harness, show a small chevron.
+- Choice tiles in an adaptive grid (160pt minimum width, 8pt spacing): 64pt minimum height, 10pt padding, 9pt radius, and a hairline outline. Use the named `WorkflowChoiceBackground` color: a lighter dark fill (RGB 50, 55, 58), with a light variant. Each has a 16pt symbol aligned with its caption semibold title, and a caption medium secondary description capped at two lines. Choices that open a menu, such as picking a harness, show a small chevron. Single agent's menu starts with a YOLO Mode toggle, then nests each harness's models and their effort levels, so one pick starts the agent.
+- A small borderless `xmark` button sits 8pt inside the card's top trailing corner. It closes the card and leaves the tab as a Terminal, like typing does.
+- The workflow launch form gives each role instance one row: its colored role label, then pop-up menus for the harness, the model ("Default model" first, then the harness's own list, grouped by provider for pi), the effort level ("Default effort" first) when the harness has levels, and a YOLO checkbox, disabled with an explaining tooltip for harnesses without permission prompts.
 
 ### Activity panel
 

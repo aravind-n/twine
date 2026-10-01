@@ -19,6 +19,15 @@ mod recovery;
 pub struct RoleLaunch {
     pub role: String,
     pub harness: HarnessId,
+    /// The harness's model, or its own default when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The harness's effort level, or its own default when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// Skips the harness's permission prompts, where it has them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yolo: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -71,6 +80,15 @@ pub struct RunAgent {
     pub instance: u8,
     pub label: String,
     pub harness: HarnessId,
+    /// The harness's model, or its own default when absent. Missing in older run records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The harness's effort level, or its own default when absent. Missing in older run records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// Skips the harness's permission prompts, where it has them. Missing in older run records.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yolo: bool,
     /// Defaults for records saved before per-agent lifecycle tracking was introduced.
     #[serde(default)]
     pub status: RunAgentStatus,
@@ -155,6 +173,12 @@ impl WorkflowRun {
             }
             for (index, choice) in selected.iter().enumerate() {
                 let instance = u8::try_from(index + 1).map_err(|_| RunError::HarnessChoices)?;
+                let options = crate::harness::launch::validate_options(
+                    choice.model.as_deref(),
+                    choice.effort.as_deref(),
+                    choice.yolo,
+                )
+                .ok_or(RunError::Model)?;
                 agents.push(RunAgent {
                     agent_id: 0,
                     role: role.id.0.clone(),
@@ -165,6 +189,9 @@ impl WorkflowRun {
                         role.name.clone()
                     },
                     harness: choice.harness,
+                    model: options.model().map(str::to_owned),
+                    effort: options.effort().map(str::to_owned),
+                    yolo: options.yolo(),
                     status: RunAgentStatus::Waiting,
                 });
             }
@@ -584,6 +611,8 @@ pub enum RunError {
     Task,
     #[error("Choose a harness for each role within the type's instance limits.")]
     HarnessChoices,
+    #[error("Choose each role's model and effort from the lists, or type one model name.")]
+    Model,
     #[error("This stage has already advanced or this agent has already finished.")]
     StaleSignal,
     #[error("This role needs an explicit review decision, or done for a non-review role.")]
@@ -607,6 +636,9 @@ mod tests {
             .iter()
             .flat_map(|r| {
                 (0..r.instances.min).map(|_| RoleLaunch {
+                    model: None,
+                    effort: None,
+                    yolo: false,
                     role: r.id.0.clone(),
                     harness: HarnessId::Codex,
                 })
@@ -728,6 +760,42 @@ mod tests {
             run.instructions(gather, "complete")
                 .contains("Worker 2: Build the API")
         );
+    }
+
+    #[test]
+    fn each_role_keeps_its_model_and_effort_and_invalid_ones_are_rejected() {
+        let launch = |model: &str, effort: &str| {
+            WorkflowRun::new(
+                WorkflowType {
+                    reference: WorkflowTypeRef::Builtin(BuiltinType::Adversarial),
+                    definition: BuiltinType::Adversarial.definition(),
+                },
+                "Task".into(),
+                &[
+                    RoleLaunch {
+                        role: "implementer".into(),
+                        harness: HarnessId::Codex,
+                        model: Some(model.into()),
+                        effort: Some(effort.into()),
+                        yolo: true,
+                    },
+                    RoleLaunch {
+                        role: "reviewer".into(),
+                        harness: HarnessId::Pi,
+                        model: None,
+                        effort: None,
+                        yolo: false,
+                    },
+                ],
+            )
+        };
+        let run = launch(" gpt-6 ", "xhigh").unwrap();
+        assert_eq!(run.agents[0].model.as_deref(), Some("gpt-6"));
+        assert_eq!(run.agents[0].effort.as_deref(), Some("xhigh"));
+        assert!(run.agents[0].yolo && !run.agents[1].yolo);
+        assert_eq!(run.agents[1].model, None);
+        assert!(matches!(launch("-c", "high"), Err(RunError::Model)));
+        assert!(matches!(launch("gpt-6", "x=1"), Err(RunError::Model)));
     }
 
     #[test]

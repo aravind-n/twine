@@ -79,6 +79,32 @@ actor CoreWorker: CoreTransport {
         return try decoder.decode(FileBrowserSnapshot.self, from: consume(&response))
     }
 
+    /// Lists a harness's models on a core thread, polling between waits so the worker stays free for
+    /// terminals and commands. Cancelling stops the harness.
+    func harnessModels(_ request: HarnessModelsRequest) async throws -> CoreHarnessModelsResult {
+        let data = try encoder.encode(request)
+        var pending: OpaquePointer?
+        let status = try withClient { client in
+            data.withUnsafeBytes { bytes in
+                twine_client_request_harness_models(
+                    client, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &pending)
+            }
+        }
+        try check(status)
+        defer { _ = twine_models_request_destroy(pending) }
+        while true {
+            try Task.checkCancellation()
+            var response = TwineBuffer()
+            let status = twine_models_request_poll(pending, &response)
+            if status == TWINE_STATUS_EMPTY {
+                try await Task.sleep(for: .milliseconds(50))
+            } else {
+                try check(status)
+                return try decoder.decode(CoreHarnessModelsResult.self, from: consume(&response))
+            }
+        }
+    }
+
     func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {
         let data = try encoder.encode(request)
         var response = TwineBuffer()

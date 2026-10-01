@@ -2,12 +2,13 @@ import SwiftUI
 
 struct NewTabChoices: View {
     @Environment(CoreClient.self) private var client
+    @Environment(HarnessModelCatalog.self) private var harnessCatalog
     let workflowID: UInt64
     let availableHeight: CGFloat
     let isSelected: Bool
     let choose: (WorkflowChoice) -> Void
     /// Starts the harness in the draft's folder, waiting for the user. Throws the reason it couldn't start.
-    let startAgent: (CoreHarness) async throws -> Void
+    let startAgent: (HarnessChoice) async throws -> Void
     /// Gives the keyboard back to the terminal, which nothing else in the card can take.
     let focusTerminal: () -> Void
     @State private var contentHeight: CGFloat = 0
@@ -15,6 +16,10 @@ struct NewTabChoices: View {
     @Binding var selectedType: CoreWorkflowType?
     /// Set while a picked harness starts, so keys typed meanwhile can't turn the draft into a shell.
     @Binding var startingHarness: CoreHarness?
+    /// The harness whose unlisted model is being typed, for Single agent's "Other model…".
+    @State private var customModelHarness: CoreHarness?
+    /// Single agent's last YOLO setting, kept for the next start.
+    @AppStorage("singleAgentYolo") private var singleAgentYolo = false
     private var catalog: [CoreWorkflowType] { client.snapshot?.workflowTypes ?? [] }
 
     // A launch form owns keyboard input, so it can use the space reserved for the shell prompt.
@@ -61,8 +66,30 @@ struct NewTabChoices: View {
             RoundedRectangle(cornerRadius: CornerRadius.choicesCard)
                 .stroke(.hairline, lineWidth: Surface.hairlineWidth)
         }
+        .overlay(alignment: .topTrailing) {
+            Button("Close", systemImage: "xmark") { choose(.terminal) }
+                .disabled(startingHarness != nil)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .help("Close and use Terminal")
+                .padding(NewTabLayout.closePadding)
+                .accessibilityIdentifier("closeNewTabChoices")
+        }
         .accessibilityIdentifier("newTabChoices")
         .offset(y: verticalOffset)
+        .task { await harnessCatalog.load(using: client) }
+        .sheet(item: $customModelHarness) { harness in
+            VStack(alignment: .leading, spacing: 0) {
+                Text("\(harness.displayName) model").font(.headline).padding([.top, .horizontal], 12)
+                CustomModelForm(
+                    action: "Start", efforts: harnessCatalog.entry(for: harness).models?.efforts ?? []
+                ) { model, effort in
+                    customModelHarness = nil
+                    start(.init(harness: harness, model: model, effort: effort, yolo: singleAgentYolo))
+                }
+            }
+        }
     }
 
     private var choices: some View {
@@ -101,9 +128,18 @@ struct NewTabChoices: View {
         ForEach(WorkflowChoice.allCases) { choice in
             if choice.opensMenu {
                 Menu {
+                    Toggle("YOLO Mode", isOn: $singleAgentYolo)
+                        .help("Skip the agent's permission prompts. pi doesn't ask for permission.")
+                        .accessibilityIdentifier("singleAgentYolo")
+                    Divider()
                     ForEach(CoreHarness.allCases) { harness in
-                        Button(harness.displayName) { start(harness) }
-                            .accessibilityIdentifier("harness-\(harness.rawValue)")
+                        Menu(harness.displayName) {
+                            SingleAgentHarnessMenu(
+                                harness: harness, entry: harnessCatalog.entry(for: harness), yolo: singleAgentYolo,
+                                start: start,
+                                chooseCustomModel: { customModelHarness = harness })
+                        }
+                        .accessibilityIdentifier("harness-\(harness.rawValue)")
                     }
                 } label: {
                     ChoiceTile(choice: choice)
@@ -127,13 +163,13 @@ struct NewTabChoices: View {
         }
     }
 
-    private func start(_ harness: CoreHarness) {
+    private func start(_ choice: HarnessChoice) {
         guard startingHarness == nil else { return }
-        startingHarness = harness
+        startingHarness = choice.harness
         startFailure = nil
         Task {
             defer { startingHarness = nil }
-            do { try await startAgent(harness) } catch { startFailure = error.localizedDescription }
+            do { try await startAgent(choice) } catch { startFailure = error.localizedDescription }
         }
     }
 }

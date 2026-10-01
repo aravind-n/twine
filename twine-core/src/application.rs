@@ -93,6 +93,12 @@ pub enum Command {
     StartAgent {
         workflow_id: WorkflowId,
         harness: HarnessId,
+        /// The harness's model, or its own default when absent.
+        model: Option<String>,
+        /// The harness's effort level, or its own default when absent.
+        effort: Option<String>,
+        /// Skips the harness's permission prompts, where it has them.
+        yolo: bool,
         prompt: String,
         size: TerminalSize,
     },
@@ -179,7 +185,8 @@ pub struct Application {
     inner: Arc<Mutex<Inner>>,
     terminal_output: Arc<TerminalStream>,
     terminals: TerminalManager,
-    login_path: LoginPath,
+    /// Shared with threads that list harness models.
+    login_path: Arc<LoginPath>,
     /// Makes harness lookup search only this `PATH`, so tests don't depend on installed tools.
     #[cfg(test)]
     harness_path: Option<std::ffi::OsString>,
@@ -281,9 +288,9 @@ impl Application {
             terminals,
             // Unit tests must not start the developer's login shell.
             #[cfg(test)]
-            login_path: LoginPath::ready(None),
+            login_path: Arc::new(LoginPath::ready(None)),
             #[cfg(not(test))]
-            login_path: LoginPath::spawn(crate::terminal::login_shell()),
+            login_path: Arc::new(LoginPath::spawn(crate::terminal::login_shell())),
             #[cfg(test)]
             harness_path: None,
         };
@@ -299,6 +306,7 @@ impl Application {
     ///
     /// Returns an error if application state cannot be accessed or the resulting event cannot be
     /// recorded.
+    #[expect(clippy::too_many_lines, reason = "one short arm per command")]
     pub fn handle_command(
         &self,
         request_id: RequestId,
@@ -362,9 +370,19 @@ impl Application {
             Command::StartAgent {
                 workflow_id,
                 harness,
+                model,
+                effort,
+                yolo,
                 prompt,
                 size,
-            } => self.start_agent(request_id, workflow_id, harness, &prompt, size)?,
+            } => self.start_agent(
+                request_id,
+                workflow_id,
+                harness,
+                (model.as_deref(), effort.as_deref(), yolo),
+                &prompt,
+                size,
+            )?,
             Command::CancelAgent { workflow_id } => self.cancel_agent(request_id, workflow_id)?,
             Command::StartWorkflowRun {
                 workflow_id,

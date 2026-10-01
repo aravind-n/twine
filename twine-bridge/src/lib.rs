@@ -49,6 +49,77 @@ pub unsafe extern "C" fn twine_client_poll_files(
     })
 }
 
+/// An exclusively owned model listing. Destroying it stops the harness if it's still running.
+pub struct TwineModelsRequest(twine_core::ModelListRequest);
+
+#[unsafe(no_mangle)]
+/// Starts listing a harness's models and effort levels on a core thread, so the client stays free.
+///
+/// # Safety
+/// Uses the same pointer and length contract as `twine_client_send_command` for the request.
+/// Non-null output must be aligned writable storage without an unreleased request.
+pub unsafe extern "C" fn twine_client_request_harness_models(
+    client: *mut TwineClient,
+    request_bytes: *const u8,
+    request_length: usize,
+    out_request: *mut *mut TwineModelsRequest,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: The caller guarantees aligned writable storage; null is checked.
+        let output = unsafe { out_request.as_mut() }.ok_or(BridgeError::NullPointer)?;
+        *output = std::ptr::null_mut();
+        // SAFETY: The caller guarantees readable input and a live client for this call.
+        let request = unsafe {
+            ffi::with_input_bytes(request_bytes, request_length, MAX_COMMAND_BYTES, |bytes| {
+                ffi::with_client(client, |client| client.request_harness_models(bytes))
+            })
+        }?;
+        *output = Box::into_raw(Box::new(TwineModelsRequest(request)));
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Polls a model listing without waiting. Empty means the harness hasn't answered yet; otherwise
+/// the JSON status is listed (with models) or failed (with message).
+///
+/// # Safety
+/// Non-null request must be live and exclusively owned. Non-null output must be aligned writable
+/// storage without an unreleased allocation. Null pointers are rejected before dereferencing.
+pub unsafe extern "C" fn twine_models_request_poll(
+    request: *mut TwineModelsRequest,
+    out_models: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: Output meets the buffer contract, and the helper checks null.
+        unsafe { ffi::initialize_buffer(out_models) }?;
+        // SAFETY: The caller keeps its exclusively owned request alive through this call.
+        let request = unsafe { request.as_ref() }.ok_or(BridgeError::NullPointer)?;
+        let result = request.0.poll().ok_or(BridgeError::Empty)?;
+        let response = protocol::harnesses::encode_models(result)?;
+        // SAFETY: The output storage is valid as described above.
+        unsafe { ffi::write_buffer(out_models, TwineBuffer::from_vec(response)) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Releases a model listing, stopping its harness if it's still running.
+///
+/// # Safety
+/// A non-null pointer must be the unchanged live request returned by this bridge, and released once.
+pub unsafe extern "C" fn twine_models_request_destroy(
+    request: *mut TwineModelsRequest,
+) -> TwineStatus {
+    catch_status(|| {
+        if request.is_null() {
+            return Err(BridgeError::NullPointer);
+        }
+        // SAFETY: The caller returns this bridge-owned request exactly once.
+        drop(unsafe { Box::from_raw(request) });
+        Ok(())
+    })
+}
+
 #[unsafe(no_mangle)]
 /// Saves text through core, returning a saved preview, conflict preview, or failure message as JSON.
 ///
@@ -1414,6 +1485,100 @@ mod tests {
             poll(client, request.to_string().as_bytes()).0,
             TwineStatus::InvalidArgument
         );
+        destroy(client);
+    }
+
+    #[test]
+    fn model_listing_returns_at_once_and_rejects_invalid_input() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let (_data, client) = create_client();
+        let mut request: *mut TwineModelsRequest = std::ptr::null_mut();
+        // SAFETY: Each call gets a live client or null, valid or null input, and writable output.
+        unsafe {
+            for (bytes, expected) in [
+                (b"{".as_slice(), TwineStatus::MalformedCommand),
+                (
+                    br#"{"harness":"nope"}"#.as_slice(),
+                    TwineStatus::MalformedCommand,
+                ),
+                (&[0xff], TwineStatus::InvalidUtf8),
+            ] {
+                assert_eq!(
+                    twine_client_request_harness_models(
+                        client,
+                        bytes.as_ptr(),
+                        bytes.len(),
+                        &raw mut request
+                    ),
+                    expected
+                );
+                assert!(request.is_null());
+            }
+            let valid = br#"{"harness":"pi"}"#;
+            assert_eq!(
+                twine_client_request_harness_models(
+                    client,
+                    valid.as_ptr(),
+                    valid.len(),
+                    std::ptr::null_mut()
+                ),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_request_harness_models(
+                    std::ptr::null_mut(),
+                    valid.as_ptr(),
+                    valid.len(),
+                    &raw mut request
+                ),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_request_harness_models(
+                    client,
+                    valid.as_ptr(),
+                    valid.len(),
+                    &raw mut request
+                ),
+                TwineStatus::Ok
+            );
+            assert!(!request.is_null());
+            // Whether or not pi is installed here, the listing finishes with a listed or failed status.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            let mut output = TwineBuffer::empty();
+            loop {
+                match twine_models_request_poll(request, &raw mut output) {
+                    TwineStatus::Empty => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "the listing never finished"
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    status => {
+                        assert_eq!(status, TwineStatus::Ok);
+                        break;
+                    }
+                }
+            }
+            let json: serde_json::Value =
+                serde_json::from_slice(std::slice::from_raw_parts(output.data, output.length))
+                    .unwrap();
+            assert!(
+                json["status"] == "listed" || json["status"] == "failed",
+                "{json}"
+            );
+            assert_eq!(twine_buffer_release(&raw mut output), TwineStatus::Ok);
+            assert_eq!(
+                twine_models_request_poll(std::ptr::null_mut(), &raw mut output),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(twine_models_request_destroy(request), TwineStatus::Ok);
+            assert_eq!(
+                twine_models_request_destroy(std::ptr::null_mut()),
+                TwineStatus::NullPointer
+            );
+        }
         destroy(client);
     }
 

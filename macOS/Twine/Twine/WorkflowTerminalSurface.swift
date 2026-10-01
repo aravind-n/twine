@@ -104,8 +104,8 @@ struct WorkflowTerminalSurface: View {
         )
     }
 
-    private func startAgent(harness: CoreHarness) async throws {
-        try await coreClient.startAgent(workflowID: workflow.id, harness: harness)
+    private func startAgent(_ choice: HarnessChoice) async throws {
+        try await coreClient.startAgent(workflowID: workflow.id, choice: choice)
         focusRequest += 1
     }
 

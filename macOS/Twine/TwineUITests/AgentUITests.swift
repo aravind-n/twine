@@ -206,7 +206,7 @@ extension TwineUITests {
         app.terminate()
     }
 
-    /// Picks `harness` from the Single agent tile's menu.
+    /// Starts `harness` with its default model from the Single agent tile's menu.
     @MainActor
     private func chooseHarness(_ harness: String, in app: XCUIApplication) {
         let tile = element("workflowChoice-Single agent", in: app)
@@ -215,6 +215,10 @@ extension TwineUITests {
         let item = app.menuItems[harness]
         XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
         item.click()
+        // Stub harnesses list no models or effort levels, so the default model starts it directly.
+        let defaultModel = app.menuItems["harnessDefault-\(harness)"]
+        XCTAssertTrue(defaultModel.waitForExistence(timeout: 5), app.debugDescription)
+        defaultModel.click()
     }
 
     /// Menus and text fields report different element types, so match on the identifier alone.

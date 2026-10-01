@@ -94,6 +94,9 @@ mod tests {
                 prompt: "Crash fixture".into(),
                 roles: ["implementer", "reviewer"]
                     .map(|role| RoleLaunch {
+                        model: None,
+                        effort: None,
+                        yolo: false,
                         role: role.into(),
                         harness: HarnessId::Pi,
                     })
@@ -201,6 +204,9 @@ mod tests {
         command(
             &app,
             Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
                 workflow_id: single,
                 harness: HarnessId::Pi,
                 prompt: "Crash fixture".into(),
