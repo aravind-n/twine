@@ -206,6 +206,7 @@ extension TwineUITests {
         app.launchEnvironment["TWINE_HARNESS_PATH"] = harnesses.path(percentEncoded: false)
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
 
         chooseHarness("pi", in: app)
 

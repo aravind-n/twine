@@ -24,7 +24,7 @@ struct FileTree: View {
 }
 
 private struct FileTreeDirectory: View {
-    @Environment(FileEditorModel.self) private var editor
+    @Environment(FileTabsModel.self) private var tabs
     let path: String
     let depth: Int
     @Bindable var model: FileBrowserModel
@@ -62,12 +62,12 @@ private struct FileTreeDirectory: View {
     private func row(_ entry: FileEntry) -> some View {
         FileTreeRow(
             entry: entry, depth: depth, isExpanded: model.expanded.contains(entry.path),
-            isSelected: editor.path == entry.path
+            isSelected: tabs.selected?.path == entry.path
         ) {
             if entry.kind == .directory {
                 model.toggle(entry.path)
             } else {
-                editor.select(entry.path, folder: folderPath)
+                if let folderPath { tabs.open(path: entry.path, folder: folderPath) }
             }
         }
     }

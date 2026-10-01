@@ -7,7 +7,7 @@ private let sessionLogger = Logger(subsystem: "com.twineproject.Twine", category
 
 struct FolderSidebar: View {
     @Environment(CoreClient.self) private var coreClient
-    @Environment(FileEditorModel.self) private var fileEditor
+    @Environment(FileTabsModel.self) private var fileTabs
     let path: String
     @Bindable var files: FileBrowserModel
     @State private var editor: SessionEditor?
@@ -110,7 +110,7 @@ struct FolderSidebar: View {
     private func sessionRow(_ session: CoreSession) -> some View {
         let selected = selectedSession?.id == session.id
         return Button {
-            guard fileEditor.select(nil) else { return }
+            fileTabs.showWorkflows()
             run { try await coreClient.selectSession(sessionID: session.id) }
         } label: {
             HStack(spacing: 4) {

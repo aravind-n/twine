@@ -38,12 +38,12 @@ final class FileBrowserModel {
         }
     }
 
-    func watch(_ request: FileBrowserRequest, client: CoreClient, editor: FileEditorModel) async {
+    func watch(_ request: FileBrowserRequest, client: CoreClient, editor: FileEditorModel?) async {
         var request = request
         var lastGeneration: UUID?
         do {
             while !Task.isCancelled {
-                let generation = editor.generation
+                let generation = editor?.generation
                 if generation != lastGeneration {
                     request.revision = nil
                     lastGeneration = generation
@@ -51,7 +51,7 @@ final class FileBrowserModel {
                 if let next = try await client.pollFiles(request) {
                     try Task.checkCancellation()
                     snapshot = next
-                    if generation == editor.generation { editor.receive(next.file) }
+                    if generation == editor?.generation { editor?.receive(next.file) }
                     request.revision = next.revision
                 }
                 failure = nil

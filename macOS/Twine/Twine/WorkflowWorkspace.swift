@@ -7,11 +7,14 @@ private let workflowLogger = Logger(subsystem: "com.twineproject.Twine", categor
 struct WorkflowWorkspace: View {
     @Environment(CoreClient.self) private var coreClient
     @Environment(WorkflowLayouts.self) private var layouts
+    @Environment(FileTabsModel.self) private var fileTabs
     let folder: String
     @Binding var selection: WorkflowTabSelection
-    var isVisible = true
+    let files: FileBrowserModel
     @State private var failureMessage: String?
     @State private var isSplitting = false
+
+    private var isVisible: Bool { fileTabs.selected == nil }
 
     private var allWorkflows: [CoreWorkflow] {
         guard coreClient.snapshot?.folders.openFolder == folder else { return [] }
@@ -37,8 +40,11 @@ struct WorkflowWorkspace: View {
             HStack(alignment: .bottom, spacing: 0) {
                 WorkflowTabs(
                     workflows: tabWorkflows,
-                    selectedID: selectedRoot,
-                    select: { selection.selectedID = $0 },
+                    selectedID: isVisible ? selectedRoot : nil,
+                    select: {
+                        fileTabs.showWorkflows()
+                        selection.selectedID = $0
+                    },
                     close: closeGroup,
                     cancelAgent: cancelAgent,
                     create: { Task { await create() } }
@@ -47,7 +53,7 @@ struct WorkflowWorkspace: View {
             }
             .zIndex(1)
             ZStack {
-                if workflows.isEmpty {
+                if workflows.isEmpty && isVisible {
                     ContentUnavailableView(
                         "No Open Tabs", systemImage: "terminal",
                         description: Text("Open a workflow with + or ⌘T.")
@@ -57,6 +63,18 @@ struct WorkflowWorkspace: View {
                     folder: folder, workflows: allWorkflows, sessionID: sessionID,
                     selection: $selection, isVisible: isVisible, reportFailure: { failureMessage = $0 },
                     closePane: close)
+                ForEach(fileTabs.editors) { editor in
+                    let shown = editor.id == fileTabs.selectedID
+                    FileViewer(
+                        path: editor.path, folder: folder, failure: files.failure, isVisible: shown,
+                        openHTMLFile: { fileTabs.open(path: $0.path, folder: folder, navigationURL: $0) }
+                    )
+                    .environment(editor)
+                    .opacity(shown ? 1 : 0)
+                    .allowsHitTesting(shown)
+                    .accessibilityHidden(!shown)
+                    .disabled(!shown)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.terminalBackground)
@@ -95,8 +113,8 @@ struct WorkflowWorkspace: View {
         WorkflowActions(
             create: { Task { await create() } },
             createAgents: { roles in Task { await create(kind: .agents, roles: roles) } },
-            close: selection.selectedID.map { id in { close(id) } },
-            cancelAgent: workflows.first(where: { $0.id == selection.selectedID && $0.isRunningAgent })
+            close: isVisible ? selection.selectedID.map { id in { close(id) } } : nil,
+            cancelAgent: workflows.first(where: { isVisible && $0.id == selection.selectedID && $0.isRunningAgent })
                 .map { workflow in { cancelAgent(workflow.id) } },
             layoutMode: isVisible ? selectedWorkflow.flatMap(layoutMode(for:)) : nil,
             moveFocus: isVisible ? selectedWorkflow.flatMap(focusMover(for:)) : nil,
@@ -175,6 +193,7 @@ struct WorkflowWorkspace: View {
             if Task.isCancelled {
                 try await coreClient.closeWorkflow(workflowID: id)
             } else if targetSession == sessionID || targetSession == nil {
+                fileTabs.showWorkflows()
                 selection.selectedID = id
             }
         } catch {

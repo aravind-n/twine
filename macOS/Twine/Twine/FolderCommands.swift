@@ -32,7 +32,7 @@ struct FolderCommands: Commands {
     #endif
 
     let coreClient: CoreClient
-    let editor: FileEditorModel
+    let tabs: FileTabsModel
     @FocusedBinding(\.isChoosingFolder) private var isChoosingFolder
     @FocusedBinding(\.newWorkflowType) private var newWorkflowType
     @FocusedValue(\.workflowActions) private var workflowActions
@@ -68,7 +68,7 @@ struct FolderCommands: Commands {
             .keyboardShortcut("o")
             .disabled(isChoosingFolder == nil || !isRunning)
             Button("Close Folder") {
-                guard editor.select(nil) else { return }
+                guard tabs.closeAll() else { return }
                 Task { await coreClient.perform(.closeFolder) }
             }
             .disabled(!isRunning || coreClient.snapshot?.folders.openFolder == nil)
@@ -96,12 +96,12 @@ struct FolderCommands: Commands {
                 .disabled(workflowActions?.moveFocus == nil)
         }
         CommandGroup(replacing: .saveItem) {
-            Button("Save") { editor.requestSave() }
+            Button("Save") { tabs.selected?.requestSave() }
                 .keyboardShortcut("s")
-                .disabled(!editor.canSave || !isRunning)
+                .disabled(tabs.selected?.canSave != true || !isRunning)
             Button(closeTitle) {
                 if openFilePath != nil {
-                    editor.select(nil)
+                    if let selected = tabs.selected { tabs.close(selected.id) }
                 } else if let close = workflowActions?.close {
                     close()
                 } else {

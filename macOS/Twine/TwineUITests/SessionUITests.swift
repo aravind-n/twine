@@ -9,8 +9,10 @@ extension TwineUITests {
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
-        app.typeText("exec /bin/sh\r")
-        app.typeText("TWINE_SESSION_VALUE=original; echo $$ > original.pid\r")
+        startSessionShell(app: app, folder: folder)
+        if app.buttons["sidebarToggle"].label == "Show Sidebar" {
+            app.buttons["sidebarToggle"].click()
+        }
         XCTAssertTrue(app.scrollViews["fileTree"].waitForExistence(timeout: 5))
         let firstSession = app.buttons["sessionRow-1"]
         XCTAssertTrue(firstSession.exists)
@@ -53,6 +55,15 @@ extension TwineUITests {
         XCTAssertEqual(secondSession.value as? String, "Selected")
         deleteSessions(app: app)
         app.terminate()
+    }
+
+    @MainActor
+    private func startSessionShell(app: XCUIApplication, folder: URL) {
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
+        app.typeText("exec /bin/sh\r")
+        app.typeText(
+            "TWINE_SESSION_VALUE=original; echo $$ > original.pid; printf '%s' $TWINE_SESSION_VALUE > initial.txt\r")
+        waitForSessionFile(folder.appending(path: "initial.txt"), containing: "original")
     }
 
     @MainActor

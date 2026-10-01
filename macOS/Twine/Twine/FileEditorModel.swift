@@ -4,12 +4,16 @@ import Observation
 
 private let fileEditorLogger = Logger(subsystem: "com.twineproject.Twine", category: "file-editor")
 
-/// A single transient editing buffer; twine-core supplies disk versions and performs every save.
+/// One open file's editing buffer; twine-core supplies disk versions and performs every save.
 @Observable
-final class FileEditorModel {
-    private(set) var path: String?
-    private(set) var folder: String?
+final class FileEditorModel: Identifiable {
+    let id = UUID()
+    let path: String
+    let folder: String
     private(set) var baseline: FilePreview?
+    private(set) var diskFile: FilePreview?
+    private(set) var navigationURL: URL?
+    private(set) var navigationID = UUID()
     var text = "" {
         didSet {
             if oldValue != baseline?.text && text == baseline?.text { generation = UUID() }
@@ -26,36 +30,27 @@ final class FileEditorModel {
     var isSaving: Bool { pendingSave != nil }
     var canSave: Bool { isDirty && !isSaving && baseline?.version != nil }
 
-    @discardableResult
-    func select(_ path: String?, folder: String? = nil) -> Bool {
-        guard path != self.path || folder != self.folder else { return true }
-        guard confirmDiscard() else { return false }
+    init(path: String, folder: String) {
         self.path = path
         self.folder = folder
-        baseline = nil
-        text = ""
-        conflict = nil
-        failure = nil
-        loadID = UUID()
-        generation = UUID()
-        return true
+    }
+
+    func navigate(to url: URL) {
+        navigationURL = url
+        navigationID = UUID()
     }
 
     func receive(_ preview: FilePreview?) {
-        guard let preview, preview.path == path, !isDirty, !isSaving, conflict == nil,
+        guard let preview, preview.path == path else { return }
+        diskFile = preview
+        guard !isDirty, !isSaving, conflict == nil,
             preview != baseline
         else { return }
         replace(with: preview)
     }
 
-    func discardAndClose() {
-        guard !isSaving else { return }
-        text = baseline?.text ?? ""
-        select(nil)
-    }
-
     func requestSave(overwrite: Bool = false) {
-        guard canSave, let folder, let path, let version = baseline?.version else { return }
+        guard canSave, let version = baseline?.version else { return }
         pendingSave = FileSaveRequest(
             folder: folder, path: path, text: text, expectedVersion: version, overwrite: overwrite)
         conflict = nil
@@ -74,6 +69,7 @@ final class FileEditorModel {
                     throw CoreFailure.unexpectedCommandResult
                 }
                 baseline = file
+                diskFile = file
             case .conflict:
                 guard let file = result.file, file.path == path else { throw CoreFailure.unexpectedCommandResult }
                 conflict = file
@@ -107,7 +103,7 @@ final class FileEditorModel {
         guard isDirty else { return true }
         let alert = NSAlert()
         alert.messageText = "Discard unsaved changes?"
-        let name = path.map { URL(filePath: $0).lastPathComponent } ?? "this file"
+        let name = URL(filePath: path).lastPathComponent
         alert.informativeText = "Changes to “\(name)” will be lost. Cancel to keep editing or save with ⌘S."
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Discard Changes")

@@ -108,12 +108,24 @@ struct HTMLPreviewTests {
             #expect(selected.isEmpty)
             #expect(failure == nil, "Blocked \(link)")
         }
+        try await verifyHiddenNavigation(view: view, coordinator: coordinator, selected: { selected })
         _ = try await view.evaluateJavaScript("document.getElementById('local').click()")
         try await waitUntil { selected.count == 1 }
         #expect(selected.first?.lastPathComponent == "next.htm")
         #expect(selected.first?.query == "mode=example")
         #expect(selected.first?.fragment == "section")
         #expect(failure == nil)
+    }
+
+    private func verifyHiddenNavigation(
+        view: WKWebView, coordinator: HTMLWebView.Coordinator, selected: () -> [URL]
+    ) async throws {
+        coordinator.isVisible = false
+        defer { coordinator.isVisible = true }
+        _ = try await view.evaluateJavaScript("location.href = document.getElementById('local').href")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(selected().isEmpty, "A hidden page must not switch the active tab")
+        #expect(view.url?.path == coordinator.location.file.path)
     }
 
     private func waitUntil(_ condition: () async throws -> Bool) async throws {

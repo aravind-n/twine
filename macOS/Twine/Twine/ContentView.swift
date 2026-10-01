@@ -34,7 +34,7 @@ enum WindowContent: Equatable {
 
 struct ContentView: View {
     @Environment(CoreClient.self) private var coreClient
-    @Environment(FileEditorModel.self) private var fileEditor
+    @Environment(FileTabsModel.self) private var fileTabs
     @State private var isChoosingFolder = false
 
     var body: some View {
@@ -43,16 +43,16 @@ struct ContentView: View {
             .fileImporter(isPresented: $isChoosingFolder, allowedContentTypes: [.folder]) { result in
                 switch result {
                 case .success(let url):
-                    guard fileEditor.select(nil) else { return }
+                    guard fileTabs.closeAll() else { return }
                     perform(.openFolder(path: url.path(percentEncoded: false)))
                 case .failure(let error):
                     folderLogger.error("Folder picker failed: \(error.localizedDescription, privacy: .public)")
                 }
             }
             .focusedSceneValue(\.isChoosingFolder, $isChoosingFolder)
-            .windowDismissBehavior(fileEditor.isSaving ? .disabled : .automatic)
-            .dismissalConfirmationDialog("Discard unsaved changes?", shouldPresent: fileEditor.isDirty) {
-                Button("Discard Changes", role: .destructive) { fileEditor.discardAndClose() }
+            .windowDismissBehavior(fileTabs.isSaving ? .disabled : .automatic)
+            .dismissalConfirmationDialog("Discard unsaved changes?", shouldPresent: fileTabs.isDirty) {
+                Button("Discard Changes", role: .destructive) { fileTabs.discardAll() }
             } message: {
                 Text("Cancel to keep editing or save with ⌘S.")
             }

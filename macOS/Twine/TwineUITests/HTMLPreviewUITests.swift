@@ -5,7 +5,7 @@ extension TwineUITests {
     func testHTMLPreviewSourceReloadAndLocalLinks() throws {
         let folder = try makeHTMLFolder()
         let file = folder.appending(path: "index.html")
-        let source = "<h1>Initial preview</h1><a href='next.HTM?mode=example#section'>Next page</a>"
+        let source = "<h1>Initial preview</h1><a target='_blank' href='next.HTM?mode=example#section'>Next page</a>"
         try source.write(to: file, atomically: true, encoding: .utf8)
         try """
         <h1>Linked preview</h1><p id='section'></p>
@@ -13,8 +13,9 @@ extension TwineUITests {
         """.write(to: folder.appending(path: "next.HTM"), atomically: true, encoding: .utf8)
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
-        XCTAssertTrue(app.buttons["sidebarToggle"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 680))
+        XCTAssertTrue(app.buttons["sidebarToggle"].waitForExistence(timeout: 10))
         XCTAssertTrue(fileRow(file, in: app).waitForExistence(timeout: 3))
         fileRow(file, in: app).click()
         XCTAssertTrue(app.staticTexts["Initial preview"].waitForExistence(timeout: 5), app.debugDescription)
@@ -22,9 +23,10 @@ extension TwineUITests {
         try source.write(to: file, atomically: true, encoding: .utf8)
         app.radioButtons["Preview"].click()
         XCTAssertTrue(app.links["Next page"].waitForExistence(timeout: 5))
-        app.links["Next page"].click()
+        clickNextPage(in: app)
         XCTAssertTrue(app.staticTexts["Linked preview"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["?mode=example#section"].waitForExistence(timeout: 3))
+        verifyHTMLTabs(app: app, first: file, next: folder.appending(path: "next.HTM"))
         let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         screenshot.name = "HTML preview"
         screenshot.lifetime = .keepAlways
@@ -32,6 +34,28 @@ extension TwineUITests {
         try FileManager.default.removeItem(at: folder.appending(path: "next.HTM"))
         XCTAssertTrue(app.staticTexts["File Deleted or Moved"].waitForExistence(timeout: 3))
         app.terminate()
+    }
+
+    @MainActor
+    private func verifyHTMLTabs(app: XCUIApplication, first: URL, next: URL) {
+        XCTAssertTrue(fileTab(first, in: app).exists)
+        XCTAssertTrue(fileTab(next, in: app).exists)
+        app.radioButtons["Source"].click()
+        XCTAssertTrue(app.textViews["fileText"].waitForExistence(timeout: 3))
+        fileTab(first, in: app).click()
+        XCTAssertTrue(app.staticTexts["Initial preview"].waitForExistence(timeout: 5))
+        clickNextPage(in: app)
+        XCTAssertTrue(app.staticTexts["Linked preview"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["?mode=example#section"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier == %@", "fileTab-\(next.path)")).count, 1)
+    }
+
+    @MainActor
+    private func clickNextPage(in app: XCUIApplication) {
+        let link = app.links["Next page"]
+        XCTAssertTrue(link.waitForExistence(timeout: 5))
+        // WebKit's retained accessibility subtree can report its own label as an occluder.
+        link.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
     }
 
     private func makeHTMLFolder() throws -> URL {

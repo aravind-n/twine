@@ -75,6 +75,88 @@ extension TwineUITests {
     }
 
     @MainActor
+    func testFileTabsPreserveEditsAndIndependentUndo() throws {
+        let (app, first) = try openEditableFile()
+        let second = first.deletingLastPathComponent().appending(path: "second.txt")
+        try "second".write(to: second, atomically: true, encoding: .utf8)
+        let text = app.textViews["fileText"]
+        replaceText("first edited", in: text)
+        XCTAssertTrue(fileTab(first, in: app).exists)
+        XCTAssertTrue(app.buttons["newWorkflow"].exists)
+        app.buttons["workflowTab-1"].click()
+        XCTAssertTrue(text.waitForNonExistence(timeout: 3))
+        fileTab(first, in: app).click()
+        waitForText("first edited", in: text)
+        XCTAssertTrue(fileRow(second, in: app).waitForExistence(timeout: 3))
+        fileRow(second, in: app).click()
+        waitForText("second", in: text)
+        replaceText("second edited", in: text)
+        fileTab(first, in: app).click()
+        waitForText("first edited", in: text)
+        text.typeKey("z", modifierFlags: .command)
+        waitForText("original", in: text)
+        fileTab(second, in: app).click()
+        waitForText("second edited", in: text)
+        text.typeKey("z", modifierFlags: .command)
+        waitForText("second", in: text)
+        fileRow(first, in: app).click()
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier == %@", "fileTab-\(first.path)")).count, 1)
+        replaceText("unsaved first", in: text)
+        fileTab(second, in: app).click()
+        app.windows.firstMatch.buttons[XCUIIdentifierCloseWindow].click()
+        XCTAssertTrue(app.buttons["Discard Changes"].waitForExistence(timeout: 3))
+        clickDialogButton("Cancel", in: app)
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(fileTab(second, in: app).waitForNonExistence(timeout: 3))
+        waitForText("unsaved first", in: text)
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(app.buttons["Discard Changes"].waitForExistence(timeout: 3))
+        clickDialogButton("Discard Changes", in: app)
+        XCTAssertTrue(fileTab(first, in: app).waitForNonExistence(timeout: 3))
+        XCTAssertTrue(text.waitForNonExistence(timeout: 3))
+        app.terminate()
+    }
+
+    @MainActor
+    func testFileLineNumbersFollowWrappingScrollingAndEdits() throws {
+        let (app, file) = try openEditableFile()
+        let text = app.textViews["fileText"]
+        let rows = (1...80).map { "\($0): 🌲 " + String(repeating: "wrapped text ", count: 10) }
+        let source = rows.joined(separator: "\r\n") + "\r\n"
+        try source.write(to: file, atomically: true, encoding: .utf8)
+        waitForText(source, in: text)
+        let gutter = app.staticTexts["fileLineNumbers"]
+        XCTAssertTrue(gutter.waitForExistence(timeout: 3))
+        XCTAssertEqual(gutter.value as? String, "81 lines")
+        attachGutterScreenshot(app, name: "Line numbers with wrapping and CRLF")
+        app.buttons["goToLine"].click()
+        let line = app.textFields["lineNumber"]
+        XCTAssertTrue(line.waitForExistence(timeout: 3))
+        line.click()
+        line.typeKey("a", modifierFlags: .command)
+        line.typeText("80")
+        app.buttons["confirmGoToLine"].click()
+        NSPasteboard.general.clearContents()
+        text.typeKey("c", modifierFlags: .command)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), rows[79])
+        attachGutterScreenshot(app, name: "Line numbers after scrolling to the final line")
+        replaceText("first\nsecond\n", in: text)
+        XCTAssertEqual(gutter.value as? String, "3 lines")
+        text.typeKey("z", modifierFlags: .command)
+        waitForText(source, in: text)
+        XCTAssertEqual(gutter.value as? String, "81 lines")
+        app.terminate()
+    }
+
+    @MainActor
+    private func attachGutterScreenshot(_ app: XCUIApplication, name: String) {
+        let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
     private func verifyOverwrite(app: XCUIApplication, text: XCUIElement, file: URL) throws {
         replaceText("keep mine", in: text)
         try "another disk update".write(to: file, atomically: true, encoding: .utf8)
@@ -106,8 +188,9 @@ extension TwineUITests {
         try "original".write(to: file, atomically: true, encoding: .utf8)
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
-        XCTAssertTrue(app.buttons["sidebarToggle"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
+        XCTAssertTrue(app.buttons["sidebarToggle"].waitForExistence(timeout: 10))
         XCTAssertTrue(fileRow(file, in: app).waitForExistence(timeout: 3))
         fileRow(file, in: app).click()
         XCTAssertTrue(app.textViews["fileText"].waitForExistence(timeout: 3))
