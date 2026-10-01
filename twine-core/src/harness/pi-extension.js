@@ -1,10 +1,11 @@
-// Pi 0.99 lifecycle events: observe messages as they enter the agent, including queued prompts.
+// Pi and OMP lifecycle events: observe messages as they enter the agent, including queued prompts.
 // Loaded only with --extension; never installed in a user or project config directory.
 import { randomUUID } from "node:crypto";
 import { request } from "node:http";
 
 export default function (pi) {
   const socketPath = __TWINE_SOCKET__;
+  const isOmp = __TWINE_OMP__;
   const queue = [];
   const calls = new Map();
   let active;
@@ -89,7 +90,9 @@ export default function (pi) {
     pump();
   }
   // Handlers never await I/O or return a result that could alter Pi's behavior.
-  const observe = (name, handler) => pi.on(name, event => {
+  const observe = (name, handler) => pi.on(name, (event, ctx) => {
+    // OMP binds this factory to child agents too; only the root owns this terminal's trace.
+    if (isOmp && ctx?.agent?.kind === "sub") return;
     try { handler(event); } catch { /* Recording is best effort. */ }
   });
   observe("message_start", event => {
@@ -127,8 +130,9 @@ export default function (pi) {
     responseSucceeded = ["stop", "length"].includes(event.message.stopReason)
       && !(Array.isArray(event.message.content) && event.message.content.some(block => block.type === "toolCall"));
   });
-  // agent_end can precede retries or extension continuations; settled is the final boundary.
-  observe("agent_settled", () => {
+  // Pi settles after retries. OMP marks continuing agent_end notifications explicitly.
+  observe(isOmp ? "agent_end" : "agent_settled", event => {
+    if (isOmp && event.willContinue) return;
     if (active && responseSucceeded) send({ type: "response", turn_id: active, detail: response });
     active = undefined;
     calls.clear();

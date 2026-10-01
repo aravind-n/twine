@@ -6,6 +6,7 @@ use tracing::{info, warn};
 use super::workflows::reject;
 use super::{Application, ApplicationError, CommandDisposition, RequestId, rejection};
 use crate::event::{CommandResult, EventKind, StateEvent};
+use crate::harness::launch::validate_options;
 use crate::harness::{
     HarnessDefinition, HarnessError, HarnessId, LocatedHarness, LoginPath, locate_in,
 };
@@ -49,13 +50,17 @@ impl Application {
 
     /// Starts listing the models `harness` offers, read from its own CLI on another thread, so a
     /// slow harness never holds up commands or terminals. Poll the request for the result.
-    pub fn request_harness_models(&self, harness: HarnessId) -> crate::ModelListRequest {
+    pub fn request_harness_models(
+        &self,
+        harness: HarnessId,
+        folder: Option<PathBuf>,
+    ) -> crate::ModelListRequest {
         #[cfg(test)]
         let test_path = self.harness_path.clone();
         #[cfg(not(test))]
         let test_path: Option<std::ffi::OsString> = None;
         let login_path = Arc::clone(&self.login_path);
-        crate::ModelListRequest::spawn(harness, move || {
+        crate::ModelListRequest::spawn(harness, folder, move || {
             locate(harness.definition(), test_path.as_deref(), &login_path)
         })
     }
@@ -109,7 +114,7 @@ impl Application {
         size: TerminalSize,
     ) -> Result<CommandDisposition, ApplicationError> {
         let prompt = prompt.trim();
-        let Some(options) = crate::harness::launch::validate_options(model, effort, yolo) else {
+        let Some(options) = validate_options(harness, model, effort, yolo) else {
             return Ok(reject(
                 "invalidModel",
                 "Choose a model and effort from the lists, or type one model name.",
@@ -523,6 +528,216 @@ mod tests {
             app.write_terminal_input(live.terminal_id, b"late\n")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn antigravity_starts_interactively_with_options_and_accepts_follow_up_input() {
+        for prompt in ["", "-fix it\nKeep the terminal open"] {
+            let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+            let application = application(
+                folder.path(),
+                bin.path(),
+                Some(
+                    "printf 'ARG:%s\\n' \"$@\"; echo READY; IFS= read -r line; printf 'GOT:%s\\n' \"$line\"",
+                ),
+            );
+            std::fs::rename(bin.path().join("pi"), bin.path().join("agy")).unwrap();
+            let draft = draft(&application, folder.path());
+            assert_eq!(
+                application
+                    .handle_command(
+                        RequestId(3),
+                        Command::StartAgent {
+                            workflow_id: draft.workflow_id,
+                            harness: HarnessId::Antigravity,
+                            model: Some("gemini-3.8-flash-high".into()),
+                            effort: Some("high".into()),
+                            yolo: true,
+                            prompt: prompt.into(),
+                            size: SIZE,
+                        },
+                    )
+                    .unwrap()
+                    .disposition,
+                CommandDisposition::Accepted
+            );
+            let agent = workflow(&application);
+            assert_eq!(agent.harness, Some(HarnessId::Antigravity));
+            assert_eq!(agent.name, "Antigravity");
+            let mut output = Vec::new();
+            wait_until(|| output_contains(&application, &mut output, "READY"));
+            let arguments = String::from_utf8_lossy(&output);
+            for argument in [
+                "--dangerously-skip-permissions",
+                "--model",
+                "gemini-3.8-flash-high",
+                "--effort",
+                "high",
+            ] {
+                assert!(arguments.contains(&format!("ARG:{argument}\r\n")));
+            }
+            if prompt.is_empty() {
+                assert!(!arguments.contains("--prompt-interactive"));
+            } else {
+                assert!(
+                    arguments
+                        .contains("ARG:--prompt-interactive=-fix it\r\nKeep the terminal open")
+                );
+            }
+            assert!(!arguments.contains("ARG:--print"));
+            application
+                .write_terminal_input(agent.terminal_id, b"follow up\n")
+                .unwrap();
+            wait_until(|| output_contains(&application, &mut output, "GOT:follow up"));
+            wait_until(|| workflow(&application).status == WorkflowStatus::Exited);
+            let trace = application
+                .workflow_trace(draft.workflow_id, None, 10)
+                .unwrap();
+            let lane = trace.lanes.iter().find(|lane| lane.is_agent).unwrap();
+            assert_eq!(lane.harness.as_deref(), Some("Antigravity"));
+            let span = trace
+                .spans
+                .iter()
+                .find(|span| span.lane_id == lane.lane_id)
+                .unwrap();
+            assert_eq!(span.status, crate::TraceSpanStatus::Exited);
+            assert_eq!(
+                trace.spans.len(),
+                1,
+                "The lifecycle span remains without prompt hooks"
+            );
+        }
+    }
+
+    #[test]
+    fn omp_launch_keeps_prompts_literal_and_accepts_follow_up_input() {
+        for prompt in ["", "models", "@README.md", "-fix it"] {
+            let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+            let application = application(
+                folder.path(),
+                bin.path(),
+                Some(
+                    "printf 'ARG:%s\\n' \"$@\"; echo READY; IFS= read -r line; printf 'GOT:%s\\n' \"$line\"",
+                ),
+            );
+            std::fs::rename(bin.path().join("pi"), bin.path().join("omp")).unwrap();
+            let draft = draft(&application, folder.path());
+            assert_eq!(
+                application
+                    .handle_command(
+                        RequestId(3),
+                        Command::StartAgent {
+                            workflow_id: draft.workflow_id,
+                            harness: HarnessId::Omp,
+                            model: Some("local/model".into()),
+                            effort: Some("high".into()),
+                            yolo: true,
+                            prompt: prompt.into(),
+                            size: SIZE,
+                        }
+                    )
+                    .unwrap()
+                    .disposition,
+                CommandDisposition::Accepted
+            );
+            let agent = workflow(&application);
+            assert_eq!(agent.harness, Some(HarnessId::Omp));
+            let mut output = Vec::new();
+            wait_until(|| output_contains(&application, &mut output, "READY"));
+            let arguments = String::from_utf8_lossy(&output);
+            assert!(arguments.starts_with("ARG:launch\r\nARG:--extension\r\n"));
+            for argument in [
+                "--auto-approve",
+                "--model",
+                "local/model",
+                "--thinking",
+                "high",
+            ] {
+                assert!(arguments.contains(&format!("ARG:{argument}\r\n")));
+            }
+            if prompt.is_empty() {
+                assert!(!arguments.contains("ARG:--\r\n"));
+            } else {
+                assert!(arguments.contains(&format!("ARG:--\r\nARG:{prompt}\r\n")));
+            }
+            assert!(!arguments.contains("ARG:--print"));
+            application
+                .write_terminal_input(agent.terminal_id, b"follow up\n")
+                .unwrap();
+            wait_until(|| output_contains(&application, &mut output, "GOT:follow up"));
+            wait_until(|| workflow(&application).status == WorkflowStatus::Exited);
+        }
+    }
+
+    #[test]
+    fn opencode_launch_is_interactive_with_literal_prompts_model_variants_and_lifecycle_traces() {
+        for prompt in [
+            "",
+            "models",
+            "@README.md",
+            "-fix it\nKeep the terminal open",
+        ] {
+            let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+            let application = application(
+                folder.path(),
+                bin.path(),
+                Some(
+                    "printf 'ARG:%s\\n' \"$@\"; echo READY; IFS= read -r line; printf 'GOT:%s\\n' \"$line\"",
+                ),
+            );
+            std::fs::rename(bin.path().join("pi"), bin.path().join("opencode")).unwrap();
+            let draft = draft(&application, folder.path());
+            assert_eq!(
+                application
+                    .handle_command(
+                        RequestId(3),
+                        Command::StartAgent {
+                            workflow_id: draft.workflow_id,
+                            harness: HarnessId::Opencode,
+                            model: Some("local/model".into()),
+                            effort: Some("high".into()),
+                            yolo: false,
+                            prompt: prompt.into(),
+                            size: SIZE,
+                        }
+                    )
+                    .unwrap()
+                    .disposition,
+                CommandDisposition::Accepted
+            );
+            let agent = workflow(&application);
+            assert_eq!(agent.harness, Some(HarnessId::Opencode));
+            assert_eq!(agent.name, "OpenCode");
+            let mut output = Vec::new();
+            wait_until(|| output_contains(&application, &mut output, "READY"));
+            let expected = if prompt.is_empty() {
+                "ARG:mini\r\nARG:--standalone\r\nARG:--model\r\nARG:local/model#high\r\nREADY\r\n"
+                    .to_owned()
+            } else {
+                format!(
+                    "ARG:mini\r\nARG:--standalone\r\nARG:--model\r\nARG:local/model#high\r\nARG:--prompt={}\r\nREADY\r\n",
+                    prompt.replace('\n', "\r\n")
+                )
+            };
+            assert_eq!(String::from_utf8_lossy(&output), expected);
+            application
+                .write_terminal_input(agent.terminal_id, b"follow up\n")
+                .unwrap();
+            wait_until(|| output_contains(&application, &mut output, "GOT:follow up"));
+            wait_until(|| workflow(&application).status == WorkflowStatus::Exited);
+            let trace = application
+                .workflow_trace(draft.workflow_id, None, 10)
+                .unwrap();
+            assert_eq!(trace.spans.len(), 1);
+            let lane = trace.lanes.iter().find(|lane| lane.is_agent).unwrap();
+            assert_eq!(lane.harness.as_deref(), Some("OpenCode"));
+            let span = trace
+                .spans
+                .iter()
+                .find(|span| span.lane_id == lane.lane_id)
+                .unwrap();
+            assert_eq!(span.status, crate::TraceSpanStatus::Exited);
+        }
     }
 
     #[test]

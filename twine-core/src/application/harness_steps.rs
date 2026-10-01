@@ -121,7 +121,12 @@ impl Application {
         options: crate::harness::launch::LaunchOptions<'_>,
         prompt: &str,
     ) -> (Vec<OsString>, Option<StepInbox>) {
-        let mut arguments = Vec::new();
+        let mut arguments: Vec<OsString> = harness
+            .definition()
+            .subcommand
+            .map(OsString::from)
+            .into_iter()
+            .collect();
         let hooks = {
             self.terminal_output
                 .replay_position(terminal_id)
@@ -130,10 +135,14 @@ impl Application {
                     match match harness {
                         HarnessId::ClaudeCode => crate::harness::claude::prepare(position),
                         HarnessId::Codex => crate::harness::codex::prepare(position),
-                        HarnessId::Pi => crate::harness::pi::prepare(position),
+                        HarnessId::Pi | HarnessId::Omp => {
+                            crate::harness::pi::prepare(position, harness)
+                        }
+                        // These CLIs have no launch-only plugin flag; preserve user/folder config.
+                        HarnessId::Antigravity | HarnessId::Opencode => return None,
                     } {
                         Ok((inbox, flags)) => {
-                            arguments = flags;
+                            arguments.extend(flags);
                             Some(inbox)
                         }
                         Err(error) => {

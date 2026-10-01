@@ -6,6 +6,7 @@ use twine_core::{HarnessId, HarnessModels, ModelListError};
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ModelsRequest {
     pub(crate) harness: HarnessId,
+    pub(crate) folder: Option<std::path::PathBuf>,
 }
 
 /// A harness's models, or why they couldn't be listed, which the app shows in place of the list.
@@ -27,6 +28,17 @@ mod tests {
     fn listed_models_and_failures_encode_for_the_app() {
         let request: ModelsRequest = serde_json::from_str(r#"{"harness":"claudeCode"}"#).unwrap();
         assert_eq!(request.harness, HarnessId::ClaudeCode);
+        let request: ModelsRequest = serde_json::from_str(r#"{"harness":"antigravity"}"#).unwrap();
+        assert_eq!(request.harness, HarnessId::Antigravity);
+        let request: ModelsRequest = serde_json::from_str(r#"{"harness":"omp"}"#).unwrap();
+        assert_eq!(request.harness, HarnessId::Omp);
+        let request: ModelsRequest =
+            serde_json::from_str(r#"{"harness":"opencode","folder":"/folder"}"#).unwrap();
+        assert_eq!(request.harness, HarnessId::Opencode);
+        assert_eq!(
+            request.folder.as_deref(),
+            Some(std::path::Path::new("/folder"))
+        );
         assert!(serde_json::from_str::<ModelsRequest>(r#"{"harness":"nope"}"#).is_err());
 
         let listed = encode_models(Ok(HarnessModels {

@@ -1,4 +1,4 @@
-//! Pi's launch-only observer extension. It shares the bounded step inbox and trace recorder.
+//! Pi and OMP's launch-only observer extension, sharing the bounded step inbox and trace recorder.
 
 use std::ffi::OsString;
 use std::io;
@@ -7,15 +7,28 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::steps::{HarnessStep, MAX_DETAIL_BYTES, StepInbox, StepKind, truncate};
+use crate::HarnessId;
 use crate::terminal::ReplayPosition;
 
-pub(crate) fn prepare(position: Arc<ReplayPosition>) -> io::Result<(StepInbox, Vec<OsString>)> {
+pub(crate) fn prepare(
+    position: Arc<ReplayPosition>,
+    harness: HarnessId,
+) -> io::Result<(StepInbox, Vec<OsString>)> {
     let inbox = StepInbox::new(position, parse)?;
     let extension = inbox.directory.path().join("twine.js");
-    let source = include_str!("pi-extension.js").replace(
-        "__TWINE_SOCKET__",
-        &serde_json::to_string(&inbox.socket_path)?,
-    );
+    let source = include_str!("pi-extension.js")
+        .replace(
+            "__TWINE_OMP__",
+            if harness == HarnessId::Omp {
+                "true"
+            } else {
+                "false"
+            },
+        )
+        .replace(
+            "__TWINE_SOCKET__",
+            &serde_json::to_string(&inbox.socket_path)?,
+        );
     std::fs::write(&extension, source)?;
     Ok((
         inbox,
@@ -115,9 +128,84 @@ mod tests {
 
     #[test]
     #[ignore = "requires Node; set TWINE_NODE to its absolute path"]
+    fn omp_extension_preserves_continuations_and_ignores_child_sessions() {
+        let node = std::env::var("TWINE_NODE").expect("set TWINE_NODE");
+        let (inbox, arguments) =
+            prepare(Arc::new(ReplayPosition::default()), HarnessId::Omp).unwrap();
+        let script = r"
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
+const { default: extension } = await import(pathToFileURL(process.argv[1]));
+const handlers = new Map();
+extension({ on: (name, handler) => handlers.set(name, handler) });
+assert.equal(handlers.has('agent_settled'), false);
+const emit = (name, event, kind = 'main') => {
+  assert.ok(handlers.has(name));
+  assert.equal(handlers.get(name)(Object.freeze(event), {agent:{kind}}), undefined);
+};
+const prompt = (text, kind) => emit('message_start', {message:{role:'user',content:[{type:'text',text}]}}, kind);
+const response = (text, stopReason = 'stop', kind) => emit('message_end', {
+  message:{role:'assistant',stopReason,content:[{type:'text',text}]}
+}, kind);
+prompt('child prompt', 'sub');
+response('child response', 'stop', 'sub');
+emit('agent_end', {willContinue:false}, 'sub');
+prompt('first');
+emit('tool_execution_start', {toolCallId:'a',toolName:'bash',args:{command:'printf marker'}});
+response('continuing');
+emit('agent_end', {willContinue:true});
+// A child shutdown must not close the root's transport or lose the pending call.
+emit('session_shutdown', {}, 'sub');
+emit('tool_execution_end', {toolCallId:'a',toolName:'bash',result:{content:[{type:'text',text:'marker'}]},isError:false});
+response('Done');
+emit('agent_end', {willContinue:false});
+prompt('aborted');
+response('', 'aborted');
+emit('agent_end', {willContinue:false});
+prompt('answered');
+response('A');
+prompt('queued');
+response('B');
+emit('agent_end', {});
+await delay(500);
+emit('session_shutdown', {});
+";
+        let output = std::process::Command::new(node)
+            .args(["--input-type=module", "-e", script])
+            .arg(&arguments[1])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let events = inbox.take(20);
+        let steps: Vec<_> = events.iter().map(|event| &event.step).collect();
+        assert_eq!(steps.len(), 9);
+        assert_eq!(steps[0].title, "first");
+        assert_eq!(steps[1].title, "Run printf marker");
+        assert_eq!(steps[2].title, "Finished: Run printf marker");
+        assert_eq!(steps[2].tool_call_id, steps[1].tool_call_id);
+        assert_eq!(steps[3].kind, StepKind::Responded);
+        assert_eq!(steps[3].detail, "Done");
+        assert_eq!(steps[3].turn_id, steps[0].turn_id);
+        assert_eq!(steps[4].title, "aborted");
+        assert_eq!(steps[5].title, "answered");
+        assert_eq!(steps[6].kind, StepKind::Responded);
+        assert_eq!(steps[6].turn_id, steps[5].turn_id);
+        assert_eq!(steps[7].title, "queued");
+        assert_eq!(steps[8].kind, StepKind::Responded);
+        assert_eq!(steps[8].turn_id, steps[7].turn_id);
+    }
+
+    #[test]
+    #[ignore = "requires Node; set TWINE_NODE to its absolute path"]
     fn pi_extension_preserves_queued_prompts_and_tool_identity() {
         let node = std::env::var("TWINE_NODE").expect("set TWINE_NODE");
-        let (inbox, arguments) = prepare(Arc::new(ReplayPosition::default())).unwrap();
+        let (inbox, arguments) =
+            prepare(Arc::new(ReplayPosition::default()), HarnessId::Pi).unwrap();
         let script = r"
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';

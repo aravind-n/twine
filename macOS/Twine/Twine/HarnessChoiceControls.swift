@@ -28,6 +28,7 @@ extension HarnessChoice {
 /// A role instance's harness, model, effort, and YOLO controls in the workflow launch form.
 struct HarnessChoiceRow: View {
     @Environment(HarnessModelCatalog.self) private var catalog
+    @Environment(CoreClient.self) private var client
     let title: String
     let symbol: String
     let color: Color
@@ -35,7 +36,9 @@ struct HarnessChoiceRow: View {
     let identifier: String
     @State private var showsCustomModel = false
 
-    private var entry: HarnessModelCatalog.Entry { catalog.entry(for: choice.harness) }
+    private var entry: HarnessModelCatalog.Entry {
+        catalog.entry(for: choice.harness, folder: client.snapshot?.folders.openFolder)
+    }
 
     var body: some View {
         // One line when the card is wide, then the label above the controls, then two control lines.
@@ -152,14 +155,16 @@ struct HarnessChoiceRow: View {
     }
 
     private var yoloToggle: some View {
-        let supported = entry.models?.supportsYolo ?? (choice.harness != .piAgent)
+        let supported = entry.models?.supportsYolo ?? (choice.harness != .piAgent && choice.harness != .opencode)
         return Toggle("YOLO", isOn: $choice.yolo)
             .toggleStyle(.checkbox)
             .disabled(!supported)
             .help(
                 supported
                     ? "Skip \(choice.harness.displayName)'s permission prompts"
-                    : "\(choice.harness.displayName) doesn't ask for permission"
+                    : (choice.harness == .opencode
+                        ? "OpenCode's interactive interface has no option to skip permission prompts"
+                        : "\(choice.harness.displayName) doesn't ask for permission")
             )
             .accessibilityIdentifier("roleYolo-\(identifier)")
     }

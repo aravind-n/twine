@@ -26,6 +26,10 @@ actor DelayedStartTransport {
     /// The harnesses whose models were requested, in order.
     private(set) var modelRequests: [CoreHarness] = []
     private var modelFailures: [CoreHarness: CoreFailure] = [:]
+    private(set) var modelFolders: [String?] = []
+    private var folderModels: [String: CoreHarnessModelsResult] = [:]
+    private var heldModelFolders: Set<String> = []
+    private var modelWaiters: [String: CheckedContinuation<CoreHarnessModelsResult, any Error>] = [:]
 
     init(snapshot: CoreSnapshot = .testReady()) {
         initialSnapshot = snapshot
@@ -71,10 +75,37 @@ actor DelayedStartTransport {
         modelFailures[harness] = failure
     }
 
-    func harnessModels(_ request: HarnessModelsRequest) throws -> CoreHarnessModelsResult {
+    func harnessModels(_ request: HarnessModelsRequest) async throws -> CoreHarnessModelsResult {
         modelRequests.append(request.harness)
         if let failure = modelFailures[request.harness] { throw failure }
+        if request.harness == .opencode {
+            modelFolders.append(request.folder)
+            if let folder = request.folder {
+                if heldModelFolders.contains(folder) {
+                    return try await withCheckedThrowingContinuation { modelWaiters[folder] = $0 }
+                }
+                if let models = folderModels[folder] { return models }
+            }
+            return .listed(
+                .init(
+                    models: [.init(id: "opencode/model", name: "Model")], allowsCustom: true, efforts: [],
+                    supportsYolo: false))
+        }
         return .listed(.init(models: [], allowsCustom: false, efforts: [], supportsYolo: true))
+    }
+
+    func setModels(_ models: CoreHarnessModelsResult, folder: String, held: Bool = false) {
+        folderModels[folder] = models
+        if held { heldModelFolders.insert(folder) }
+    }
+
+    func releaseModels(folder: String) {
+        heldModelFolders.remove(folder)
+        if let models = folderModels[folder] { modelWaiters.removeValue(forKey: folder)?.resume(returning: models) }
+    }
+
+    func setOpenFolder(_ folder: String) {
+        deliver(.foldersChanged(.init(openFolder: folder, recentFolders: [], unavailableFolder: nil)))
     }
 
     func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {

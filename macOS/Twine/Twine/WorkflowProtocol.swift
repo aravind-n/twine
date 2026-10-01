@@ -32,6 +32,9 @@ nonisolated enum CoreHarness: String, CaseIterable, Codable, Identifiable, Senda
     case codex
     case claudeCode
     case piAgent = "pi"
+    case antigravity
+    case omp
+    case opencode
 
     var id: String { rawValue }
 
@@ -40,6 +43,9 @@ nonisolated enum CoreHarness: String, CaseIterable, Codable, Identifiable, Senda
         case .codex: "Codex"
         case .claudeCode: "Claude Code"
         case .piAgent: "pi"
+        case .antigravity: "Antigravity"
+        case .omp: "OMP"
+        case .opencode: "OpenCode"
         }
     }
 }

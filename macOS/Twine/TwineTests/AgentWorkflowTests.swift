@@ -21,15 +21,17 @@ struct AgentWorkflowTests {
     }
 
     @Test func agentWorkflowsDecodeTheirHarness() throws {
-        let json = """
-            {"workflowId": 3, "sessionId": 1, "name": "Claude Code", "kind": "singleAgent",
-             "harness": "claudeCode", "terminalId": 9, "agents": [], "status": "cancelled", "startedAt": 1,
-             "endedAt": 2, "restored": false}
-            """
-        let workflow = try JSONDecoder().decode(CoreWorkflow.self, from: Data(json.utf8))
-        #expect(workflow.kind == .singleAgent)
-        #expect(workflow.harness == .claudeCode)
-        #expect(workflow.status == .cancelled)
+        for harness in CoreHarness.allCases {
+            let json = """
+                {"workflowId": 3, "sessionId": 1, "name": "\(harness.displayName)", "kind": "singleAgent",
+                 "harness": "\(harness.rawValue)", "terminalId": 9, "agents": [], "status": "cancelled", "startedAt": 1,
+                 "endedAt": 2, "restored": false}
+                """
+            let workflow = try JSONDecoder().decode(CoreWorkflow.self, from: Data(json.utf8))
+            #expect(workflow.kind == .singleAgent)
+            #expect(workflow.harness == harness)
+            #expect(workflow.status == .cancelled)
+        }
     }
 
     @Test func startAgentEncodesHarnessAndSizeWithoutAPrompt() throws {

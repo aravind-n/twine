@@ -28,10 +28,11 @@ an explanatory state. Up to 256 directories can be expanded at once.
 
 Choose **Adversarial**, **Coordinator**, or a stored custom workflow type from a new tab.
 Pick a harness for each role instance, and optionally its model and effort level, then start it.
-Twine reads each harness's models from its own CLI (`codex debug models`, `pi --list-models`, and
+Supported harnesses are Codex, Claude Code, pi, Antigravity (`agy`), OMP (`omp`), and OpenCode (`opencode`), installed on your shell's PATH.
+Twine reads each harness's models from its own CLI (`codex debug models`, `pi --list-models`, `agy models`, `omp models --json`, `opencode api model.list`, and
 the aliases in `claude --help`); Claude Code also takes any typed model name. A YOLO checkbox skips
 the harness's permission prompts (`--dangerously-bypass-approvals-and-sandbox` for Codex,
-`--dangerously-skip-permissions` for Claude Code); pi doesn't ask for permission, so it has none. The first stage's agent asks for the task in
+`--dangerously-skip-permissions` for Claude Code and Antigravity, `--auto-approve` for OMP); pi doesn't ask for permission, so it has none. The first stage's agent asks for the task in
 its terminal and reports it when it finishes, so later roles receive it. Harnesses run directly
 in the open folder; parallel workers receive their own sub-task and advisory file ownership.
 Each role has a terminal subtab. A stage starts fresh harness processes, including when a review
@@ -71,6 +72,22 @@ project harness config files are never edited. Codex hook compatibility is verif
 Pi uses a temporary extension supplied with `--extension`, verified with pi 0.99.1. It observes
 prompts as they enter the agent (including queued prompts), tool execution, and final response
 settlement. Delivery never waits on Twine, and user/project extensions remain enabled.
+Antigravity uses `--prompt-interactive` for initial tasks and keeps its terminal open for follow-up
+prompts. It retains lifecycle and workflow spans; per-prompt and tool observers aren't installed
+because `agy` doesn't expose a launch-only hook option. Its models and effort levels are discovered
+from `agy models` and `agy --help`, verified with agy 1.2.5 and 1.2.14.
+OMP uses an explicit `launch` subcommand and literal positional prompts. Its JSON catalog supplies
+provider groups and model-specific thinking levels; typed model selectors and aliases also work.
+Thinking options come from `omp --help` and use `--thinking`. OMP shares the temporary observer
+extension with pi, using OMP's continuation-aware `agent_end` event and observing only the root
+agent, verified with OMP 18.4.5. User and folder extensions remain enabled.
+OpenCode v2 uses `mini --standalone`, keeping its interactive terminal and private server within
+the agent's lifetime. Initial tasks use `--prompt`; model-specific effort choices select the model's
+named variant with `--model provider/model#variant`. Its CLI API supplies model names, provider
+groups, and variants for the open folder; catalogs are cached per folder. Custom selectors can
+include other variant names. The mini interface
+has no auto-approve or temporary-plugin flag, so YOLO is unavailable and it retains lifecycle
+and workflow spans. Compatibility is verified with OpenCode 2.0.21.
 
 Startup recovers interrupted work across all folders before publishing state. Agents retain their
 individual lifecycle status, and unfinished trace spans gain a stopped event without changing

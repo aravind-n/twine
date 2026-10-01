@@ -150,6 +150,7 @@ impl Application {
                 Ok(reserved) => {
                     let prompt = run.instructions(agent.agent_id, &inbox.command());
                     let options = crate::harness::launch::validate_options(
+                        agent.harness,
                         agent.model.as_deref(),
                         agent.effort.as_deref(),
                         agent.yolo,

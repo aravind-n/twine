@@ -82,12 +82,14 @@ struct NewTabChoices: View {
         }
         .accessibilityIdentifier("newTabChoices")
         .offset(y: verticalOffset)
-        .task { await harnessCatalog.load(using: client) }
+        .task(id: client.snapshot?.folders.openFolder) { await harnessCatalog.load(using: client) }
         .sheet(item: $customModelHarness) { harness in
             VStack(alignment: .leading, spacing: 0) {
                 Text("\(harness.displayName) model").font(.headline).padding([.top, .horizontal], 12)
                 CustomModelForm(
-                    action: "Start", efforts: harnessCatalog.entry(for: harness).models?.efforts ?? []
+                    action: "Start",
+                    efforts: harnessCatalog.entry(for: harness, folder: client.snapshot?.folders.openFolder).models?
+                        .efforts ?? []
                 ) { model, effort in
                     customModelHarness = nil
                     start(.init(harness: harness, model: model, effort: effort, yolo: singleAgentYolo))
@@ -145,7 +147,9 @@ struct NewTabChoices: View {
                     ForEach(CoreHarness.allCases) { harness in
                         Menu(harness.displayName) {
                             SingleAgentHarnessMenu(
-                                harness: harness, entry: harnessCatalog.entry(for: harness), yolo: singleAgentYolo,
+                                harness: harness,
+                                entry: harnessCatalog.entry(for: harness, folder: client.snapshot?.folders.openFolder),
+                                yolo: singleAgentYolo,
                                 start: start,
                                 chooseCustomModel: { customModelHarness = harness })
                         }
