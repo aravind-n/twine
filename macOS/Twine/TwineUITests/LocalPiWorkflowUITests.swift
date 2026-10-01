@@ -12,22 +12,12 @@ extension TwineUITests {
         }
         let fixture = try JSONDecoder().decode(LocalPiFixture.self, from: Data(contentsOf: fixtureURL))
         let folder = URL(filePath: fixture.folder)
-        let app = fixture.applicationPath.map { XCUIApplication(url: URL(filePath: $0)) } ?? XCUIApplication()
-        app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
-        app.launchEnvironment["TWINE_DATA_DIRECTORY"] = fixture.dataDirectory
-        app.launchEnvironment["TWINE_HARNESS_PATH"] = fixture.harnessPath
-        app.launchEnvironment["PI_CODING_AGENT_DIR"] = fixture.piDirectory
-        app.launchEnvironment["PI_OFFLINE"] = "1"
-        app.launchEnvironment["TWINE_BENCH_RUN_ID"] = fixture.runID
-        app.launchEnvironment["TWINE_BENCH_COMPLETION_WITNESS"] = fixture.completionWitness
-        let preferencesSuite = "TwineLocalPi-\(UUID())"
-        app.launchEnvironment["TWINE_PREFERENCES_SUITE"] = preferencesSuite
+        let app = makeLocalPiApp(fixture)
         let result = folder.appending(path: fixture.resultFile)
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: result.path), "Prepare a fresh result path before this test.")
-        defer {
-            app.terminate()
-            UserDefaults(suiteName: preferencesSuite)?.removePersistentDomain(forName: preferencesSuite)
+        if let witness = fixture.finalCompletionWitness {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: witness))
         }
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 15), app.debugDescription)
@@ -51,9 +41,38 @@ extension TwineUITests {
         app.typeText(fixture.prompt + "\r")
         try waitForLocalPiResult(fixture, result: result, in: app)
         try checkLocalPiFollowUps(fixture, in: app)
+        if let witness = fixture.finalCompletionWitness {
+            let settled = expectation(
+                for: NSPredicate { _, _ in FileManager.default.fileExists(atPath: witness) },
+                evaluatedWith: nil)
+            wait(for: [settled], timeout: fixture.timeout)
+            _ = try livePiProcesses(fixture)
+        }
         item("tracesHeader").click()
         XCTAssertTrue(item("traceOverview").waitForExistence(timeout: 10), app.debugDescription)
         attachScreenshot(of: app, named: "Real Pi completed workflow and traces")
+    }
+
+    @MainActor
+    private func makeLocalPiApp(_ fixture: LocalPiFixture) -> XCUIApplication {
+        let app = fixture.applicationPath.map { XCUIApplication(url: URL(filePath: $0)) } ?? XCUIApplication()
+        app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
+        app.launchEnvironment["TWINE_DATA_DIRECTORY"] = fixture.dataDirectory
+        app.launchEnvironment["TWINE_HARNESS_PATH"] = fixture.harnessPath
+        app.launchEnvironment["PI_CODING_AGENT_DIR"] = fixture.piDirectory
+        app.launchEnvironment["PI_OFFLINE"] = "1"
+        app.launchEnvironment["TWINE_BENCH_RUN_ID"] = fixture.runID
+        app.launchEnvironment["TWINE_BENCH_COMPLETION_WITNESS"] = fixture.completionWitness
+        let preferencesSuite = "TwineLocalPi-\(UUID())"
+        app.launchEnvironment["TWINE_PREFERENCES_SUITE"] = preferencesSuite
+        // XCTest can stop on an assertion without unwinding Swift defer blocks.
+        addTeardownBlock {
+            await MainActor.run {
+                app.terminate()
+                UserDefaults(suiteName: preferencesSuite)?.removePersistentDomain(forName: preferencesSuite)
+            }
+        }
+        return app
     }
 
     @MainActor
@@ -187,6 +206,8 @@ private struct LocalPiFixture: Decodable {
     let runID: String?
     /// Optional witness written by the trusted Pi extension after its final agent turn.
     let completionWitness: String?
+    /// Trusted caller signal that final model turns have settled before the app is closed.
+    let finalCompletionWitness: String?
     let processWitness: String?
     let followUps: [FollowUp]?
 
