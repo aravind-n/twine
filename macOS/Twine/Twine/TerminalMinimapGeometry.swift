@@ -45,6 +45,28 @@ nonisolated struct TerminalMinimapGeometry: Equatable {
         }
         return max(1, lower)
     }
+
+    /// A command boundary follows its echoed input. Include the entire input when it wrapped.
+    @MainActor static func inputRow(before row: Int, in terminal: Terminal) -> Int {
+        var input = max(0, row - 1)
+        while input > 0, terminal.bufferLine(atRow: input)?.isWrapped == true { input -= 1 }
+        return input
+    }
+
+    /// Compare input independently of the padding and physical rows introduced by reflow.
+    @MainActor static func logicalLine(at row: Int, in terminal: Terminal) -> String? {
+        guard terminal.bufferLine(atRow: row) != nil else { return nil }
+        var current = row
+        while current > 0, terminal.bufferLine(atRow: current)?.isWrapped == true { current -= 1 }
+        var text = ""
+        while let line = terminal.bufferLine(atRow: current) {
+            let continued = terminal.bufferLine(atRow: current + 1)?.isWrapped == true
+            text += line.translateToString(trimRight: !continued, endCol: terminal.cols)
+            if !continued { break }
+            current += 1
+        }
+        return text
+    }
 }
 
 /// A line identity survives ordinary output and reflow; trimming must invalidate it before SwiftTerm

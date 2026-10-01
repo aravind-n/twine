@@ -70,7 +70,7 @@ struct TracesPanel: View {
         .task(id: logKey) {
             if isExpanded {
                 await state.loadEvents(client: coreClient)
-                if !Task.isCancelled { navigation.jumpToSelectedSpan() }
+                if !Task.isCancelled { await navigation.jumpToSelectedSpan(client: coreClient) }
             }
         }
         .task(id: loadOlderRequested) {
@@ -131,7 +131,7 @@ struct TracesPanel: View {
                     withAnimation(reduceMotion ? nil : Motion.traceDetailPanel) { navigation.selectSpan(id) }
                 }
                 HStack {
-                    Text(state.failureMessage ?? "Steps are spaced by start order.")
+                    Text(navigation.failureMessage ?? state.failureMessage ?? "Steps are spaced by start order.")
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     if state.nextBefore != nil {

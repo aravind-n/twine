@@ -16,8 +16,10 @@ final class TerminalReplay: TerminalDelegate {
     private var outputStartLine: BufferLine?
     private var outputStartBuffer: Buffer?
 
-    func markOutputStart() {
-        outputStartLine = terminal.bufferLine(atRow: terminal.getTopVisibleRow() + terminal.getCursorLocation().y)
+    func markOutputStart(includingInput: Bool = false) {
+        let row = terminal.getTopVisibleRow() + terminal.getCursorLocation().y
+        let start = includingInput ? TerminalMinimapGeometry.inputRow(before: row, in: terminal) : row
+        outputStartLine = terminal.bufferLine(atRow: start)
         outputStartBuffer = terminal.buffer
     }
 

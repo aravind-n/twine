@@ -4,6 +4,7 @@ import SwiftUI
 struct TraceDetailPanel: View {
     @Environment(CoreClient.self) private var coreClient
     @Environment(TraceTerminalNavigation.self) private var navigation
+    @Environment(\.traceLaneColors) private var laneColors
     let span: CoreTraceSpan
     let lane: CoreTraceLane
     @Bindable var state: TracePanelState
@@ -77,7 +78,8 @@ struct TraceDetailPanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: TraceLaneStyle.symbol(for: lane)).foregroundStyle(TraceLaneStyle.color(for: lane))
+            Image(systemName: TraceLaneStyle.symbol(for: lane))
+                .foregroundStyle(TraceLaneStyle.color(for: lane, colors: laneColors))
             VStack(alignment: .leading, spacing: 2) {
                 Text(span.title).font(.subheadline.weight(.semibold)).lineLimit(1)
                 Text(
@@ -102,7 +104,7 @@ struct TraceDetailPanel: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Text(TraceFormatting.timestamp(event.timestamp)).foregroundStyle(.secondary)
-                Text(event.kind.label).foregroundStyle(TraceLaneStyle.color(for: lane))
+                Text(event.kind.label).foregroundStyle(TraceLaneStyle.color(for: lane, colors: laneColors))
             }
             .logMetadataStyle()
             if event.anchor != nil {

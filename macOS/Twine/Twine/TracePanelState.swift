@@ -177,19 +177,28 @@ final class TracePanelState {
     func completeLog(spanID: UInt64, client: CoreClient) async throws -> String {
         guard let span = spans.first(where: { $0.id == spanID }) else { throw CoreFailure.invalidArgument }
         let laneName = lanes.first { $0.id == span.laneID }?.name ?? "Activity"
-        var lines = ["\(laneName) — \(span.title)"]
+        let events = try await completeEvents(spanID: spanID, client: client)
+        let lines =
+            ["\(laneName) — \(span.title)"]
+            + events.map {
+                "\(TraceFormatting.timestamp($0.timestamp)) [\($0.kind.label)] \($0.message)"
+            }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Freeze one event snapshot so navigation includes the ending without chasing ongoing work.
+    func completeEvents(spanID: UInt64, client: CoreClient) async throws -> [CoreTraceEvent] {
+        var events: [CoreTraceEvent] = []
         var after: UInt64?
         var revision: UInt64?
         repeat {
             let page = try await client.traceEvents(spanID: spanID, after: after)
             try Task.checkCancellation()
             if revision == nil { revision = page.revision }
-            for event in page.events where event.id <= (revision ?? page.revision) {
-                lines.append("\(TraceFormatting.timestamp(event.timestamp)) [\(event.kind.label)] \(event.message)")
-            }
+            events.append(contentsOf: page.events.filter { $0.id <= (revision ?? page.revision) })
             after = page.nextAfter
             if let after, after >= (revision ?? page.revision) { break }
         } while after != nil
-        return lines.joined(separator: "\n")
+        return events
     }
 }

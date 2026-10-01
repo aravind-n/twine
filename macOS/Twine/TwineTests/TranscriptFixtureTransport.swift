@@ -6,14 +6,21 @@ actor TranscriptFixtureTransport: CoreTransport {
     private let bytes: Data?
     private let replayAvailable: Bool
     private let delayed: Bool
+    private let trace: CoreWorkflowTracePage?
+    private let recordedEvents: [CoreTraceEvent]
     private var pending: CheckedContinuation<Void, Never>?
     private(set) var readLimits: [UInt32] = []
     var hasPendingRead: Bool { pending != nil }
 
-    init(bytes: Data?, replayAvailable: Bool = true, delayed: Bool = false) {
+    init(
+        bytes: Data?, replayAvailable: Bool = true, delayed: Bool = false,
+        trace: CoreWorkflowTracePage? = nil, recordedEvents: [CoreTraceEvent] = []
+    ) {
         self.bytes = bytes
         self.replayAvailable = replayAvailable
         self.delayed = delayed
+        self.trace = trace
+        self.recordedEvents = recordedEvents
     }
 
     func release() {
@@ -46,9 +53,15 @@ actor TranscriptFixtureTransport: CoreTransport {
     func writeTerminalInput(terminalID: UInt64, bytes: Data) {}
     func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) {}
     func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) throws -> CoreWorkflowTracePage {
+        if let trace { return trace }
         throw CoreFailure.unexpectedCommandResult
     }
     func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) throws -> CoreTraceEventsPage {
-        throw CoreFailure.unexpectedCommandResult
+        guard let trace else { throw CoreFailure.unexpectedCommandResult }
+        let remaining = recordedEvents.filter { $0.spanID == spanID && $0.id > (after ?? 0) }
+        let events = Array(remaining.prefix(Int(limit)))
+        return .init(
+            workflowID: trace.summary.workflowID, spanID: spanID, revision: trace.summary.revision,
+            events: events, nextAfter: remaining.count > events.count ? events.last?.id : nil)
     }
 }

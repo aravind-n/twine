@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TraceOverview: View {
+    @Environment(\.traceLaneColors) private var laneColors
     let tracks: [CoreTraceLane]
     let steps: [TraceSequenceLayout.Step]
     let focusRange: Range<Int>
@@ -59,7 +60,7 @@ struct TraceOverview: View {
     private func laneLabel(_ lane: CoreTraceLane) -> some View {
         HStack(spacing: 5) {
             Image(systemName: TraceLaneStyle.symbol(for: lane))
-                .foregroundStyle(TraceLaneStyle.color(for: lane)).frame(width: 14)
+                .foregroundStyle(TraceLaneStyle.color(for: lane, colors: laneColors)).frame(width: 14)
             if labelWidth > TracesLayout.compactLabelWidth {
                 Text(lane.name).lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 0)

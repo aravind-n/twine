@@ -2,6 +2,39 @@ import XCTest
 
 extension TwineUITests {
     @MainActor
+    func testClearedTraceOpensSavedInputAndOutputWithoutAScrollbackWarning() throws {
+        let folder = try makeTestFolder(prefix: "TwineHistoryUITests")
+        let app = try makeApp(lastOpenFolder: folder)
+        app.launchEnvironment["SHELL"] = "/bin/bash"
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10))
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 760))
+        app.typeText("printf 'SAVED_RESPONSE\\n'; echo ready > history-ready\r")
+        waitForFile(folder.appending(path: "history-ready"), containing: "ready", in: app)
+        app.typeText("printf '\\033[3J\\033[2J\\033[H'; echo cleared > history-cleared\r")
+        waitForFile(folder.appending(path: "history-cleared"), containing: "cleared", in: app)
+        app.buttons["tracesHeader"].click()
+        let span = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'traceSpan-' AND label CONTAINS 'SAVED_RESPONSE'")
+        ).firstMatch
+        XCTAssertTrue(span.waitForExistence(timeout: 10), app.debugDescription)
+        span.click()
+        let history = app.textViews["terminalHistoryText"]
+        XCTAssertTrue(history.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.descendants(matching: .any)["traceScrollUnavailable"].exists)
+        let text = history.value as? String ?? ""
+        XCTAssertTrue(text.contains("printf 'SAVED_RESPONSE"), text)
+        XCTAssertTrue(text.contains("\nSAVED_RESPONSE\n"), text)
+        XCTAssertFalse(text.contains("history-cleared"), text)
+        attachScreenshot(of: app, named: "Cleared trace automatically reveals saved input and output")
+        app.buttons["returnToLive"].click()
+        XCTAssertTrue(history.waitForNonExistence(timeout: 5))
+        app.typeText("echo returned > history-returned\r")
+        waitForFile(folder.appending(path: "history-returned"), containing: "returned", in: app)
+    }
+
+    @MainActor
     func testTraceExitScrollsTheTerminalAndKeepsItMountedAfterResize() throws {
         let folder = try makeTestFolder(prefix: "TwineHistoryUITests")
         let app = try makeApp(lastOpenFolder: folder)

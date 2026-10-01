@@ -7,8 +7,13 @@ import SwiftTerm
 final class TerminalMinimapReplay {
     let replay: TerminalReplay
     private var anchors: [UInt64: TerminalMinimapAnchor] = [:]
+    private let includingInput: Bool
+    private var inputText: [UInt64: String] = [:]
 
-    init(replay: TerminalReplay = TerminalReplay()) { self.replay = replay }
+    init(replay: TerminalReplay = TerminalReplay(), includingInput: Bool = false) {
+        self.replay = replay
+        self.includingInput = includingInput
+    }
 
     var rows: [UInt64: Int] { replay.terminal.isCurrentBufferAlternate ? [:] : anchors.mapValues(\.row) }
 
@@ -78,8 +83,10 @@ final class TerminalMinimapReplay {
         let terminal = replay.terminal
         guard !terminal.isCurrentBufferAlternate else { return }
         // Replay always follows output, so its top row is the current screen's base.
-        anchors[id] = TerminalMinimapAnchor(
-            terminal: terminal, row: terminal.getTopVisibleRow() + terminal.getCursorLocation().y)
+        let row = terminal.getTopVisibleRow() + terminal.getCursorLocation().y
+        let start = includingInput ? TerminalMinimapGeometry.inputRow(before: row, in: terminal) : row
+        anchors[id] = TerminalMinimapAnchor(terminal: terminal, row: start)
+        if includingInput { inputText[id] = TerminalMinimapGeometry.logicalLine(at: start, in: terminal) }
     }
 
     func capture(_ marker: TraceMinimapMarker) throws {
@@ -127,6 +134,13 @@ final class TerminalMinimapReplay {
             else { return nil }
             return checkpoint.lines[row]
         }
+    }
+
+    /// The mounted terminal can redraw during the disk read. Validate its input just before scrolling.
+    func retainsInput(id: UInt64, row: Int, terminal: Terminal) -> Bool {
+        guard includingInput else { return true }
+        guard let expected = inputText[id] else { return false }
+        return expected == TerminalMinimapGeometry.logicalLine(at: row, in: terminal)
     }
 
     enum ReplayFailure: Error { case expired }

@@ -38,7 +38,7 @@ struct TerminalHistoryTests {
         #expect(!replay.text.contains("later prompt"))
         #expect(replay.offset == endOffset)
         let range = try #require(replay.outputStartRange)
-        #expect((replay.text as NSString).substring(from: range.location).hasPrefix("hello"))
+        #expect((replay.text as NSString).substring(from: range.location).hasPrefix("$ printf hello"))
         navigation.scrollTarget = nil
         navigation.jump(toCommand: span, events: events, lane: lane)
         #expect(navigation.scrollTarget?.id != target.id)
@@ -54,6 +54,64 @@ struct TerminalHistoryTests {
         #expect(navigation.destination?.workflowID == 2)
         navigation.target = nil
         #expect(navigation.destination == nil)
+    }
+
+    @Test func missingLiveRowOpensSavedOutputAndStaleReadsCannotReplaceAnotherSelection() throws {
+        let navigation = TraceTerminalNavigation()
+        let first = TraceTerminalTarget(
+            workflowID: 1, agentID: nil, anchor: .init(terminalID: 1, byteOffset: 10), timestamp: 0, message: "First")
+        navigation.scrollTarget = first
+        navigation.finishScroll(first, found: true)
+        #expect(navigation.target == nil)
+        navigation.finishScroll(first, found: false)
+        #expect(navigation.target?.id == first.id)
+        #expect(navigation.scrollTarget == nil)
+        let second = TraceTerminalTarget(
+            workflowID: 2, agentID: nil, anchor: .init(terminalID: 2, byteOffset: 20), timestamp: 0, message: "Second")
+        navigation.target = nil
+        navigation.scrollTarget = second
+        navigation.finishScroll(first, found: false)
+        #expect(navigation.target == nil)
+        #expect(navigation.scrollTarget?.id == second.id)
+    }
+
+    @Test(arguments: [false, true])
+    func promptSelectionSkipsTheClearedLaunchScreenAndIncludesItsResponse(staleRunning: Bool) async throws {
+        let prefix = "launch\u{1B}[2J\u{1B}[H"
+        let input = "say hi\r\n"
+        let response = "Hi!\r\n"
+        let bytes = Data((prefix + input + response + "next prompt").utf8)
+        let lane = CoreTraceLane(
+            laneID: 1, workflowID: 1, name: "Codex", isAgent: true, role: "agent", harness: "codex")
+        let span = CoreTraceSpan(
+            spanID: 1, laneID: 1, title: "say hi", startedAt: 1, endedAt: staleRunning ? nil : 2,
+            status: staleRunning ? .running : .exited, terminalID: 41, isLive: staleRunning)
+        let events: [CoreTraceEvent] = [
+            .init(
+                eventID: 1, workflowID: 1, spanID: 1, timestamp: 0, kind: .processStarted, message: "Started",
+                anchor: .init(terminalID: 41, byteOffset: 0)),
+            .init(
+                eventID: 2, workflowID: 1, spanID: 1, timestamp: 1, kind: .workflowEvent, message: "say hi",
+                anchor: .init(terminalID: 41, byteOffset: UInt64((prefix + input).utf8.count))),
+            .init(
+                eventID: 3, workflowID: 1, spanID: 1, timestamp: 2, kind: .workflowEvent,
+                message: "Finished responding", anchor: .init(terminalID: 41, byteOffset: UInt64(bytes.count - 11))),
+        ]
+        let navigation = TraceTerminalNavigation()
+        navigation.jump(toSpan: span, events: events, lane: lane)
+        let target = try #require(navigation.scrollTarget)
+        #expect(target.scrollAnchor.byteOffset == events[1].anchor?.byteOffset)
+        let state = TerminalHistoryState()
+        await state.load(target, client: CoreClient(transport: TranscriptFixtureTransport(bytes: bytes)))
+        guard case .ready(let replay) = state.status else {
+            Issue.record("Prompt history failed to load")
+            return
+        }
+        #expect(replay.text.contains("say hi"))
+        #expect(replay.text.contains("Hi!"))
+        #expect(!replay.text.contains("next prompt"))
+        let range = try #require(replay.outputStartRange)
+        #expect((replay.text as NSString).substring(from: range.location).hasPrefix("say hi"))
     }
 
     @Test func runningCommandLoadsRecordedOutputAfterItsStartAnchor() async throws {
@@ -159,5 +217,65 @@ struct TerminalHistoryTests {
                 anchor: nil),
             lane: lane)
         #expect(navigation.scrollTarget == nil)
+    }
+}
+
+extension TerminalHistoryTests {
+    @Test(arguments: [false, true])
+    func resumedPromptDoesNotFreezeAtItsEarlierResponseEnding(staleCompleted: Bool) throws {
+        let lane = CoreTraceLane(
+            laneID: 1, workflowID: 1, name: "Codex", isAgent: true, role: "agent", harness: "codex")
+        let span = CoreTraceSpan(
+            spanID: 1, laneID: 1, title: "Continue", startedAt: 1, endedAt: staleCompleted ? 2 : nil,
+            status: staleCompleted ? .exited : .running, terminalID: 41, isLive: !staleCompleted)
+        let events: [CoreTraceEvent] = [
+            .init(
+                eventID: 1, workflowID: 1, spanID: 1, timestamp: 1, kind: .workflowEvent, message: "Continue",
+                anchor: .init(terminalID: 41, byteOffset: 10)),
+            .init(
+                eventID: 2, workflowID: 1, spanID: 1, timestamp: 2, kind: .workflowEvent,
+                message: "Finished responding", anchor: .init(terminalID: 41, byteOffset: 20)),
+            .init(
+                eventID: 3, workflowID: 1, spanID: 1, timestamp: 3, kind: .workflowEvent, message: "Run make test",
+                anchor: .init(terminalID: 41, byteOffset: 30)),
+        ]
+        let navigation = TraceTerminalNavigation()
+        navigation.jump(toSpan: span, events: events, lane: lane)
+        let target = try #require(navigation.scrollTarget)
+        #expect(target.readToCurrentEnd)
+        #expect(target.anchor.byteOffset == 30)
+    }
+
+    @Test func selectedPromptReadsItsEndingBeyondTheFirstEventPage() async throws {
+        let lane = CoreTraceLane(
+            laneID: 1, workflowID: 1, name: "Codex", isAgent: true, role: "agent", harness: "codex")
+        let span = CoreTraceSpan(
+            spanID: 1, laneID: 1, title: "Long response", startedAt: 1, endedAt: 201, status: .exited,
+            terminalID: 41, isLive: false)
+        let trace = CoreWorkflowTracePage(
+            summary: .init(workflowID: 1, revision: 201, spanCount: 1, agentCount: 1), lanes: [lane], spans: [span],
+            nextBefore: nil)
+        let events: [CoreTraceEvent] = (1...201).map { id in
+            .init(
+                eventID: UInt64(id), workflowID: 1, spanID: 1, timestamp: UInt64(id), kind: .workflowEvent,
+                message: id == 201 ? "Finished responding" : "Tool activity",
+                anchor: .init(terminalID: 41, byteOffset: UInt64(id)))
+        }
+        let client = CoreClient(
+            transport: TranscriptFixtureTransport(bytes: nil, trace: trace, recordedEvents: events))
+        client.start()
+        try await client.waitUntilRunning()
+        defer { Task { await client.stop() } }
+        let navigation = TraceTerminalNavigation()
+        await navigation.activity.refresh(workflowID: 1, client: client)
+        navigation.selectSpan(1)
+        await navigation.activity.loadEvents(client: client)
+        #expect(navigation.activity.events.count == 200)
+        await navigation.jumpToSelectedSpan(client: client)
+        let target = try #require(navigation.scrollTarget)
+        #expect(target.anchor.byteOffset == 201)
+        #expect(!target.readToCurrentEnd)
+        #expect(navigation.activity.events.count == 200)
+        #expect(navigation.requestedSpanID == nil)
     }
 }
