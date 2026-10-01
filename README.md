@@ -15,8 +15,7 @@
 
 > [!NOTE]
 > Twine is in early development. Features, integrations, and interfaces are still
-> changing. No prebuilt release has been published yet; you can try it by building
-> from source.
+> changing. Download a packaged release below, or build from source.
 
 ## About
 
@@ -99,9 +98,20 @@ workflow traces. Compatibility depends on CLI versions; see the
 ## Try Twine
 
 Twine currently targets **macOS 26 or later**, on **Apple Silicon and Intel**.
-Build from source until a prebuilt release is published.
 
-You will need:
+Download `Twine-0.1.0-macos-universal.zip` from the
+[v0.1.0 release](https://github.com/aravind-n/twine/releases/tag/v0.1.0), extract it,
+and move `Twine.app` to Applications. The app is ad hoc signed and not notarized;
+follow the included `README.txt` or the [install notes](docs/reference.md#install)
+for first-launch approval.
+
+Open a folder, create a session, and choose a workflow in a new tab. For an agent
+workflow, choose the harness for each role, then enter your task in the first
+agent's terminal.
+
+### Build from source
+
+To build from source, you will need:
 
 - **Xcode 27.0**, selected as the active developer toolchain. Command Line Tools
   alone are insufficient for the app's build plugins.
@@ -121,15 +131,6 @@ In Xcode, select the **Twine** scheme, trust the SwiftTerm build plugin when
 prompted, and run the app. Xcode uses the prebuilt Rust framework; rebuild it with
 `make framework` after Rust changes. For a command-line build, use
 `make build-macos`.
-
-Open a folder, create a session, and choose a workflow in a new tab. For an agent
-workflow, choose the harness for each role, then enter your task in the first
-agent's terminal.
-
-[GitHub Releases](https://github.com/aravind-n/twine/releases) will be the download
-location for packaged builds. The current packaging produces an ad hoc signed,
-unnotarized universal ZIP; the [install notes](docs/reference.md#install) explain
-first-launch approval.
 
 ## Settings and saved work
 
