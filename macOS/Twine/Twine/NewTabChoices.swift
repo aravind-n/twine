@@ -11,6 +11,7 @@ struct NewTabChoices: View {
     let startAgent: (HarnessChoice) async throws -> Void
     /// Gives the keyboard back to the terminal, which nothing else in the card can take.
     let focusTerminal: () -> Void
+    @State private var showsDesigner = false
     @State private var contentHeight: CGFloat = 0
     @State private var startFailure: String?
     @Binding var selectedType: CoreWorkflowType?
@@ -76,6 +77,9 @@ struct NewTabChoices: View {
                 .padding(NewTabLayout.closePadding)
                 .accessibilityIdentifier("closeNewTabChoices")
         }
+        .sheet(isPresented: $showsDesigner, onDismiss: focusTerminal) {
+            WorkflowDesigner { _ in }.environment(client)
+        }
         .accessibilityIdentifier("newTabChoices")
         .offset(y: verticalOffset)
         .task { await harnessCatalog.load(using: client) }
@@ -102,6 +106,12 @@ struct NewTabChoices: View {
                     .foregroundStyle(Color.statusNeedsAttention)
                     .accessibilityIdentifier("agentStartFailure")
             }
+
+            Button("Create your own", systemImage: "plus.square.on.square") { showsDesigner = true }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(!isSelected || startingHarness != nil)
+                .help("Create your own workflow type (⇧⌘D)")
+                .accessibilityIdentifier("workflowCreateOwn")
 
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumChoiceWidth), spacing: NewTabLayout.spacing)],

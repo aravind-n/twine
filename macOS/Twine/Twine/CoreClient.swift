@@ -44,7 +44,8 @@ final class CoreClient {
         let receipt = try await transport.send(command)
         if receipt.status == .accepted {
             switch command {
-            case .ping, .startTerminal, .closeTerminal, .createWorkflow, .activateWorkflow, .closeWorkflow,
+            case .validateWorkflowType, .saveWorkflowType, .ping, .startTerminal, .closeTerminal, .createWorkflow,
+                .activateWorkflow, .closeWorkflow,
                 .startAgent, .cancelAgent, .createSession, .renameSession, .selectSession, .deleteSession:
                 if commandResults.removeValue(forKey: receipt.requestID) == nil {
                     ignoredCommandResults.insert(receipt.requestID)
@@ -192,6 +193,8 @@ final class CoreClient {
 
     private func apply(_ event: CoreEvent.Kind, to snapshot: inout CoreSnapshot) {
         switch event {
+        case .workflowTypesChanged(let types):
+            snapshot.workflowTypes = types
         case .traceChanged(let summary):
             snapshot.traces.removeAll { $0.workflowID == summary.workflowID }
             snapshot.traces.append(summary)
@@ -231,7 +234,8 @@ final class CoreClient {
             markTerminalRunning(terminalID, in: &snapshot)
         case .terminalClosed(let terminalID):
             markTerminalClosed(terminalID, in: &snapshot)
-        case .pong, .workflowCreated, .workflowActivated, .workflowClosed, .agentStarted, .agentCancelled,
+        case .workflowTypeValidated, .workflowTypeSaved, .pong, .workflowCreated, .workflowActivated, .workflowClosed,
+            .agentStarted, .agentCancelled,
             .sessionCreated, .sessionRenamed, .sessionSelected, .sessionDeleted:
             break
         }
@@ -264,6 +268,9 @@ final class CoreClient {
         failCommandWaiters(with: error)
     }
 
+}
+
+extension CoreClient {
     func updateTerminal(_ terminal: CoreTerminalState, in snapshot: inout CoreSnapshot) {
         if let index = snapshot.terminals.firstIndex(where: { $0.terminalID == terminal.terminalID }) {
             snapshot.terminals[index] = terminal

@@ -14,8 +14,10 @@ struct RoleStyle: Equatable {
         case "reviewer": (color, symbol) = (.roleOrange, "checkmark.bubble")
         case "coordinator": (color, symbol) = (.rolePurple, "flowchart")
         case "worker": (color, symbol) = (.roleGreen, "wrench.and.screwdriver")
-        // Roles from user-made workflow types get their own colors when those types arrive.
-        default: (color, symbol) = (.secondary, "person")
+        default:
+            let palette: [Color] = [.roleBlue, .roleOrange, .rolePurple, .roleGreen]
+            let hash = baseRole.utf8.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1) }
+            (color, symbol) = (palette[Int(hash % UInt64(palette.count))], "person")
         }
     }
 }
