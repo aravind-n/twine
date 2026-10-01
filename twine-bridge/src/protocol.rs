@@ -14,6 +14,7 @@ pub(crate) mod files;
 pub(crate) mod harnesses;
 mod runs;
 mod traces;
+mod workflow_types;
 mod workflows;
 use traces::WireTraceSummary;
 pub(crate) use traces::{encode_trace_events, encode_workflow_trace};
@@ -203,6 +204,9 @@ struct WireEvent<'a> {
     rename_all_fields = "camelCase"
 )]
 enum WireEventKind<'a> {
+    WorkflowTypesChanged {
+        workflow_types: &'a [twine_core::WorkflowType],
+    },
     WorkflowsChanged {
         workflows: WireWorkflowState<'a>,
     },
@@ -241,23 +245,57 @@ enum WireEventKind<'a> {
     rename_all_fields = "camelCase"
 )]
 enum WireCommandResult {
-    SessionCreated { session_id: u64 },
-    SessionRenamed { session_id: u64 },
-    SessionSelected { session_id: u64 },
-    SessionDeleted { session_id: u64 },
-    WorkflowCreated { workflow_id: u64 },
-    WorkflowActivated { workflow_id: u64 },
-    WorkflowClosed { workflow_id: u64 },
-    AgentStarted { workflow_id: u64 },
-    AgentCancelled { workflow_id: u64 },
+    WorkflowTypeValidated {
+        issues: Vec<workflow_types::WireValidationIssue>,
+    },
+    WorkflowTypeSaved {
+        reference: twine_core::WorkflowTypeRef,
+    },
+    SessionCreated {
+        session_id: u64,
+    },
+    SessionRenamed {
+        session_id: u64,
+    },
+    SessionSelected {
+        session_id: u64,
+    },
+    SessionDeleted {
+        session_id: u64,
+    },
+    WorkflowCreated {
+        workflow_id: u64,
+    },
+    WorkflowActivated {
+        workflow_id: u64,
+    },
+    WorkflowClosed {
+        workflow_id: u64,
+    },
+    AgentStarted {
+        workflow_id: u64,
+    },
+    AgentCancelled {
+        workflow_id: u64,
+    },
     Pong,
-    TerminalStarted { terminal_id: u64 },
-    TerminalClosed { terminal_id: u64 },
+    TerminalStarted {
+        terminal_id: u64,
+    },
+    TerminalClosed {
+        terminal_id: u64,
+    },
 }
 
 impl From<&CommandResult> for WireCommandResult {
     fn from(result: &CommandResult) -> Self {
         match result {
+            CommandResult::WorkflowTypeValidated { issues } => Self::WorkflowTypeValidated {
+                issues: issues.iter().map(Into::into).collect(),
+            },
+            CommandResult::WorkflowTypeSaved { reference } => Self::WorkflowTypeSaved {
+                reference: *reference,
+            },
             CommandResult::SessionCreated { session_id } => Self::SessionCreated {
                 session_id: session_id.0,
             },
@@ -306,6 +344,9 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         .and_then(Value::as_str)
         .ok_or(BridgeError::MalformedCommand)?;
     let command = match command_type {
+        "validateWorkflowType" | "saveWorkflowType" => {
+            DecodedCommand::Known(workflow_types::decode_command(command_type, &raw.command)?)
+        }
         "startWorkflowRun" | "completeWorkflowRole" | "cancelWorkflowRun" => {
             DecodedCommand::Known(runs::decode_command(command_type, &raw.command)?)
         }
@@ -433,6 +474,11 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
         .map(|event| WireEvent {
             sequence: event.sequence,
             event: match &event.kind {
+                EventKind::State(StateEvent::WorkflowTypesChanged(types)) => {
+                    WireEventKind::WorkflowTypesChanged {
+                        workflow_types: types,
+                    }
+                }
                 EventKind::State(StateEvent::WorkflowsChanged(workflows)) => {
                     WireEventKind::WorkflowsChanged {
                         workflows: workflows.into(),

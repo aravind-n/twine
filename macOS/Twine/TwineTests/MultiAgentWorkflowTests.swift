@@ -42,9 +42,10 @@ struct MultiAgentWorkflowTests {
         #expect(RoleStyle(role: "Coordinator").color == .rolePurple)
         #expect(RoleStyle(role: "Worker").color == .roleGreen)
         #expect(RoleStyle(role: "Worker 2") == RoleStyle(role: "Worker"))
-        // Other roles stay neutral rather than borrow a built-in role's color.
-        #expect(RoleStyle(role: "Tester") == RoleStyle(role: "Designer"))
-        #expect(RoleStyle(role: "Tester").color == .secondary)
+        // Custom roles keep a deterministic muted color, including numbered instances.
+        #expect(RoleStyle(role: "Tester") == RoleStyle(role: "tester"))
+        #expect(RoleStyle(role: "Tester 2") == RoleStyle(role: "Tester"))
+        #expect([Color.roleBlue, .roleOrange, .rolePurple, .roleGreen].contains(RoleStyle(role: "Tester").color))
         let symbols = ["Implementer", "Reviewer", "Coordinator", "Worker", "Tester"].map { RoleStyle(role: $0).symbol }
         #expect(Set(symbols).count == symbols.count)
         #expect(!symbols.contains("arrow.triangle.branch"), "The footer's Git branch uses that symbol")

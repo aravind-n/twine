@@ -27,6 +27,7 @@ mod runs;
 mod sessions;
 mod terminals;
 mod traces;
+mod workflow_types;
 mod workflows;
 
 const DATABASE_FILE_NAME: &str = "twine.db";
@@ -40,6 +41,13 @@ pub struct RequestId(pub u64);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     Ping,
+    ValidateWorkflowType {
+        definition: crate::WorkflowTypeDefinition,
+    },
+    SaveWorkflowType {
+        source: Option<crate::WorkflowTypeRef>,
+        definition: crate::WorkflowTypeDefinition,
+    },
     /// Opens the folder at an absolute path and records it as the most recent folder.
     OpenFolder {
         path: PathBuf,
@@ -320,6 +328,12 @@ impl Application {
         self.poll_harness_steps()?;
         self.poll_shell_observations()?;
         let disposition = match command {
+            Command::ValidateWorkflowType { definition } => {
+                self.validate_workflow_type(request_id, &definition)?
+            }
+            Command::SaveWorkflowType { source, definition } => {
+                self.save_workflow_type(request_id, source, &definition)?
+            }
             Command::Ping => {
                 let mut inner = self.lock_inner()?;
                 inner.events.append(EventKind::CommandCompleted {
@@ -331,9 +345,8 @@ impl Application {
             Command::OpenFolder { path } => self.change_folder(Some(&path))?,
             Command::CloseFolder => self.change_folder(None)?,
             Command::CloseFolderIfOpen { path } => {
-                let matches = self.lock_inner()?.folders.state().open_folder.as_deref()
-                    == Some(path.as_path());
-                if matches {
+                if self.lock_inner()?.folders.state().open_folder.as_deref() == Some(path.as_path())
+                {
                     self.change_folder(None)?
                 } else {
                     CommandDisposition::Accepted

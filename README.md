@@ -37,6 +37,16 @@ in the open folder; parallel workers receive their own sub-task and advisory fil
 Each role has a terminal subtab. A stage starts fresh harness processes, including when a review
 loop returns to an earlier role.
 
+Choose **Create your own** (**⇧⌘D**) in a new tab to design a workflow type. Add roles and
+instructions, order stages and their parallel roles, connect handoffs, and bound review loops.
+The designer shows validation errors beside each affected element and enables Save only after
+the current design validates. Use Tab and Shift-Tab to navigate controls, Return to save, and
+Escape to cancel. The Preview tab shows the graph.
+
+From a type's launch form, **Edit workflow type** or **Edit a copy** (**⇧⌘E**) opens the designer.
+Saving a built-in creates a custom copy. Editing a custom type adds a version; workflows already
+started keep their original version. Saved types appear in the catalog and survive relaunch.
+
 Agents advance stages by invoking the private completion command included in their instructions.
 The command accepts JSON on stdin: `decision` is `done`, `approve`, or `requestChanges`, with
 a `summary` and, for assignment handoffs, `assignments` containing `role`, `instance`, `task`,

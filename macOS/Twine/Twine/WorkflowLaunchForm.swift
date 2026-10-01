@@ -8,6 +8,7 @@ struct WorkflowLaunchForm: View {
     let back: () -> Void
     @Environment(HarnessModelCatalog.self) private var catalog
     /// Each role's harness choices, one per instance.
+    @State private var showsDesigner = false
     @State private var choices: [String: [HarnessChoice]] = [:]
     @State private var isStarting = false
     @State private var failure: String?
@@ -17,6 +18,12 @@ struct WorkflowLaunchForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
             Text(type.definition.name).font(.system(size: 14, weight: .bold))
+            Button(type.reference.builtin == nil ? "Edit workflow type" : "Edit a copy", systemImage: "pencil") {
+                showsDesigner = true
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift]).disabled(isStarting || !isSelected)
+            .help("Edit workflow type (⇧⌘E)")
+            .accessibilityIdentifier("workflowEditType")
             Text(type.definition.description).font(.caption).foregroundStyle(.secondary)
             WorkflowGraph(type: type, counts: choices.mapValues(\.count))
             ForEach(type.definition.roles) { role in
@@ -32,15 +39,18 @@ struct WorkflowLaunchForm: View {
             }
             HStack {
                 Button("Back", action: back)
-                    .keyboardShortcut(isSelected ? .cancelAction : nil)
+                    .keyboardShortcut(isSelected && !showsDesigner ? .cancelAction : nil)
                     .disabled(isStarting)
                 Spacer()
                 Button("Start", action: start)
                     .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(isSelected ? .defaultAction : nil)
+                    .keyboardShortcut(isSelected && !showsDesigner ? .defaultAction : nil)
                     .disabled(isStarting)
                     .accessibilityIdentifier("workflowStart")
             }.controlSize(.small)
+        }
+        .sheet(isPresented: $showsDesigner) {
+            WorkflowDesigner(type: type) { _ in back() }.environment(client)
         }
         .onAppear {
             if !hasLoaded {
