@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TraceFocusRail: View {
+    @Environment(\.traceLaneColors) private var laneColors
     let steps: [TraceSequenceLayout.Step]
     let lanes: [CoreTraceLane]
     let selectedSpanID: UInt64?
@@ -52,8 +53,10 @@ struct TraceFocusRail: View {
                     .font(.system(size: 10, weight: selected ? .semibold : .medium))
                     .lineLimit(2).frame(height: 27, alignment: .top)
                     .frame(maxWidth: .infinity).padding(.horizontal, 4)
-                Text(lane.name).font(.system(size: 9)).foregroundStyle(TraceLaneStyle.color(for: lane))
-                    .lineLimit(1).padding(.horizontal, 4)
+                Text(lane.name).font(.system(size: 9)).foregroundStyle(
+                    TraceLaneStyle.color(for: lane, colors: laneColors)
+                )
+                .lineLimit(1).padding(.horizontal, 4)
                 Text(durationLabel(step.span)).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(maxWidth: .infinity)
@@ -77,6 +80,7 @@ struct TraceFocusRail: View {
 }
 
 struct TraceStepPoint: View {
+    @Environment(\.traceLaneColors) private var laneColors
     let span: CoreTraceSpan
     let lane: CoreTraceLane
     let selected: Bool
@@ -89,9 +93,9 @@ struct TraceStepPoint: View {
                 Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
                     .font(.system(size: size + 2, weight: .bold))
             } else {
-                Circle().fill(TraceLaneStyle.color(for: lane)).frame(width: size, height: size)
+                Circle().fill(TraceLaneStyle.color(for: lane, colors: laneColors)).frame(width: size, height: size)
                 if span.isLive {
-                    Circle().strokeBorder(TraceLaneStyle.color(for: lane), lineWidth: 1)
+                    Circle().strokeBorder(TraceLaneStyle.color(for: lane, colors: laneColors), lineWidth: 1)
                         .frame(width: size + 5, height: size + 5)
                 }
             }

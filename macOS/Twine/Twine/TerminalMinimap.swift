@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TerminalMinimap: View {
+    @Environment(\.traceLaneColors) private var laneColors
     let state: TerminalMinimapState
     let markers: [TraceMinimapMarker]
     let selectedID: UInt64?
@@ -121,7 +122,8 @@ struct TerminalMinimap: View {
                 if isExpanded { Text(marker.step.number).font(.system(size: 8, design: .monospaced)) }
                 Spacer(minLength: 0)
                 Circle().fill(
-                    marker.step.span.status == .failed ? Color.orange : TraceLaneStyle.color(for: marker.lane)
+                    marker.step.span.status == .failed
+                        ? Color.orange : TraceLaneStyle.color(for: marker.lane, colors: laneColors)
                 )
                 .frame(width: 5, height: 5)
                 .overlay { if marker.id == selectedID { Circle().stroke(.primary, lineWidth: 1).padding(-2) } }

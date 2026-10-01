@@ -1,5 +1,6 @@
-import Foundation
+import OSLog
 import Observation
+import SwiftUI
 
 nonisolated struct TraceTerminalTarget: Equatable, Identifiable, Sendable {
     let id = UUID()
@@ -16,7 +17,7 @@ nonisolated struct TraceTerminalTarget: Equatable, Identifiable, Sendable {
 @MainActor
 @Observable
 final class TraceTerminalNavigation {
-    /// Explicit saved-output viewer. Activity points use scrollTarget instead.
+    /// Saved output, opened automatically when the live terminal cannot reveal an Activity point.
     var target: TraceTerminalTarget? {
         didSet { if target != nil { scrollTarget = nil } }
     }
@@ -26,25 +27,50 @@ final class TraceTerminalNavigation {
     let minimap = TraceMinimapState()
     var requestedSpanID: UInt64?
     var selectionRevision = UUID()
+    private(set) var laneColors: [UInt64: Color] = [:]
+    private(set) var failureMessage: String?
+
+    func updateLaneColors() {
+        laneColors = TraceLaneStyle.colors(for: activity.lanes, retaining: laneColors)
+    }
+
+    func finishScroll(_ request: TraceTerminalTarget, found: Bool) {
+        guard scrollTarget?.id == request.id else { return }
+        if !found { target = request }
+    }
 
     func selectSpan(_ id: UInt64) {
+        failureMessage = nil
         activity.selectedSpanID = id
         requestedSpanID = id
         selectionRevision = UUID()
     }
 
-    func jumpToSelectedSpan() {
+    func jumpToSelectedSpan(client: CoreClient) async {
         guard let id = requestedSpanID, activity.selectedSpanID == id,
             let span = activity.selectedSpan, let lane = activity.selectedLane
         else { return }
-        if activity.events.contains(where: { $0.message == "Command started." && $0.anchor != nil }) {
-            jump(toCommand: span, events: activity.events, lane: lane)
-        } else if let event = activity.events.first(where: { $0.anchor != nil }) {
-            jump(to: event, lane: lane)
-        } else if let marker = minimap.markers.first(where: { $0.id == id }) {
-            jump(to: marker.event, lane: lane)
+        do {
+            let events =
+                activity.nextAfter != nil || activity.logFailureMessage != nil
+                ? try await activity.completeEvents(spanID: id, client: client) : activity.events
+            try Task.checkCancellation()
+            guard requestedSpanID == id, activity.selectedSpanID == id else { return }
+            if events.contains(where: { $0.message == "Command started." && $0.anchor != nil }) {
+                jump(toCommand: span, events: events, lane: lane)
+            } else if events.contains(where: { $0.anchor != nil }) {
+                jump(toSpan: span, events: events, lane: lane)
+            } else if let marker = minimap.markers.first(where: { $0.id == id }) {
+                jump(to: marker.event, lane: lane)
+            }
+            requestedSpanID = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, requestedSpanID == id, activity.selectedSpanID == id else { return }
+            terminalLogger.error("Trace events failed: \(error.localizedDescription, privacy: .public)")
+            failureMessage = "Output for this step couldn't load."
         }
-        requestedSpanID = nil
     }
 
     func jump(to event: CoreTraceEvent, lane: CoreTraceLane) {
@@ -67,5 +93,30 @@ final class TraceTerminalNavigation {
             workflowID: start.workflowID, agentID: lane.agentID, anchor: ending?.anchor ?? startAnchor,
             timestamp: start.timestamp, message: span.title,
             outputStartAnchor: startAnchor, readToCurrentEnd: ending == nil)
+    }
+
+    func jump(toSpan span: CoreTraceSpan, events: [CoreTraceEvent], lane: CoreTraceLane) {
+        let anchored = events.filter { $0.spanID == span.id && $0.anchor != nil }
+        // The first prompt can inherit a process-start event at byte zero. A TUI usually
+        // clears that launch screen; reveal the prompt's own boundary instead.
+        guard let start = anchored.first(where: { $0.kind == .workflowEvent }) ?? anchored.first,
+            let startAnchor = start.anchor
+        else { return }
+        let latest = anchored.last { $0.anchor?.terminalID == startAnchor.terminalID }
+        let ending = latest.flatMap { event -> CoreTraceEvent? in
+            event.kind == .processExited || event.kind == .processStopped || event.kind == .processFailed
+                || event.message.split(separator: "\n").first == "Finished responding"
+                || event.message == "Response interrupted by the next prompt." ? event : nil
+        }
+        // A Stop hook can request continuation. Later tool work reopens that same prompt.
+        let resumed = anchored.contains {
+            $0.message.split(separator: "\n").first == "Finished responding" && $0.id < (latest?.id ?? 0)
+        }
+        target = nil
+        scrollTarget = TraceTerminalTarget(
+            workflowID: start.workflowID, agentID: lane.agentID,
+            anchor: ending?.anchor ?? latest?.anchor ?? startAnchor,
+            timestamp: start.timestamp, message: span.title, outputStartAnchor: startAnchor,
+            readToCurrentEnd: (span.isLive || resumed) && ending == nil)
     }
 }

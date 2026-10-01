@@ -40,7 +40,10 @@ final class TraceMinimapState {
                     guard readGeneration == generation,
                         page.workflowID == lanes.first(where: { $0.id == step.span.laneID })?.workflowID
                     else { return }
-                    if let event = page.events.first(where: { $0.anchor != nil }) {
+                    let event =
+                        page.events.first(where: { $0.kind == .workflowEvent && $0.anchor != nil })
+                        ?? page.events.first(where: { $0.anchor != nil })
+                    if let event {
                         anchors[step.id] = event
                         break
                     }

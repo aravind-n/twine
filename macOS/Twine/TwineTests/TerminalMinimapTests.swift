@@ -253,3 +253,96 @@ struct TerminalMinimapTests {
         #expect(anchor.row > 1)
     }
 }
+
+extension TerminalMinimapTests {
+    @Test(arguments: [12, 100])
+    func commandInputSurvivesReflowAfterItsBoundary(columns: Int) async throws {
+        let prefix = "earlier\r\n$ printf '\(String(repeating: "long-command", count: 12))'\r\n"
+        let bytes = Data((prefix + "OUTPUT\r\n" + String(repeating: "later\r\n", count: 100)).utf8)
+        let client = CoreClient(transport: TranscriptFixtureTransport(bytes: bytes))
+        let view = MetalTerminalView(frame: .zero)
+        view.resize(cols: 80, rows: 24)
+        let state = TerminalMinimapState()
+        state.view = view
+        state.beginFeed()
+        view.feed(byteArray: Array(bytes)[...])
+        state.received(through: UInt64(bytes.count))
+        state.refresh()
+        view.resize(cols: columns, rows: 24)
+        state.refresh()
+        let found = try await state.scroll(
+            to: .init(terminalID: 41, byteOffset: UInt64(prefix.utf8.count)), includingInput: true, client: client)
+        #expect(found)
+        #expect(state.geometry.topRow == 1)
+        #expect(TerminalMinimapGeometry.logicalLine(at: 1, in: view.getTerminal())?.hasPrefix("$ printf") == true)
+    }
+
+    @Test func clearDuringTranscriptReadCannotRevealTheOldInputRow() async throws {
+        let bytes = Data("$ printf hello\r\n".utf8)
+        let transport = TranscriptFixtureTransport(bytes: bytes, delayed: true)
+        let client = CoreClient(transport: transport)
+        let view = MetalTerminalView(frame: .zero)
+        view.resize(cols: 80, rows: 24)
+        let state = TerminalMinimapState()
+        state.view = view
+        state.beginFeed()
+        view.feed(byteArray: Array(bytes)[...])
+        state.received(through: UInt64(bytes.count))
+        state.refresh()
+        let read = Task {
+            try await state.scroll(
+                to: .init(terminalID: 41, byteOffset: UInt64(bytes.count)), includingInput: true, client: client)
+        }
+        try await waitUntil { await transport.hasPendingRead }
+        view.feed(text: "\u{1B}[2J\u{1B}[H$ ")
+        state.refresh()
+        await transport.release()
+        #expect(try await !read.value)
+    }
+
+    @Test func clearedCommandInputCannotNavigateToAReusedBlankRow() async throws {
+        let prefix = "$ printf hello\r\n"
+        let bytes = Data((prefix + "hello\r\n\u{1B}[3J\u{1B}[2J\u{1B}[H$ ").utf8)
+        let client = CoreClient(transport: TranscriptFixtureTransport(bytes: bytes))
+        let view = MetalTerminalView(frame: .zero)
+        view.resize(cols: 80, rows: 24)
+        let state = TerminalMinimapState()
+        state.view = view
+        state.beginFeed()
+        view.feed(byteArray: Array(bytes)[...])
+        state.received(through: UInt64(bytes.count))
+        state.refresh()
+        let found = try await state.scroll(
+            to: .init(terminalID: 41, byteOffset: UInt64(prefix.utf8.count)), includingInput: true, client: client)
+        #expect(!found)
+    }
+
+    @Test func commandJumpIncludesTheWholeWrappedInputLine() async throws {
+        let prefix = "earlier\r\n$ printf 'a long command'\r\n"
+        let bytes = Data((prefix + "OUTPUT\r\n" + String(repeating: "later\r\n", count: 100)).utf8)
+        let client = CoreClient(transport: TranscriptFixtureTransport(bytes: bytes))
+        let view = MetalTerminalView(frame: .zero)
+        view.resize(cols: 12, rows: 24)
+        let state = TerminalMinimapState()
+        state.view = view
+        state.beginFeed()
+        view.feed(byteArray: Array(bytes)[...])
+        state.received(through: UInt64(bytes.count))
+        state.refresh()
+        let found = try await state.scroll(
+            to: .init(terminalID: 41, byteOffset: UInt64(prefix.utf8.count)), includingInput: true, client: client)
+        #expect(found)
+        #expect(state.geometry.topRow == 1)
+        #expect(
+            view.getTerminal().bufferLine(atRow: 1)?.translateToString(trimRight: true).hasPrefix("$ printf") == true)
+        let replay = TerminalReplay()
+        try replay.applyBoundarySizes([.init(rows: 24, columns: 12)])
+        try replay.append(
+            .init(
+                offset: 0, nextOffset: UInt64(prefix.utf8.count), endOffset: UInt64(bytes.count), sizes: [],
+                bytes: Data(prefix.utf8), replayAvailable: true))
+        replay.markOutputStart(includingInput: true)
+        let range = try #require(replay.outputStartRange)
+        #expect((replay.text as NSString).substring(from: range.location).hasPrefix("$ printf"))
+    }
+}

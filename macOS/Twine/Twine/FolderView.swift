@@ -59,6 +59,8 @@ struct FolderView: View {
             FolderWindowLifetime(coreClient: coreClient, folder: path, editor: editor).frame(width: 0, height: 0)
         }
         .environment(traceNavigation)
+        .environment(\.traceLaneColors, traceNavigation.laneColors)
+        .onChange(of: traceNavigation.activity.lanes) { traceNavigation.updateLaneColors() }
         .onChange(of: traceNavigation.destination) {
             if let target = traceNavigation.destination {
                 selection.selectedID = target.workflowID

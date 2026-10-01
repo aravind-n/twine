@@ -52,6 +52,9 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 - **Terminal:** Silica colors in dark mode, with a parchment background and darker versions of the same hues in light mode. Dark mode uses background `#0c1013` and text `#e5e1cf`. Light mode uses background `#f7f4e8` and text `#1a2026`. The 16 ANSI slots each have their own color. The prompt marker `❯` is green.
 - **Roles and harnesses:** each has one stable color and one SF Symbol, used everywhere it appears: subtabs, trace lanes, span pills, and log entries. Colors are muted: blue (about RGB 110, 150, 224), orange (212, 150, 110), purple (171, 133, 201), and green (102, 153, 122), plus more in the same muted range as needed.
 - **Status:** green for running, secondary for complete, orange for needs attention.
+- **Activity tracks:** prefer each role or harness color, with green for Terminal. Give tracks
+  distinct colors from the muted palette while available, retaining each track's assigned color
+  through refresh and pagination. Use it for the label, overview, focus rail, details, and minimap.
 - **File selection:** accent at 12% opacity. Folder icons use accent at 80%.
 
 ## Typography
@@ -153,6 +156,9 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 - A small Return to live control appears while a live terminal is scrolled into history.
   New output preserves the pane's scroll position. Alternate screens hide normal-buffer
   points and restore them when the terminal returns to its normal buffer.
+- Selecting a command reveals its input, including wrapped lines, above its output. If a trace's
+  live row was cleared, trimmed, or belongs to an earlier invocation, open its saved output
+  automatically with Return to live. A selected agent step includes its prompt and response.
 
 ### New-tab surface
 
