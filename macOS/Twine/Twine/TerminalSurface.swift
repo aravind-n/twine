@@ -38,6 +38,8 @@ struct TerminalSurface: View {
     var subject = "Shell"
     /// A cancelled agent says so instead of how its process ended.
     var isCancelled = false
+    /// The role's lifecycle explains intentional process stops after a completion or handoff.
+    var agentStatus: CoreWorkflowRun.AgentStatus?
     var beforeUserInput: (() async throws -> Void)?
     /// Called after the terminal takes the keyboard, such as when it's clicked.
     var didFocus: (() -> Void)?
@@ -70,6 +72,8 @@ struct TerminalSurface: View {
 
                 if let statusMessage {
                     Text(statusMessage)
+                        .accessibilityLabel(statusMessage)
+                        .accessibilityIdentifier("terminalStatus-\(terminalID)")
                         .font(.caption.monospaced())
                         .foregroundStyle(.terminalTextMuted)
                         .padding(.horizontal, 8)
@@ -95,19 +99,9 @@ struct TerminalSurface: View {
     }
 
     private var statusMessage: String? {
-        if let failureMessage { return failureMessage }
-        if isCancelled { return "Agent cancelled" }
-        switch coreClient.terminalStatus(for: terminalID) {
-        case .exited(let exit):
-            if let signal = exit.signal {
-                return "\(subject) exited with code \(exit.exitCode) (\(signal))"
-            }
-            return "\(subject) exited with code \(exit.exitCode)"
-        case .failed(let message):
-            return "\(subject) failed: \(message)"
-        case .running, .none:
-            return nil
-        }
+        TerminalStatusMessage.text(
+            subject: subject, terminalStatus: coreClient.terminalStatus(for: terminalID),
+            agentStatus: agentStatus, isCancelled: isCancelled, failureMessage: failureMessage)
     }
 }
 

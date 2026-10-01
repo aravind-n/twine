@@ -28,6 +28,39 @@ struct TerminalMinimapTests {
         #expect(TerminalMinimapGeometry(rows: 5, visibleRows: 20).isLive)
     }
 
+    @Test func shortOutputKeepsItsRowHeightAndWideOutputKeepsItsTail() throws {
+        let view = MetalTerminalView(frame: .zero)
+        view.resize(cols: 200, rows: 20)
+        view.feed(text: String(repeating: "x", count: 180))
+        let state = TerminalMinimapState()
+        state.view = view
+        state.refresh()
+        let stroke = try #require(state.strokes.first)
+        #expect(stroke.width == 0.9)
+        // A short terminal should retain the design's filled row proportions, not tiny dots.
+        #expect(stroke.height * 300 >= 8)
+    }
+
+    @Test func shortHistoryKeepsTheSameRowProportions() throws {
+        let state = TerminalMinimapState()
+        state.showHistory(text: "first\nsecond\nthird", rows: [:])
+        let stroke = try #require(state.strokes.first)
+        #expect(stroke.height * 300 >= 50)
+    }
+
+    @Test func collapsedAndExpandedRailsRetainTheOutputSilhouette() {
+        let stroke = CGRect(x: 0, y: 0.5, width: 0.8, height: 0.58 / 20)
+        let compact = TerminalMinimapGeometry.strokeRect(stroke, in: CGSize(width: 14, height: 300), expanded: false)
+        let expanded = TerminalMinimapGeometry.strokeRect(stroke, in: CGSize(width: 92, height: 300), expanded: true)
+        #expect(compact.width == 8)
+        #expect(compact.height >= 8)
+        #expect(expanded.width > 60)
+        #expect(expanded.minY == compact.minY)
+        #expect(expanded.height == compact.height)
+        #expect(compact.maxX <= 14)
+        #expect(expanded.maxX <= 92)
+    }
+
     @Test func byteAnchorsResolveThroughANSIAndWrappingAndKeepActivityIdentity() async throws {
         let prefix = "old\r\u{1B}[2Kfirst\r\n\u{1B}[31msecond\u{1B}[0m\r\n"
         let bytes = Data((prefix + String(repeating: "x", count: 90) + "\r\nlast").utf8)

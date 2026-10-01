@@ -59,10 +59,8 @@ struct TerminalMinimap: View {
                 .accessibilityHidden(true)
             Canvas { context, size in
                 for stroke in state.strokes {
-                    let rect = CGRect(
-                        x: 4 + stroke.minX * max(1, size.width - 15), y: stroke.minY * size.height,
-                        width: max(1, stroke.width * max(1, size.width - 15)), height: 1)
-                    context.fill(Path(rect), with: .color(.terminalTextMuted.opacity(isExpanded ? 0.6 : 0.18)))
+                    let rect = TerminalMinimapGeometry.strokeRect(stroke, in: size, expanded: isExpanded)
+                    context.fill(Path(rect), with: .color(.terminalTextMuted.opacity(isExpanded ? 0.6 : 0.4)))
                 }
                 let range = state.geometry.viewport
                 let top = range.lowerBound * size.height

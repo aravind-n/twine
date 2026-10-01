@@ -386,15 +386,25 @@ impl TerminalManager {
         if session.input_closed.load(Ordering::Acquire) {
             return Err(TerminalError::NotRunning { terminal_id });
         }
-        self.output.change_size(terminal_id, size, || {
-            session
-                .master
-                .resize(size.into())
-                .map_err(|error| TerminalError::Pty {
-                    operation: "resize PTY",
-                    message: error.to_string(),
-                })
-        })?;
+        self.output
+            .change_size(terminal_id, size, || {
+                session
+                    .master
+                    .resize(size.into())
+                    .map_err(|error| TerminalError::Pty {
+                        operation: "resize PTY",
+                        message: error.to_string(),
+                    })
+            })
+            .map_err(|error| match error {
+                // The reader can finish and drain its stream before the supervisor marks
+                // input closed. The session still exists; this is an exit, not an invalid ID.
+                TerminalError::NotOpen { .. } => {
+                    session.input_closed.store(true, Ordering::Release);
+                    TerminalError::NotRunning { terminal_id }
+                }
+                error => error,
+            })?;
         session.size = size;
         Ok(())
     }
@@ -738,6 +748,35 @@ mod tests {
             assert!(String::from_utf8_lossy(&output).contains("final-output"));
             manager.close(terminal_id).unwrap();
         }
+    }
+
+    #[test]
+    fn reader_finishing_before_process_exit_rejects_resize_as_not_running() {
+        let stream = Arc::new(TerminalStream::for_test(64 * 1024, 256).unwrap());
+        let manager = TerminalManager::new(Arc::clone(&stream));
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "read line"]);
+        let terminal_id = manager
+            .start_test_command(command, test_terminal_size(), None, Arc::new(|_, _, _| {}))
+            .unwrap();
+        // Reproduce reader EOF before the independent supervisor observes the child exit.
+        stream.finish(terminal_id).unwrap();
+        assert!(stream.tracks_no_terminals());
+        assert!(
+            !manager.lock_sessions().unwrap()[&terminal_id]
+                .input_closed
+                .load(Ordering::Acquire)
+        );
+        assert!(matches!(
+            manager.resize(terminal_id, test_terminal_size()),
+            Err(TerminalError::NotRunning { terminal_id: id }) if id == terminal_id
+        ));
+        assert!(manager.observe(terminal_id).is_ok());
+        manager.close(terminal_id).unwrap();
+        assert!(matches!(
+            manager.resize(terminal_id, test_terminal_size()),
+            Err(TerminalError::NotOpen { terminal_id: id }) if id == terminal_id
+        ));
     }
 
     #[test]

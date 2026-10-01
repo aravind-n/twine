@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import SwiftTerm
 
@@ -14,6 +15,17 @@ nonisolated struct TerminalMinimapGeometry: Equatable {
 
     func row(at fraction: Double) -> Int {
         max(0, min(maximumTop, Int((fraction * Double(rows)).rounded()) - visibleRows / 2))
+    }
+
+    static func strokeRect(_ stroke: CGRect, in size: CGSize, expanded: Bool) -> CGRect {
+        // Only the expanded rail reserves a lane for numbered Activity points. Applying
+        // that gutter to the 14pt rail collapses every word into a single pixel.
+        let inset: CGFloat = expanded ? 4 : 2
+        let trailing: CGFloat = expanded ? 11 : 2
+        let width = max(1, size.width - inset - trailing)
+        return CGRect(
+            x: inset + stroke.minX * width, y: stroke.minY * size.height,
+            width: max(0.7, stroke.width * width), height: max(0.7, stroke.height * size.height))
     }
 
     @MainActor static func lineCount(in terminal: Terminal) -> Int {

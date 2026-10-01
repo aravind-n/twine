@@ -241,7 +241,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
 
     private func report(_ error: any Error) {
         guard !isStopping else { return }
-        terminalLogger.error("Terminal failed: \(error.localizedDescription, privacy: .public)")
+        terminalLogger.error("Terminal \(self.terminalID ?? 0) failed: \(error.localizedDescription, privacy: .public)")
         failureMessage.wrappedValue = error.localizedDescription
     }
 

@@ -145,6 +145,7 @@ private struct AgentPane: View {
                     isSelected: isWorkflowSelected && isFocused && history == nil, focusRequest: focusRequest,
                     padding: isTiled ? BentoLayout.terminalPadding : Spacing.agentTerminalContent,
                     subject: workflow.run == nil ? "Shell" : "Agent", isCancelled: workflow.status == .cancelled,
+                    agentStatus: workflow.run?.agents.first(where: { $0.id == agent.id })?.status,
                     didFocus: focus
                 )
                 // A stage that starts the agent gives it a new terminal, so the emulator must be rebuilt for it.
