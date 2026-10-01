@@ -1,21 +1,47 @@
 import SwiftUI
 
-/// Explains that a workflow restored after relaunch runs fresh shells, without its old output.
+/// Explains process state while the saved terminal output is restored.
 struct RestoredWorkflowNotice: View {
+    @Environment(TraceTerminalNavigation.self) private var navigation
     let workflow: CoreWorkflow
 
     var body: some View {
-        Label(message, systemImage: "arrow.clockwise")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("restoredWorkflowNotice")
+        HStack {
+            Label(message, systemImage: "arrow.clockwise")
+                .accessibilityIdentifier("restoredWorkflowNotice")
+            Spacer(minLength: 0)
+            if let history = workflow.terminalHistory, !history.isEmpty {
+                Menu("Saved output", systemImage: "clock.arrow.circlepath") {
+                    ForEach(Array(history.enumerated()), id: \.element.terminalID) { index, entry in
+                        Button("\(title(for: entry)) · \(index + 1)") {
+                            navigation.target = TraceTerminalTarget(
+                                workflowID: workflow.id, agentID: entry.agentID,
+                                anchor: .init(terminalID: entry.terminalID, byteOffset: 0),
+                                timestamp: 0, message: title(for: entry), readToCurrentEnd: true)
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton).fixedSize()
+                .accessibilityIdentifier("savedTerminalOutput")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var message: String {
+        if workflow.kind == .singleAgent {
+            return switch workflow.status {
+            case .cancelled: "Saved output · Agent cancelled"
+            case .exited, .completed: "Saved output · Agent exited"
+            case .failed: "Saved output · Agent failed"
+            default: "Saved output · Agent interrupted"
+            }
+        }
         if workflow.run != nil {
-            return "Restored workflow — agents are stopped. Previous terminal contents aren't restored."
+            return "Saved output restored. Agents are stopped."
         }
         let hasAgents = workflow.kind == .agents
         if workflow.terminalIDs.isEmpty {
@@ -23,7 +49,11 @@ struct RestoredWorkflowNotice: View {
                 ? "Restored tab — the shells couldn't restart." : "Restored tab — the shell couldn't restart."
         }
         return hasAgents
-            ? "Restored tab — started fresh shells. Previous terminal contents aren't restored."
-            : "Restored tab — started a fresh shell. Previous terminal contents aren't restored."
+            ? "Saved output restored. New shells started."
+            : "Saved output restored. New shell started."
+    }
+
+    private func title(for entry: CoreWorkflowTerminal) -> String {
+        workflow.agents.first { $0.id == entry.agentID }?.role ?? workflow.name
     }
 }

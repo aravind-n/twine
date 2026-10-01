@@ -258,7 +258,9 @@ mod tests {
         );
         let active = workflow(&app, WorkflowId(proof.active));
         assert_eq!(active.status, WorkflowStatus::Interrupted);
-        assert!(active.agents.iter().all(|a| a.terminal_id.value() == 0));
+        assert!(active.terminal_ids().is_empty());
+        assert_ne!(active.agents[0].terminal_id.value(), 0);
+        assert_eq!(active.agents[1].terminal_id.value(), 0);
         let run = active.run.unwrap();
         assert_eq!(run.status, RunStatus::Interrupted);
         assert_eq!(run.agents[0].status, RunAgentStatus::Interrupted);

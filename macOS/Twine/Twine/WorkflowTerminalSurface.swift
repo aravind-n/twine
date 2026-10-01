@@ -7,6 +7,8 @@ struct WorkflowTerminalSurface: View {
     let folder: String
     let workflow: CoreWorkflow
     let isSelected: Bool
+    var isVisible: Bool?
+    var didFocus: (() -> Void)?
     let reportFailure: (String) -> Void
     @State private var draft = WorkflowDraftPresentation()
     @State private var showsChoices = false
@@ -23,7 +25,7 @@ struct WorkflowTerminalSurface: View {
                 folder: folder, workflow: workflow, isSelected: isSelected, reportFailure: reportFailure)
         } else {
             VStack(spacing: 0) {
-                if workflow.restored && workflow.kind != .singleAgent {
+                if workflow.restored {
                     RestoredWorkflowNotice(workflow: workflow)
                 }
                 if workflow.terminalID == 0 {
@@ -50,13 +52,13 @@ struct WorkflowTerminalSurface: View {
         }
     }
 
-    /// A restored agent has no process or terminal contents, only how it last ended.
+    /// Legacy workflows without a recorded terminal can still explain their lifecycle.
     private var restoredAgent: some View {
         let (title, detail) =
             switch workflow.status {
-            case .exited: ("Agent Exited", "This agent's process ended. Its terminal output isn't restored.")
-            case .cancelled: ("Agent Cancelled", "You cancelled this agent. Its terminal output isn't restored.")
-            case .failed: ("Agent Failed", "This agent's process failed. Its terminal output isn't restored.")
+            case .exited: ("Agent Exited", "No saved terminal output is available.")
+            case .cancelled: ("Agent Cancelled", "No saved terminal output is available.")
+            case .failed: ("Agent Failed", "No saved terminal output is available.")
             default: ("Agent Interrupted", "Twine quit while this agent was running. Its work didn't finish.")
             }
         return ContentUnavailableView(title, systemImage: "person", description: Text(detail))
@@ -64,13 +66,16 @@ struct WorkflowTerminalSurface: View {
 
     private var terminal: some View {
         TerminalSurface(
-            terminalID: workflow.terminalID, isVisible: isSelected && history == nil,
+            terminalID: workflow.terminalID,
+            historyTerminalIDs: workflow.terminalHistory?.map(\.terminalID) ?? [], restoresOutput: workflow.restored,
+            isVisible: (isVisible ?? isSelected) && history == nil,
             isSelected: isSelected && history == nil, focusRequest: focusRequest,
             automaticallyFocuses: workflow.kind != .draft || (selectedType == nil && startingHarness == nil),
-            subject: workflow.kind == .singleAgent ? "Agent" : "Shell", isCancelled: workflow.status == .cancelled
-        ) {
-            try await draft.activate(client: coreClient, workflowID: workflow.id)
-        }
+            subject: workflow.kind == .singleAgent ? "Agent" : "Shell", isCancelled: workflow.status == .cancelled,
+            beforeUserInput: {
+                try await draft.activate(client: coreClient, workflowID: workflow.id)
+            }, didFocus: didFocus
+        )
         // A started agent gets a new terminal, so the emulator must be rebuilt for it.
         .id(workflow.terminalID)
         .overlay {

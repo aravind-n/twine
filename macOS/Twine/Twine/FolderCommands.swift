@@ -19,6 +19,7 @@ struct WorkflowActions {
     let layoutMode: Binding<WorkflowLayout.Mode>?
     /// Moves the keyboard forward or back by a number of agents: subtabs in tab mode, panes in Bento mode.
     let moveFocus: ((Int) -> Void)?
+    var splitTerminal: ((TerminalSplit.Direction) -> Void)?
 }
 
 /// File menu commands that open a folder and close it, returning the window to the start page.
@@ -68,6 +69,13 @@ struct FolderCommands: Commands {
             .disabled(!isRunning || coreClient.snapshot?.folders.openFolder == nil)
         }
         CommandGroup(after: .sidebar) {
+            Button("Split Right") { workflowActions?.splitTerminal?(.right) }
+                .keyboardShortcut("d")
+                .disabled(workflowActions?.splitTerminal == nil)
+            Button("Split Down") { workflowActions?.splitTerminal?(.down) }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(workflowActions?.splitTerminal == nil)
+            Divider()
             Toggle(
                 "Bento Panes",
                 isOn: Binding(

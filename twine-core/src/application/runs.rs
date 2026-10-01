@@ -85,6 +85,8 @@ impl Application {
                 .expect("draft validated under command lock");
             let placeholder = workflow.terminal_id;
             workflow.kind = WorkflowKind::Agents;
+            workflow.restored = false;
+            workflow.terminal_history.clear();
             workflow.name.clone_from(&run.workflow_type.definition.name);
             workflow.terminal_id = TerminalId::from_value(0);
             workflow.agents = run
@@ -795,7 +797,8 @@ mod tests {
 
     fn assert_run_trace_history(app: &Application, workflow: &Workflow, invocations: u64) {
         let page = app.workflow_trace(workflow.workflow_id, None, 200).unwrap();
-        assert_eq!(page.summary.span_count, invocations + 1); // plus the draft shell
+        assert_eq!(page.summary.span_count, invocations);
+        assert!(page.lanes.iter().all(|lane| lane.is_agent));
         assert_eq!(page.summary.agent_count, 2);
         for span in page.spans.iter().filter(|span| span.title != "Shell") {
             let lane = page
@@ -910,7 +913,7 @@ mod tests {
         );
         assert_eq!(traces.iter().filter(|t| t.kind == "handoff").count(), 4);
         let page = app.workflow_trace(id, None, 200).unwrap();
-        assert_eq!(page.summary.span_count, 5);
+        assert_eq!(page.summary.span_count, 4);
         for (task, label) in [
             ("First sub-task", "Worker 1"),
             ("Second sub-task", "Worker 2"),
@@ -969,7 +972,7 @@ mod tests {
                 .unwrap()
                 .summary
                 .span_count,
-            5
+            4
         );
     }
 
@@ -1534,7 +1537,7 @@ mod tests {
                 .iter()
                 .filter(|event| event.kind == crate::TraceEventKind::ProcessStarted)
                 .count(),
-            1
+            0
         );
         accepted(&app, Command::CloseWorkflow { workflow_id: id });
         assert!(

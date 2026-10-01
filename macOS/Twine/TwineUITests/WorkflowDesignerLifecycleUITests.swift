@@ -8,7 +8,7 @@ extension TwineUITests {
         let designer = WorkflowDesignerUI(app: app)
         app.buttons["newWorkflow"].click()
         XCTAssertTrue(designer.item("workflowCreateOwn").waitForExistence(timeout: 5))
-        app.typeKey("d", modifierFlags: [.command, .shift])
+        app.typeKey("d", modifierFlags: [.command, .option])
         XCTAssertTrue(designer.item("designerName").waitForExistence(timeout: 5))
         designer.replace("designerName", with: "Write a draft")
         designer.item("designerAddRole").click()

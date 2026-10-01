@@ -23,8 +23,10 @@ struct TerminalHistorySurface: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
-                Text("Output at \(TraceFormatting.timestamp(target.timestamp))")
-                    .font(.caption.weight(.semibold))
+                Text(
+                    target.timestamp == 0 ? "Saved output" : "Output at \(TraceFormatting.timestamp(target.timestamp))"
+                )
+                .font(.caption.weight(.semibold))
                 Text(target.message).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 0)
                 Button("Return to live", action: returnToLive)

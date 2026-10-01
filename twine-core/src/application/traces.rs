@@ -306,6 +306,10 @@ impl Inner {
     }
 
     pub(super) fn start_trace(&mut self, workflow: &Workflow) -> Result<(), ApplicationError> {
+        self.folders.store().remember_terminals(workflow)?;
+        if workflow.kind == crate::WorkflowKind::Draft {
+            return Ok(());
+        }
         if workflow.kind == crate::WorkflowKind::Agents {
             let keys = workflow
                 .agents

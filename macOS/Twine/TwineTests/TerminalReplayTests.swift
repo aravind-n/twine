@@ -59,6 +59,7 @@ struct TerminalReplayTests {
 
     @Test func commandStartSurvivesEarlierOutputReflowAndRetiresWhenTrimmed() throws {
         let replay = TerminalReplay()
+        replay.terminal.changeScrollback(500)
         let prefix = Data((String(repeating: "earlier ", count: 8) + "\r\n").utf8)
         try replay.append(
             .init(
