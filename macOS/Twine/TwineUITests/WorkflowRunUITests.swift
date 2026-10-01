@@ -32,6 +32,8 @@ extension TwineUITests {
         inspectStage("implement", in: app)
 
         completeRole(in: app, summary: "Initial implementation")
+        attachScreenshot(of: app, named: "Implementer after accepted completion")
+        XCTAssertTrue(app.staticTexts["Agent completed"].waitForExistence(timeout: 5), app.debugDescription)
         inspectStage("review", in: app)
         app.buttons["agentSubtab-2"].click()
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
@@ -39,12 +41,17 @@ extension TwineUITests {
         inspectStage("implement", in: app)
         app.buttons["agentSubtab-1"].click()
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
+        // The previous reviewer remains completed in its retained, hidden pane. Check this
+        // round's new implementer terminal rather than every agent's badge.
+        XCTAssertTrue(item("terminalStatus-5").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(item("terminalStatus-5").value as? String, "Agent exited with code 0")
         completeRole(in: app, summary: "Fixed the edge case")
         app.buttons["agentSubtab-2"].click()
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
         completeRole(in: app, summary: "Approved")
         XCTAssertTrue(app.staticTexts["Completed"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(item("workflowCancel").exists)
+        XCTAssertTrue(app.staticTexts["Agent completed"].waitForExistence(timeout: 5), app.debugDescription)
         inspectTraceHandoff(in: app)
         inspectSavedHarnesses(in: app)
     }

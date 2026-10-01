@@ -97,7 +97,7 @@ final class TerminalMinimapState {
         var result: [CGRect] = []
         for row in stride(from: 0, to: count, by: max(1, count / 350)) {
             guard let line = terminal.bufferLine(atRow: row) else { continue }
-            let characters = Array(line.translateToString().prefix(160))
+            let characters = Array(line.translateToString())
             let columns = characters.count
             var start: Int?
             for column in 0...columns {
@@ -107,7 +107,8 @@ final class TerminalMinimapState {
                     result.append(
                         CGRect(
                             x: Double(lower) / Double(max(1, terminal.cols)), y: Double(row) / Double(count),
-                            width: Double(column - lower) / Double(max(1, terminal.cols)), height: 0.0015))
+                            width: Double(column - lower) / Double(max(1, terminal.cols)), height: 0.58 / Double(count))
+                    )
                     start = nil
                 }
             }
@@ -140,7 +141,7 @@ final class TerminalMinimapState {
                 guard !content.isEmpty else { return nil }
                 return CGRect(
                     x: 0.04, y: Double(row) / Double(count),
-                    width: Double(content.count) / Double(columns), height: 0.0015)
+                    width: Double(content.count) / Double(columns), height: 0.58 / Double(count))
             }
         }
         markerRows = rows

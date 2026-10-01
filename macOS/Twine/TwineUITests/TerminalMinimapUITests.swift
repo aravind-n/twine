@@ -2,6 +2,30 @@ import XCTest
 
 extension TwineUITests {
     @MainActor
+    func testShortOutputMinimapInBothAppearances() throws {
+        for appearance in ["Dark", "Light"] {
+            let folder = try makeTestFolder(prefix: "TwineShortMinimapUITests")
+            let app = try makeApp(lastOpenFolder: folder)
+            app.launchEnvironment["SHELL"] = "/bin/bash"
+            app.launchEnvironment["TWINE_TEST_APPEARANCE"] = appearance
+            app.launch()
+            defer { app.terminate() }
+            XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10))
+            resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 650))
+            app.typeText(
+                "printf '\\033[2J\\033[H'; printf '%s\\n' 'Explored the folder' '  List complete' '' "
+                    + "'Searched the web' '' 'Seattle forecast: mostly sunny, with a high near 63 degrees.' '' "
+                    + "'Completion submitted to Twine.' 'Review approved.'; echo ready > minimap-ready\r")
+            waitForFile(folder.appending(path: "minimap-ready"), containing: "ready", in: app)
+            let map = app.descendants(matching: .any).matching(identifier: "terminalMinimap").firstMatch
+            XCTAssertTrue(map.waitForExistence(timeout: 10), app.debugDescription)
+            attachScreenshot(of: app, named: "Short output compact minimap in \(appearance)")
+            map.hover()
+            attachScreenshot(of: app, named: "Short output expanded minimap in \(appearance)")
+        }
+    }
+
+    @MainActor
     func testCompactMinimapScrollsAndSelectsItsActivityStep() throws {
         let folder = try makeTestFolder(prefix: "TwineMinimapUITests")
         let app = try makeApp(lastOpenFolder: folder)
