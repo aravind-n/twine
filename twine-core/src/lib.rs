@@ -40,7 +40,7 @@ pub use terminal::{
 
 pub use workflow::{
     Agent, AgentId, Session, SessionId, SessionStatus, Workflow, WorkflowId, WorkflowKind,
-    WorkflowState, WorkflowStatus,
+    WorkflowState, WorkflowStatus, WorkflowTerminal,
 };
 pub use workflow_type::{
     BuiltinType, CatalogError, Completion, ElementPath, Handoff, HandoffContent, InstanceCount,

@@ -6,6 +6,13 @@ nonisolated struct TerminalMinimapGeometry: Equatable {
     var rows = 1
     var visibleRows = 1
     var topRow = 0
+    var columns = 80
+    var cellAspectRatio = 2.0
+
+    /// The expanded preview uses the terminal's cell proportions; short output stays short.
+    func contentHeight(available: CGFloat) -> CGFloat {
+        min(available, max(1, Double(rows) * 77 / Double(max(1, columns)) * cellAspectRatio))
+    }
 
     var maximumTop: Int { max(0, rows - visibleRows) }
     var isLive: Bool { topRow >= maximumTop }

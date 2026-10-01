@@ -37,7 +37,7 @@ in the open folder; parallel workers receive their own sub-task and advisory fil
 Each role has a terminal subtab. A stage starts fresh harness processes, including when a review
 loop returns to an earlier role.
 
-Choose **Create your own** (**⇧⌘D**) in a new tab to design a workflow type. Add roles and
+Choose **Create your own** (**⌥⌘D**) in a new tab to design a workflow type. Add roles and
 instructions, order stages and their parallel roles, connect handoffs, and bound review loops.
 The designer shows validation errors beside each affected element and enables Save only after
 the current design validates. Use Tab and Shift-Tab to navigate controls, Return to save, and
@@ -147,6 +147,13 @@ Add settings as fields with defaults in `twine-core/src/config.rs`. The Serde sc
 parsing, unknown-key warnings, the generated default file, and snapshot serialization;
 extend Swift's `CoreConfig` when a consumer needs the new field.
 
+## Terminal panes
+
+Use the two buttons at the top right, **⌘D** to split right, or **⇧⌘D** to split down.
+Each split starts a shell in the same folder; run any command or coding agent there.
+Up to four panes share a tab, with draggable dividers. **⌘[** and **⌘]** move keyboard focus,
+**⌘W** closes the focused pane, and closing the tab closes its panes. Pane layouts survive reopening.
+
 ## Terminal transcripts
 
 Every terminal and agent pane has a compact minimap at its right edge. Hover or focus the
@@ -164,7 +171,11 @@ scrollable without a guessed point. Historical output also has its own minimap.
 
 `twine-core` records raw terminal output under `transcripts/` in its application data directory.
 Terminal IDs remain unique across launches. Closing a terminal preserves output already accepted
-for recording, and restored workflows start fresh terminals with new IDs.
+for recording. Reopening a folder restores recorded output and scrollback. Shells append a fresh
+prompt; stopped coding agents keep their recorded terminal visible without restarting the process.
+**Saved output** opens earlier invocations, including an idle shell with no Activity step.
+Live views and ANSI replay retain up to 100,000 rows in memory; the raw transcript limits below
+apply independently. Draft launch surfaces do not create Activity lanes until used as terminals.
 
 Retention is capped at **64 MiB per terminal** and **512 MiB across all terminals**. Output is stored
 in segments of at most **1 MiB**, with at most **512 segments** and **1,024 terminal metadata entries**.

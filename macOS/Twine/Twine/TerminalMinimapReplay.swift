@@ -14,8 +14,12 @@ final class TerminalMinimapReplay {
 
     func load(
         terminalID: UInt64, endOffset: UInt64, markers: [TraceMinimapMarker], client: CoreClient,
-        liveSizes: [CoreTranscriptSize]? = nil
+        liveSizes: [CoreTranscriptSize]? = nil, prefix: [TerminalReplayPrefix] = []
     ) async throws {
+        for entry in prefix {
+            replay.terminal.resize(cols: entry.columns, rows: entry.rows)
+            replay.terminal.feed(text: entry.text)
+        }
         let ordered = markers.filter { $0.anchor?.terminalID == terminalID }.sorted {
             ($0.anchor?.byteOffset ?? 0) < ($1.anchor?.byteOffset ?? 0)
         }

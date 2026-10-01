@@ -13,7 +13,7 @@ extension TwineUITests {
         XCTAssertTrue(item("workflowCreateOwn").waitForExistence(timeout: 10), app.debugDescription)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 720))
         // The shell owns focus here. The shortcut must open the designer without typing into it.
-        app.typeKey("d", modifierFlags: [.command, .shift])
+        app.typeKey("d", modifierFlags: [.command, .option])
         XCTAssertTrue(item("designerName").waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(item("designerError-name").waitForExistence(timeout: 5))
         XCTAssertFalse(item("designerSave").isEnabled)

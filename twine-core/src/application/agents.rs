@@ -95,6 +95,10 @@ impl Application {
 
     /// Turns a draft workflow into a single agent: starts the harness in its own PTY, with
     /// `prompt` if there is one, then replaces the draft's placeholder shell with it.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "agent replacement keeps process, history, and trace cleanup together"
+    )]
     pub(super) fn start_agent(
         &self,
         request_id: RequestId,
@@ -167,6 +171,8 @@ impl Application {
         let placeholder = workflow.terminal_id;
         let name = definition.name;
         workflow.kind = WorkflowKind::SingleAgent;
+        workflow.restored = false;
+        workflow.terminal_history.clear();
         workflow.harness = Some(harness);
         name.clone_into(&mut workflow.name);
         workflow.terminal_id = terminal_id;
@@ -441,7 +447,7 @@ mod tests {
         let trace = application
             .workflow_trace(draft.workflow_id, None, 10)
             .unwrap();
-        assert_eq!(trace.spans.len(), 2);
+        assert_eq!(trace.spans.len(), 1);
         let agent_span = trace
             .spans
             .iter()
@@ -471,12 +477,52 @@ mod tests {
                 .iter()
                 .all(|event| !event.message.contains("fix it") && !event.message.contains("GOT:"))
         );
-        let shell = trace
-            .spans
-            .iter()
-            .find(|span| span.terminal_id == Some(draft.terminal_id))
+        assert!(
+            trace
+                .spans
+                .iter()
+                .all(|span| span.terminal_id != Some(draft.terminal_id))
+        );
+        assert!(trace.lanes.iter().all(|lane| lane.is_agent));
+    }
+
+    #[test]
+    fn an_agent_started_from_a_restored_draft_keeps_live_terminal_ownership() {
+        let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let app = application(folder.path(), bin.path(), Some("read line"));
+        let original = draft(&app, folder.path());
+        app.handle_command(RequestId(20), Command::CloseFolder)
             .unwrap();
-        assert_eq!(shell.status, crate::TraceSpanStatus::Stopped);
+        app.handle_command(
+            RequestId(21),
+            Command::OpenFolder {
+                path: folder.path().to_owned(),
+            },
+        )
+        .unwrap();
+        assert!(workflow(&app).restored);
+        assert_eq!(
+            start(&app, original.workflow_id, ""),
+            CommandDisposition::Accepted
+        );
+        let live = workflow(&app);
+        assert!(!live.restored);
+        assert!(live.terminal_history.is_empty());
+        assert_eq!(live.terminal_ids(), vec![live.terminal_id]);
+        app.write_terminal_input(live.terminal_id, b"exit\n")
+            .unwrap();
+        wait_until(|| workflow(&app).status == WorkflowStatus::Exited);
+        app.handle_command(
+            RequestId(22),
+            Command::CloseWorkflow {
+                workflow_id: live.workflow_id,
+            },
+        )
+        .unwrap();
+        assert!(
+            app.write_terminal_input(live.terminal_id, b"late\n")
+                .is_err()
+        );
     }
 
     #[test]
@@ -739,7 +785,7 @@ mod tests {
             assert_eq!(restored.status, expected);
             assert!(restored.restored);
             let trace = second.workflow_trace(id, None, 10).unwrap();
-            assert_eq!(trace.spans.len(), 2);
+            assert_eq!(trace.spans.len(), 1);
             let lane = trace.lanes.iter().find(|lane| lane.is_agent).unwrap();
             assert_eq!(lane.harness.as_deref(), Some("pi"));
             let span = trace
@@ -764,10 +810,14 @@ mod tests {
                     .len(),
                 2
             );
-            assert_eq!(
-                restored.terminal_id.value(),
-                0,
+            assert_eq!(Some(restored.terminal_id), span.terminal_id);
+            assert!(
+                restored.terminal_ids().is_empty(),
                 "agents are never relaunched"
+            );
+            assert_eq!(
+                restored.terminal_history.last().unwrap().terminal_id,
+                restored.terminal_id
             );
         }
     }
@@ -809,17 +859,17 @@ mod tests {
         let trace = application
             .workflow_trace(draft.workflow_id, None, 10)
             .unwrap();
-        assert_eq!(trace.spans.len(), 1);
-        assert_eq!(trace.lanes.len(), 1);
-        assert!(trace.spans[0].is_live);
-        assert_eq!(
-            application
-                .trace_events(trace.spans[0].span_id, None, 10)
-                .unwrap()
-                .events
-                .len(),
-            1
-        );
+        assert!(trace.spans.is_empty());
+        assert!(trace.lanes.is_empty());
+        let history = application
+            .lock_inner()
+            .unwrap()
+            .folders
+            .store()
+            .terminal_history(draft.workflow_id)
+            .unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].terminal_id, draft.terminal_id);
         assert_eq!(application.snapshot().unwrap().terminals.len(), 1);
         assert!(
             application

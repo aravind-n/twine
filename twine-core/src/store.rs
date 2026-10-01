@@ -175,7 +175,24 @@ const MIGRATIONS: &[&str] = &[
     // 11: Correlate asynchronous harness events with the prompt that owns them.
     "ALTER TABLE trace_spans ADD COLUMN harness_turn_id TEXT;
      CREATE UNIQUE INDEX trace_harness_turn ON trace_spans(terminal_id, harness_turn_id)
-     WHERE harness_turn_id IS NOT NULL"
+     WHERE harness_turn_id IS NOT NULL",
+    // 12: Keep terminal ownership even when an idle process has no Activity span.
+    "CREATE TABLE workflow_terminals (
+        terminal_id INTEGER PRIMARY KEY CHECK (terminal_id > 0),
+        workflow_id INTEGER NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+        agent_id INTEGER
+    ) STRICT;
+    CREATE INDEX workflow_terminals_workflow ON workflow_terminals(workflow_id, terminal_id);
+    INSERT OR IGNORE INTO workflow_terminals (terminal_id, workflow_id, agent_id)
+        SELECT s.terminal_id, l.workflow_id,
+            CASE WHEN l.lane_key LIKE 'agent:%' THEN CAST(SUBSTR(l.lane_key, 7) AS INTEGER) END
+        FROM trace_spans s JOIN trace_lanes l ON l.id = s.lane_id
+        JOIN workflows w ON w.id = l.workflow_id
+        WHERE s.terminal_id > 0 AND (w.kind IN ('draft', 'terminal') OR l.is_agent = 1);
+    INSERT OR IGNORE INTO workflow_terminals (terminal_id, workflow_id)
+        SELECT e.terminal_id, e.workflow_id FROM trace_events e
+        JOIN workflows w ON w.id = e.workflow_id
+        WHERE e.terminal_id > 0 AND w.kind IN ('draft', 'terminal')"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
@@ -792,6 +809,32 @@ mod tests {
             .unwrap();
         assert_eq!(store.connection.last_insert_rowid(), 81);
         assert_eq!(store.workflows(Path::new("/folder")).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migration_preserves_idle_shell_and_agent_terminal_ownership() {
+        let connection = Connection::open_in_memory().unwrap();
+        for migration in &MIGRATIONS[..11] {
+            connection.execute_batch(migration).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 11).unwrap();
+        connection.execute_batch(
+            "INSERT INTO sessions (id, folder, name, started_at) VALUES (1, '/folder', 'Work', 1);
+             INSERT INTO workflows (id, session_id, name, kind) VALUES
+                (1, 1, 'Shell', 'terminal'), (2, 1, 'Agent', 'single_agent'), (3, 1, 'Run', 'agents');
+             INSERT INTO trace_lanes (id, workflow_id, lane_key, name, is_agent) VALUES
+                (1, 2, 'terminal', 'Terminal', 0), (2, 2, 'agent', 'Agent', 1), (3, 3, 'agent:8', 'Worker', 1);
+             INSERT INTO trace_spans (lane_id, title, started_at, status, terminal_id) VALUES
+                (1, 'Shell', 1, 'stopped', 20), (2, 'Agent', 2, 'exited', 21), (3, 'Worker', 2, 'exited', 31);
+             INSERT INTO trace_events (workflow_id, timestamp, kind, message, terminal_id, byte_offset)
+                VALUES (1, 1, 'processStarted', 'Idle shell', 10, 0);"
+        ).unwrap();
+        let store = Store::with_connection(connection).unwrap();
+        let history = |id| store.terminal_history(crate::WorkflowId(id)).unwrap();
+        assert_eq!(history(1)[0].terminal_id.value(), 10);
+        assert_eq!(history(2).len(), 1);
+        assert_eq!(history(2)[0].terminal_id.value(), 21);
+        assert_eq!(history(3)[0].agent_id, Some(crate::AgentId(8)));
     }
 
     #[test]

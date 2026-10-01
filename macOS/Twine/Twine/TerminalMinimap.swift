@@ -12,8 +12,9 @@ struct TerminalMinimap: View {
 
     var body: some View {
         GeometryReader { geometry in
-            rail(height: geometry.size.height)
-                .frame(width: isExpanded ? 92 : 14, height: geometry.size.height)
+            let height = state.geometry.contentHeight(available: geometry.size.height)
+            rail(height: height)
+                .frame(width: isExpanded ? 92 : 14, height: height)
                 .frame(width: 14, alignment: .trailing)
         }
         .frame(width: 14)
@@ -58,17 +59,22 @@ struct TerminalMinimap: View {
             RoundedRectangle(cornerRadius: 5).fill(.terminalBackground)
                 .accessibilityHidden(true)
             Canvas { context, size in
-                for stroke in state.strokes {
+                for (index, stroke) in state.strokes.enumerated() {
                     let rect = TerminalMinimapGeometry.strokeRect(stroke, in: size, expanded: isExpanded)
-                    context.fill(Path(rect), with: .color(.terminalTextMuted.opacity(isExpanded ? 0.6 : 0.4)))
+                    let ink =
+                        state.strokeColors.indices.contains(index) ? state.strokeColors[index] : .terminalTextMuted
+                    context.fill(Path(rect), with: .color(ink.opacity(isExpanded ? 0.65 : 0.18)))
                 }
                 let range = state.geometry.viewport
                 let top = range.lowerBound * size.height
                 let thumb = CGRect(
                     x: 0, y: top, width: size.width, height: max(8, (range.upperBound - range.lowerBound) * size.height)
                 )
-                context.fill(Path(roundedRect: thumb, cornerRadius: 3), with: .color(.accentColor.opacity(0.2)))
-                context.stroke(Path(roundedRect: thumb, cornerRadius: 3), with: .color(.accentColor.opacity(0.65)))
+                context.fill(Path(roundedRect: thumb, cornerRadius: 3), with: .color(.terminalTextMuted.opacity(0.12)))
+                if isExpanded {
+                    context.stroke(
+                        Path(roundedRect: thumb, cornerRadius: 3), with: .color(.terminalTextMuted.opacity(0.45)))
+                }
             }
             .contentShape(Rectangle())
             .focusable()
@@ -79,19 +85,7 @@ struct TerminalMinimap: View {
             .accessibilityAdjustableAction { direction in
                 state.scroll(to: state.geometry.topRow + (direction == .increment ? 3 : -3))
             }
-            .gesture(
-                DragGesture(minimumDistance: 0).onChanged { value in
-                    if dragOffset == nil {
-                        let range = state.geometry.viewport
-                        let top = range.lowerBound * height
-                        let bottom = range.upperBound * height
-                        dragOffset =
-                            value.startLocation.y >= top && value.startLocation.y <= bottom
-                            ? value.startLocation.y - top : (bottom - top) / 2
-                    }
-                    let fraction = (value.location.y - (dragOffset ?? 0)) / max(1, height)
-                    state.scroll(to: Int((fraction * Double(state.geometry.rows)).rounded()))
-                }.onEnded { _ in dragOffset = nil })
+            .gesture(scrollGesture(height: height))
             ForEach(markers) { marker in
                 if let row = state.markerRows[marker.id] {
                     point(marker)
@@ -99,7 +93,24 @@ struct TerminalMinimap: View {
                 }
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.primary.opacity(0.1)))
+        .clipShape(.rect(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.primary.opacity(isExpanded ? 0.08 : 0.03)))
+        .shadow(color: .black.opacity(isExpanded ? 0.08 : 0), radius: 10, x: -5)
+    }
+
+    private func scrollGesture(height: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0).onChanged { value in
+            if dragOffset == nil {
+                let range = state.geometry.viewport
+                let top = range.lowerBound * height
+                let bottom = range.upperBound * height
+                dragOffset =
+                    value.startLocation.y >= top && value.startLocation.y <= bottom
+                    ? value.startLocation.y - top : (bottom - top) / 2
+            }
+            let fraction = (value.location.y - (dragOffset ?? 0)) / max(1, height)
+            state.scroll(to: Int((fraction * Double(state.geometry.rows)).rounded()))
+        }.onEnded { _ in dragOffset = nil }
     }
 
     private func point(_ marker: TraceMinimapMarker) -> some View {

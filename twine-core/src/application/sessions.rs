@@ -299,6 +299,59 @@ mod tests {
     }
 
     #[test]
+    fn reopening_shells_keeps_each_recorded_invocation() {
+        let data = tempfile::tempdir().unwrap();
+        let folder = tempfile::tempdir().unwrap();
+        let mut app = Application::with_config(data.path(), Config::default()).unwrap();
+        app.terminals.set_test_shell("/bin/sh".into());
+        open(&app, folder.path());
+        let session = create_session(&app, folder.path(), "History");
+        let original = create_workflow(&app, folder.path(), session, WorkflowKind::Terminal);
+        let mut ids = Vec::new();
+        for invocation in 0..2 {
+            let current = app.snapshot().unwrap().workflows.workflows[0].terminal_id;
+            ids.push(current);
+            let marker = format!("RESTORED_OUTPUT_{invocation}");
+            app.write_terminal_input(current, format!("printf '{marker}\\n'\n").as_bytes())
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if let crate::TranscriptRead::Output(page) =
+                    app.read_terminal_transcript(current, 0, 65536).unwrap()
+                    && String::from_utf8_lossy(&page.bytes).contains(&marker)
+                {
+                    break;
+                }
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            accepted(&app, Command::CloseFolder);
+            open(&app, folder.path());
+            let restored = &app.snapshot().unwrap().workflows.workflows[0];
+            assert_eq!(restored.workflow_id, original.workflow_id);
+            assert_eq!(
+                restored
+                    .terminal_history
+                    .iter()
+                    .map(|entry| entry.terminal_id)
+                    .collect::<Vec<_>>(),
+                ids
+            );
+            assert!(!ids.contains(&restored.terminal_id));
+        }
+        for (index, id) in ids.iter().enumerate() {
+            let crate::TranscriptRead::Output(page) =
+                app.read_terminal_transcript(*id, 0, 65536).unwrap()
+            else {
+                panic!("saved output expired");
+            };
+            assert!(
+                String::from_utf8_lossy(&page.bytes).contains(&format!("RESTORED_OUTPUT_{index}"))
+            );
+        }
+    }
+
+    #[test]
     fn relaunch_restores_names_selection_tabs_and_fresh_shells() {
         let data = tempfile::tempdir().unwrap();
         let folder = tempfile::tempdir().unwrap();

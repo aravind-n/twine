@@ -141,7 +141,11 @@ private struct AgentPane: View {
                 .onTapGesture(perform: focus)
             } else {
                 TerminalSurface(
-                    terminalID: agent.terminalID, isVisible: isWorkflowSelected && isShown && history == nil,
+                    terminalID: agent.terminalID,
+                    historyTerminalIDs: workflow.terminalHistory?.filter { $0.agentID == agent.id }.map(\.terminalID)
+                        ?? [],
+                    restoresOutput: workflow.restored,
+                    isVisible: isWorkflowSelected && isShown && history == nil,
                     isSelected: isWorkflowSelected && isFocused && history == nil, focusRequest: focusRequest,
                     padding: isTiled ? BentoLayout.terminalPadding : Spacing.agentTerminalContent,
                     subject: workflow.run == nil ? "Shell" : "Agent", isCancelled: workflow.status == .cancelled,

@@ -28,6 +28,33 @@ pub(crate) struct StoredAgent {
 }
 
 impl Store {
+    pub(crate) fn terminal_history(
+        &self,
+        id: WorkflowId,
+    ) -> Result<Vec<crate::WorkflowTerminal>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, agent_id FROM workflow_terminals WHERE workflow_id = ?1
+             ORDER BY terminal_id DESC LIMIT 1024",
+        )?;
+        let mut history = statement
+            .query_map([sql_integer(id.0)?], |row| {
+                Ok(crate::WorkflowTerminal {
+                    terminal_id: crate::TerminalId::from_value(unsigned_column(row, 0)?),
+                    agent_id: row
+                        .get::<_, Option<i64>>(1)?
+                        .map(|_| unsigned_column(row, 1).map(AgentId))
+                        .transpose()?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        history.reverse();
+        Ok(history)
+    }
+
+    pub(crate) fn remember_terminals(&self, workflow: &crate::Workflow) -> Result<(), StoreError> {
+        remember_terminals(&self.connection, workflow)
+    }
+
     pub(crate) fn sessions_initialized(&self, folder: &Path) -> Result<bool, StoreError> {
         Ok(self.connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM folder_selection WHERE folder = ?1)",
@@ -288,6 +315,7 @@ impl Store {
             "UPDATE workflows SET kind = 'agents', name = ?2 WHERE id = ?1",
             params![sql_integer(id.0)?, run.workflow_type.definition.name],
         )?;
+        discard_draft_terminal(&transaction, id)?;
         for agent in &mut run.agents {
             transaction.execute(
                 "INSERT INTO agents (workflow_id, role) VALUES (?1, ?2)",
@@ -303,6 +331,49 @@ impl Store {
         transaction.commit()?;
         Ok(())
     }
+}
+
+pub(super) fn remember_terminals(
+    connection: &rusqlite::Connection,
+    workflow: &crate::Workflow,
+) -> Result<(), StoreError> {
+    let terminals = if workflow.kind == WorkflowKind::Agents {
+        workflow
+            .agents
+            .iter()
+            .map(|agent| (agent.terminal_id, Some(agent.agent_id)))
+            .collect()
+    } else {
+        vec![(workflow.terminal_id, None)]
+    };
+    for (terminal, agent) in terminals {
+        if terminal.value() == 0 {
+            continue;
+        }
+        connection.execute(
+            "INSERT OR IGNORE INTO workflow_terminals (terminal_id, workflow_id, agent_id) VALUES (?1, ?2, ?3)",
+            params![sql_integer(terminal.value())?, sql_integer(workflow.workflow_id.0)?,
+                agent.map(|id| sql_integer(id.0)).transpose()?],
+        )?;
+    }
+    Ok(())
+}
+
+/// A draft's shell is only a launch surface. Preserve real command activity, if any.
+pub(super) fn discard_draft_terminal(
+    connection: &rusqlite::Connection,
+    id: WorkflowId,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "DELETE FROM trace_lanes WHERE workflow_id = ?1 AND lane_key = 'terminal'
+         AND NOT EXISTS (SELECT 1 FROM trace_spans WHERE lane_id = trace_lanes.id AND work_span = 1)",
+        [sql_integer(id.0)?],
+    )?;
+    connection.execute(
+        "DELETE FROM workflow_terminals WHERE workflow_id = ?1 AND agent_id IS NULL",
+        [sql_integer(id.0)?],
+    )?;
+    Ok(())
 }
 
 fn kind_name(kind: WorkflowKind) -> &'static str {

@@ -37,15 +37,18 @@ struct TerminalMinimapTests {
         state.refresh()
         let stroke = try #require(state.strokes.first)
         #expect(stroke.width == 0.9)
-        // A short terminal should retain the design's filled row proportions, not tiny dots.
-        #expect(stroke.height * 300 >= 8)
+        let height = state.geometry.contentHeight(available: 300)
+        #expect(height < 30)
+        #expect(stroke.height * height < 2)
     }
 
     @Test func shortHistoryKeepsTheSameRowProportions() throws {
         let state = TerminalMinimapState()
         state.showHistory(text: "first\nsecond\nthird", rows: [:])
         let stroke = try #require(state.strokes.first)
-        #expect(stroke.height * 300 >= 50)
+        let height = state.geometry.contentHeight(available: 300)
+        #expect(height < 100)
+        #expect(stroke.height * height < 20)
     }
 
     @Test func collapsedAndExpandedRailsRetainTheOutputSilhouette() {
@@ -91,6 +94,7 @@ struct TerminalMinimapTests {
 
     @Test func recycledAndAlternateScreenRowsCannotReuseAnActivityPoint() throws {
         let index = TerminalMinimapReplay()
+        index.replay.terminal.changeScrollback(500)
         index.capture(id: 7)
         let flood = Data(String(repeating: "retained\r\n", count: 5_000).utf8)
         try index.replay.append(

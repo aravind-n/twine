@@ -75,10 +75,18 @@ pub struct Workflow {
     pub status: WorkflowStatus,
     pub started_at: u64,
     pub ended_at: Option<u64>,
-    /// Restored workflow metadata now backed by fresh shells and new terminal transcripts.
+    /// Restored from storage, with fresh shells or archived output for stopped harnesses.
     pub restored: bool,
+    /// Earlier terminal invocations, in creation order, retained independently of Activity spans.
+    pub terminal_history: Vec<WorkflowTerminal>,
     /// Present for a workflow executing a pinned type.
     pub run: Option<Box<crate::WorkflowRun>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkflowTerminal {
+    pub terminal_id: TerminalId,
+    pub agent_id: Option<AgentId>,
 }
 
 /// One process filling one role in a workflow.
@@ -104,6 +112,9 @@ impl Workflow {
 
     /// The workflow's live shells.
     pub(crate) fn terminal_ids(&self) -> Vec<TerminalId> {
+        if self.restored && (self.kind == WorkflowKind::SingleAgent || self.run.is_some()) {
+            return Vec::new();
+        }
         self.shells()
             .into_iter()
             .filter(|terminal_id| terminal_id.value() != 0)

@@ -6,6 +6,9 @@ struct TerminalChunkRouter {
     private var chunksByTerminal: [UInt64: [CoreTerminalChunk]] = [:]
     private var byteCount = 0
     private var closedTerminalIDs: Set<UInt64> = []
+    private var consumedTerminalIDs: Set<UInt64> = []
+
+    func hasConsumedOutput(for terminalID: UInt64) -> Bool { consumedTerminalIDs.contains(terminalID) }
 
     init(capacityBytes: Int) {
         self.capacityBytes = capacityBytes
@@ -24,6 +27,7 @@ struct TerminalChunkRouter {
     mutating func dequeue(for terminalID: UInt64) -> CoreTerminalChunk? {
         guard var chunks = chunksByTerminal[terminalID], !chunks.isEmpty else { return nil }
         let chunk = chunks.removeFirst()
+        consumedTerminalIDs.insert(terminalID)
         byteCount -= chunk.bytes.count
         if chunks.isEmpty {
             chunksByTerminal.removeValue(forKey: terminalID)
@@ -41,6 +45,7 @@ struct TerminalChunkRouter {
     /// Drops the terminal's buffered output, and any output that arrives for it later.
     mutating func markClosed(_ terminalID: UInt64) {
         closedTerminalIDs.insert(terminalID)
+        consumedTerminalIDs.remove(terminalID)
         guard let chunks = chunksByTerminal.removeValue(forKey: terminalID) else { return }
         byteCount -= chunks.reduce(into: 0) { bytes, chunk in
             bytes += chunk.bytes.count
@@ -51,5 +56,6 @@ struct TerminalChunkRouter {
         chunksByTerminal.removeAll()
         byteCount = 0
         closedTerminalIDs.removeAll()
+        consumedTerminalIDs.removeAll()
     }
 }

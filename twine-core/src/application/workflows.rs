@@ -174,6 +174,7 @@ impl Application {
             started_at: timestamp(),
             ended_at: None,
             restored: false,
+            terminal_history: Vec::new(),
             run: None,
         };
         if let Err(error) = inner.start_trace(&workflow) {
@@ -228,8 +229,15 @@ impl Application {
             WorkflowKind::Terminal,
             None,
         )?;
+        let was_draft = workflow.kind == WorkflowKind::Draft;
         workflow.kind = WorkflowKind::Terminal;
         "Terminal".clone_into(&mut workflow.name);
+        if was_draft
+            && inner.terminals.get(&workflow.terminal_id) == Some(&TerminalStatus::Running)
+            && let Err(error) = inner.start_trace(&workflow)
+        {
+            tracing::warn!(%error, "could not record the activated terminal's process trace");
+        }
         inner.workflows.workflows[index] = workflow.clone();
         inner
             .events
@@ -345,6 +353,7 @@ impl Application {
         };
         let mut failed_terminals = Vec::new();
         for (stored, reserved) in stored.into_iter().zip(reserved) {
+            let terminal_history = inner.folders.store().terminal_history(stored.workflow_id)?;
             let mut reserved = reserved.into_iter();
             let mut restart = || match reserved
                 .next()
@@ -374,8 +383,13 @@ impl Application {
             // An agents workflow has no shell of its own; each of its agents gets a fresh one.
             let (terminal_id, agents) = match stored.kind {
                 WorkflowKind::Draft | WorkflowKind::Terminal => (restart(), Vec::new()),
-                // A single agent's process and terminal are gone, and it doesn't restart.
-                WorkflowKind::SingleAgent => (TerminalId::from_value(0), Vec::new()),
+                // Keep the recorded terminal available without restarting the harness.
+                WorkflowKind::SingleAgent => (
+                    terminal_history
+                        .last()
+                        .map_or(TerminalId::from_value(0), |entry| entry.terminal_id),
+                    Vec::new(),
+                ),
                 WorkflowKind::Agents => {
                     let agents: Vec<_> = stored
                         .agents
@@ -384,7 +398,11 @@ impl Application {
                             agent_id: agent.agent_id,
                             role: agent.role,
                             terminal_id: if stored.run.is_some() {
-                                TerminalId::from_value(0)
+                                terminal_history
+                                    .iter()
+                                    .rev()
+                                    .find(|entry| entry.agent_id == Some(agent.agent_id))
+                                    .map_or(TerminalId::from_value(0), |entry| entry.terminal_id)
                             } else {
                                 restart()
                             },
@@ -405,6 +423,7 @@ impl Application {
                 started_at: timestamp(),
                 ended_at: None,
                 restored: true,
+                terminal_history,
                 run: stored.run,
             };
             if workflow.run.is_some() {
@@ -420,7 +439,9 @@ impl Application {
                 workflow.status = WorkflowStatus::Failed;
                 workflow.ended_at = Some(workflow.started_at);
             }
-            failed_terminals.extend(inner.record_restored_trace(&mut workflow));
+            if workflow.run.is_none() && workflow.kind != WorkflowKind::SingleAgent {
+                failed_terminals.extend(inner.record_restored_trace(&mut workflow));
+            }
             inner.workflows.workflows.push(workflow);
         }
         let published = inner.publish_workflows();
@@ -636,6 +657,34 @@ mod tests {
 
     fn create(application: &Application, folder: &Path, kind: WorkflowKind) -> Workflow {
         create_with_roles(application, folder, kind, &[])
+    }
+
+    #[test]
+    fn a_draft_has_no_activity_and_activating_an_exited_shell_cannot_start_a_span() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut app = application(folder.path());
+        app.terminals.set_test_shell("/bin/sh".into());
+        let draft = create(&app, folder.path(), WorkflowKind::Draft);
+        let trace = app.workflow_trace(draft.workflow_id, None, 10).unwrap();
+        assert!(trace.spans.is_empty() && trace.lanes.is_empty());
+        app.write_terminal_input(draft.terminal_id, b"exit\n")
+            .unwrap();
+        wait_until(|| {
+            app.snapshot().unwrap().workflows.workflows[0].status == WorkflowStatus::Exited
+        });
+        assert_eq!(
+            app.handle_command(
+                RequestId(4),
+                Command::ActivateWorkflow {
+                    workflow_id: draft.workflow_id
+                }
+            )
+            .unwrap()
+            .disposition,
+            CommandDisposition::Accepted
+        );
+        let trace = app.workflow_trace(draft.workflow_id, None, 10).unwrap();
+        assert!(trace.spans.is_empty() && trace.lanes.is_empty());
     }
 
     fn create_with_roles(

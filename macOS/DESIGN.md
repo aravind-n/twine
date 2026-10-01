@@ -138,8 +138,10 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 - Every live terminal and read-only history view gets a 14pt rail at its trailing edge, with
   18pt reserved for the rail and its gutter. The rail expands to 92pt on hover or keyboard
   focus, overlaying output without resizing the terminal grid. Corners are 5pt.
-- Draw a muted silhouette of the actual terminal buffer, with an accent-tinted visible
-  region and a fine accent outline. Clicking or dragging scrolls the pane independently;
+- Draw a muted silhouette of the actual terminal buffer, with a neutral, translucent visible
+  region and a fine muted outline on hover. Retain the terminal cell proportions: short output
+  stays top-aligned and compact instead of stretching to the rail height. Use the output’s ANSI
+  colors at reduced opacity, following **03 / The quiet edge** in `designs/minimap.html`. Clicking or dragging scrolls the pane independently;
   Home, End, Page Up/Down, and arrow keys operate the focused rail.
 - Activity points share step identities, sequence numbers, lane colors, failure orange,
   and the selected ring with the Activity panel. Expanded points show their step number;
