@@ -14,8 +14,9 @@ extension TwineUITests {
         try "first\nsecond\nthird\n".write(to: file, atomically: true, encoding: .utf8)
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
-        XCTAssertTrue(app.buttons["sidebarToggle"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
+        XCTAssertTrue(app.buttons["sidebarToggle"].waitForExistence(timeout: 10))
         let root = fileRow(folder, in: app)
         XCTAssertTrue(root.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(root.label, folder.lastPathComponent)
@@ -114,6 +115,11 @@ extension TwineUITests {
     @MainActor
     func fileRow(_ path: URL, in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == %@", "fileRow-\(path.path)")).firstMatch
+    }
+
+    @MainActor
+    func fileTab(_ path: URL, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@", "fileTab-\(path.path)")).firstMatch
     }
 
 }

@@ -8,12 +8,11 @@ private let gitLogger = Logger(subsystem: "com.twineproject.Twine", category: "g
 struct FolderView: View {
     @Environment(CoreClient.self) private var coreClient
     @Environment(WorkflowLayouts.self) private var layouts
-    @Environment(FileEditorModel.self) private var editor
+    @Environment(FileTabsModel.self) private var tabs
     let path: String
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var selection = WorkflowTabSelection()
     @State private var files = FileBrowserModel()
-    @State private var htmlNavigationURL: URL?
     @State private var traceNavigation = TraceTerminalNavigation()
 
     var body: some View {
@@ -32,21 +31,8 @@ struct FolderView: View {
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             VStack(spacing: Spacing.windowSections) {
-                ZStack {
-                    WorkflowWorkspace(folder: path, selection: $selection, isVisible: editor.path == nil)
-                        .opacity(editor.path == nil ? 1 : 0)
-                        .allowsHitTesting(editor.path == nil)
-                        .accessibilityHidden(true, isEnabled: editor.path != nil)
-                    if let selectedPath = editor.path {
-                        FileViewer(
-                            path: selectedPath, folder: path, failure: files.failure, diskFile: files.snapshot?.file,
-                            navigationURL: htmlNavigationURL, openHTMLFile: openHTMLFile,
-                            close: { editor.select(nil) }
-                        )
-                        .id(selectedPath)
-                    }
-                }
-                if editor.path == nil { TracesPanel(workflows: traceWorkflows) }
+                WorkflowWorkspace(folder: path, selection: $selection, files: files)
+                if tabs.selected == nil { TracesPanel(workflows: traceWorkflows) }
                 StatusFooter(
                     branch: coreClient.snapshot?.folders.currentBranch,
                     workflow: selectedWorkflow
@@ -56,7 +42,7 @@ struct FolderView: View {
             .background(.windowBackground)
         }
         .background {
-            FolderWindowLifetime(coreClient: coreClient, folder: path, editor: editor).frame(width: 0, height: 0)
+            FolderWindowLifetime(coreClient: coreClient, folder: path, tabs: tabs).frame(width: 0, height: 0)
         }
         .environment(traceNavigation)
         .environment(\.traceLaneColors, traceNavigation.laneColors)
@@ -64,21 +50,18 @@ struct FolderView: View {
         .onChange(of: traceNavigation.destination) {
             if let target = traceNavigation.destination {
                 selection.selectedID = target.workflowID
-                editor.select(nil)
+                tabs.showWorkflows()
             }
         }
         .navigationSplitViewStyle(.balanced)
         .navigationTitle(URL(filePath: path).lastPathComponent)
         .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
         .task(id: path) { await refreshGitBranch() }
-        .task(id: files.request(folder: path, file: editor.path)) {
-            await files.watch(files.request(folder: path, file: editor.path), client: coreClient, editor: editor)
+        .task(id: files.request(folder: path, file: tabs.selected?.path)) {
+            let editor = tabs.selected
+            await files.watch(files.request(folder: path, file: editor?.path), client: coreClient, editor: editor)
         }
-        .onChange(of: selection.selectedID) { editor.select(nil) }
-        .onChange(of: editor.path) {
-            if htmlNavigationURL?.path != editor.path { htmlNavigationURL = nil }
-        }
-        .focusedSceneValue(\.openFilePath, editor.path)
+        .focusedSceneValue(\.openFilePath, tabs.selected?.path)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left") {
@@ -92,10 +75,6 @@ struct FolderView: View {
     }
 
     private var sidebarIsVisible: Bool { sidebarVisibility != .detailOnly }
-
-    private func openHTMLFile(_ url: URL) {
-        if editor.select(url.path, folder: path) { htmlNavigationURL = url }
-    }
 
     private var selectedWorkflow: CoreWorkflow? {
         guard let state = coreClient.snapshot?.workflows, state.session?.folder == path else { return nil }

@@ -4,6 +4,7 @@ struct HTMLPreview: View {
     let file: FilePreview
     let folder: String
     let navigationURL: URL?
+    let isVisible: Bool
     let openFile: (URL) -> Void
     @State private var load: Load?
     @State private var failure: String?
@@ -13,7 +14,7 @@ struct HTMLPreview: View {
             if let load {
                 HTMLWebView(
                     location: load.location, version: load.version,
-                    failure: $failure
+                    isVisible: isVisible, failure: $failure
                 ) { destination in
                     if let url = destination.fileURL(in: folder) { openFile(url) }
                 }
@@ -29,7 +30,7 @@ struct HTMLPreview: View {
                 ProgressView("Loading preview…")
             }
         }
-        .task(id: file) {
+        .task(id: Request(file: file, navigationURL: navigationURL)) {
             let location = await HTMLPreviewLocation.resolve(
                 file: navigationURL ?? URL(filePath: file.path), folder: URL(filePath: folder))
             guard !Task.isCancelled else { return }
@@ -46,5 +47,10 @@ struct HTMLPreview: View {
     private struct Load {
         let location: HTMLPreviewLocation
         let version: FileVersion?
+    }
+
+    private struct Request: Equatable {
+        let file: FilePreview
+        let navigationURL: URL?
     }
 }

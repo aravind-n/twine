@@ -8,27 +8,33 @@ private let htmlLogger = Logger(subsystem: "com.twineproject.Twine", category: "
 struct HTMLWebView: NSViewRepresentable {
     let location: HTMLPreviewLocation
     let version: FileVersion?
+    let isVisible: Bool
     @Binding var failure: String?
     let openFile: (HTMLPreviewLocation) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(location: location, failure: $failure, openFile: openFile)
+        let coordinator = Coordinator(location: location, failure: $failure, openFile: openFile)
+        coordinator.isVisible = isVisible
+        return coordinator
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> FileContentHost<WKWebView> {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.setAccessibilityIdentifier("htmlPreview")
         view.setAccessibilityLabel("HTML preview")
-        return view
+        return FileContentHost(content: view, responder: view)
     }
 
-    func updateNSView(_ view: WKWebView, context: Context) {
+    func updateNSView(_ host: FileContentHost<WKWebView>, context: Context) {
+        let view = host.content
         let coordinator = context.coordinator
         coordinator.failure = $failure
         coordinator.openFile = openFile
+        coordinator.isVisible = isVisible
+        host.setVisible(isVisible)
         guard !coordinator.hasLoaded || coordinator.version != version || coordinator.location != location else {
             return
         }
@@ -38,7 +44,8 @@ struct HTMLWebView: NSViewRepresentable {
         coordinator.loadNavigation = view.loadFileURL(location.file, allowingReadAccessTo: location.folder)
     }
 
-    static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+    static func dismantleNSView(_ host: FileContentHost<WKWebView>, coordinator: Coordinator) {
+        let view = host.content
         coordinator.isActive = false
         view.stopLoading()
         view.navigationDelegate = nil
@@ -49,6 +56,7 @@ struct HTMLWebView: NSViewRepresentable {
         var version: FileVersion?
         var hasLoaded = false
         var isActive = true
+        var isVisible = true
         var failure: Binding<String?>
         var openFile: (HTMLPreviewLocation) -> Void
         var loadNavigation: WKNavigation?
@@ -70,7 +78,7 @@ struct HTMLWebView: NSViewRepresentable {
         ) async -> WKNavigationActionPolicy {
             guard isActive, let url = navigationAction.request.url else { return .cancel }
             if url.scheme == "https" || url.scheme == "http" {
-                if navigationAction.navigationType == .linkActivated, !openExternal(url) {
+                if isVisible, navigationAction.navigationType == .linkActivated, !openExternal(url) {
                     failure.wrappedValue = "The link couldn't be opened in your browser."
                 }
                 return .cancel
@@ -81,6 +89,7 @@ struct HTMLWebView: NSViewRepresentable {
             else { return .cancel }
             let navigatesMainFrame = navigationAction.targetFrame?.isMainFrame != false
             if navigatesMainFrame && destination.file.path != location.file.path {
+                guard isVisible else { return .cancel }
                 openFile(destination)
                 return .cancel
             }

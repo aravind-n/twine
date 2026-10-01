@@ -6,10 +6,8 @@ struct FileViewer: View {
     let path: String
     let folder: String
     let failure: String?
-    let diskFile: FilePreview?
-    let navigationURL: URL?
+    let isVisible: Bool
     let openHTMLFile: (URL) -> Void
-    let close: () -> Void
     @State private var showsGoToLine = false
     @State private var line = "1"
     @State private var lineRequest: FileLineRequest?
@@ -45,10 +43,6 @@ struct FileViewer: View {
                     .disabled(current?.status != .text || showsPreview)
                     .accessibilityIdentifier("goToLine")
                     .popover(isPresented: $showsGoToLine) { goToLineForm }
-                Button("Close File", systemImage: "xmark", action: close)
-                    .labelStyle(.iconOnly).buttonStyle(.plain)
-                    .keyboardShortcut("w", modifiers: .command)
-                    .accessibilityIdentifier("closeFile")
             }
             .padding(14)
             Divider()
@@ -63,11 +57,13 @@ struct FileViewer: View {
                         .allowsHitTesting(!showsPreview)
                         .accessibilityHidden(showsPreview)
                     if showsPreview {
-                        if let diskFile, diskFile.path == path {
+                        if let diskFile = editor.diskFile {
                             if diskFile.status == .text {
                                 HTMLPreview(
-                                    file: diskFile, folder: folder, navigationURL: navigationURL, openFile: openHTMLFile
+                                    file: diskFile, folder: folder, navigationURL: editor.navigationURL,
+                                    isVisible: isVisible, openFile: openHTMLFile
                                 )
+                                .id(editor.navigationID)
                             } else {
                                 content(diskFile)
                             }
@@ -81,13 +77,14 @@ struct FileViewer: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(Color(nsColor: .textBackgroundColor))
         .clipShape(.rect(cornerRadius: CornerRadius.panel))
-        .overlay { RoundedRectangle(cornerRadius: CornerRadius.panel).stroke(.hairline, lineWidth: 1) }
+        .onChange(of: editor.navigationID) { mode = .preview }
         .task(id: editor.saveID) { await editor.savePending(client: coreClient) }
         .alert(
             "File Changed on Disk",
-            isPresented: Binding(get: { editor.conflict != nil }, set: { if !$0 { editor.conflict = nil } }),
+            isPresented: Binding(
+                get: { isVisible && editor.conflict != nil }, set: { if !$0 { editor.conflict = nil } }),
             presenting: editor.conflict
         ) { file in
             Button("Cancel", role: .cancel) { editor.conflict = nil }
@@ -101,7 +98,8 @@ struct FileViewer: View {
         }
         .alert(
             "Couldn't Save File",
-            isPresented: Binding(get: { editor.failure != nil }, set: { if !$0 { editor.failure = nil } })
+            isPresented: Binding(
+                get: { isVisible && editor.failure != nil }, set: { if !$0 { editor.failure = nil } })
         ) {
             Button("OK") { editor.failure = nil }
         } message: {
@@ -114,7 +112,8 @@ struct FileViewer: View {
         case .text:
             FileTextView(
                 text: Binding(get: { editor.text }, set: { editor.text = $0 }),
-                loadID: editor.loadID, isEditable: !editor.isSaving && !showsPreview, lineRequest: lineRequest)
+                loadID: editor.loadID, isEditable: !editor.isSaving && !showsPreview,
+                isVisible: isVisible && !showsPreview, lineRequest: lineRequest)
         case .binary:
             unavailable("Binary File", "Only UTF-8 text files can be displayed.")
         case .tooLarge:

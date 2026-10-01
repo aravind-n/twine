@@ -9,6 +9,7 @@ extension TwineUITests {
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 760))
+        app.buttons["sidebarToggle"].click()
         openTestWorkflow(agents: 3, in: app)
         let subtabs = (1...3).map { app.buttons["agentSubtab-\($0)"] }
         XCTAssertTrue(subtabs[2].waitForExistence(timeout: 10), app.debugDescription)
@@ -50,8 +51,8 @@ extension TwineUITests {
         app.launchEnvironment["TWINE_TEST_APPEARANCE"] = "Dark"
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["sidebarToggle"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 760))
+        app.buttons["sidebarToggle"].click()
         openTestWorkflow(agents: 4, in: app)
         let subtabs = (1...4).map { app.buttons["agentSubtab-\($0)"] }
         XCTAssertTrue(subtabs[3].waitForExistence(timeout: 10), app.debugDescription)
@@ -80,9 +81,9 @@ extension TwineUITests {
         app.launch()
         let agentsTab = app.buttons["workflowTab-2"]
         XCTAssertTrue(agentsTab.waitForExistence(timeout: 10), app.debugDescription)
-        agentsTab.click()
-        app.buttons["sidebarToggle"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 760))
+        app.buttons["sidebarToggle"].click()
+        agentsTab.click()
         XCTAssertTrue(panes[3].waitForExistence(timeout: 10), app.debugDescription)
         waitUntilFocused(panes[3], in: app)
         XCTAssertLessThan(panes[3].frame.minY, panes[1].frame.minY, "The Worker should sit above the Reviewer")

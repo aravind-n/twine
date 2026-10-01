@@ -10,13 +10,16 @@ struct FileTextView: NSViewRepresentable {
     @Binding var text: String
     let loadID: UUID
     let isEditable: Bool
+    let isVisible: Bool
     let lineRequest: FileLineRequest?
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> FileContentHost<NSScrollView> {
         let scroll = FileEditingTextView.scrollableTextView()
-        guard let view = scroll.documentView as? NSTextView else { return scroll }
+        guard let view = scroll.documentView as? NSTextView else {
+            return FileContentHost(content: scroll, responder: scroll)
+        }
         view.isEditable = isEditable
         view.isSelectable = true
         view.isRichText = false
@@ -30,15 +33,20 @@ struct FileTextView: NSViewRepresentable {
         view.textColor = .textColor
         view.backgroundColor = .textBackgroundColor
         view.textContainerInset = NSSize(width: 18, height: 18)
+        scroll.verticalRulerView = FileLineNumberRuler(textView: view, scrollView: scroll)
+        scroll.hasVerticalRuler = true
+        scroll.rulersVisible = true
         view.setAccessibilityIdentifier("fileText")
         view.setAccessibilityLabel("File contents")
-        return scroll
+        return FileContentHost(content: scroll, responder: view)
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
+    func updateNSView(_ host: FileContentHost<NSScrollView>, context: Context) {
+        let scroll = host.content
         guard let view = scroll.documentView as? NSTextView else { return }
         context.coordinator.text = $text
         view.isEditable = isEditable
+        host.setVisible(isVisible)
         if context.coordinator.loadID != loadID {
             view.undoManager?.removeAllActions()
             context.coordinator.loadID = loadID
@@ -47,6 +55,7 @@ struct FileTextView: NSViewRepresentable {
             let selected = view.selectedRange()
             let origin = scroll.contentView.bounds.origin
             view.string = text
+            (scroll.verticalRulerView as? FileLineNumberRuler)?.refresh()
             let length = (text as NSString).length
             let location = min(selected.location, length)
             view.setSelectedRange(NSRange(location: location, length: min(selected.length, length - location)))
@@ -58,13 +67,13 @@ struct FileTextView: NSViewRepresentable {
             if let range = Self.lineRange(in: text, line: request.line) {
                 view.setSelectedRange(range)
                 view.scrollRangeToVisible(range)
-                view.window?.makeFirstResponder(view)
+                host.requestKeyboardFocus()
             }
         }
     }
 
-    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
-        guard let view = scroll.documentView as? NSTextView else { return }
+    static func dismantleNSView(_ host: FileContentHost<NSScrollView>, coordinator: Coordinator) {
+        guard let view = host.content.documentView as? NSTextView else { return }
         view.undoManager?.removeAllActions()
         view.delegate = nil
     }
@@ -88,6 +97,7 @@ struct FileTextView: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
+        private let fileUndoManager = UndoManager()
         var text: Binding<String>
         var loadID: UUID?
         var lastRequest: UUID?
@@ -97,19 +107,17 @@ struct FileTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let view = notification.object as? NSTextView else { return }
             text.wrappedValue = view.string
+            (view.enclosingScrollView?.verticalRulerView as? FileLineNumberRuler)?.refresh()
         }
+
+        func undoManager(for view: NSTextView) -> UndoManager? { fileUndoManager }
     }
 }
 
-/// Use the window's manager so the native Edit menu works, but scope its actions to this file.
+/// Native text layout can finish after the scroll view's ruler has drawn.
 private final class FileEditingTextView: NSTextView {
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow !== window { undoManager?.removeAllActions() }
-        super.viewWillMove(toWindow: newWindow)
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        undoManager?.removeAllActions()
+    override func layout() {
+        super.layout()
+        enclosingScrollView?.verticalRulerView?.needsDisplay = true
     }
 }

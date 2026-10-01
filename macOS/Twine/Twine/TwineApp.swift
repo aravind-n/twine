@@ -13,7 +13,7 @@ import SwiftUI
 struct TwineApp: App {
     @NSApplicationDelegateAdaptor(AppTerminationDelegate.self) private var terminationDelegate
     @State private var coreClient = CoreClient(transport: CoreWorker(dataDirectory: Self.dataDirectory))
-    @State private var fileEditor = FileEditorModel()
+    @State private var fileTabs = FileTabsModel()
     @State private var harnessModels = HarnessModelCatalog()
     @State private var workflowLayouts = WorkflowLayouts(
         fileURL: Self.dataDirectory.appending(path: "workflow-layouts.json"))
@@ -39,18 +39,18 @@ struct TwineApp: App {
         WindowGroup {
             ContentView()
                 .environment(coreClient)
-                .environment(fileEditor)
+                .environment(fileTabs)
                 .environment(workflowLayouts)
                 .environment(harnessModels)
                 .task {
-                    terminationDelegate.attach(to: coreClient, editor: fileEditor, layouts: workflowLayouts)
+                    terminationDelegate.attach(to: coreClient, tabs: fileTabs, layouts: workflowLayouts)
                     // Workflows appear with the core's first snapshot, so their layouts must be ready first.
                     await workflowLayouts.load()
                     coreClient.start()
                 }
         }
         .commands {
-            FolderCommands(coreClient: coreClient, editor: fileEditor)
+            FolderCommands(coreClient: coreClient, tabs: fileTabs)
         }
     }
 
@@ -69,12 +69,12 @@ struct TwineApp: App {
 final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
     private var coreClient: CoreClient?
     private var isTerminating = false
-    private var editor: FileEditorModel?
+    private var tabs: FileTabsModel?
     private var layouts: WorkflowLayouts?
 
-    func attach(to coreClient: CoreClient, editor: FileEditorModel? = nil, layouts: WorkflowLayouts? = nil) {
+    func attach(to coreClient: CoreClient, tabs: FileTabsModel? = nil, layouts: WorkflowLayouts? = nil) {
         self.coreClient = coreClient
-        self.editor = editor
+        self.tabs = tabs
         self.layouts = layouts
     }
 
@@ -86,7 +86,7 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
     func beginTermination(reply: @escaping @MainActor (Bool) -> Void) -> NSApplication.TerminateReply {
         guard let coreClient else { return .terminateNow }
         guard !isTerminating else { return .terminateLater }
-        guard editor?.select(nil) != false else { return .terminateCancel }
+        guard tabs?.closeAll() != false else { return .terminateCancel }
         isTerminating = true
         Task {
             await coreClient.stopForQuit()

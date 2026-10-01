@@ -6,8 +6,7 @@ import Testing
 @MainActor
 struct FileEditorTests {
     @Test func dirtyBufferSurvivesDiskUpdatesAndReloadResetsUndoIdentity() {
-        let editor = FileEditorModel()
-        editor.select("/folder/file", folder: "/folder")
+        let editor = FileEditorModel(path: "/folder/file", folder: "/folder")
         let original = preview("original", version: "one")
         editor.receive(original)
         let loaded = editor.loadID
@@ -39,8 +38,7 @@ struct FileEditorTests {
         client.start()
         try await client.waitUntilRunning()
         _ = try await client.send(.openFolder(path: folder.url.path))
-        let editor = FileEditorModel()
-        editor.select(file.path, folder: folder.url.path)
+        let editor = FileEditorModel(path: file.path, folder: folder.url.path)
         let request = FileBrowserRequest(folder: folder.url.path, directories: [], file: file.path)
         for _ in 0..<200 {
             if let snapshot = try await client.pollFiles(request) {
