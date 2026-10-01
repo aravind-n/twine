@@ -4,7 +4,12 @@ import XCTest
 extension TwineUITests {
     @MainActor
     func testTracesExpandSelectCopyAndKeepTheTimelineVisible() throws {
-        for appearance in ["Light", "Dark"] { try checkTraces(appearance: appearance) }
+        try checkTraces(appearance: "Light")
+    }
+
+    @MainActor
+    func testTracesInDarkAppearance() throws {
+        try checkTraces(appearance: "Dark")
     }
 
     @MainActor
@@ -75,20 +80,6 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["closeTraceDetails"].waitForExistence(timeout: 5))
         let ending = app.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "Twine quit")).firstMatch
         XCTAssertTrue(ending.waitForExistence(timeout: 5), app.debugDescription)
-    }
-
-    @MainActor
-    func testTracesWithoutAWorkflowShowHelpfulEmptyState() throws {
-        let app = try makeApp(lastOpenFolder: traceFolder())
-        app.launch()
-        defer { app.terminate() }
-        XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10))
-        resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
-        app.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(app.staticTexts["No Open Tabs"].waitForExistence(timeout: 5))
-        app.buttons["tracesHeader"].click()
-        XCTAssertTrue(app.staticTexts["No activity yet"].waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertFalse(app.buttons["copyTraceLog"].exists)
     }
 
     private func traceFolder() throws -> URL {

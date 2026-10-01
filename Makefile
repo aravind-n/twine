@@ -11,11 +11,19 @@ OUTPUT_DIR ?= $(CURDIR)/dist
 XCODE_BUILD_ARGS ?=
 RELEASE_SCRIPT := bash .github/release/release.sh
 
-UI_TEST_TARGETS := $(if $(strip $(ONLY)),$(addprefix TwineUITests/TwineUITests/,$(ONLY)),TwineUITests)
+UI_TEST_DERIVED_DATA ?= /tmp/twine-uitests
+UI_VISUAL_TESTS := testFolderWindowInDarkAppearance \
+	testDraftAndFooterAtMinimumWindowSizeInDarkAppearance \
+	testTracesInDarkAppearance testCoordinatorGraphInDarkAppearance \
+	testShortOutputMinimapInBothAppearances
+UI_OPTIONAL_TESTS := $(UI_VISUAL_TESTS) testLaunchPerformance
+UI_TEST_ARGS := $(if $(strip $(ONLY)),\
+	$(addprefix -only-testing:TwineUITests/TwineUITests/,$(ONLY)),\
+	-only-testing:TwineUITests $(addprefix -skip-testing:TwineUITests/TwineUITests/,$(UI_OPTIONAL_TESTS)))
 
 .PHONY: help fmt-rust lint-rust test-rust check-rust clean-rust \
 	framework framework-release build-macos build-macos-release fmt-macos lint-macos \
-	test-macos ui-test-macos check-macos clean-macos \
+	test-macos ui-test-macos ui-test-macos-built ui-test-macos-visual check-macos clean-macos \
 	fmt lint test check clean release-build-app release-bundle release-package check-release check-release-scripts
 
 help:
@@ -44,6 +52,8 @@ help:
 	@echo '  lint-macos            Prepare the framework, then run swift-format lint and SwiftLint'
 	@echo '  test-macos            Run the Swift unit tests, after the Debug framework'
 	@echo '  ui-test-macos         Run UI tests, or select tests with ONLY="testA testB"; takes over the desktop'
+	@echo '  ui-test-macos-built   Run UI tests using existing build-for-testing products'
+	@echo '  ui-test-macos-visual  Run optional appearance and screenshot checks; takes over the desktop'
 	@echo '  check-macos           Run lint-macos and test-macos'
 	@echo '  clean-macos           Remove the framework, package caches, and Xcode build output'
 	@echo ''
@@ -110,7 +120,13 @@ test-macos: framework
 	$(XCODEBUILD_DEBUG) test -only-testing:TwineTests
 
 ui-test-macos: framework
-	$(XCODEBUILD_DEBUG) -derivedDataPath /tmp/twine-uitests test $(addprefix -only-testing:,$(UI_TEST_TARGETS))
+	$(XCODEBUILD_DEBUG) -derivedDataPath "$(UI_TEST_DERIVED_DATA)" test $(UI_TEST_ARGS)
+
+ui-test-macos-built:
+	$(XCODEBUILD_DEBUG) -derivedDataPath "$(UI_TEST_DERIVED_DATA)" test-without-building $(UI_TEST_ARGS)
+
+ui-test-macos-visual:
+	$(MAKE) ui-test-macos ONLY="$(UI_VISUAL_TESTS)"
 
 check-macos: lint-macos test-macos
 

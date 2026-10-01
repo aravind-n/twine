@@ -214,8 +214,10 @@ make check                # Rust and Swift lint plus unit tests
 make check-rust           # Rust only: rustfmt check, Clippy, workspace tests
 make check-macos          # Swift only: swift-format lint, SwiftLint, unit tests
 make fmt                  # format Rust and Swift
-make ui-test-macos        # UI tests; they take over the desktop
+make ui-test-macos        # functional UI tests; they take over the desktop
+make ui-test-macos-visual # optional appearance and screenshot checks
 make ui-test-macos ONLY='testFolderWindowInLightAppearance testFolderWindowInDarkAppearance'
+make ui-test-macos ONLY=testLaunchPerformance
 make clean                # remove Cargo, framework, and Xcode build output
 ```
 
@@ -223,7 +225,7 @@ The generated framework includes its C header and module map and is ignored by G
 
 `make build-macos-release` builds the universal Release app. Each build replaces the local framework with the Debug or Release profile it needs.
 
-Linting prepares the framework before resolving the app's packages. `ONLY` accepts one UI test name or a quoted, space-separated list; omitting it runs the full UI suite.
+Linting prepares the framework before resolving the app's packages. `ONLY` accepts one UI test name or a quoted, space-separated list, including optional tests. Omitting it runs the functional UI suite, excluding duplicate appearance checks, screenshot-only minimap checks, and the launch benchmark. `make ui-test-macos-visual` runs the optional visual checks. CI uses the same default selection through `make ui-test-macos-built`, which reuses its existing build-for-testing products; set `UI_TEST_DERIVED_DATA` to their DerivedData directory.
 
 SwiftLint runs the version pinned in `Package.resolved`, through `macOS/Twine/Scripts/swiftlint.sh`.
 

@@ -189,9 +189,7 @@ jobs:
       - name: Run UI tests
         id: ui-tests
         run: >-
-          xcodebuild test-without-building -project macOS/Twine/Twine.xcodeproj -scheme Twine
-          -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$RUNNER_TEMP/DerivedData"
-          -only-testing:TwineUITests
+          make ui-test-macos-built UI_TEST_DERIVED_DATA="$RUNNER_TEMP/DerivedData"
       - name: Upload failed test results
         if: failure() && steps.ui-tests.outcome == 'failure'
         uses: actions/upload-artifact@v7

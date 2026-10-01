@@ -170,27 +170,35 @@ extension TwineUITests {
     }
 
     @MainActor
-    func testCoordinatorGraphsInBothAppearances() throws {
-        for appearance in ["Light", "Dark"] {
-            let app = try workflowRunApp(appearance: appearance)
-            defer { app.terminate() }
-            func item(_ id: String) -> XCUIElement {
-                app.descendants(matching: .any).matching(identifier: id).firstMatch
-            }
-            app.buttons["newWorkflow"].click()
-            XCTAssertTrue(item("workflowChoice-Coordinator").waitForExistence(timeout: 10))
-            attachScreenshot(of: app, named: "Workflow choices in \(appearance)")
-            item("workflowChoice-Coordinator").click()
-            XCTAssertTrue(item("workflowGraph-coordinator").waitForExistence(timeout: 10))
-            XCTAssertTrue(item("graphNode-work-worker-1").exists)
-            XCTAssertTrue(item("graphNode-work-worker-2").exists)
-            let handoffs = item("graphHandoffs").value as? String ?? ""
-            XCTAssertTrue(
-                handoffs.contains("Coordinator in Split sends assignment to Worker 1 in Work."), app.debugDescription)
-            XCTAssertTrue(
-                handoffs.contains("Worker 1 in Work sends result to Coordinator in Gather."), app.debugDescription)
-            attachScreenshot(of: app, named: "Coordinator launch graph in \(appearance)")
+    func testCoordinatorGraphShowsWorkersAndHandoffs() throws {
+        try checkCoordinatorGraph(appearance: "Light")
+    }
+
+    @MainActor
+    func testCoordinatorGraphInDarkAppearance() throws {
+        try checkCoordinatorGraph(appearance: "Dark")
+    }
+
+    @MainActor
+    private func checkCoordinatorGraph(appearance: String) throws {
+        let app = try workflowRunApp(appearance: appearance)
+        defer { app.terminate() }
+        func item(_ id: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(identifier: id).firstMatch
         }
+        app.buttons["newWorkflow"].click()
+        XCTAssertTrue(item("workflowChoice-Coordinator").waitForExistence(timeout: 10))
+        attachScreenshot(of: app, named: "Workflow choices in \(appearance)")
+        item("workflowChoice-Coordinator").click()
+        XCTAssertTrue(item("workflowGraph-coordinator").waitForExistence(timeout: 10))
+        XCTAssertTrue(item("graphNode-work-worker-1").exists)
+        XCTAssertTrue(item("graphNode-work-worker-2").exists)
+        let handoffs = item("graphHandoffs").value as? String ?? ""
+        XCTAssertTrue(
+            handoffs.contains("Coordinator in Split sends assignment to Worker 1 in Work."), app.debugDescription)
+        XCTAssertTrue(
+            handoffs.contains("Worker 1 in Work sends result to Coordinator in Gather."), app.debugDescription)
+        attachScreenshot(of: app, named: "Coordinator launch graph in \(appearance)")
     }
 
 }
