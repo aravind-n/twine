@@ -22,11 +22,31 @@ pub(super) struct RunProcesses {
     harnesses: HashMap<HarnessId, LocatedHarness>,
     inboxes: HashMap<AgentId, (u64, CompletionInbox)>,
     completion_commands: HashMap<AgentId, CompletionCommand>,
-    stable_assignments: HashMap<AgentId, u64>,
+    completion_routing: HashMap<AgentId, CompletionRouting>,
     inputs: HashMap<TerminalId, Arc<Mutex<AgentInput>>>,
     /// Accepted helpers keep their receipt until they consume it; their harness remains alive.
     retired_inboxes: std::collections::VecDeque<(Instant, CompletionInbox)>,
     resumed_sessions: HashMap<AgentId, String>,
+}
+
+const PROMPT_HOOK_TIMEOUT: Duration = Duration::from_secs(2);
+
+enum CompletionRouting {
+    AwaitingSubmission(u64),
+    AwaitingPrompt(u64, Instant),
+    Active(u64),
+    Private,
+}
+
+impl CompletionRouting {
+    fn generation(&self) -> Option<u64> {
+        match self {
+            Self::AwaitingSubmission(generation)
+            | Self::AwaitingPrompt(generation, _)
+            | Self::Active(generation) => Some(*generation),
+            Self::Private => None,
+        }
+    }
 }
 
 impl RunProcesses {
@@ -42,9 +62,16 @@ impl RunProcesses {
             // Manual completion can advance while the old turn is still working. A prompt
             // attributed to this assignment activates its helper after older turns finish.
             command.deactivate();
-            if previous_turn_finished {
-                self.stable_assignments
-                    .insert(AgentId(agent), run.generation);
+            if previous_turn_finished
+                && !matches!(
+                    self.completion_routing.get(&AgentId(agent)),
+                    Some(CompletionRouting::Private)
+                )
+            {
+                self.completion_routing.insert(
+                    AgentId(agent),
+                    CompletionRouting::AwaitingSubmission(run.generation),
+                );
                 return if user {
                     String::new()
                 } else {
@@ -52,7 +79,8 @@ impl RunProcesses {
                 };
             }
         }
-        self.stable_assignments.remove(&AgentId(agent));
+        self.completion_routing
+            .insert(AgentId(agent), CompletionRouting::Private);
         format!(
             "Use this completion command for the current assignment: {}\n{}",
             inbox.command(),
@@ -238,7 +266,7 @@ impl Application {
                     harnesses,
                     inboxes: HashMap::new(),
                     completion_commands: HashMap::new(),
-                    stable_assignments: HashMap::new(),
+                    completion_routing: HashMap::new(),
                     inputs: HashMap::new(),
                     retired_inboxes: std::collections::VecDeque::new(),
                     resumed_sessions: HashMap::new(),
@@ -335,7 +363,7 @@ impl Application {
                     harnesses,
                     inboxes: HashMap::new(),
                     completion_commands: HashMap::new(),
-                    stable_assignments: HashMap::new(),
+                    completion_routing: HashMap::new(),
                     inputs: HashMap::new(),
                     retired_inboxes: std::collections::VecDeque::new(),
                     resumed_sessions: sessions,
@@ -399,7 +427,7 @@ impl Application {
                             break;
                         };
                         processes
-                            .stable_assignments
+                            .completion_routing
                             .remove(&AgentId(agent.agent_id));
                         command
                     } else {
@@ -628,14 +656,7 @@ impl Application {
                 if prompt.is_empty() {
                     continue;
                 }
-                let input = self
-                    .workflow_agent_input(terminal)?
-                    .expect("launched agent has an input writer");
-                if let Err(error) = input
-                    .lock()
-                    .map_err(|_| ApplicationError::Poisoned)?
-                    .notify(&self.terminals, terminal, &prompt)
-                {
+                if let Err(error) = self.notify_workflow_agent(terminal, &prompt) {
                     let mut inner = self.lock_inner()?;
                     let mut workflow = inner.workflows.workflows[index].clone();
                     workflow.run.as_mut().expect("workflow has a run").finish(
@@ -651,7 +672,7 @@ impl Application {
                         &terminals,
                         "Assignment delivery failed; agent stopped.",
                     );
-                    return Err(error.into());
+                    return Err(error);
                 }
             }
         }
@@ -765,23 +786,65 @@ impl Application {
         if advance && running {
             self.launch_workflow_stage(workflow_id, false)?;
         }
-        self.deliver_review_feedback(feedback)?;
+        self.deliver_review_feedback(feedback);
         Ok(CommandDisposition::Accepted)
     }
 
-    fn deliver_review_feedback(
-        &self,
-        feedback: Vec<(TerminalId, String)>,
-    ) -> Result<(), ApplicationError> {
+    fn deliver_review_feedback(&self, feedback: Vec<(TerminalId, String)>) {
         for (terminal, message) in feedback {
             if self.terminals.is_running(terminal)
-                && let Some(input) = self.workflow_agent_input(terminal)?
-                && let Err(error) = input
-                    .lock()
-                    .map_err(|_| ApplicationError::Poisoned)?
-                    .notify(&self.terminals, terminal, &message)
+                && let Err(error) = self.notify_workflow_agent(terminal, &message)
             {
                 tracing::warn!(%error, "couldn't deliver the final review feedback");
+            }
+        }
+    }
+
+    fn notify_workflow_agent(
+        &self,
+        terminal: TerminalId,
+        message: &str,
+    ) -> Result<(), ApplicationError> {
+        if let Some(input) = self.workflow_agent_input(terminal)? {
+            let submitted = input
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?
+                .notify(&self.terminals, terminal, message)?;
+            if submitted {
+                self.note_workflow_submission(terminal)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn note_workflow_submission(
+        &self,
+        terminal: TerminalId,
+    ) -> Result<(), ApplicationError> {
+        let owner = {
+            let inner = self.lock_inner()?;
+            inner.workflows.workflows.iter().find_map(|workflow| {
+                let run = workflow.run.as_ref()?;
+                if run.status != RunStatus::Running {
+                    return None;
+                }
+                let agent = workflow
+                    .agents
+                    .iter()
+                    .find(|agent| agent.terminal_id == terminal)?;
+                Some((workflow.workflow_id, agent.agent_id, run.generation))
+            })
+        };
+        if let Some((workflow, agent, generation)) = owner {
+            let mut processes = self
+                .run_processes
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?;
+            if let Some(processes) = processes.get_mut(&workflow)
+                && let Some(routing) = processes.completion_routing.get_mut(&agent)
+                && matches!(routing, CompletionRouting::AwaitingSubmission(assigned) if *assigned == generation)
+            {
+                *routing = CompletionRouting::AwaitingPrompt(generation, Instant::now());
             }
         }
         Ok(())
@@ -794,22 +857,28 @@ impl Application {
         generation: u64,
         ready: bool,
     ) -> Result<(), ApplicationError> {
-        let processes = self
+        let mut processes = self
             .run_processes
             .lock()
             .map_err(|_| ApplicationError::Poisoned)?;
-        if let Some(processes) = processes.get(&workflow)
+        if let Some(processes) = processes.get_mut(&workflow)
             && let Some((assigned_generation, inbox)) = processes.inboxes.get(&agent)
             && *assigned_generation == generation
-            && processes.stable_assignments.get(&agent) == Some(&generation)
+            && let Some(routing) = processes.completion_routing.get_mut(&agent)
+            && routing.generation() == Some(generation)
             && let Some(command) = processes.completion_commands.get(&agent)
         {
             if ready {
                 if let Err(error) = command.bind(inbox) {
                     tracing::warn!(%error, "couldn't activate the new assignment's completion command");
+                } else {
+                    *routing = CompletionRouting::Active(generation);
                 }
             } else {
                 command.deactivate();
+                if matches!(routing, CompletionRouting::Active(_)) {
+                    *routing = CompletionRouting::AwaitingPrompt(generation, Instant::now());
+                }
             }
         }
         Ok(())
@@ -996,6 +1065,106 @@ impl Application {
                     }
                     inner.publish_run_best_effort(index, workflow)?;
                 }
+            }
+        }
+        self.recover_completion_routes(Instant::now())?;
+        Ok(())
+    }
+
+    fn recover_completion_routes(&self, now: Instant) -> Result<(), ApplicationError> {
+        let candidates: Vec<_> = {
+            let registry = self
+                .run_processes
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?;
+            registry
+                .iter()
+                .flat_map(|(&workflow, processes)| {
+                    processes
+                        .completion_routing
+                        .iter()
+                        .filter_map(move |(&agent, routing)| {
+                            if let CompletionRouting::AwaitingPrompt(generation, since) = routing
+                                && now.saturating_duration_since(*since) >= PROMPT_HOOK_TIMEOUT
+                            {
+                                Some((workflow, agent, *generation))
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .collect()
+        };
+        if candidates.is_empty() {
+            return Ok(());
+        }
+        let assignments: Vec<_> = {
+            let inner = self.lock_inner()?;
+            candidates
+                .into_iter()
+                .filter_map(|(workflow, agent, generation)| {
+                    let saved = inner
+                        .workflows
+                        .workflows
+                        .iter()
+                        .find(|w| w.workflow_id == workflow)?;
+                    let run = saved.run.as_ref()?;
+                    if run.status != RunStatus::Running || run.generation != generation {
+                        return None;
+                    }
+                    let terminal = saved
+                        .agents
+                        .iter()
+                        .find(|a| a.agent_id == agent)?
+                        .terminal_id;
+                    Some((
+                        workflow,
+                        agent,
+                        generation,
+                        terminal,
+                        run.follow_up_instructions(agent.0),
+                    ))
+                })
+                .collect()
+        };
+        let notifications = {
+            let mut registry = self
+                .run_processes
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?;
+            let mut notifications = Vec::new();
+            for (workflow, agent, generation, terminal, instructions) in assignments {
+                let Some(processes) = registry.get_mut(&workflow) else {
+                    continue;
+                };
+                let Some(routing) = processes.completion_routing.get_mut(&agent) else {
+                    continue;
+                };
+                if !matches!(routing, CompletionRouting::AwaitingPrompt(assigned, since)
+                    if *assigned == generation && now.saturating_duration_since(*since) >= PROMPT_HOOK_TIMEOUT)
+                {
+                    continue;
+                }
+                let Some((assigned, inbox)) = processes.inboxes.get(&agent) else {
+                    continue;
+                };
+                if *assigned != generation {
+                    continue;
+                }
+                // Commit sticky private routing before any late hook can reactivate the wrapper.
+                *routing = CompletionRouting::Private;
+                if let Some(command) = processes.completion_commands.get(&agent) {
+                    command.deactivate();
+                }
+                notifications.push((terminal, format!(
+                    "Use this completion command for the current assignment: {}\n{instructions}", inbox.command(),
+                )));
+            }
+            notifications
+        };
+        for (terminal, message) in notifications {
+            if self.terminals.is_running(terminal) {
+                self.notify_workflow_agent(terminal, &message)?;
             }
         }
         Ok(())
@@ -1551,6 +1720,247 @@ mod tests {
         assert!(
             advanced.run.unwrap().incoming[&advanced.agents[1].agent_id.0].contains("Fresh result")
         );
+    }
+
+    fn reuse_after_identified_response(
+        app: &Application,
+        folder: &Path,
+        id: WorkflowId,
+        draft: bool,
+    ) -> Workflow {
+        let initial = wait_for(app, id, |_| folder.join("implement-ready").exists());
+        send_implementer_hook(app, folder, "prompt", "old");
+        send_implementer_hook(app, folder, "response", "old");
+        finish_active_stage(app, &initial, Decision::Done, "");
+        let review = app.snapshot().unwrap().workflows.workflows[0].clone();
+        if draft {
+            app.write_terminal_input(initial.agents[0].terminal_id, b"Unfinished user draft")
+                .unwrap();
+        }
+        finish_active_stage(app, &review, Decision::RequestChanges, "");
+        app.snapshot().unwrap().workflows.workflows[0].clone()
+    }
+
+    fn private_command(app: &Application, workflow: &Workflow) -> String {
+        app.run_processes.lock().unwrap()[&workflow.workflow_id].inboxes
+            [&workflow.agents[0].agent_id]
+            .1
+            .command()
+    }
+
+    fn submit_private_result(app: &Application, workflow: &Workflow) -> Workflow {
+        submit_result(app, workflow, &private_command(app, workflow), "")
+    }
+
+    fn submit_result(
+        app: &Application,
+        workflow: &Workflow,
+        command: &str,
+        task: &str,
+    ) -> Workflow {
+        use std::io::Write;
+        use std::process::{Command as ProcessCommand, Stdio};
+        let mut child = ProcessCommand::new("/bin/sh")
+            .args(["-c", command])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                &serde_json::to_vec(&CompletionSignal {
+                    decision: Decision::Done,
+                    summary: "Fresh result".into(),
+                    assignments: vec![],
+                    task: task.into(),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        let advanced = wait_for(app, workflow.workflow_id, |w| {
+            w.run.as_ref().unwrap().generation > workflow.run.as_ref().unwrap().generation
+        });
+        assert!(child.wait().unwrap().success());
+        advanced
+    }
+
+    #[test]
+    fn slow_user_follow_up_waits_for_submission_and_a_prompt_avoids_fallback() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(folder.path(), bin.path(), RECORD_INPUT);
+        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let first = wait_for(&app, id, |_| folder.path().join("implement-ready").exists());
+        let terminal = first.agents[0].terminal_id;
+        let remembered = std::fs::read_to_string(folder.path().join("implement-command")).unwrap();
+        send_implementer_hook(&app, folder.path(), "prompt", "old");
+        send_implementer_hook(&app, folder.path(), "response", "old");
+        finish_active_stage(&app, &first, Decision::Done, "");
+        let review = app.snapshot().unwrap().workflows.workflows[0].clone();
+        finish_active_stage(&app, &review, Decision::Approve, "");
+        let completed = wait_for(&app, id, |_| {
+            std::fs::read_to_string(folder.path().join("implement-input")).is_ok_and(|text| {
+                text.contains("review is complete") && text.ends_with("\x1b[201~\n")
+            })
+        });
+        let before = std::fs::read_to_string(folder.path().join("implement-input")).unwrap();
+        accepted(
+            &app,
+            Command::ContinueWorkflowRun {
+                workflow_id: id,
+                agent_id: completed.agents[0].agent_id,
+                generation: completed.run.unwrap().generation,
+            },
+        );
+        app.write_terminal_input(terminal, b"My next task").unwrap();
+        app.recover_completion_routes(Instant::now() + PROMPT_HOOK_TIMEOUT * 10)
+            .unwrap();
+        assert!(matches!(
+            app.run_processes.lock().unwrap()[&id].completion_routing[&first.agents[0].agent_id],
+            CompletionRouting::AwaitingSubmission(3)
+        ));
+        assert_eq!(
+            std::fs::read_to_string(folder.path().join("implement-input")).unwrap(),
+            before
+        );
+        app.write_terminal_input(terminal, b"\r").unwrap();
+        let continued = app.snapshot().unwrap().workflows.workflows[0].clone();
+        send_implementer_hook(&app, folder.path(), "prompt", "new");
+        app.recover_completion_routes(Instant::now() + PROMPT_HOOK_TIMEOUT * 10)
+            .unwrap();
+        assert!(matches!(
+            app.run_processes.lock().unwrap()[&id].completion_routing[&first.agents[0].agent_id],
+            CompletionRouting::Active(3)
+        ));
+        let command = format!("'{}'", remembered.trim());
+        let review = submit_result(&app, &continued, &command, "My next task");
+        assert_eq!(review.run.unwrap().prompt, "My next task");
+        assert_eq!(review.agents[0].terminal_id, terminal);
+    }
+
+    #[test]
+    fn missing_current_prompt_recovers_privately_and_keeps_later_reuse_private() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(folder.path(), bin.path(), RECORD_INPUT);
+        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let reused = reuse_after_identified_response(&app, folder.path(), id, false);
+        let terminal = reused.agents[0].terminal_id;
+        let old = std::fs::read_to_string(folder.path().join("implement-command")).unwrap();
+        assert!(matches!(
+            app.run_processes.lock().unwrap()[&id].completion_routing[&reused.agents[0].agent_id],
+            CompletionRouting::AwaitingPrompt(3, _)
+        ));
+        let command = private_command(&app, &reused);
+        app.recover_completion_routes(Instant::now() + PROMPT_HOOK_TIMEOUT)
+            .unwrap();
+        wait_for(&app, id, |_| {
+            std::fs::read_to_string(folder.path().join("implement-input"))
+                .is_ok_and(|text| text.contains(&command))
+        });
+        send_implementer_hook(&app, folder.path(), "prompt", "late");
+        assert!(
+            !std::process::Command::new(old.trim())
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        let review = submit_private_result(&app, &reused);
+        send_implementer_hook(&app, folder.path(), "response", "late");
+        assert!(app.harness_turn_finished(terminal).unwrap());
+        finish_active_stage(&app, &review, Decision::RequestChanges, "");
+        let next = app.snapshot().unwrap().workflows.workflows[0].clone();
+        assert_eq!(next.agents[0].terminal_id, terminal);
+        assert!(matches!(
+            app.run_processes.lock().unwrap()[&id].completion_routing[&next.agents[0].agent_id],
+            CompletionRouting::Private
+        ));
+        let next_command = private_command(&app, &next);
+        assert_ne!(next_command, command);
+        wait_for(&app, id, |_| {
+            std::fs::read_to_string(folder.path().join("implement-input"))
+                .is_ok_and(|text| text.contains(&next_command))
+        });
+        assert!(
+            !std::process::Command::new(old.trim())
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        assert_eq!(
+            submit_private_result(&app, &next).run.unwrap().generation,
+            6
+        );
+    }
+
+    #[test]
+    fn deferred_stage_message_starts_recovery_only_after_the_user_submits() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(folder.path(), bin.path(), RECORD_INPUT);
+        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let reused = reuse_after_identified_response(&app, folder.path(), id, true);
+        let terminal = reused.agents[0].terminal_id;
+        let command = private_command(&app, &reused);
+        app.recover_completion_routes(Instant::now() + PROMPT_HOOK_TIMEOUT * 10)
+            .unwrap();
+        assert!(matches!(
+            app.run_processes.lock().unwrap()[&id].completion_routing[&reused.agents[0].agent_id],
+            CompletionRouting::AwaitingSubmission(3)
+        ));
+        assert!(
+            !std::fs::read_to_string(folder.path().join("implement-input"))
+                .unwrap_or_default()
+                .contains(&command)
+        );
+        app.write_terminal_input(terminal, b"\r").unwrap();
+        assert!(matches!(
+            app.run_processes.lock().unwrap()[&id].completion_routing[&reused.agents[0].agent_id],
+            CompletionRouting::AwaitingPrompt(3, _)
+        ));
+        app.recover_completion_routes(Instant::now() + PROMPT_HOOK_TIMEOUT)
+            .unwrap();
+        wait_for(&app, id, |_| {
+            std::fs::read_to_string(folder.path().join("implement-input"))
+                .is_ok_and(|text| text.contains(&command))
+        });
+        let input = std::fs::read_to_string(folder.path().join("implement-input")).unwrap();
+        assert!(input.contains("Unfinished user draft"));
+        assert!(input.contains("Result or feedback"));
+        assert_eq!(
+            submit_private_result(&app, &reused).run.unwrap().generation,
+            4
+        );
+    }
+
+    #[test]
+    fn recovery_does_not_send_an_obsolete_command_after_completion_or_cancellation() {
+        for cancelled in [false, true] {
+            let folder = tempfile::tempdir().unwrap();
+            let bin = tempfile::tempdir().unwrap();
+            let app = application(folder.path(), bin.path(), RECORD_INPUT);
+            let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+            let reused = reuse_after_identified_response(&app, folder.path(), id, false);
+            let command = private_command(&app, &reused);
+            if cancelled {
+                accepted(&app, Command::CancelWorkflowRun { workflow_id: id });
+            } else {
+                finish_active_stage(&app, &reused, Decision::Done, "");
+            }
+            app.recover_completion_routes(Instant::now() + PROMPT_HOOK_TIMEOUT * 10)
+                .unwrap();
+            assert!(
+                !std::fs::read_to_string(folder.path().join("implement-input"))
+                    .unwrap_or_default()
+                    .contains(&command)
+            );
+        }
     }
 
     #[test]

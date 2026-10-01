@@ -144,10 +144,14 @@ impl Application {
         bytes: &[u8],
     ) -> Result<(), ApplicationError> {
         if let Some(input) = self.workflow_agent_input(terminal_id)? {
-            return Ok(input
+            let submitted = input
                 .lock()
                 .map_err(|_| ApplicationError::Poisoned)?
-                .write(&self.terminals, terminal_id, bytes)?);
+                .write(&self.terminals, terminal_id, bytes)?;
+            if submitted {
+                self.note_workflow_submission(terminal_id)?;
+            }
+            return Ok(());
         }
         Ok(self.terminals.write_input(terminal_id, bytes)?)
     }
