@@ -11,7 +11,6 @@ import SwiftUI
 nonisolated enum CornerRadius {
     /// All corners of the terminal panel, the Traces panel, and other rounded solid panels.
     static let panel: CGFloat = 17
-    static let appIconTile: CGFloat = 16
     static let choicesCard: CGFloat = 14
     static let emptyRecentsCard: CGFloat = 12
     /// The selected workflow tab's top corners.
@@ -163,11 +162,6 @@ extension ShapeStyle where Self == Color {
 }
 
 // MARK: - Symbols
-
-nonisolated enum Symbol {
-    /// Twine's app symbol, on the start page's icon tile.
-    static let app = "point.3.filled.connected.trianglepath.dotted"
-}
 
 /// The small chevron on a control that opens a menu.
 struct MenuChevron: View {

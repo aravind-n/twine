@@ -29,7 +29,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 |---|---|
 | Terminal panel (all corners) | 17 |
 | Activity panel | 17 |
-| Start page app icon tile | 16 |
+| Start page logo | 23% of its width, baked into the approved artwork |
 | New-tab choices card | 14 |
 | Start page empty-recents card | 12 |
 | Bento panes | 11 |
@@ -83,10 +83,22 @@ All ease-in-out, all tied to a user action.
 
 ## Screens
 
+### App artwork
+
+Use **Warm welcome**, selected variant 10 from 30 September 2026: fifteen lime leaves,
+cyan/magenta/violet braided stems, and a taller sandstone pot with a small crooked smile.
+The approved `twine-warm-welcome` export supplies the artwork unchanged:
+
+- `Twine/Twine/Assets.xcassets/TwineLogo.imageset/twine-rounded.svg` is the vector welcome-screen logo.
+- `Twine/Twine/Assets.xcassets/AppIcon.appiconset/` contains the rounded PNG exports at 16, 32, 64, 128, 256, 512, and 1024 pixels, covering every macOS 1× and 2× slot.
+- Both use the export's 23% corner treatment and graphite `#202326` background in light and dark appearances. Keep its proportions, colors, and expression intact.
+
+The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4baed6c008aa0`.
+
 ### Start page
 
 - Centered column, 560pt max width, 44pt padding, on the window background.
-- App icon: 29pt medium symbol in the accent tint, on a 62×62 glass tile; 27pt below it.
+- App icon: the full-color Warm welcome artwork at 62×62pt; 27pt below it. Use the asset's graphite background and rounded corners without tinting, glass, or an additional mask.
 - Title "Welcome to Twine", 30pt semibold; 9pt below it. One line of subheadline secondary text; 28pt below it.
 - Open Folder: a prominent bordered button with a folder symbol, 35pt tall.
 - 35pt below it a divider, then 22pt below that "Recent Folders" as a headline, 11pt above the list.
