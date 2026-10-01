@@ -17,7 +17,11 @@ nonisolated struct TerminalMinimapGeometry: Equatable {
     var maximumTop: Int { max(0, rows - visibleRows) }
     var isLive: Bool { topRow >= maximumTop }
     var viewport: ClosedRange<Double> {
-        Double(topRow) / Double(max(1, rows))...min(1, Double(topRow + visibleRows) / Double(max(1, rows)))
+        // Reflow or a shorter history can leave the scroll position beyond the current buffer.
+        // Clamp the position before constructing the range, retaining the viewport's height.
+        let count = Double(max(1, rows))
+        let top = Double(max(0, min(maximumTop, topRow)))
+        return top / count...min(1, (top + Double(visibleRows)) / count)
     }
 
     func row(at fraction: Double) -> Int {

@@ -255,6 +255,37 @@ struct TerminalMinimapTests {
 }
 
 extension TerminalMinimapTests {
+    @Test(arguments: [
+        (rows: 100, visibleRows: 20, topRow: 400, expected: 0.8...1.0),
+        (rows: 100, visibleRows: 20, topRow: 95, expected: 0.8...1.0),
+        (rows: 100, visibleRows: 20, topRow: -10, expected: 0.0...0.2),
+        (rows: 5, visibleRows: 20, topRow: 400, expected: 0.0...1.0),
+        (rows: 0, visibleRows: 20, topRow: 400, expected: 0.0...1.0),
+    ])
+    func viewportStaysInsideTheBufferAfterItsRowsChange(
+        rows: Int, visibleRows: Int, topRow: Int, expected: ClosedRange<Double>
+    ) {
+        let geometry = TerminalMinimapGeometry(rows: rows, visibleRows: visibleRows, topRow: topRow)
+        #expect(geometry.viewport == expected)
+    }
+
+    @Test func viewportRemainsValidWhenScrolledOutputReflowsToFewerRows() {
+        let view = MetalTerminalView(frame: .zero)
+        view.resize(cols: 20, rows: 24)
+        view.feed(text: String(repeating: String(repeating: "x", count: 120) + "\r\n", count: 100))
+        let state = TerminalMinimapState()
+        state.view = view
+        state.refresh()
+        let originalRows = state.geometry.rows
+        state.scroll(to: originalRows / 2)
+        view.resize(cols: 200, rows: 24)
+        state.refresh()
+        #expect(state.geometry.rows < originalRows / 2)
+        #expect(state.geometry.viewport.lowerBound >= 0)
+        #expect(state.geometry.viewport.upperBound <= 1)
+        #expect(state.geometry.viewport.upperBound > state.geometry.viewport.lowerBound)
+    }
+
     @Test(arguments: [12, 100])
     func commandInputSurvivesReflowAfterItsBoundary(columns: Int) async throws {
         let prefix = "earlier\r\n$ printf '\(String(repeating: "long-command", count: 12))'\r\n"

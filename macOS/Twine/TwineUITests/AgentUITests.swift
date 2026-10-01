@@ -42,6 +42,7 @@ extension TwineUITests {
         my $deadline = $started + 0.250;
         print "\e[6n\e]10;?\e\\\e]11;?\e\\\e[?u\e[c";
         my $reply = '';
+        my $first_reply;
         my $complete = 0;
         my $finished;
         while (my $remaining = $deadline - clock_gettime(CLOCK_MONOTONIC)) {
@@ -50,6 +51,7 @@ extension TwineUITests {
             vec($readable, 0, 1) = 1;
             last unless select($readable, undef, undef, $remaining) > 0;
             last unless sysread(STDIN, my $chunk, 4096);
+            $first_reply //= clock_gettime(CLOCK_MONOTONIC);
             $reply .= $chunk;
             if ($reply =~ /\e\]10;rgb:[0-9a-f\/]+(?:\a|\e\\)/i
                 && $reply =~ /\e\]11;rgb:[0-9a-f\/]+(?:\a|\e\\)/i) {
@@ -61,11 +63,19 @@ extension TwineUITests {
         open(my $result, '>', 'color-probe.txt') or die $!;
         printf $result "%s after %.1f ms\n", $complete ? 'PASS' : 'TIMEOUT',
             (($finished // clock_gettime(CLOCK_MONOTONIC)) - $started) * 1000;
+        printf $result "First reply: %s\nReply (hex): %s\n",
+            defined($first_reply) ? sprintf('%.1f ms', ($first_reply - $started) * 1000) : 'none',
+            unpack('H*', $reply);
         close($result);
         print "\r\nColor probe complete\r\n";
         sleep 30;
         """#.write(to: folder.appending(path: "probe.pl"), atomically: true, encoding: .utf8)
-        try "stty raw -echo\nexec /usr/bin/perl ./probe.pl\n".write(
+        try """
+        case "$1" in --list-models|--help) exit 0 ;; esac
+        stty raw -echo
+        exec /usr/bin/perl ./probe.pl
+
+        """.write(
             to: folder.appending(path: "stub.txt"), atomically: true, encoding: .utf8)
     }
 
