@@ -6,9 +6,32 @@ use tracing::{info, warn};
 use super::workflows::reject;
 use super::{Application, ApplicationError, CommandDisposition, RequestId, rejection};
 use crate::event::{CommandResult, EventKind, StateEvent};
-use crate::harness::{HarnessDefinition, HarnessError, HarnessId, LocatedHarness, locate_in};
+use crate::harness::{
+    HarnessDefinition, HarnessError, HarnessId, LocatedHarness, LoginPath, locate_in,
+};
 use crate::terminal::{TerminalSize, TerminalStatus};
 use crate::workflow::{WorkflowId, WorkflowKind, WorkflowStatus, timestamp};
+
+/// Finds a harness binary on `test_path` alone when tests give one, otherwise on the login
+/// shell's `PATH` and then the app's.
+fn locate(
+    definition: &HarnessDefinition,
+    test_path: Option<&std::ffi::OsStr>,
+    login_path: &LoginPath,
+) -> Result<LocatedHarness, HarnessError> {
+    if let Some(path) = test_path {
+        return locate_in(definition, Some(path), None);
+    }
+    // UI tests point this at a stub harness, like `TWINE_DATA_DIRECTORY` points at test data.
+    if let Some(path) = std::env::var_os("TWINE_HARNESS_PATH") {
+        return locate_in(definition, Some(&path), None);
+    }
+    locate_in(
+        definition,
+        login_path.get().as_deref(),
+        std::env::var_os("PATH").as_deref(),
+    )
+}
 
 impl Application {
     /// Finds a harness binary. The login shell's `PATH` is looked up once in the background, so
@@ -18,18 +41,23 @@ impl Application {
         definition: &HarnessDefinition,
     ) -> Result<LocatedHarness, HarnessError> {
         #[cfg(test)]
-        if let Some(path) = &self.harness_path {
-            return locate_in(definition, Some(path), None);
-        }
-        // UI tests point this at a stub harness, like `TWINE_DATA_DIRECTORY` points at test data.
-        if let Some(path) = std::env::var_os("TWINE_HARNESS_PATH") {
-            return locate_in(definition, Some(&path), None);
-        }
-        locate_in(
-            definition,
-            self.login_path.get().as_deref(),
-            std::env::var_os("PATH").as_deref(),
-        )
+        let test_path = self.harness_path.as_deref();
+        #[cfg(not(test))]
+        let test_path = None;
+        locate(definition, test_path, &self.login_path)
+    }
+
+    /// Starts listing the models `harness` offers, read from its own CLI on another thread, so a
+    /// slow harness never holds up commands or terminals. Poll the request for the result.
+    pub fn request_harness_models(&self, harness: HarnessId) -> crate::ModelListRequest {
+        #[cfg(test)]
+        let test_path = self.harness_path.clone();
+        #[cfg(not(test))]
+        let test_path: Option<std::ffi::OsString> = None;
+        let login_path = Arc::clone(&self.login_path);
+        crate::ModelListRequest::spawn(harness, move || {
+            locate(harness.definition(), test_path.as_deref(), &login_path)
+        })
     }
 
     /// The folder of a draft workflow's session, or the rejection to send if it isn't a draft.
@@ -65,20 +93,24 @@ impl Application {
             .ok_or_else(|| reject("workflowNotFound", "The workflow is no longer open.")))
     }
 
-    /// Turns a draft workflow into a single agent: starts the harness with `prompt` in its own
-    /// PTY, then replaces the draft's placeholder shell with it.
+    /// Turns a draft workflow into a single agent: starts the harness in its own PTY, with
+    /// `prompt` if there is one, then replaces the draft's placeholder shell with it.
     pub(super) fn start_agent(
         &self,
         request_id: RequestId,
         workflow_id: WorkflowId,
         harness: HarnessId,
+        (model, effort, yolo): (Option<&str>, Option<&str>, bool),
         prompt: &str,
         size: TerminalSize,
     ) -> Result<CommandDisposition, ApplicationError> {
         let prompt = prompt.trim();
-        if prompt.is_empty() {
-            return Ok(reject("emptyPrompt", "Type a prompt for the agent."));
-        }
+        let Some(options) = crate::harness::launch::validate_options(model, effort, yolo) else {
+            return Ok(reject(
+                "invalidModel",
+                "Choose a model and effort from the lists, or type one model name.",
+            ));
+        };
         let folder = match self.draft_folder(workflow_id)? {
             Ok(folder) => folder,
             Err(rejected) => return Ok(rejected),
@@ -96,7 +128,7 @@ impl Application {
             Ok(id) => id,
             Err(error) => return Ok(rejection("agentStartFailed", &error)),
         };
-        let (arguments, hooks) = self.harness_arguments(harness, reserved, prompt);
+        let (arguments, hooks) = self.harness_arguments(harness, reserved, options, prompt);
         let mut inner = self.lock_inner()?;
         // Start the agent at the size its draft terminal has now, as the view has already fitted it.
         let placeholder_size = inner
@@ -345,6 +377,9 @@ mod tests {
             .handle_command(
                 RequestId(3),
                 Command::StartAgent {
+                    model: None,
+                    effort: None,
+                    yolo: false,
                     workflow_id,
                     harness: HarnessId::Pi,
                     prompt: prompt.to_owned(),
@@ -489,23 +524,79 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_prompt_and_a_configured_workflow_are_rejected() {
+    fn an_agent_without_a_prompt_starts_interactively_and_only_from_a_draft() {
         let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let application = application(folder.path(), bin.path(), Some("sleep 30"));
+        let application = application(
+            folder.path(),
+            bin.path(),
+            Some(
+                "for a in \"$@\"; do [ \"$a\" = -- ] && echo SEPARATOR; done; echo ARGS-DONE; sleep 30",
+            ),
+        );
         let draft = draft(&application, folder.path());
 
-        assert!(matches!(
-            start(&application, draft.workflow_id, "   "),
-            CommandDisposition::Rejected { code, .. } if code == "emptyPrompt"
-        ));
         assert_eq!(
-            start(&application, draft.workflow_id, "go"),
+            start(&application, draft.workflow_id, "   "),
             CommandDisposition::Accepted
         );
+        // Hook flags may still be passed, but no prompt separator or prompt follows them.
+        let mut output = Vec::new();
+        wait_until(|| output_contains(&application, &mut output, "ARGS-DONE"));
+        assert!(!String::from_utf8_lossy(&output).contains("SEPARATOR"));
         assert!(matches!(
             start(&application, draft.workflow_id, "again"),
             CommandDisposition::Rejected { code, .. } if code == "workflowNotDraft"
         ));
+    }
+
+    #[test]
+    fn the_agent_starts_with_its_chosen_model_and_effort_and_rejects_a_flag_as_a_model() {
+        let (folder, bin) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let application = application(
+            folder.path(),
+            bin.path(),
+            Some("printf 'ARGS:%s\\n' \"$*\"; sleep 30"),
+        );
+        let draft = draft(&application, folder.path());
+        let start_with = |model: &str, effort: &str| {
+            application
+                .handle_command(
+                    RequestId(3),
+                    Command::StartAgent {
+                        workflow_id: draft.workflow_id,
+                        harness: HarnessId::Pi,
+                        model: Some(model.to_owned()),
+                        effort: Some(effort.to_owned()),
+                        // pi has no permission prompts, so this adds no flag.
+                        yolo: true,
+                        prompt: String::new(),
+                        size: SIZE,
+                    },
+                )
+                .unwrap()
+                .disposition
+        };
+
+        assert!(matches!(
+            start_with("--help", "high"),
+            CommandDisposition::Rejected { code, .. } if code == "invalidModel"
+        ));
+        assert!(matches!(
+            start_with("local/m1", "High"),
+            CommandDisposition::Rejected { code, .. } if code == "invalidModel"
+        ));
+        assert_eq!(
+            start_with(" local/m1 ", "high"),
+            CommandDisposition::Accepted
+        );
+        let mut output = Vec::new();
+        wait_until(|| {
+            output_contains(
+                &application,
+                &mut output,
+                "--model local/m1 --thinking high",
+            )
+        });
     }
 
     #[test]
@@ -694,6 +785,9 @@ mod tests {
                 .handle_command(
                     RequestId(3),
                     Command::StartAgent {
+                        model: None,
+                        effort: None,
+                        yolo: false,
                         workflow_id: draft.workflow_id,
                         harness: HarnessId::Pi,
                         prompt: "go".to_owned(),

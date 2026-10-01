@@ -67,6 +67,7 @@ nonisolated protocol CoreTransport: Sendable {
     func snapshot() async throws -> CoreSnapshot
     func pollFiles(_ request: FileBrowserRequest) async throws -> FileBrowserSnapshot?
     func saveFile(_ request: FileSaveRequest) async throws -> FileSaveResult
+    func harnessModels(_ request: HarnessModelsRequest) async throws -> CoreHarnessModelsResult
     func events(after sequence: UInt64, limit: UInt32) async throws -> [CoreEvent]
     func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async throws -> CoreWorkflowTracePage
     func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> CoreTraceEventsPage
@@ -77,6 +78,11 @@ nonisolated protocol CoreTransport: Sendable {
 }
 
 extension CoreTransport {
+    /// Test transports without harnesses report that none are installed.
+    func harnessModels(_ request: HarnessModelsRequest) async throws -> CoreHarnessModelsResult {
+        .failed("\(request.harness.displayName) isn't available.")
+    }
+
     func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async throws -> CoreTranscriptPage? {
         throw CoreFailure.unexpectedCommandResult
     }

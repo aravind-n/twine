@@ -8,6 +8,8 @@ struct AgentPanes: View {
     let workflow: CoreWorkflow
     @Binding var layout: WorkflowLayout
     let isSelected: Bool
+    /// Tells the strip whether the panes are tiled, each with a header naming its agent.
+    let reportTiling: (Bool) -> Void
     /// The panel's size, which decides how many Bento panes fit.
     @State private var size: CGSize?
     @State private var focusRequest = 0
@@ -76,6 +78,7 @@ struct AgentPanes: View {
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
         // Clicking the layout picker can take the keyboard, so give it back to the focused terminal.
         .onChange(of: layout.mode) { focusRequest += 1 }
+        .onChange(of: arrangement.isTiled, initial: true) { _, isTiled in reportTiling(isTiled) }
     }
 
     private var columnFraction: Double { draggedColumnFraction ?? layout.columnFraction }
@@ -113,6 +116,9 @@ private struct AgentPane: View {
     let focusRequest: Int
     let focus: () -> Void
     let place: (UInt64) -> Void
+    private var isWorking: Bool {
+        workflow.run?.agents.contains { $0.id == agent.id && $0.isWorking } == true
+    }
     private var history: TraceTerminalTarget? {
         navigation.target.flatMap { target in
             target.agentID == agent.id || (target.agentID == nil && target.anchor.terminalID == agent.terminalID)
@@ -137,7 +143,7 @@ private struct AgentPane: View {
                 TerminalSurface(
                     terminalID: agent.terminalID, isVisible: isWorkflowSelected && isShown && history == nil,
                     isSelected: isWorkflowSelected && isFocused && history == nil, focusRequest: focusRequest,
-                    padding: isTiled ? BentoLayout.terminalPadding : Spacing.terminalContent,
+                    padding: isTiled ? BentoLayout.terminalPadding : Spacing.agentTerminalContent,
                     subject: workflow.run == nil ? "Shell" : "Agent", isCancelled: workflow.status == .cancelled,
                     agentStatus: workflow.run?.agents.first(where: { $0.id == agent.id })?.status,
                     didFocus: focus
@@ -200,6 +206,7 @@ private struct AgentPane: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: AgentSubtabLayout.maximumTitleWidth)
+            if isWorking { WorkingDot() }
             MenuChevron()
         }
         .tabTitleStyle(isSelected: isFocused)
@@ -228,7 +235,7 @@ private struct AgentPane: View {
                 .buttonStyle(.plain)
                 // As wide as its title, so the rest of the header focuses the pane.
                 .fixedSize()
-                .accessibilityLabel("\(agent.role) pane")
+                .accessibilityLabel(isWorking ? "\(agent.role) pane, working" : "\(agent.role) pane")
                 .accessibilityValue(isFocused ? "Focused" : "")
                 .accessibilityIdentifier("agentPane-\(agent.id)")
                 .help("Choose this pane's agent")

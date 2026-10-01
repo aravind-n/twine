@@ -13,6 +13,7 @@ nonisolated enum CornerRadius {
     static let panel: CGFloat = 17
     static let choicesCard: CGFloat = 14
     static let emptyRecentsCard: CGFloat = 12
+    static let graphNode: CGFloat = 12
     /// The selected workflow tab's top corners.
     static let selectedTab: CGFloat = 10
     static let recentFolderCard: CGFloat = 10
@@ -34,6 +35,8 @@ nonisolated enum Spacing {
     /// Vertical space between the terminal block, the Traces panel, and the footer.
     static let windowSections: CGFloat = 13
     static let terminalContent: CGFloat = 24
+    /// Agents workflows' strip already frames the panel, so their terminals sit closer to it.
+    static let agentTerminalContent: CGFloat = 14
 }
 
 // MARK: - Folder window layout
@@ -81,21 +84,24 @@ nonisolated enum NewTabLayout {
     static let headingSpacing: CGFloat = 10
     static let choiceTextSpacing: CGFloat = 4
     static let minimumChoiceWidth: CGFloat = 160
-    /// Graph previews need room for two readable parallel role names.
-    static let minimumGraphChoiceWidth: CGFloat = 240
     static let minimumChoiceHeight: CGFloat = 64
     static let choicePadding: CGFloat = 10
     static let symbolWidth: CGFloat = 16
+    /// The close button's inset from the card's top trailing corner.
+    static let closePadding: CGFloat = 8
 }
 
 /// The subtab strip at the top of a multi-agent workflow's terminal panel.
 nonisolated enum AgentSubtabLayout {
-    static let height: CGFloat = 43
+    static let height: CGFloat = 34
     static let horizontalPadding: CGFloat = 18
     /// Between the "TERMINAL" label and the first subtab.
     static let labelSpacing: CGFloat = 13
     static let spacing: CGFloat = 5
-    static let subtabHeight: CGFloat = 29
+    static let subtabHeight: CGFloat = 26
+    /// Between the run's actions and the layout picker at the strip's trailing edge.
+    static let actionSpacing: CGFloat = 6
+    static let workingDotSize: CGFloat = 6
     static let subtabPadding: CGFloat = 10
     static let symbolSpacing: CGFloat = 6
     /// Longer role names truncate, as workflow tab titles do.

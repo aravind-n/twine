@@ -22,11 +22,6 @@ extension TwineUITests {
         wait(for: [installed], timeout: 10)
         app.buttons["newWorkflow"].click()
         chooseHarness("pi", in: app)
-        let prompt = element("agentPrompt", in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 10), app.debugDescription)
-        prompt.click()
-        prompt.typeText("Check startup terminal colors")
-        element("agentStart", in: app).click()
         let resultFile = folder.appending(path: "color-probe.txt")
         waitForFile(resultFile, containing: "\n", in: app)
         let result = try String(contentsOf: resultFile, encoding: .utf8)
@@ -101,11 +96,6 @@ extension TwineUITests {
         wait(for: [installed], timeout: 10)
         app.buttons["newWorkflow"].click()
         chooseHarness("pi", in: app)
-        let prompt = element("agentPrompt", in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 10), app.debugDescription)
-        prompt.click()
-        prompt.typeText("Crash recovery fixture")
-        element("agentStart", in: app).click()
         XCTAssertTrue(app.staticTexts["Running"].waitForExistence(timeout: 10), app.debugDescription)
         let agentStarted = expectation(
             for: NSPredicate { _, _ in FileManager.default.fileExists(atPath: folder.appending(path: "agent.pid").path)
@@ -130,16 +120,15 @@ extension TwineUITests {
         waitForFile(folder.appending(path: "recovered-input.txt"), containing: "RECOVERED-INPUT")
     }
 
-    /// Starts a stub `pi` from the new-tab card, types to it, and cancels it.
+    /// Starts a stub `pi` from the new-tab card without a prompt, types to it, and cancels it.
     @MainActor
-    func testSingleAgentStartsWithThePromptTakesInputAndCancels() throws {
+    func testSingleAgentStartsInteractivelyTakesInputAndCancels() throws {
         let folder = try makeFolder()
         // The UI test runner is sandboxed, and macOS won't let Twine execute a script that it wrote.
         // So the runner only writes the script's text, and Twine's own shell installs the executable.
         try """
         echo $$ > agent.pid
-        while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
-        printf '%s|%s' "$1" "$2" > agent-args.txt
+        for argument in "$@"; do [ "$argument" = -- ] && echo prompt > agent-args.txt; done
         echo STUB-AGENT-READY
         read line
         printf '%s' "$line" > agent-input.txt
@@ -153,7 +142,6 @@ extension TwineUITests {
         app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(harnesses.path(percentEncoded: false)):/bin:/usr/bin"
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
-        // The trace panel leaves less space for the prompt form at the minimum content height.
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 520, height: 302))
         element("workflowChoice-Terminal", in: app).click()
         app.typeText("mkdir bin; printf '#!/bin/sh\\n' > bin/pi; cat stub.txt >> bin/pi; chmod +x bin/pi\r")
@@ -166,14 +154,7 @@ extension TwineUITests {
         app.buttons["newWorkflow"].click()
         XCTAssertTrue(app.buttons["workflowTab-2"].waitForExistence(timeout: 10), app.debugDescription)
         chooseHarness("pi", in: app)
-        let prompt = element("agentPrompt", in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 10), app.debugDescription)
-        attachAgentWindow(in: app, name: "Single agent prompt")
-        prompt.click()
-        prompt.typeText("fix the bug")
-        element("agentStart", in: app).click()
 
-        waitForFile(folder.appending(path: "agent-args.txt"), containing: "--|fix the bug")
         XCTAssertTrue(app.staticTexts["Running"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(element("newTabChoices", in: app).waitForNonExistence(timeout: 10), app.debugDescription)
         attachAgentWindow(in: app, name: "Running single agent")
@@ -182,6 +163,10 @@ extension TwineUITests {
 
         app.typeText("typed input\r")
         waitForFile(folder.appending(path: "agent-input.txt"), containing: "typed input")
+        // The stub checks its arguments before it reads input.
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: folder.appending(path: "agent-args.txt").path),
+            "The agent starts without a prompt")
 
         app.typeKey(".", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["Cancelled"].waitForExistence(timeout: 10), app.debugDescription)
@@ -203,11 +188,6 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
 
         chooseHarness("pi", in: app)
-        let prompt = element("agentPrompt", in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 10), app.debugDescription)
-        prompt.click()
-        prompt.typeText("hello")
-        element("agentStart", in: app).click()
 
         let failure = app.staticTexts["agentStartFailure"]
         XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
@@ -215,12 +195,13 @@ extension TwineUITests {
         let message = failure.value as? String ?? ""
         XCTAssertTrue(message.contains("wasn't found on your PATH"), message)
         XCTAssertTrue(app.staticTexts["Draft"].exists, "The tab is still a draft")
-        XCTAssertTrue(element("agentPrompt", in: app).exists, "The prompt is kept so another harness can be tried")
+        XCTAssertTrue(
+            element("workflowChoice-Single agent", in: app).exists, "The choices stay so another harness can be tried")
         attachAgentWindow(in: app, name: "Missing harness message")
         app.terminate()
     }
 
-    /// Picks `harness` from the Single agent tile's menu.
+    /// Starts `harness` with its default model from the Single agent tile's menu.
     @MainActor
     private func chooseHarness(_ harness: String, in app: XCUIApplication) {
         let tile = element("workflowChoice-Single agent", in: app)
@@ -229,6 +210,11 @@ extension TwineUITests {
         let item = app.menuItems[harness]
         XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
         item.click()
+        // Stub harnesses list no models or effort levels, so the default model starts it directly.
+        // SwiftUI doesn't carry identifiers into nested submenus, so find it by title in the harness's.
+        let defaultModel = app.menuItems["harness-\(harness)"].menuItems["Default model"]
+        XCTAssertTrue(defaultModel.waitForExistence(timeout: 5), app.debugDescription)
+        defaultModel.click()
     }
 
     /// Menus and text fields report different element types, so match on the identifier alone.

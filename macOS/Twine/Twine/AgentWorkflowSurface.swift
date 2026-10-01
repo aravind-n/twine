@@ -9,6 +9,9 @@ struct AgentWorkflowSurface: View {
     let folder: String
     let workflow: CoreWorkflow
     let isSelected: Bool
+    let reportFailure: (String) -> Void
+    /// Whether Bento panes are tiled, with headers that name their agents.
+    @State private var panesAreTiled = false
     private var history: TraceTerminalTarget? {
         navigation.target.flatMap { $0.workflowID == workflow.id ? $0 : nil }
     }
@@ -18,35 +21,40 @@ struct AgentWorkflowSurface: View {
             get: { layouts.layout(for: workflow.id, in: folder) },
             set: { layouts.setLayout($0, for: workflow.id, in: folder) }
         )
+        let focused = layout.wrappedValue.focusedAgent(in: workflow.agents)
         VStack(spacing: 0) {
-            if workflow.showsAgentSubtabs {
+            if workflow.showsTerminalStrip {
                 AgentSubtabs(
-                    agents: workflow.agents,
-                    selectedID: layout.wrappedValue.focusedAgent(in: workflow.agents)?.id,
-                    mode: layout.mode, showsLayoutPicker: isSelected
+                    agents: workflow.agents, selectedID: focused?.id,
+                    workingIDs: Set(workflow.run?.agents.filter(\.isWorking).map(\.id) ?? []),
+                    harnesses: workflow.run?.agents.reduce(into: [:]) { $0[$1.id] = $1.harness.displayName } ?? [:],
+                    mode: layout.mode, showsSubtabs: workflow.showsAgentSubtabs && !panesAreTiled,
+                    showsLayoutPicker: isSelected
                 ) {
                     layout.wrappedValue.focus($0, in: workflow.agents)
                     if history != nil { navigation.target = nil }
+                } actions: {
+                    if let run = workflow.run {
+                        WorkflowRunControls(
+                            workflowID: workflow.id, run: run, selectedAgentID: focused?.id,
+                            selectedRole: focused?.role, reportFailure: reportFailure)
+                    }
                 }
-            }
-            // Under subtabs, the run controls and notice join the strip, which Bento panes also sit on.
-            if let run = workflow.run {
-                WorkflowRunControls(
-                    workflowID: workflow.id, run: run,
-                    selectedAgentID: layout.wrappedValue.focusedAgent(in: workflow.agents)?.id
-                )
-                .background(workflow.showsAgentSubtabs ? Color.workflowTint : .clear)
             }
             if workflow.restored {
                 RestoredWorkflowNotice(workflow: workflow)
-                    .background(workflow.showsAgentSubtabs ? Color.workflowTint : .clear)
+                    .background(workflow.showsTerminalStrip ? Color.workflowTint : .clear)
             }
-            AgentPanes(workflow: workflow, layout: layout, isSelected: isSelected)
+            AgentPanes(workflow: workflow, layout: layout, isSelected: isSelected) { panesAreTiled = $0 }
         }
         .onChange(of: history, initial: true) {
             guard let history else { return }
             let id = history.agentID ?? workflow.agents.first(where: { $0.terminalID == history.anchor.terminalID })?.id
             if let id { layout.wrappedValue.focus(id, in: workflow.agents) }
+        }
+        .onAppear {
+            let active = workflow.run?.agents.filter(\.active).map(\.id) ?? []
+            layout.wrappedValue.openOnFirstStage(activeAgentIDs: active, in: workflow.agents)
         }
     }
 }

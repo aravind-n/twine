@@ -71,6 +71,17 @@ TwineStatus twine_client_poll_files(
     TwineClient *client, const uint8_t *request_bytes, size_t request_length, TwineBuffer *out_snapshot
 );
 
+// Starts listing a harness's models and effort levels on a core thread; returns at once. Request
+// {"harness": "codex" | "claudeCode" | "pi"}, with the same input rules as send_command. Poll until
+// it isn't EMPTY: the JSON status is listed (with models) or failed (with message). Destroy exactly
+// once; destroying a pending request stops the harness.
+typedef struct TwineModelsRequest TwineModelsRequest;
+TwineStatus twine_client_request_harness_models(
+    TwineClient *client, const uint8_t *request_bytes, size_t request_length, TwineModelsRequest **out_request
+);
+TwineStatus twine_models_request_poll(TwineModelsRequest *request, TwineBuffer *out_models);
+TwineStatus twine_models_request_destroy(TwineModelsRequest *request);
+
 // Saves UTF-8 text through core with version checking. JSON result status is saved, conflict,
 // or failed. Allows escaped text up to the 2 MiB file limit; release JSON with twine_buffer_release.
 // Pointer rules match send_command; input is bounded to 12 MiB + 16 KiB before dereference.

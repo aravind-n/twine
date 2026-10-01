@@ -19,11 +19,13 @@ nonisolated enum CoreCommand: Sendable {
     case activateWorkflow(workflowID: UInt64)
     case nameDraftWorkflow(workflowID: UInt64, name: String)
     case closeWorkflow(workflowID: UInt64)
-    case startAgent(workflowID: UInt64, harness: CoreHarness, prompt: String, size: CoreTerminalSize)
+    /// The agent starts without a prompt and waits for the user in its terminal.
+    case startAgent(workflowID: UInt64, choice: HarnessChoice, size: CoreTerminalSize)
     case cancelAgent(workflowID: UInt64)
+    /// The first stage's agents ask the user for the task and report it when they finish.
     case startWorkflowRun(
-        workflowID: UInt64, workflowType: CoreWorkflowType.Reference, prompt: String,
-        roles: [CoreRoleLaunch], size: CoreTerminalSize)
+        workflowID: UInt64, workflowType: CoreWorkflowType.Reference, roles: [CoreRoleLaunch],
+        size: CoreTerminalSize)
     case completeWorkflowRole(workflowID: UInt64, agentID: UInt64, generation: UInt64, signal: CoreCompletionSignal)
     case cancelWorkflowRun(workflowID: UInt64)
     case startTerminal(workingDirectory: String, size: CoreTerminalSize)

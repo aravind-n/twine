@@ -24,6 +24,18 @@ struct WorkflowLayoutTests {
         #expect(layout.panes(of: []).isEmpty)
     }
 
+    @Test func aNewRunOpensOnItsFirstStageAgentButKeepsASavedFocus() {
+        var layout = WorkflowLayout()
+        // The first stage uses a role listed after another one.
+        layout.openOnFirstStage(activeAgentIDs: [3, 4], in: Self.agents)
+        #expect(layout.focusedAgentID == 3)
+        layout.openOnFirstStage(activeAgentIDs: [2], in: Self.agents)
+        #expect(layout.focusedAgentID == 3, "A layout that already has focus keeps it")
+        var restored = WorkflowLayout()
+        restored.openOnFirstStage(activeAgentIDs: [], in: Self.agents)
+        #expect(restored.focusedAgentID == nil)
+    }
+
     @Test func focusingAnAgentWithoutAPaneReplacesTheFocusedPane() {
         var layout = WorkflowLayout(mode: .bento, focusedAgentID: 2)
         layout.focus(5, in: Self.agents)

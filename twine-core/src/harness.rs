@@ -15,6 +15,8 @@ use tracing::debug;
 
 pub(crate) mod claude;
 pub(crate) mod codex;
+pub(crate) mod launch;
+pub(crate) mod models;
 pub(crate) mod pi;
 pub(crate) mod steps;
 

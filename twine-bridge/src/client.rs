@@ -21,6 +21,17 @@ impl TwineClient {
         )?)
     }
 
+    /// Starts a model listing, which runs the harness's CLI on a core thread.
+    pub(crate) fn request_harness_models(
+        &self,
+        bytes: &[u8],
+    ) -> Result<twine_core::ModelListRequest, BridgeError> {
+        let text = std::str::from_utf8(bytes).map_err(|_| BridgeError::InvalidUtf8)?;
+        let request: protocol::harnesses::ModelsRequest =
+            serde_json::from_str(text).map_err(|_| BridgeError::MalformedCommand)?;
+        Ok(self.application.request_harness_models(request.harness))
+    }
+
     pub(crate) fn poll_files(&self, bytes: &[u8]) -> Result<Vec<u8>, BridgeError> {
         let text = std::str::from_utf8(bytes).map_err(|_| BridgeError::InvalidUtf8)?;
         let request: protocol::files::FileRequest =
