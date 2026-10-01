@@ -23,11 +23,11 @@ struct StartPage: View {
 
     private var content: some View {
         VStack(spacing: 0) {
-            Image(systemName: Symbol.app)
-                .font(.system(size: 29, weight: .medium))
-                .foregroundStyle(.tint)
+            Image(.twineLogo)
+                .resizable()
+                .scaledToFit()
                 .frame(width: 62, height: 62)
-                .glassEffect(in: .rect(cornerRadius: CornerRadius.appIconTile))
+                .accessibilityHidden(true)
                 .padding(.bottom, 27)
             Text("Welcome to Twine")
                 .startPageTitleStyle()
@@ -185,7 +185,7 @@ extension View {
             .frame(width: 720, height: 720)
     }
 
-    #Preview("First launch") {
+    #Preview("First launch · Light") {
         StartPage(
             folders: CoreFolderState(openFolder: nil, recentFolders: [], unavailableFolder: nil),
             chooseFolder: {},
@@ -193,5 +193,17 @@ extension View {
             removeRecentFolder: { _ in }
         )
         .frame(width: 720, height: 560)
+        .preferredColorScheme(.light)
+    }
+
+    #Preview("First launch · Dark") {
+        StartPage(
+            folders: CoreFolderState(openFolder: nil, recentFolders: [], unavailableFolder: nil),
+            chooseFolder: {},
+            openFolder: { _ in },
+            removeRecentFolder: { _ in }
+        )
+        .frame(width: 720, height: 560)
+        .preferredColorScheme(.dark)
     }
 #endif
