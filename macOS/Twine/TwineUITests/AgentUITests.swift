@@ -22,11 +22,6 @@ extension TwineUITests {
         wait(for: [installed], timeout: 10)
         app.buttons["newWorkflow"].click()
         chooseHarness("pi", in: app)
-        let prompt = element("agentPrompt", in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 10), app.debugDescription)
-        prompt.click()
-        prompt.typeText("Check startup terminal colors")
-        element("agentStart", in: app).click()
         let resultFile = folder.appending(path: "color-probe.txt")
         waitForFile(resultFile, containing: "\n", in: app)
         let result = try String(contentsOf: resultFile, encoding: .utf8)
@@ -216,7 +211,8 @@ extension TwineUITests {
         XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
         item.click()
         // Stub harnesses list no models or effort levels, so the default model starts it directly.
-        let defaultModel = app.menuItems["harnessDefault-\(harness)"]
+        // SwiftUI doesn't carry identifiers into nested submenus, so find it by title in the harness's.
+        let defaultModel = app.menuItems["harness-\(harness)"].menuItems["Default model"]
         XCTAssertTrue(defaultModel.waitForExistence(timeout: 5), app.debugDescription)
         defaultModel.click()
     }

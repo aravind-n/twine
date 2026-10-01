@@ -38,25 +38,56 @@ struct HarnessChoiceRow: View {
     private var entry: HarnessModelCatalog.Entry { catalog.entry(for: choice.harness) }
 
     var body: some View {
-        HStack(spacing: NewTabLayout.spacing) {
-            Label(title, systemImage: symbol)
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .frame(minWidth: 90, alignment: .leading)
-            Picker(title, selection: Binding(get: { choice.harness }, set: { choice.switchHarness(to: $0) })) {
-                ForEach(CoreHarness.allCases) { Text($0.displayName).tag($0) }
+        // One line when the card is wide, then the label above the controls, then two control lines.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: NewTabLayout.spacing) {
+                roleLabel
+                harnessPicker
+                modelMenu
+                effortPicker
+                yoloToggle
             }
-            .labelsHidden()
-            .fixedSize()
-            .accessibilityIdentifier("roleHarness-\(identifier)")
-            modelMenu
-            effortPicker
-            yoloToggle
-            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: NewTabLayout.choiceTextSpacing) {
+                roleLabel
+                HStack(spacing: NewTabLayout.spacing) {
+                    harnessPicker
+                    modelMenu
+                    effortPicker
+                    yoloToggle
+                }
+            }
+            VStack(alignment: .leading, spacing: NewTabLayout.choiceTextSpacing) {
+                roleLabel
+                HStack(spacing: NewTabLayout.spacing) {
+                    harnessPicker
+                    modelMenu
+                }
+                HStack(spacing: NewTabLayout.spacing) {
+                    effortPicker
+                    yoloToggle
+                }
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         // A restored choice, or one made before the list loaded, is checked once the list arrives.
         .onChange(of: entry, initial: true) { choice.fit(to: entry.models) }
         .onChange(of: choice.model) { choice.fit(to: entry.models) }
+    }
+
+    private var roleLabel: some View {
+        Label(title, systemImage: symbol)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .frame(minWidth: 90, alignment: .leading)
+    }
+
+    private var harnessPicker: some View {
+        Picker(title, selection: Binding(get: { choice.harness }, set: { choice.switchHarness(to: $0) })) {
+            ForEach(CoreHarness.allCases) { Text($0.displayName).tag($0) }
+        }
+        .labelsHidden()
+        .fixedSize()
+        .accessibilityIdentifier("roleHarness-\(identifier)")
     }
 
     private var modelTitle: String {
@@ -144,7 +175,6 @@ struct SingleAgentHarnessMenu: View {
 
     var body: some View {
         startItem("Default model", model: nil)
-            .accessibilityIdentifier("harnessDefault-\(harness.rawValue)")
         switch entry {
         case .loading:
             Text("Loading models…")
