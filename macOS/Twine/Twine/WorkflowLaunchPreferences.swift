@@ -12,13 +12,20 @@ struct WorkflowLaunchPreferences {
             self.defaults = defaults
             return
         }
+        self.defaults = Self.defaultStore()
+    }
+
+    /// Explicitly isolated launches use the same preference store in Debug and Release.
+    static func defaultStore(environment: [String: String] = ProcessInfo.processInfo.environment) -> UserDefaults {
+        if let suite = environment["TWINE_PREFERENCES_SUITE"], !suite.isEmpty {
+            return UserDefaults(suiteName: suite) ?? .standard
+        }
         #if DEBUG
-            if let suite = ProcessInfo.processInfo.environment["TWINE_TEST_PREFERENCES_SUITE"] {
-                self.defaults = UserDefaults(suiteName: suite) ?? .standard
-                return
+            if let suite = environment["TWINE_TEST_PREFERENCES_SUITE"], !suite.isEmpty {
+                return UserDefaults(suiteName: suite) ?? .standard
             }
         #endif
-        self.defaults = .standard
+        return .standard
     }
 
     func choices(for type: CoreWorkflowType) -> [String: [HarnessChoice]] {

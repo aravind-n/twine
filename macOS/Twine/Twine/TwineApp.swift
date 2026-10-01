@@ -38,6 +38,7 @@ struct TwineApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .defaultAppStorage(WorkflowLaunchPreferences.defaultStore())
                 .environment(coreClient)
                 .environment(fileTabs)
                 .environment(workflowLayouts)
