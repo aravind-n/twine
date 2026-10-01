@@ -121,7 +121,7 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func completeRole(
+    func completeRole(
         in app: XCUIApplication, summary: String, requestChanges: Bool = false, task: String? = nil
     ) {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
@@ -145,7 +145,7 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func workflowRunApp(appearance: String? = nil) throws -> XCUIApplication {
+    func workflowRunApp(appearance: String? = nil) throws -> XCUIApplication {
         let folder = FileManager.default.temporaryDirectory.appending(path: "TwineRunUI-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
@@ -162,8 +162,9 @@ extension TwineUITests {
         app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(folder.path)/bin:/bin:/usr/bin"
         app.launch()
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
-        XCTAssertTrue(item("workflowChoice-Terminal").waitForExistence(timeout: 10))
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 720))
+        XCTAssertTrue(item("workflowChoice-Terminal").waitForExistence(timeout: 10))
         item("workflowChoice-Terminal").click()
         XCTAssertTrue(item("newTabChoices").waitForNonExistence(timeout: 10), app.debugDescription)
         return app

@@ -90,7 +90,8 @@ struct WorkflowDesigner: View {
     private var validationSummary: String {
         if model.failure != nil { return "Validation unavailable" }
         if model.isValidating { return "Checking design…" }
-        return model.issues.isEmpty ? "Ready to save" : "\(model.issues.count) issues to fix"
+        if model.issues.isEmpty { return "Ready to save" }
+        return model.issues.count == 1 ? "1 issue to fix" : "\(model.issues.count) issues to fix"
     }
 
     private func sectionTitle(_ section: Section) -> String {

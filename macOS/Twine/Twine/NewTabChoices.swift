@@ -107,12 +107,6 @@ struct NewTabChoices: View {
                     .accessibilityIdentifier("agentStartFailure")
             }
 
-            Button("Create your own", systemImage: "plus.square.on.square") { showsDesigner = true }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
-                .disabled(!isSelected || startingHarness != nil)
-                .help("Create your own workflow type (⇧⌘D)")
-                .accessibilityIdentifier("workflowCreateOwn")
-
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumChoiceWidth), spacing: NewTabLayout.spacing)],
                 spacing: NewTabLayout.spacing
@@ -131,6 +125,12 @@ struct NewTabChoices: View {
                             ? "workflowChoice-\(type.id)" : "workflowChoice-\(type.definition.name)")
                 }
             }
+
+            Button("Create your own", systemImage: "plus.square.on.square") { showsDesigner = true }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(!isSelected || startingHarness != nil)
+                .help("Create your own workflow type (⇧⌘D)")
+                .accessibilityIdentifier("workflowCreateOwn")
         }
     }
 
