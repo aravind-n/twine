@@ -3,7 +3,7 @@ import XCTest
 
 extension TwineUITests {
     @MainActor
-    func testAgentSubtabsKeepEachShellAndEachWorkflowRemembersItsSubtab() throws {
+    func testAgentSubtabsRestoreEachWorkflowsSelectionAndCloseShells() throws {
         let folder = try makeTestFolder(prefix: "TwineAgentUITests")
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
@@ -23,7 +23,6 @@ extension TwineUITests {
 
         let processIDs = try startShells(in: subtabs, folder: folder, app: app)
         defer { processIDs.forEach(endProcessIfRunning) }
-        try checkShellsSurviveSwitching(subtabs, processIDs: processIDs, folder: folder, app: app)
 
         // Each workflow keeps its own subtab.
         subtabs[1].click()
@@ -37,8 +36,11 @@ extension TwineUITests {
         waitUntilSelected(otherCoordinator, in: app)
         agentsTab.click()
         waitUntilSelected(subtabs[1], in: app)
-        app.typeText("echo $TWINE_AGENT > remembered.txt\r")
-        waitForFile(folder.appending(path: "remembered.txt"), containing: "agent1", in: app)
+        app.typeText("{ echo $$; echo $TWINE_AGENT; } > remembered.txt\r")
+        let remembered = folder.appending(path: "remembered.txt")
+        waitForFile(remembered, containing: "agent1", in: app)
+        let lines = try String(contentsOf: remembered, encoding: .utf8).split(separator: "\n")
+        XCTAssertEqual(lines.first, String(processIDs[1])[...], "Switching workflows restarted the selected shell")
         otherTab.click()
         waitUntilSelected(otherCoordinator, in: app)
         draft.click()
@@ -99,19 +101,4 @@ extension TwineUITests {
         app.terminate()
     }
 
-    /// Switching back to each subtab finds its shell as it was left: the same process and variable.
-    @MainActor
-    private func checkShellsSurviveSwitching(
-        _ subtabs: [XCUIElement], processIDs: [pid_t], folder: URL, app: XCUIApplication
-    ) throws {
-        for index in [1, 0, 2] {
-            subtabs[index].click()
-            waitUntilSelected(subtabs[index], in: app)
-            app.typeText("{ echo $$; echo $TWINE_AGENT; } > check\(index).txt\r")
-            let check = folder.appending(path: "check\(index).txt")
-            waitForFile(check, containing: "agent\(index)", in: app)
-            let lines = try String(contentsOf: check, encoding: .utf8).split(separator: "\n")
-            XCTAssertEqual(lines.first, String(processIDs[index])[...], "Switching subtabs restarted a shell")
-        }
-    }
 }

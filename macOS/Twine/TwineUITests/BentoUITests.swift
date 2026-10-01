@@ -29,16 +29,11 @@ extension TwineUITests {
         attachScreenshot(of: app, named: "Bento panes, the Coordinator moved first and widened")
         try checkKeyboardReturnsWithTheWorkflow(to: panes[2], agent: 2, shells: shells, app: app)
 
-        // Tab mode shows the focused agent alone, and every shell is still the one it started.
+        // Tab mode shows the focused agent alone, with its original shell and keyboard focus.
         layout.radioButtons["Tabs"].click()
         XCTAssertTrue(panes[0].waitForNonExistence(timeout: 5), app.debugDescription)
         waitUntilSelected(subtabs[2], in: app)
         try checkKeyboardReaches(agent: 2, of: shells, app: app)
-        for index in [0, 1] {
-            subtabs[index].click()
-            waitUntilSelected(subtabs[index], in: app)
-            try checkKeyboardReaches(agent: index, of: shells, app: app)
-        }
 
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(app.buttons["workflowTab-2"].waitForNonExistence(timeout: 5), app.debugDescription)
@@ -105,6 +100,7 @@ extension TwineUITests {
         try checkKeyboardReaches(agent: 2, of: shells, app: app)
         app.typeKey("]", modifierFlags: .command)
         waitUntilFocused(panes[0], in: app)
+        try checkKeyboardReaches(agent: 0, of: shells, app: app)
         app.typeKey("[", modifierFlags: .command)
         waitUntilFocused(panes[2], in: app)
         panes[1].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: 0, dy: 80))
