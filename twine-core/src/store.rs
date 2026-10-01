@@ -5,6 +5,7 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use thiserror::Error;
 use tracing::info;
 
+mod harness_sessions;
 mod harness_steps;
 mod recovery;
 mod run_traces;
@@ -202,7 +203,9 @@ const MIGRATIONS: &[&str] = &[
     // Rust validates harness choices; retaining the parent table preserves dependent history.
     "ALTER TABLE workflows RENAME COLUMN harness_id TO legacy_harness_id;
      ALTER TABLE workflows ADD COLUMN harness_id TEXT;
-     UPDATE workflows SET harness_id = legacy_harness_id"
+     UPDATE workflows SET harness_id = legacy_harness_id",
+    // 15: Exact harness sessions, tied to terminal ownership rather than a shared folder.
+    "ALTER TABLE workflow_terminals ADD COLUMN harness_session TEXT"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the

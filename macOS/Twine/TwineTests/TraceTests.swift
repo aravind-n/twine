@@ -90,6 +90,48 @@ struct TraceTimelineTests {
 
 @MainActor
 struct TraceStateTests {
+    @Test func splitTracesKeepEveryLaneAndLoadEventsFromTheSelectedPane() async throws {
+        let transport = TraceTestTransport()
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await waitUntil { client.runState == .running }
+        let state = TracePanelState()
+        await state.refresh(workflowIDs: [1, 2], client: client)
+        #expect(state.workflowIDs == [1, 2])
+        #expect(state.lanes.map(\.workflowID) == [1, 2])
+        #expect(state.spans.map(\.id) == [10, 20])
+        state.selectedSpanID = 20
+        await state.loadEvents(client: client)
+        #expect(state.events.first?.workflowID == 2)
+        await state.refresh(workflowIDs: [1, 2], client: client)
+        #expect(state.selectedSpanID == 20)
+        await state.refresh(workflowIDs: [1], client: client)
+        #expect(state.spans.map(\.id) == [10])
+        #expect(state.selectedSpanID == nil)
+        await client.stop()
+    }
+
+    @Test func splitPaginationKeepsOlderPagesFromEachWorkflowOnRefresh() async throws {
+        let transport = TraceTestTransport()
+        await transport.enablePagination()
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await waitUntil { client.runState == .running }
+        let state = TracePanelState()
+        await state.refresh(workflowIDs: [1, 2], client: client)
+        #expect(state.spans.count == 400)
+        #expect(state.nextBefore != nil)
+        await state.loadOlder(client: client)
+        #expect(state.spans.count == 402)
+        #expect(state.nextBefore == nil)
+        #expect(state.spans.contains { $0.id == 1100 })
+        #expect(state.spans.contains { $0.id == 2100 })
+        await state.refresh(workflowIDs: [1, 2], client: client)
+        #expect(state.spans.count == 402)
+        #expect(Set(state.spans.map(\.id)).count == 402)
+        await client.stop()
+    }
+
     @Test func lateReadCannotReplaceTheSelectedWorkflowsTraces() async throws {
         let transport = TraceTestTransport()
         let client = CoreClient(transport: transport)
@@ -198,6 +240,8 @@ struct TraceStateTests {
 }
 
 private actor TraceTestTransport {
+    private var paged = false
+    func enablePagination() { paged = true }
     private var heldSpan: UInt64?
     private var pendingEvents: CheckedContinuation<CoreTraceEventsPage, Never>?
     private(set) var eventReadCursors: [UInt64?] = []
@@ -232,6 +276,17 @@ private actor TraceTestTransport {
     func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async -> CoreWorkflowTracePage {
         if heldWorkflow == workflowID {
             return await withCheckedContinuation { pending = $0 }
+        }
+        if paged {
+            let base = workflowID * 1000
+            let spans =
+                before == nil
+                ? (200..<400).map { traceSpan(id: base + UInt64($0), laneID: workflowID) }
+                : [traceSpan(id: base + 100, laneID: workflowID)]
+            return CoreWorkflowTracePage(
+                summary: .init(workflowID: workflowID, revision: 1, spanCount: 201, agentCount: 0),
+                lanes: tracePage(workflowID: workflowID, spanID: 1).lanes, spans: spans,
+                nextBefore: before == nil ? base + 200 : nil)
         }
         return tracePage(workflowID: workflowID, spanID: workflowID * 10)
     }

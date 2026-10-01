@@ -46,7 +46,7 @@ final class CoreClient {
             switch command {
             case .validateWorkflowType, .saveWorkflowType, .ping, .startTerminal, .closeTerminal, .createWorkflow,
                 .activateWorkflow, .closeWorkflow,
-                .startAgent, .cancelAgent, .createSession, .renameSession, .selectSession, .deleteSession:
+                .startAgent, .resumeAgent, .cancelAgent, .createSession, .renameSession, .selectSession, .deleteSession:
                 if commandResults.removeValue(forKey: receipt.requestID) == nil {
                     ignoredCommandResults.insert(receipt.requestID)
                 }

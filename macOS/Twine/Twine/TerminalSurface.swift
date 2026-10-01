@@ -99,6 +99,11 @@ struct TerminalSurface: View {
         .task(id: markerKey) {
             if isVisible { await minimap.loadMarkers(markers, terminalID: terminalID, client: coreClient) }
         }
+        .modifier(
+            TerminalTraceNavigation(
+                terminalID: terminalID, historyTerminalIDs: historyTerminalIDs,
+                isVisible: isVisible, minimap: minimap)
+        )
         .accessibilityHidden(!isVisible)
     }
 
@@ -165,12 +170,14 @@ struct TerminalViewRepresentable: NSViewRepresentable {
         view.didFocus = didFocus
         view.minimapState = minimap
         minimap?.view = view
+        view.attachmentFailure = { failureMessage = $0 }
         view.terminalDelegate = context.coordinator
         context.coordinator.start(view: view)
         return view
     }
 
     func updateNSView(_ nsView: MetalTerminalView, context: Context) {
+        nsView.attachmentFailure = { failureMessage = $0 }
         nsView.applyTwineFont(font)
         context.coordinator.beforeUserInput = beforeUserInput
         nsView.automaticallyFocuses = automaticallyFocuses

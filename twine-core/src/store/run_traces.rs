@@ -16,9 +16,23 @@ impl Store {
         &mut self,
         workflow: &Workflow,
     ) -> Result<Vec<(TerminalId, TraceSpanId)>, StoreError> {
+        self.save_workflow_run_with_sessions(workflow, &[])
+    }
+
+    pub(crate) fn save_workflow_run_with_sessions(
+        &mut self,
+        workflow: &Workflow,
+        sessions: &[(TerminalId, &str)],
+    ) -> Result<Vec<(TerminalId, TraceSpanId)>, StoreError> {
         let run = workflow.run.as_ref().expect("workflow has a run");
         let transaction = self.connection.transaction()?;
         super::workflows::remember_terminals(&transaction, workflow)?;
+        for (terminal, session) in sessions {
+            transaction.execute(
+                "UPDATE workflow_terminals SET harness_session = ?2 WHERE terminal_id = ?1",
+                params![sql_integer(terminal.value())?, session],
+            )?;
+        }
         let spans = record_starts(&transaction, workflow, run)?;
         save_run_state(&transaction, workflow.workflow_id, run)?;
         transaction.commit()?;

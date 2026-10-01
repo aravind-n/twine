@@ -5,6 +5,7 @@ extension FocusedValues {
     /// Whether the focused window shows the folder picker.
     @Entry var isChoosingFolder: Binding<Bool>?
     @Entry var workflowActions: WorkflowActions?
+    @Entry var newWorkflowType: Binding<Bool>?
     /// The path of the file open in the focused window.
     @Entry var openFilePath: String?
 }
@@ -33,6 +34,7 @@ struct FolderCommands: Commands {
     let coreClient: CoreClient
     let editor: FileEditorModel
     @FocusedBinding(\.isChoosingFolder) private var isChoosingFolder
+    @FocusedBinding(\.newWorkflowType) private var newWorkflowType
     @FocusedValue(\.workflowActions) private var workflowActions
     @FocusedValue(\.openFilePath) private var openFilePath
 
@@ -42,6 +44,9 @@ struct FolderCommands: Commands {
             Button("New Workflow") { workflowActions?.create() }
                 .keyboardShortcut("t")
                 .disabled(workflowActions == nil || !isRunning)
+            Button("Create Workflow Type…") { newWorkflowType = true }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(newWorkflowType == nil || !isRunning)
             Button("Cancel Agent") { workflowActions?.cancelAgent?() }
                 .keyboardShortcut(".")
                 .disabled(workflowActions?.cancelAgent == nil || !isRunning)

@@ -16,15 +16,15 @@ nonisolated struct TraceMinimapMarker: Identifiable, Equatable {
 final class TraceMinimapState {
     private(set) var markers: [TraceMinimapMarker] = []
     private(set) var failureMessage: String?
-    private var workflowID: UInt64?
+    private var workflowIDs: [UInt64] = []
     private var anchors: [UInt64: CoreTraceEvent] = [:]
     private var generation = 0
 
     func refresh(activity: TracePanelState, client: CoreClient) async {
         generation += 1
         let readGeneration = generation
-        if workflowID != activity.workflowID {
-            workflowID = activity.workflowID
+        if workflowIDs != activity.workflowIDs {
+            workflowIDs = activity.workflowIDs
             anchors = [:]
             markers = []
         }
@@ -37,7 +37,9 @@ final class TraceMinimapState {
                 repeat {
                     let page = try await client.traceEvents(spanID: step.id, after: after)
                     try Task.checkCancellation()
-                    guard readGeneration == generation, page.workflowID == workflowID else { return }
+                    guard readGeneration == generation,
+                        page.workflowID == lanes.first(where: { $0.id == step.span.laneID })?.workflowID
+                    else { return }
                     if let event = page.events.first(where: { $0.anchor != nil }) {
                         anchors[step.id] = event
                         break

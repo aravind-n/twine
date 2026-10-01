@@ -24,7 +24,9 @@ struct TerminalHistoryTests {
         ]
         let navigation = TraceTerminalNavigation()
         navigation.jump(toCommand: span, events: events, lane: lane)
-        let target = try #require(navigation.target)
+        let target = try #require(navigation.scrollTarget)
+        #expect(navigation.target == nil)
+        #expect(target.scrollAnchor.byteOffset == startOffset)
         #expect(target.outputStartAnchor?.byteOffset == startOffset)
         let state = TerminalHistoryState()
         await state.load(target, client: CoreClient(transport: TranscriptFixtureTransport(bytes: bytes)))
@@ -37,9 +39,21 @@ struct TerminalHistoryTests {
         #expect(replay.offset == endOffset)
         let range = try #require(replay.outputStartRange)
         #expect((replay.text as NSString).substring(from: range.location).hasPrefix("hello"))
-        navigation.target = nil
+        navigation.scrollTarget = nil
         navigation.jump(toCommand: span, events: events, lane: lane)
-        #expect(navigation.target?.id != target.id)
+        #expect(navigation.scrollTarget?.id != target.id)
+    }
+
+    @Test func explicitHistoryClearsPriorScrollDestination() {
+        let navigation = TraceTerminalNavigation()
+        navigation.scrollTarget = .init(
+            workflowID: 1, agentID: nil, anchor: .init(terminalID: 1, byteOffset: 0), timestamp: 0, message: "First")
+        navigation.target = .init(
+            workflowID: 2, agentID: nil, anchor: .init(terminalID: 2, byteOffset: 0), timestamp: 0, message: "Second")
+        #expect(navigation.scrollTarget == nil)
+        #expect(navigation.destination?.workflowID == 2)
+        navigation.target = nil
+        #expect(navigation.destination == nil)
     }
 
     @Test func runningCommandLoadsRecordedOutputAfterItsStartAnchor() async throws {
@@ -73,7 +87,7 @@ struct TerminalHistoryTests {
                 message: "Command exited with code 0.", anchor: .init(terminalID: 8, byteOffset: 20)),
         ]
         navigation.jump(toCommand: span, events: events, lane: lane)
-        let target = try #require(navigation.target)
+        let target = try #require(navigation.scrollTarget)
         #expect(!target.readToCurrentEnd)
         #expect(target.anchor.byteOffset == 20)
     }
@@ -135,15 +149,15 @@ struct TerminalHistoryTests {
             eventID: 1, workflowID: 3, spanID: 1, timestamp: 42, kind: .processStopped,
             message: "Stopped", anchor: .init(terminalID: 8, byteOffset: 50))
         navigation.jump(to: event, lane: lane)
-        #expect(navigation.target?.workflowID == 3)
-        #expect(navigation.target?.agentID == 9)
-        #expect(navigation.target?.anchor.terminalID == 8)
-        navigation.target = nil
+        #expect(navigation.scrollTarget?.workflowID == 3)
+        #expect(navigation.scrollTarget?.agentID == 9)
+        #expect(navigation.scrollTarget?.anchor.terminalID == 8)
+        navigation.scrollTarget = nil
         navigation.jump(
             to: .init(
                 eventID: 2, workflowID: 3, spanID: 1, timestamp: 43, kind: .processFailed, message: "Unavailable",
                 anchor: nil),
             lane: lane)
-        #expect(navigation.target == nil)
+        #expect(navigation.scrollTarget == nil)
     }
 }

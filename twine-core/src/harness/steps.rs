@@ -17,6 +17,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum StepKind {
+    SessionStarted,
     Prompt,
     ToolStarted,
     ToolFinished,
@@ -25,6 +26,7 @@ pub(crate) enum StepKind {
 
 #[derive(Clone, Debug)]
 pub(crate) struct HarnessStep {
+    pub session_id: Option<String>,
     pub kind: StepKind,
     pub turn_id: Option<String>,
     pub tool_call_id: Option<String>,
@@ -33,6 +35,17 @@ pub(crate) struct HarnessStep {
 }
 
 impl HarnessStep {
+    pub(crate) fn session_started(value: &serde_json::Value) -> Option<Self> {
+        Some(Self {
+            session_id: Some(super::resume::session_handle(value)?),
+            kind: StepKind::SessionStarted,
+            turn_id: None,
+            tool_call_id: None,
+            title: String::new(),
+            detail: String::new(),
+        })
+    }
+
     pub(crate) fn message(&self) -> String {
         if self.detail.is_empty() {
             self.title.clone()

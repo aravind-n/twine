@@ -39,6 +39,7 @@ extension TwineUITests {
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         attachWindow(in: app, name: "\(appearance), centered draft and footer")
 
+        app.buttons["sidebarToggle"].click()
         // The title bar adds 52 points to the 400 × 250 minimum content size.
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 400, height: 302))
         XCTAssertEqual(app.windows.firstMatch.frame.width, 400, accuracy: 2)
@@ -83,7 +84,9 @@ extension TwineUITests {
         let toggle = app.buttons["sidebarToggle"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
         let root = fileRow(folder, in: app)
-        XCTAssertFalse(root.exists, "The sidebar should start hidden")
+        XCTAssertTrue(root.waitForExistence(timeout: 5), "The sidebar should start open")
+        toggle.click()
+        XCTAssertTrue(root.waitForNonExistence(timeout: 5), "The sidebar must remain collapsible")
         let traces = app.descendants(matching: .any).matching(identifier: "tracesHeader").firstMatch
         XCTAssertTrue(traces.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(traces.label, "Activity, collapsed")
@@ -145,10 +148,11 @@ extension TwineUITests {
         let widthTarget = window.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: size.width - 1, dy: window.frame.height / 2))
         rightEdge.click(forDuration: 0.2, thenDragTo: widthTarget)
-        let bottomEdge = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1))
-            .withOffset(CGVector(dx: 0, dy: -1))
+        // Stay near the left edge so the Dock cannot intercept a tall window's bottom resize handle.
+        let bottomEdge = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 1))
+            .withOffset(CGVector(dx: 24, dy: -1))
         let heightTarget = window.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: window.frame.width / 2, dy: size.height - 1))
+            .withOffset(CGVector(dx: 24, dy: size.height - 1))
         bottomEdge.click(forDuration: 0.2, thenDragTo: heightTarget)
     }
 

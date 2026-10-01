@@ -60,7 +60,7 @@ nonisolated indirect enum TerminalSplit: Codable, Equatable, Sendable {
         case .branch(let key, let direction, let fraction, let first, let second):
             let horizontal = direction == .right
             let length = horizontal ? bounds.width : bounds.height
-            let gap = min(6, length)
+            let gap = min(BentoLayout.gutter, length)
             let usable = max(0, length - gap)
             let minimum = min(horizontal ? 180.0 : 100.0, usable / 2)
             let position = min(max(minimum, usable * fraction), usable - minimum)

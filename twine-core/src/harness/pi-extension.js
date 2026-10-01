@@ -9,6 +9,7 @@ export default function (pi) {
   const queue = [];
   const calls = new Map();
   let active;
+  let sessionFile;
   let response = "";
   let responseSucceeded = false;
   let pending;
@@ -86,15 +87,20 @@ export default function (pi) {
   }
   function send(event) {
     if (closed || queue.length >= 256) return;
-    queue.push(JSON.stringify(event));
+    queue.push(JSON.stringify({ ...event, session_id: sessionFile }));
     pump();
   }
   // Handlers never await I/O or return a result that could alter Pi's behavior.
   const observe = (name, handler) => pi.on(name, (event, ctx) => {
     // OMP binds this factory to child agents too; only the root owns this terminal's trace.
     if (isOmp && ctx?.agent?.kind === "sub") return;
-    try { handler(event); } catch { /* Recording is best effort. */ }
+    try {
+      sessionFile = ctx?.sessionManager?.getSessionFile();
+      handler(event);
+    } catch { /* Recording is best effort. */ }
   });
+  observe("session_start", () => send({ type: "session" }));
+  observe("session_switch", () => send({ type: "session" }));
   observe("message_start", event => {
     if (event.message?.role !== "user") return;
     // Pi drains queued follow-ups before agent_settled. Finish an answered prompt before

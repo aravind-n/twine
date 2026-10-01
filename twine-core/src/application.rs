@@ -23,6 +23,7 @@ mod git;
 mod harness_steps;
 #[cfg(test)]
 mod recovery;
+mod resume_agents;
 mod runs;
 mod sessions;
 mod terminals;
@@ -109,6 +110,10 @@ pub enum Command {
         yolo: bool,
         prompt: String,
         size: TerminalSize,
+    },
+    ResumeAgent {
+        workflow_id: WorkflowId,
+        session: String,
     },
     /// Stops a running agent, leaving its workflow open.
     CancelAgent {
@@ -396,6 +401,10 @@ impl Application {
                 &prompt,
                 size,
             )?,
+            Command::ResumeAgent {
+                workflow_id,
+                session,
+            } => self.resume_agent(request_id, workflow_id, &session)?,
             Command::CancelAgent { workflow_id } => self.cancel_agent(request_id, workflow_id)?,
             Command::StartWorkflowRun {
                 workflow_id,
@@ -553,6 +562,8 @@ fn rejection(code: &str, error: &dyn std::error::Error) -> CommandDisposition {
 
 #[derive(Debug, Error)]
 pub enum ApplicationError {
+    #[error(transparent)]
+    Harness(#[from] crate::harness::HarnessError),
     #[error(transparent)]
     Catalog(#[from] crate::CatalogError),
     #[error(transparent)]

@@ -78,8 +78,11 @@ nonisolated struct CoreWorkflow: Decodable, Equatable, Identifiable, Sendable {
 
     /// The workflow's live shells: its agents' in an agents workflow, and otherwise its own.
     var terminalIDs: [UInt64] {
-        if restored && (kind == .singleAgent || run != nil) { return [] }
-        return (kind == .agents ? agents.map(\.terminalID) : [terminalID]).filter { $0 != 0 }
+        return (kind == .agents ? agents.map(\.terminalID) : [terminalID]).filter { id in
+            id != 0
+                && (!restored || !(kind == .singleAgent || run != nil)
+                    || terminalHistory?.contains(where: { $0.terminalID == id }) != true)
+        }
     }
 
     enum Kind: String, Codable, Sendable {

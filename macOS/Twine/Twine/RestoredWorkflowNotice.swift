@@ -10,6 +10,9 @@ struct RestoredWorkflowNotice: View {
             Label(message, systemImage: "arrow.clockwise")
                 .accessibilityIdentifier("restoredWorkflowNotice")
             Spacer(minLength: 0)
+            if workflow.kind == .singleAgent && workflow.status != .running {
+                ResumeAgentButton(workflow: workflow)
+            }
             if let history = workflow.terminalHistory, !history.isEmpty {
                 Menu("Saved output", systemImage: "clock.arrow.circlepath") {
                     ForEach(Array(history.enumerated()), id: \.element.terminalID) { index, entry in
@@ -33,6 +36,7 @@ struct RestoredWorkflowNotice: View {
 
     private var message: String {
         if workflow.kind == .singleAgent {
+            if workflow.status == .running { return "Agent session resumed. Saved output is available." }
             return switch workflow.status {
             case .cancelled: "Saved output · Agent cancelled"
             case .exited, .completed: "Saved output · Agent exited"
@@ -41,7 +45,9 @@ struct RestoredWorkflowNotice: View {
             }
         }
         if workflow.run != nil {
-            return "Saved output restored. Agents are stopped."
+            return workflow.status == .running
+                ? "Agent sessions resumed. Saved output is available."
+                : "Saved output restored. Agents are stopped."
         }
         let hasAgents = workflow.kind == .agents
         if workflow.terminalIDs.isEmpty {

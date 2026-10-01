@@ -50,6 +50,7 @@ extension TwineUITests {
         app.launchEnvironment["TWINE_TEST_APPEARANCE"] = "Dark"
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["sidebarToggle"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 760))
         openTestWorkflow(agents: 4, in: app)
         let subtabs = (1...4).map { app.buttons["agentSubtab-\($0)"] }
@@ -80,6 +81,7 @@ extension TwineUITests {
         let agentsTab = app.buttons["workflowTab-2"]
         XCTAssertTrue(agentsTab.waitForExistence(timeout: 10), app.debugDescription)
         agentsTab.click()
+        app.buttons["sidebarToggle"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 760))
         XCTAssertTrue(panes[3].waitForExistence(timeout: 10), app.debugDescription)
         waitUntilFocused(panes[3], in: app)
@@ -150,7 +152,8 @@ extension TwineUITests {
     ) throws {
         // A short window keeps one pane per column: the focused one, or the column's first.
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 520))
-        XCTAssertTrue(panes[1].waitForNonExistence(timeout: 5), "The Reviewer's pane should give way")
+        XCTAssertTrue(
+            panes[1].waitForNonExistence(timeout: 5), "The Reviewer's pane should give way\n\(app.debugDescription)")
         XCTAssertTrue(panes[3].exists && panes[2].exists, "Each column keeps a pane\n\(app.debugDescription)")
         XCTAssertFalse(panes[0].exists, "The Implementer's pane should give way\n\(app.debugDescription)")
         attachScreenshot(of: app, named: "Dark, Bento in a short window")

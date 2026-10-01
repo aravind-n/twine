@@ -189,6 +189,7 @@ impl Application {
             harness,
             placeholder,
             self.terminals.observe(placeholder).ok(),
+            None,
         ) {
             drop(inner);
             let _ = self.terminals.close(terminal_id);

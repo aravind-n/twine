@@ -12,7 +12,7 @@ The app is ad hoc signed and not notarized; managed Macs may restrict approval.
 
 ## Files
 
-Show the sidebar to browse the open folder. Expanding a directory loads only its children;
+The sidebar starts open. Toggle it with the toolbar button or **⌃⌘S** to browse the folder or make more room for terminals. Expanding a directory loads only its children;
 empty directories remain visible. The `twine-core` file watcher checks expanded directories and the
 selected file every 500 ms, including changes made by shells and agents.
 
@@ -38,7 +38,7 @@ in the open folder; parallel workers receive their own sub-task and advisory fil
 Each role has a terminal subtab. A stage starts fresh harness processes, including when a review
 loop returns to an earlier role.
 
-Choose **Create your own** (**⌥⌘D**) in a new tab to design a workflow type. Add roles and
+Choose **Create your own** (**⌥⌘N**) in a new tab to design a workflow type. Add roles and
 instructions, order stages and their parallel roles, connect handoffs, and bound review loops.
 The designer shows validation errors beside each affected element and enables Save only after
 the current design validates. Use Tab and Shift-Tab to navigate controls, Return to save, and
@@ -58,12 +58,12 @@ advance a stage.
 **Mark done…** is always available for an unfinished active role, including after its process
 exits. Its form also supports review decisions and worker assignments. Review loops stop at the
 type's limit; **Cancel workflow** stops all its agents. Runs restored after quitting or a crash
-are interrupted, without automatically restarting harnesses. The Activity panel shows each
+resume their unfinished active agents when every one has a recorded harness session. Otherwise they remain interrupted with their saved output. The Activity panel shows each
 role's stage invocations on compact agent tracks in shared start order, with equal spacing
 regardless of pauses. Select a step to focus a seven-step window and inspect its stage
 changes, completions, and handoffs; this history survives reopening the app.
 
-Claude Code, Codex, and pi also report prompts, tool calls, and responses through launch-only observers.
+Claude Code, Codex, pi, and OMP also report prompts, tool calls, and responses through launch-only observers.
 Single-agent runs show a span for each prompt; multi-agent steps stay under the role's assignment.
 Select a step to jump to its recorded terminal position. Hook payloads are bounded and recording
 is best effort. If hooks are unavailable or disabled, the ordinary agent span remains. User and
@@ -168,8 +168,17 @@ extend Swift's `CoreConfig` when a consumer needs the new field.
 
 Use the two buttons at the top right, **⌘D** to split right, or **⇧⌘D** to split down.
 Each split starts a shell in the same folder; run any command or coding agent there.
-Up to four panes share a tab, with draggable dividers. **⌘[** and **⌘]** move keyboard focus,
-**⌘W** closes the focused pane, and closing the tab closes its panes. Pane layouts survive reopening.
+Up to four panes share the same Bento styling and draggable dividers as agent workflows.
+**⌘[** and **⌘]** move keyboard focus. Each pane has a close button; **⌘W** closes the focused
+pane, and closing the tab closes its panes. Pane layouts survive reopening. Activity combines
+all panes in a tab into one set of tracks, and selecting an event focuses its owning pane.
+
+Paste a clipboard screenshot with **⌘V**, or drop images and files onto any terminal or agent
+pane. Clipboard images become private PNG files in the temporary directory; Twine inserts their
+quoted paths so the shell or harness can read them. File drops use their original paths.
+Codex launches with `--no-alt-screen` and pi with `--tui-mode regular` so output remains in
+scrollback. Claude Code, OMP, and OpenCode's mini interface already render inline; harnesses
+without an inline launch option retain their own display setting.
 
 ## Terminal transcripts
 
@@ -180,8 +189,8 @@ Page Up/Down, Home, and End keys. **Return to live** resumes following the lates
 Each Bento pane keeps its own position.
 
 Minimap points use the same step IDs, numbers, role colors, and selection as **Activity**.
-Selecting a point opens that step in Activity and follows its recorded terminal anchor,
-using the same output viewer as the Activity panel. Points are placed by terminal row;
+Selecting a point opens that step in Activity and scrolls the live terminal to its recorded
+position. Points are placed by terminal row;
 Activity spaces steps by start order. Loading **Older activity** adds those steps to the
 map when their output is still available. Output without an available anchor remains
 scrollable without a guessed point. Historical output also has its own minimap.
@@ -189,7 +198,11 @@ scrollable without a guessed point. Historical output also has its own minimap.
 `twine-core` records raw terminal output under `transcripts/` in its application data directory.
 Terminal IDs remain unique across launches. Closing a terminal preserves output already accepted
 for recording. Reopening a folder restores recorded output and scrollback. Shells append a fresh
-prompt; stopped coding agents keep their recorded terminal visible without restarting the process.
+prompt. Single agents resume their exact recorded harness session, retaining earlier output.
+Codex and Claude Code use session IDs; pi and OMP use session files. Antigravity and OpenCode
+support exact-ID resume but don't expose launch observers, so use **Resume Session…** to supply
+the conversation/session ID once. The same action is available for older tabs without a captured
+session. Twine never guesses the latest conversation. Cancelled or failed agents remain stopped.
 **Saved output** opens earlier invocations, including an idle shell with no Activity step.
 Live views and ANSI replay retain up to 100,000 rows in memory; the raw transcript limits below
 apply independently. Draft launch surfaces do not create Activity lanes until used as terminals.
@@ -208,11 +221,12 @@ returns an empty page; an offset beyond that end is an error. Pruned history ret
 Unknown IDs and unavailable storage return typed errors. Byte offsets do not describe terminal
 screen state; ANSI replay and resize handling belong to the history viewer.
 
-Click an anchored event in the trace details to select its workflow and agent and show a
-read-only snapshot of the terminal at that moment. **Return to live** restores the agent's
-live terminal. The snapshot replays cursor movement and recorded terminal sizes; resizing
-the window only changes its viewport. It currently displays text without terminal colors
-or images. Events without an anchor keep their details without a jump action.
+Click an anchored event in trace details to select its workflow and agent and scroll the mounted
+terminal to that point. **Return to live** scrolls back to the latest output. If a point belongs
+to an earlier invocation or has left scrollback, choose **Show saved output** in the notice to
+open a read-only snapshot. Saved output replays cursor movement and recorded terminal sizes;
+resizing the window only changes its viewport. It displays text without terminal colors or
+images. Events without an anchor keep their details without a jump action.
 
 Replay requires the entire byte prefix and its resize history. Pruned output, older
 transcripts without geometry, or expired resize metadata show **Output no longer available**.

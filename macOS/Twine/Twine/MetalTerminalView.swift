@@ -48,6 +48,47 @@ final class MetalTerminalView: TerminalView {
     private(set) var isSendingTerminalResponse = false
     weak var minimapState: TerminalMinimapState?
 
+    var attachmentFailure: ((String) -> Void)?
+
+    override func paste(_ sender: Any) {
+        guard attachmentFailure != nil, TerminalAttachments.canRead(.general) else {
+            super.paste(sender)
+            return
+        }
+        _ = pasteAttachments(from: .general)
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        attachmentFailure != nil && TerminalAttachments.canRead(sender.draggingPasteboard) ? .copy : []
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        draggingEntered(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        !draggingEntered(sender).isEmpty
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard attachmentFailure != nil else { return false }
+        window?.makeFirstResponder(self)
+        return pasteAttachments(from: sender.draggingPasteboard)
+    }
+
+    private func pasteAttachments(from pasteboard: NSPasteboard) -> Bool {
+        do {
+            guard let text = try TerminalAttachments.text(from: pasteboard) else { return false }
+            let bracketed = getTerminal().bracketedPasteMode
+            let paste = bracketed ? "\u{1B}[200~" + text + "\u{1B}[201~" : text
+            send(data: Array(paste.utf8)[...])
+            return true
+        } catch {
+            attachmentFailure?(error.localizedDescription)
+            return false
+        }
+    }
+
     override func send(source: Terminal, data: ArraySlice<UInt8>) {
         isSendingTerminalResponse = true
         defer { isSendingTerminalResponse = false }
@@ -147,6 +188,7 @@ final class MetalTerminalView: TerminalView {
         font = .terminal
         changeScrollback(100_000)
         applyTwinePalette()
+        registerForDraggedTypes(TerminalAttachments.types)
     }
 
     required init?(coder: NSCoder) {
@@ -154,6 +196,7 @@ final class MetalTerminalView: TerminalView {
         font = .terminal
         changeScrollback(100_000)
         applyTwinePalette()
+        registerForDraggedTypes(TerminalAttachments.types)
     }
 
     override func viewDidMoveToWindow() {

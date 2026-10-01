@@ -40,9 +40,10 @@ nonisolated private struct CommandPayload: Encodable {
     var workingDirectory: String?
     var size: CoreTerminalSize?
     var terminalID: UInt64?
+    var session: String?
 
     private enum CodingKeys: String, CodingKey {
-        case definition, source
+        case definition, source, session
         case path, folder, kind, roles, size, type, workingDirectory, name, harness, model, effort, yolo
         case terminalID = "terminalId"
         case workflowID = "workflowId"
@@ -69,7 +70,8 @@ nonisolated private struct CommandPayload: Encodable {
         case .createSession, .renameSession, .selectSession, .deleteSession:
             type = ""
             configureSession(command)
-        case .createWorkflow, .activateWorkflow, .nameDraftWorkflow, .closeWorkflow, .startAgent, .cancelAgent:
+        case .createWorkflow, .activateWorkflow, .nameDraftWorkflow, .closeWorkflow, .startAgent, .resumeAgent,
+            .cancelAgent:
             type = ""
             configureWorkflow(command)
         case .startWorkflowRun, .completeWorkflowRole, .cancelWorkflowRun:
@@ -174,6 +176,10 @@ nonisolated private struct CommandPayload: Encodable {
             self.effort = choice.effort
             self.yolo = choice.yolo ? true : nil
             self.size = size
+        case .resumeAgent(let workflowID, let session):
+            type = "resumeAgent"
+            self.workflowID = workflowID
+            self.session = session
         case .cancelAgent(let workflowID):
             type = "cancelAgent"
             self.workflowID = workflowID

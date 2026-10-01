@@ -92,6 +92,59 @@ struct TerminalMinimapTests {
         #expect(history.minimapRows[marker.id] == 2)
     }
 
+    @Test func traceJumpScrollsTheMountedTerminalWithoutReplacingItsOutput() async throws {
+        let prefix = "first\r\n"
+        let bytes = Data((prefix + "TARGET\r\n" + String(repeating: "later\r\n", count: 100)).utf8)
+        let client = CoreClient(transport: TranscriptFixtureTransport(bytes: bytes))
+        client.start()
+        try await client.waitUntilRunning()
+        defer { Task { await client.stop() } }
+        let view = MetalTerminalView(frame: .zero)
+        view.resize(cols: 80, rows: 24)
+        let state = TerminalMinimapState()
+        state.view = view
+        state.beginFeed()
+        view.feed(byteArray: Array(bytes)[...])
+        state.received(through: UInt64(bytes.count))
+        state.refresh()
+        #expect(state.geometry.isLive)
+        let found = try await state.scroll(
+            to: .init(terminalID: 41, byteOffset: UInt64(prefix.utf8.count)), client: client)
+        #expect(found)
+        #expect(state.geometry.topRow == 1)
+        #expect(view.getTerminal().bufferLine(atRow: 1)?.translateToString(trimRight: true) == "TARGET")
+        #expect(!state.geometry.isLive)
+        state.returnToLive()
+        #expect(state.geometry.isLive)
+        view.feed(text: "\u{1B}[?1049hfullscreen")
+        #expect(try await !state.scroll(to: .init(terminalID: 41, byteOffset: 0), client: client))
+    }
+
+    @Test func resizeDuringTraceReplayCancelsTheStalePositionForRetry() async throws {
+        let bytes = Data("target\r\nlater\r\n".utf8)
+        let transport = TranscriptFixtureTransport(bytes: bytes, delayed: true)
+        let client = CoreClient(transport: transport)
+        let view = MetalTerminalView(frame: .zero)
+        view.resize(cols: 80, rows: 24)
+        let state = TerminalMinimapState()
+        state.view = view
+        state.beginFeed()
+        view.feed(byteArray: Array(bytes)[...])
+        state.received(through: UInt64(bytes.count))
+        state.refresh()
+        let read = Task { try await state.scroll(to: .init(terminalID: 41, byteOffset: 0), client: client) }
+        try await waitUntil { await transport.hasPendingRead }
+        view.resize(cols: 100, rows: 30)
+        state.refresh()
+        await transport.release()
+        do {
+            _ = try await read.value
+            Issue.record("A stale geometry read must be retried, not reported as missing scrollback")
+        } catch is CancellationError {
+            // The view's geometry key restarts the request with the new dimensions.
+        }
+    }
+
     @Test func recycledAndAlternateScreenRowsCannotReuseAnActivityPoint() throws {
         let index = TerminalMinimapReplay()
         index.replay.terminal.changeScrollback(500)

@@ -5,22 +5,42 @@ struct TracesPanel: View {
     @Environment(CoreClient.self) private var coreClient
     @Environment(TraceTerminalNavigation.self) private var navigation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let workflow: CoreWorkflow?
+    let workflows: [CoreWorkflow]
+    private var workflowIDs: [UInt64] { workflows.map(\.id) }
     @State private var isExpanded = false
     private var state: TracePanelState { navigation.activity }
     @State private var loadOlderRequested = false
 
+    private var summaries: [CoreTraceSummary] {
+        coreClient.snapshot?.traces.filter { workflowIDs.contains($0.workflowID) } ?? []
+    }
+
     private var summary: CoreTraceSummary? {
-        coreClient.snapshot?.traces.first { $0.workflowID == workflow?.id }
+        guard let id = workflowIDs.first else { return nil }
+        return CoreTraceSummary(
+            workflowID: id, revision: summaries.map(\.revision).max() ?? 0,
+            spanCount: summaries.reduce(0) { $0 + $1.spanCount },
+            agentCount: summaries.reduce(0) { $0 + $1.agentCount })
     }
 
     private var readKey: String {
-        "\(workflow?.id ?? 0):\(summary?.revision ?? 0):\(coreClient.traceSnapshotGeneration)"
+        workflowIDs.map(String.init).joined(separator: ",") + ":"
+            + summaries.map { "\($0.workflowID):\($0.revision)" }.joined(separator: ",")
+            + ":\(coreClient.traceSnapshotGeneration)"
     }
 
     private var logKey: String {
-        "\(workflow?.id ?? 0):\(state.selectedSpanID ?? 0):\(summary?.revision ?? 0):\(isExpanded):"
-            + "\(navigation.selectionRevision)"
+        "\(readKey):\(state.selectedSpanID ?? 0):\(isExpanded):\(navigation.selectionRevision)"
+    }
+
+    private var displayLanes: [CoreTraceLane] {
+        state.lanes.map { lane in
+            guard workflows.count > 1, let index = workflowIDs.firstIndex(of: lane.workflowID) else { return lane }
+            return CoreTraceLane(
+                laneID: lane.id, workflowID: lane.workflowID,
+                name: "\(workflows[index].name) · \(index + 1)", isAgent: lane.isAgent,
+                role: lane.role, harness: lane.harness, agentID: lane.agentID)
+        }
     }
 
     var body: some View {
@@ -44,7 +64,7 @@ struct TracesPanel: View {
                 .allowsHitTesting(false)
         }
         .task(id: readKey) {
-            await state.refresh(workflowID: workflow?.id, client: coreClient)
+            await state.refresh(workflowIDs: workflowIDs, client: coreClient)
             if !Task.isCancelled { await navigation.minimap.refresh(activity: state, client: coreClient) }
         }
         .task(id: logKey) {
@@ -60,7 +80,7 @@ struct TracesPanel: View {
                 loadOlderRequested = false
             }
         }
-        .onChange(of: workflow?.id) {
+        .onChange(of: workflowIDs) {
             navigation.requestedSpanID = nil
         }
         .onChange(of: navigation.selectionRevision) {
@@ -104,7 +124,7 @@ struct TracesPanel: View {
         } else {
             VStack(spacing: 0) {
                 TraceSequence(
-                    lanes: state.lanes, spans: state.spans,
+                    lanes: displayLanes, spans: state.spans,
                     selectedSpanID: state.selectedSpanID, now: now,
                     labelWidth: labelWidth
                 ) { id in

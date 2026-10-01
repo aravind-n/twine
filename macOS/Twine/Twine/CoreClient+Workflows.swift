@@ -43,6 +43,13 @@ extension CoreClient {
         }
     }
 
+    func resumeAgent(workflowID: UInt64, session: String) async throws {
+        let result = try await sendAndAwaitCompletion(.resumeAgent(workflowID: workflowID, session: session))
+        guard case .agentStarted(let startedID) = result, startedID == workflowID else {
+            throw CoreFailure.unexpectedCommandResult
+        }
+    }
+
     func cancelAgent(workflowID: UInt64) async throws {
         if snapshot?.workflows.workflows.first(where: { $0.id == workflowID })?.run != nil {
             try await cancelWorkflowRun(workflowID: workflowID)

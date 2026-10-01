@@ -356,6 +356,7 @@ impl Inner {
         harness: crate::HarnessId,
         placeholder: TerminalId,
         observation: Option<TerminalObservation>,
+        session: Option<&str>,
     ) -> Result<(), ApplicationError> {
         let ending = self
             .pending_trace_endings
@@ -377,6 +378,7 @@ impl Inner {
             &new_span(workflow),
             harness,
             placeholder_span.zip(ending.as_ref()),
+            session,
         )?;
         self.trace_spans.remove(&placeholder);
         self.pending_trace_endings.remove(&placeholder);

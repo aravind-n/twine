@@ -80,6 +80,9 @@ struct NewTabChoices: View {
         .sheet(isPresented: $showsDesigner, onDismiss: focusTerminal) {
             WorkflowDesigner { _ in }.environment(client)
         }
+        .focusedSceneValue(
+            \.newWorkflowType, isSelected && !showsPrompt && startingHarness == nil ? $showsDesigner : nil
+        )
         .accessibilityIdentifier("newTabChoices")
         .offset(y: verticalOffset)
         .task(id: client.snapshot?.folders.openFolder) { await harnessCatalog.load(using: client) }
@@ -129,9 +132,8 @@ struct NewTabChoices: View {
             }
 
             Button("Create your own", systemImage: "plus.square.on.square") { showsDesigner = true }
-                .keyboardShortcut("d", modifiers: [.command, .option])
                 .disabled(!isSelected || startingHarness != nil)
-                .help("Create your own workflow type (⌥⌘D)")
+                .help("Create your own workflow type (⌥⌘N)")
                 .accessibilityIdentifier("workflowCreateOwn")
         }
     }
