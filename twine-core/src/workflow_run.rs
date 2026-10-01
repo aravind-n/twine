@@ -359,6 +359,7 @@ impl WorkflowRun {
                 .ok_or(RunError::InvalidType)?;
             let count = self.rounds.entry(stage.id.0.clone()).or_default();
             if *count >= review_loop.max_rounds {
+                self.deliver_review_feedback();
                 self.finish(
                     RunStatus::LimitReached,
                     "Review limit reached; approval is still required.",
@@ -377,9 +378,12 @@ impl WorkflowRun {
             self.stage_index + 1
         };
         if next == self.workflow_type.definition.stages.len() {
+            if reviewer {
+                self.deliver_review_feedback();
+            }
             self.finish(RunStatus::Completed, "Workflow completed");
         } else {
-            self.deliver_handoffs(next);
+            self.deliver_handoffs(next, true);
             self.stage_index = next;
             self.generation += 1;
             self.completions.clear();
@@ -485,7 +489,27 @@ impl WorkflowRun {
         decision
     }
 
-    fn deliver_handoffs(&mut self, next: usize) {
+    fn deliver_review_feedback(&mut self) {
+        let definition = &self.workflow_type.definition;
+        let stage = &definition.stages[self.stage_index].id;
+        let target = definition
+            .review_loops
+            .iter()
+            .find(|review_loop| &review_loop.review_stage == stage)
+            .and_then(|review_loop| {
+                definition
+                    .stages
+                    .iter()
+                    .position(|stage| stage.id == review_loop.back_to)
+            });
+        if let Some(target) = target {
+            self.deliver_handoffs(target, false);
+        } else {
+            self.incoming.clear();
+        }
+    }
+
+    fn deliver_handoffs(&mut self, next: usize, starts_assignment: bool) {
         let definition = &self.workflow_type.definition;
         let from = &definition.stages[self.stage_index].id;
         let to = &definition.stages[next].id;
@@ -532,10 +556,21 @@ impl WorkflowRun {
         self.incoming = incoming;
         for (from, to, content) in deliveries {
             self.trace(
-                "handoff",
+                if starts_assignment {
+                    "handoff"
+                } else {
+                    "reviewFeedback"
+                },
                 Some(from),
                 Some(to),
-                &format!("Handoff delivered: {content}"),
+                &format!(
+                    "{}: {content}",
+                    if starts_assignment {
+                        "Handoff delivered"
+                    } else {
+                        "Review feedback delivered"
+                    }
+                ),
             );
         }
     }
@@ -546,22 +581,9 @@ impl WorkflowRun {
         self.prompt.trim().is_empty()
     }
 
-    pub(crate) fn instructions(&self, agent_id: u64, command: &str) -> String {
-        let agent = self
-            .agents
-            .iter()
-            .find(|a| a.agent_id == agent_id)
-            .expect("a launched agent belongs to the run");
-        let role = self
-            .workflow_type
-            .definition
-            .roles
-            .iter()
-            .find(|r| r.id.0 == agent.role)
-            .expect("roles were validated");
-        let stage = &self.workflow_type.definition.stages[self.stage_index];
+    fn completion_example(&self, agent_id: u64) -> CompletionSignal {
         let targets = self.assignment_targets(agent_id);
-        let example = CompletionSignal {
+        CompletionSignal {
             decision: if self.is_reviewer(agent_id) {
                 Decision::Approve
             } else {
@@ -582,20 +604,58 @@ impl WorkflowRun {
             } else {
                 String::new()
             },
-        };
+        }
+    }
+
+    pub(crate) fn follow_up_instructions(&self, agent_id: u64) -> String {
+        let stage = &self.workflow_type.definition.stages[self.stage_index];
+        format!(
+            "Continue with the {} stage.\n\nTask:\n{}\n\nYour assignment:\n{}\n\n{}\n\nWhen finished, submit the result using your existing completion command:\n{}\n{}",
+            stage.name,
+            self.prompt,
+            self.assignment_instructions(agent_id),
+            self.incoming.get(&agent_id).map_or("", String::as_str),
+            serde_json::to_string_pretty(&self.completion_example(agent_id))
+                .expect("signal serializes"),
+            if self.is_reviewer(agent_id) {
+                "Use approve only when no changes are needed. Otherwise use requestChanges and put actionable feedback in summary."
+            } else {
+                "Use done. Include assignments only for the receivers listed above, with their actual sub-tasks and owned files."
+            },
+        )
+    }
+
+    fn assignment_instructions(&self, agent_id: u64) -> String {
+        self.assignments
+            .get(&agent_id)
+            .map(|a| format!("Sub-task: {}\nOwned files: {}", a.task, a.files.join(", ")))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn instructions(&self, agent_id: u64, command: &str) -> String {
+        let agent = self
+            .agents
+            .iter()
+            .find(|a| a.agent_id == agent_id)
+            .expect("a launched agent belongs to the run");
+        let role = self
+            .workflow_type
+            .definition
+            .roles
+            .iter()
+            .find(|r| r.id.0 == agent.role)
+            .expect("roles were validated");
+        let stage = &self.workflow_type.definition.stages[self.stage_index];
+        let example = self.completion_example(agent_id);
         let task = if self.needs_task() {
             "The user gives you the task in this terminal. If they haven't yet, ask them what they \
              want done. Include it, restated in full, as task when you submit your completion."
         } else {
             self.prompt.as_str()
         };
-        let assignment = self
-            .assignments
-            .get(&agent_id)
-            .map(|a| format!("Sub-task: {}\nOwned files: {}", a.task, a.files.join(", ")))
-            .unwrap_or_default();
+        let assignment = self.assignment_instructions(agent_id);
         format!(
-            "You are {} in the {} stage of a Twine workflow.\n{}\n\nTask:\n{}\n\nYour assignment:\n{assignment}\n\nHandoffs:\n{}\n\nAll agents work directly in this folder. Do not create a worktree or isolated checkout. Give parallel workers non-overlapping file sets; file ownership is advisory.\n\nWhen finished, explicitly submit JSON on stdin to this command:\n{} <<'TWINE_COMPLETION'\n{}\nTWINE_COMPLETION\n\n{}\nSupply an assignment for every receiver listed in the example (with its exact role and instance). Use actual sub-tasks and file sets. A process exit or terminal message does not complete the stage. A rejected submission leaves response.txt beside the command; correct it and submit again. The user can also mark done in Twine.\n",
+            "You are {} in the {} stage of a Twine workflow.\n{}\n\nTask:\n{}\n\nYour assignment:\n{assignment}\n\nHandoffs:\n{}\n\nAll agents work directly in this folder. Do not create a worktree or isolated checkout. Give parallel workers non-overlapping file sets; file ownership is advisory.\n\nWhen finished, explicitly submit JSON on stdin to this command:\n{} <<'TWINE_COMPLETION'\n{}\nTWINE_COMPLETION\n\n{}\nSupply an assignment for every receiver listed in the example (with its exact role and instance). Use actual sub-tasks and file sets. A process exit or terminal message does not complete the stage. A rejected submission returns feedback; correct it and submit again. Keep using this completion command for subsequent assignments and user follow-ups in this conversation. The user can also mark done in Twine.\n",
             agent.label,
             stage.name,
             role.instructions,
@@ -982,10 +1042,14 @@ mod tests {
         run.complete(4, 3, signal(Decision::RequestChanges))
             .unwrap();
         for (id, instance) in [(2, 1), (3, 2)] {
-            let prompt = run.instructions(id, "complete");
-            assert!(prompt.contains(&format!("Task {instance}")));
-            assert!(prompt.contains(&format!("file-{instance}")));
-            assert!(prompt.contains("Specific result or feedback"));
+            for prompt in [
+                run.instructions(id, "complete"),
+                run.follow_up_instructions(id),
+            ] {
+                assert!(prompt.contains(&format!("Task {instance}")));
+                assert!(prompt.contains(&format!("file-{instance}")));
+                assert!(prompt.contains("Specific result or feedback"));
+            }
         }
     }
 }

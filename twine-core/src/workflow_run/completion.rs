@@ -13,6 +13,62 @@ pub(crate) struct CompletionInbox {
     directory: tempfile::TempDir,
 }
 
+/// The command remembered by an interactive agent stays valid across its assignments.
+pub(crate) struct CompletionCommand {
+    directory: tempfile::TempDir,
+}
+
+impl CompletionCommand {
+    pub(crate) fn new() -> io::Result<Self> {
+        let directory = tempfile::Builder::new()
+            .prefix("twine-agent-completion-")
+            .tempdir()?;
+        let script = directory.path().join("complete");
+        fs::write(
+            &script,
+            concat!(
+                "#!/bin/sh\nset -eu\n",
+                "cd -- \"$(dirname -- \"$0\")\"\n",
+                "if [ ! -f current ]; then\n",
+                "  echo 'Your assignment is complete. Wait for feedback or the next user message.' >&2\n",
+                "  exit 1\n",
+                "fi\n",
+                "command=$(cat current)\n",
+                "exec \"$command\"\n",
+            ),
+        )?;
+        fs::set_permissions(script, fs::Permissions::from_mode(0o700))?;
+        Ok(Self { directory })
+    }
+
+    pub(crate) fn command(&self) -> String {
+        let path = self.directory.path().join("complete");
+        format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+    }
+
+    pub(crate) fn bind(&self, inbox: &CompletionInbox) -> io::Result<()> {
+        let temporary = self.directory.path().join("current.tmp");
+        fs::write(
+            &temporary,
+            inbox
+                .directory
+                .path()
+                .join("complete")
+                .as_os_str()
+                .as_encoded_bytes(),
+        )?;
+        fs::rename(temporary, self.directory.path().join("current"))
+    }
+
+    pub(crate) fn deactivate(&self) {
+        if let Err(error) = fs::remove_file(self.directory.path().join("current"))
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            tracing::warn!(%error, "couldn't deactivate the agent's completion command");
+        }
+    }
+}
+
 impl CompletionInbox {
     pub(crate) fn new() -> io::Result<Self> {
         let directory = tempfile::Builder::new()
@@ -139,6 +195,52 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
+
+    #[test]
+    fn stable_command_pins_inflight_submissions_and_can_be_deactivated() {
+        let command = CompletionCommand::new().unwrap();
+        let first = CompletionInbox::new().unwrap();
+        let second = CompletionInbox::new().unwrap();
+        command.bind(&first).unwrap();
+        let remembered = command.command();
+        let mut child = Command::new(command.directory.path().join("complete"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !first.directory.path().join("pending").exists() {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+        command.bind(&second).unwrap();
+        assert_eq!(command.command(), remembered);
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"decision":"done","summary":"Old turn"}"#)
+            .unwrap();
+        loop {
+            if let Some(signal) = first.take() {
+                assert_eq!(signal.unwrap().summary, "Old turn");
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(second.take().is_none());
+        first.accept();
+        assert!(child.wait().unwrap().success());
+        command.deactivate();
+        let output = Command::new(command.directory.path().join("complete"))
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("Wait for feedback"));
+        assert!(second.take().is_none());
+    }
 
     #[test]
     fn helper_submits_atomically_and_rejected_json_can_be_corrected() {

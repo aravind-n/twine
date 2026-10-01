@@ -174,7 +174,8 @@ final class TerminalController: NSObject, TerminalViewDelegate {
                     guard !isStopping, !isTerminalStopped else { return }
                     try await coreClient.writeTerminalInput(
                         terminalID: terminalID,
-                        bytes: bytes.subdata(in: lowerBound..<upperBound)
+                        bytes: bytes.subdata(in: lowerBound..<upperBound),
+                        isUserInput: isUserInput
                     )
                     lowerBound = upperBound
                 }

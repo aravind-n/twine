@@ -143,6 +143,24 @@ impl Application {
         terminal_id: TerminalId,
         bytes: &[u8],
     ) -> Result<(), ApplicationError> {
+        if let Some(input) = self.workflow_agent_input(terminal_id)? {
+            return Ok(input
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?
+                .write(&self.terminals, terminal_id, bytes)?);
+        }
+        Ok(self.terminals.write_input(terminal_id, bytes)?)
+    }
+
+    /// Writes a terminal-generated protocol reply without treating it as a user draft.
+    ///
+    /// # Errors
+    /// Returns an error if the terminal is not running or the PTY writer fails.
+    pub fn write_terminal_response(
+        &self,
+        terminal_id: TerminalId,
+        bytes: &[u8],
+    ) -> Result<(), ApplicationError> {
         Ok(self.terminals.write_input(terminal_id, bytes)?)
     }
 

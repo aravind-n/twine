@@ -186,9 +186,18 @@ actor CoreWorker: CoreTransport {
     }
 
     func writeTerminalInput(terminalID: UInt64, bytes: Data) throws {
+        try writeTerminalBytes(terminalID: terminalID, bytes: bytes, userInput: true)
+    }
+
+    func writeTerminalResponse(terminalID: UInt64, bytes: Data) throws {
+        try writeTerminalBytes(terminalID: terminalID, bytes: bytes, userInput: false)
+    }
+
+    private func writeTerminalBytes(terminalID: UInt64, bytes: Data, userInput: Bool) throws {
         let status = try withClient { client in
             bytes.withUnsafeBytes { input in
-                twine_client_write_terminal_input(
+                let write = userInput ? twine_client_write_terminal_input : twine_client_write_terminal_response
+                return write(
                     client,
                     terminalID,
                     input.bindMemory(to: UInt8.self).baseAddress,

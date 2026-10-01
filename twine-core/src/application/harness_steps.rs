@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsString;
 use std::time::{Duration, Instant};
 
@@ -16,9 +16,17 @@ pub(super) struct HarnessRecording {
     ended_since: Option<Instant>,
     session_observed_at: Option<Instant>,
     has_session_start: bool,
+    turns: AssignmentTurns,
+}
+
+#[derive(Default)]
+struct AssignmentTurns {
     /// Live processes retain earlier assignment turns so delayed hooks stay in their round.
-    turn_spans: HashMap<String, crate::TraceSpanId>,
-    turn_order: VecDeque<String>,
+    spans: HashMap<String, crate::TraceSpanId>,
+    order: VecDeque<String>,
+    active: HashMap<String, crate::TraceSpanId>,
+    completed: HashSet<String>,
+    unidentified: bool,
 }
 
 const HOOK_GRACE: Duration = Duration::from_millis(1500);
@@ -89,7 +97,7 @@ impl HarnessRecording {
                     && step
                         .turn_id
                         .as_ref()
-                        .is_some_and(|turn| !self.turn_spans.contains_key(turn)))
+                        .is_some_and(|turn| !self.turns.spans.contains_key(turn)))
             {
                 if let Some(prompt) = self.pending.iter().position(|other| {
                     other.step.kind == StepKind::Prompt && other.step.turn_id == step.turn_id
@@ -145,6 +153,22 @@ impl HarnessRecording {
 }
 
 impl Application {
+    pub(super) fn harness_turn_finished(
+        &self,
+        terminal: TerminalId,
+    ) -> Result<bool, ApplicationError> {
+        let recordings = self
+            .harness_steps
+            .lock()
+            .map_err(|_| ApplicationError::Poisoned)?;
+        Ok(recordings.get(&terminal).is_some_and(|r| {
+            !r.turns.unidentified
+                && !r.turns.spans.is_empty()
+                && r.turns.active.is_empty()
+                && r.pending.is_empty()
+        }))
+    }
+
     pub(super) fn register_stage_steps(
         &self,
         workflow_id: WorkflowId,
@@ -227,8 +251,7 @@ impl Application {
                 ended_since: None,
                 session_observed_at: None,
                 has_session_start: false,
-                turn_spans: HashMap::new(),
-                turn_order: VecDeque::new(),
+                turns: AssignmentTurns::default(),
             },
         );
         Ok(())
@@ -244,6 +267,7 @@ impl Application {
             .lock()
             .map_err(|_| ApplicationError::Poisoned)?;
         let mut inner = self.lock_inner()?;
+        let mut activations = Vec::new();
         for (&terminal_id, recording) in recordings.iter_mut() {
             if !inner
                 .folders
@@ -284,12 +308,12 @@ impl Application {
                     crate::store::HarnessStepContext {
                         workflow_id: recording.workflow_id,
                         single_agent: recording.single_agent,
-                        activate: !recording.active,
+                        activate: recording.single_agent && !recording.active,
                         span: item
                             .step
                             .turn_id
                             .as_ref()
-                            .and_then(|turn| recording.turn_spans.get(turn))
+                            .and_then(|turn| recording.turns.spans.get(turn))
                             .copied(),
                     },
                     &item.step,
@@ -297,21 +321,43 @@ impl Application {
                     &anchor,
                 ) {
                     Ok(span) => {
+                        if !recording.single_agent {
+                            if item.step.kind == StepKind::Prompt && item.step.turn_id.is_none() {
+                                recording.turns.unidentified = true;
+                            }
+                            if item.step.kind == StepKind::Prompt
+                                && let (Some(turn), Some(span)) = (&item.step.turn_id, span)
+                                && !recording.turns.completed.contains(turn)
+                                && recording.turns.active.len() < 256
+                            {
+                                recording.turns.active.insert(turn.clone(), span);
+                            } else if item.step.kind == StepKind::Responded
+                                && let Some(turn) = &item.step.turn_id
+                            {
+                                recording.turns.active.remove(turn);
+                                if recording.turns.spans.contains_key(turn) {
+                                    recording.turns.completed.insert(turn.clone());
+                                }
+                            }
+                        }
                         if !recording.single_agent
                             && item.step.kind == StepKind::Prompt
                             && let (Some(turn), Some(span)) = (&item.step.turn_id, span)
-                            && !recording.turn_spans.contains_key(turn)
+                            && !recording.turns.spans.contains_key(turn)
                         {
-                            if recording.turn_order.len() == 256
-                                && let Some(oldest) = recording.turn_order.pop_front()
+                            if recording.turns.order.len() == 256
+                                && let Some(oldest) = recording.turns.order.pop_front()
                             {
-                                recording.turn_spans.remove(&oldest);
+                                recording.turns.spans.remove(&oldest);
+                                recording.turns.completed.remove(&oldest);
                             }
-                            recording.turn_order.push_back(turn.clone());
-                            recording.turn_spans.insert(turn.clone(), span);
+                            recording.turns.order.push_back(turn.clone());
+                            recording.turns.spans.insert(turn.clone(), span);
                         }
                         if !recording.active && span.is_some() {
-                            inner.trace_spans.remove(&terminal_id);
+                            if recording.single_agent {
+                                inner.trace_spans.remove(&terminal_id);
+                            }
                             inner
                                 .step_terminals
                                 .insert(terminal_id, recording.workflow_id);
@@ -330,6 +376,29 @@ impl Application {
                         break;
                     }
                 }
+            }
+            if let Some(workflow) = inner
+                .workflows
+                .workflows
+                .iter()
+                .find(|w| w.workflow_id == recording.workflow_id)
+                && let Some(run) = &workflow.run
+                && run.status == crate::RunStatus::Running
+                && let Some(agent) = workflow
+                    .agents
+                    .iter()
+                    .find(|a| a.terminal_id == terminal_id)
+                && run
+                    .active_agents()
+                    .iter()
+                    .any(|active| active.agent_id == agent.agent_id.0)
+            {
+                let ready = !recording.turns.unidentified
+                    && !recording.turns.active.is_empty()
+                    && inner.trace_spans.get(&terminal_id).is_some_and(|current| {
+                        recording.turns.active.values().all(|span| span == current)
+                    });
+                activations.push((workflow.workflow_id, agent.agent_id, run.generation, ready));
             }
             // A full deferred batch can leave already-received steps in the inbox. Drain them
             // before retirement; the next poll persists this bounded batch.
@@ -367,6 +436,9 @@ impl Application {
         drop(inner);
         drop(recordings);
         drop(removed);
+        for (workflow, agent, generation, ready) in activations {
+            self.activate_workflow_completion(workflow, agent, generation, ready)?;
+        }
         Ok(())
     }
 }
@@ -864,6 +936,105 @@ mod tests {
                 .iter()
                 .any(|event| event.message.contains("late result"))
         );
+    }
+
+    #[test]
+    fn anonymous_claude_hooks_use_a_private_command_when_the_conversation_is_reused() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let mut app = Application::with_event_capacity(4096).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        start_adversarial_with_harness(&app, id, HarnessId::ClaudeCode);
+        let initial = workflow(&app, id);
+        let terminal = initial.agents[0].terminal_id;
+        wait_for_output(&app, terminal, b"READY");
+        let arguments = std::fs::read_to_string(bin.path().join("arguments")).unwrap();
+        let old = arguments
+            .lines()
+            .find(|line| line.starts_with('\'') && line.contains("/complete"))
+            .unwrap()
+            .split('\'')
+            .nth(1)
+            .unwrap()
+            .to_owned();
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit","prompt":"Implement"}),
+        );
+        send_hook(&app, terminal, &json!({"hook_event_name":"Stop"}));
+        assert!(!app.harness_turn_finished(terminal).unwrap());
+        let complete = |agent_id, generation, decision| {
+            accepted(
+                &app,
+                Command::CompleteWorkflowRole {
+                    workflow_id: id,
+                    agent_id,
+                    generation,
+                    signal: CompletionSignal {
+                        task: String::new(),
+                        decision,
+                        summary: "Specific feedback".into(),
+                        assignments: vec![],
+                    },
+                },
+            );
+        };
+        complete(
+            initial.agents[0].agent_id,
+            initial.run.unwrap().generation,
+            Decision::Done,
+        );
+        let review = workflow(&app, id);
+        complete(
+            review.agents[1].agent_id,
+            review.run.unwrap().generation,
+            Decision::RequestChanges,
+        );
+        wait_for_output(
+            &app,
+            terminal,
+            b"Use this completion command for the current assignment:",
+        );
+        let crate::terminal::TranscriptRead::Output(page) =
+            app.read_terminal_transcript(terminal, 0, 65536).unwrap()
+        else {
+            panic!("transcript missing");
+        };
+        let text = String::from_utf8_lossy(&page.bytes);
+        let fresh = text
+            .split("Use this completion command for the current assignment:")
+            .nth(1)
+            .unwrap()
+            .split('\'')
+            .nth(1)
+            .unwrap();
+        assert_ne!(fresh, old);
+        assert!(!ProcessCommand::new(&old).output().unwrap().status.success());
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit","prompt":"Fix feedback"}),
+        );
+        let mut child = ProcessCommand::new(fresh)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"decision":"done","summary":"Fixed"}"#)
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while workflow(&app, id).run.unwrap().generation == 3 {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(child.wait().unwrap().success());
+        assert_eq!(workflow(&app, id).agents[0].terminal_id, terminal);
     }
 
     #[test]

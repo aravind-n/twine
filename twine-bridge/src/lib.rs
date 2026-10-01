@@ -486,6 +486,33 @@ pub unsafe extern "C" fn twine_client_write_terminal_input(
     input_bytes: *const u8,
     input_length: usize,
 ) -> TwineStatus {
+    // SAFETY: This entry point preserves the helper's client and input slice contracts.
+    unsafe { write_terminal_bytes(client, terminal_id, input_bytes, input_length, true) }
+}
+
+#[unsafe(no_mangle)]
+/// Sends a terminal-generated reply without treating it as user draft input.
+///
+/// # Safety
+/// The client and input slice must satisfy the same contracts as
+/// `twine_client_write_terminal_input`.
+pub unsafe extern "C" fn twine_client_write_terminal_response(
+    client: *mut TwineClient,
+    terminal_id: u64,
+    input_bytes: *const u8,
+    input_length: usize,
+) -> TwineStatus {
+    // SAFETY: This entry point preserves the helper's client and input slice contracts.
+    unsafe { write_terminal_bytes(client, terminal_id, input_bytes, input_length, false) }
+}
+
+unsafe fn write_terminal_bytes(
+    client: *mut TwineClient,
+    terminal_id: u64,
+    input_bytes: *const u8,
+    input_length: usize,
+    user_input: bool,
+) -> TwineStatus {
     catch_status(|| {
         // SAFETY: Guaranteed by this function's input contract. The slice remains scoped to the
         // callback and is copied to the PTY before this call returns.
@@ -497,7 +524,7 @@ pub unsafe extern "C" fn twine_client_write_terminal_input(
                 |bytes| {
                     // SAFETY: The outer function's contract keeps the client alive for this call.
                     ffi::with_client(client, |client| {
-                        client.write_terminal_input(terminal_id, bytes)
+                        client.write_terminal_input(terminal_id, bytes, user_input)
                     })
                 },
             )
@@ -1114,6 +1141,34 @@ mod tests {
             unsafe { twine_client_resize_terminal(std::ptr::null_mut(), 1, 24, 80, 800, 480) },
             TwineStatus::NullPointer
         );
+        destroy(client);
+    }
+
+    #[test]
+    fn terminal_responses_reject_invalid_arguments() {
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
+        let (_data, client) = create_client();
+        let byte = 0_u8;
+        // SAFETY: Invalid pointers and lengths must be rejected before reading the input.
+        unsafe {
+            assert_eq!(
+                twine_client_write_terminal_response(client, 1, std::ptr::null(), 1),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_write_terminal_response(
+                    client,
+                    1,
+                    &raw const byte,
+                    MAX_TERMINAL_INPUT_BYTES + 1
+                ),
+                TwineStatus::InvalidArgument
+            );
+            assert_eq!(
+                twine_client_write_terminal_response(std::ptr::null_mut(), 1, &raw const byte, 1),
+                TwineStatus::NullPointer
+            );
+        }
         destroy(client);
     }
 

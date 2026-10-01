@@ -5,9 +5,13 @@ extension CoreClient {
         snapshot?.terminals.first { $0.terminalID == terminalID }?.status
     }
 
-    func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws {
+    func writeTerminalInput(terminalID: UInt64, bytes: Data, isUserInput: Bool = true) async throws {
         guard terminalStatus(for: terminalID) == .running else { throw CoreFailure.terminalNotRunning }
-        try await transport.writeTerminalInput(terminalID: terminalID, bytes: bytes)
+        if isUserInput {
+            try await transport.writeTerminalInput(terminalID: terminalID, bytes: bytes)
+        } else {
+            try await transport.writeTerminalResponse(terminalID: terminalID, bytes: bytes)
+        }
     }
 
     func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) async throws {

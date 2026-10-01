@@ -7,6 +7,8 @@ import Foundation
 actor DelayedStartTransport {
     private let initialSnapshot: CoreSnapshot
     private(set) var input = Data()
+    private(set) var userInput = Data()
+    private(set) var terminalResponses = Data()
     private(set) var closedTerminalIDs: Set<UInt64> = []
     private(set) var lastResize: CoreTerminalSize?
     private(set) var inputAttempts = 0
@@ -133,6 +135,14 @@ actor DelayedStartTransport {
         inputAttempts += 1
         if let inputFailure { throw inputFailure }
         input.append(bytes)
+        userInput.append(bytes)
+    }
+
+    func writeTerminalResponse(terminalID: UInt64, bytes: Data) throws {
+        inputAttempts += 1
+        if let inputFailure { throw inputFailure }
+        input.append(bytes)
+        terminalResponses.append(bytes)
     }
 
     func failInput(with failure: CoreFailure) {
