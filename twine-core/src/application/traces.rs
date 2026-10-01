@@ -902,14 +902,7 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(
-            application
-                .snapshot()
-                .unwrap()
-                .workflows
-                .workflows
-                .is_empty()
-        );
+        assert_eq!(application.snapshot().unwrap().workflows.workflows, []);
         allow_trace_writes(&application);
         let page = application
             .workflow_trace(workflow.workflow_id, None, 10)
@@ -1363,7 +1356,7 @@ mod tests {
                 2
             );
         }
-        assert!(application.snapshot().unwrap().terminals.is_empty());
+        assert_eq!(application.snapshot().unwrap().terminals, []);
         for agent in workflow.agents {
             assert!(
                 application
@@ -1382,11 +1375,11 @@ mod tests {
         );
         assert!(create_agents(&application, folder.path()).is_err());
         let snapshot = application.snapshot().unwrap();
-        assert!(snapshot.terminals.is_empty());
-        assert!(snapshot.workflows.workflows.is_empty());
+        assert_eq!(snapshot.terminals, []);
+        assert_eq!(snapshot.workflows.workflows, []);
         let page = application.workflow_trace(WorkflowId(1), None, 10).unwrap();
-        assert!(page.spans.is_empty());
-        assert!(page.lanes.is_empty());
+        assert_eq!(page.spans, []);
+        assert_eq!(page.lanes, []);
         for id in [1, 2] {
             assert!(
                 application
@@ -1420,7 +1413,7 @@ mod tests {
             )
             .unwrap();
         let snapshot = application.snapshot().unwrap();
-        assert!(snapshot.terminals.is_empty());
+        assert_eq!(snapshot.terminals, []);
         let failed = &snapshot.workflows.workflows[0];
         assert_eq!(failed.status, WorkflowStatus::Failed);
         assert!(
@@ -1465,8 +1458,8 @@ mod tests {
             .unwrap();
         let snapshot = application.snapshot().unwrap();
         assert!(snapshot.folders.open_folder.is_none());
-        assert!(snapshot.workflows.workflows.is_empty());
-        assert!(snapshot.terminals.is_empty());
+        assert_eq!(snapshot.workflows.workflows, []);
+        assert_eq!(snapshot.terminals, []);
         assert!(
             application
                 .write_terminal_input(workflow.terminal_id, b"echo alive\n")
@@ -1550,7 +1543,7 @@ mod tests {
             WorkflowStatus::Failed
         );
         assert_eq!(snapshot.workflows.workflows[0].terminal_id.value(), 0);
-        assert!(snapshot.terminals.is_empty());
+        assert_eq!(snapshot.terminals, []);
         allow_trace_writes(&application);
         application
             .handle_command(RequestId(5), Command::CloseFolder)

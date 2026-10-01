@@ -1077,14 +1077,14 @@ mod tests {
         }
         let before = page.summary.revision;
         // Saving the same accepted state again never duplicates events or invocation spans.
-        assert!(
+        assert_eq!(
             app.lock_inner()
                 .unwrap()
                 .folders
                 .store()
                 .save_workflow_run(workflow)
-                .unwrap()
-                .is_empty()
+                .unwrap(),
+            []
         );
         assert_eq!(
             app.workflow_trace(workflow.workflow_id, None, 200)
@@ -1551,7 +1551,7 @@ mod tests {
         let restored = Application::with_config(data.path(), Config::default()).unwrap();
         let workflow = wait_for(&restored, id, |w| w.restored);
         assert_eq!(workflow.status, WorkflowStatus::Interrupted);
-        assert!(workflow.terminal_ids().is_empty());
+        assert_eq!(workflow.terminal_ids(), []);
         assert_eq!(workflow.run.unwrap().status, RunStatus::Interrupted);
         let next = restored.terminals.reserve_terminal().unwrap();
         restored.terminals.cancel_reserved_terminal(next).unwrap();
@@ -1731,7 +1731,7 @@ mod tests {
             "Test the workflow",
         );
         let workflow = wait_for(&app, id, |w| w.status == WorkflowStatus::Failed);
-        assert!(workflow.terminal_ids().is_empty());
+        assert_eq!(workflow.terminal_ids(), []);
         let page = app.workflow_trace(id, None, 200).unwrap();
         assert_eq!(page.summary.span_count, 1);
         assert_eq!(page.summary.agent_count, 0);
@@ -1971,15 +1971,15 @@ mod tests {
                 .generation,
             1
         );
-        assert!(
-            !app.run_processes.lock().unwrap()[&id]
+        assert_ne!(
+            app.run_processes.lock().unwrap()[&id]
                 .inboxes
                 .values()
                 .next()
                 .unwrap()
                 .1
-                .response()
-                .is_empty()
+                .response(),
+            ""
         );
         failure
             .execute_batch("DROP TRIGGER reject_run_update")

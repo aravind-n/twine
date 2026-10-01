@@ -856,7 +856,7 @@ mod tests {
         .unwrap();
         let first = storage.allocate().unwrap();
         let second = storage.allocate().unwrap();
-        assert!(page(&storage, first, 0, 8).bytes.is_empty());
+        assert_eq!(page(&storage, first, 0, 8).bytes, b"");
         append(&mut storage, first, 0, &[0, 0xff, 0x1b]);
         append(&mut storage, second, 0, b"other");
         append(&mut storage, first, 3, b"[2J\n");
@@ -865,7 +865,7 @@ mod tests {
         assert_eq!((read.offset, read.next_offset, read.end_offset), (1, 6, 7));
         assert_eq!(page(&storage, first, 6, 8).bytes, b"\n");
         assert_eq!(page(&storage, second, 0, 8).bytes, b"other");
-        assert!(page(&storage, first, 7, 8).bytes.is_empty());
+        assert_eq!(page(&storage, first, 7, 8).bytes, b"");
         assert!(matches!(
             storage.read(first, 8, 1),
             Err(TranscriptError::OutOfRange {

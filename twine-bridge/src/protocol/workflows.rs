@@ -430,7 +430,7 @@ mod tests {
             panic!("expected a create workflow command");
         };
         assert_eq!(kind, WorkflowKind::Terminal);
-        assert!(roles.is_empty());
+        assert_eq!(roles, Vec::<String>::new());
 
         assert!(matches!(
             create_workflow(&json!({

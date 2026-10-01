@@ -469,7 +469,7 @@ mod tests {
                 ..crate::WorkflowState::default()
             }
         );
-        assert!(app.snapshot().unwrap().terminals.is_empty());
+        assert_eq!(app.snapshot().unwrap().terminals, []);
     }
 
     #[test]
@@ -663,8 +663,8 @@ mod tests {
             },
         );
         let snapshot = app.snapshot().unwrap();
-        assert!(snapshot.workflows.workflows.is_empty());
-        assert!(snapshot.terminals.is_empty());
+        assert_eq!(snapshot.workflows.workflows, []);
+        assert_eq!(snapshot.terminals, []);
         for terminal_id in terminal_ids {
             assert!(app.write_terminal_input(terminal_id, b"\n").is_err());
         }
@@ -690,6 +690,6 @@ mod tests {
         let state = app.snapshot().unwrap();
         assert_eq!(state.workflows.session.unwrap().session_id, first);
         assert_eq!(state.workflows.sessions[0].name, "Empty");
-        assert!(state.workflows.workflows.is_empty());
+        assert_eq!(state.workflows.workflows, []);
     }
 }

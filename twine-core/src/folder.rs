@@ -515,6 +515,6 @@ mod tests {
             folders.state().unavailable_folder,
             Some(unavailable(&file, UnavailableReason::Missing))
         );
-        assert!(folders.state().recent_folders.is_empty());
+        assert_eq!(folders.state().recent_folders, []);
     }
 }

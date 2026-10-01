@@ -256,7 +256,7 @@ mod tests {
                 .is_none()
         );
         let empty = list_directory(root.path(), &root.path().join("empty"));
-        assert!(empty.entries.is_empty());
+        assert_eq!(empty.entries, []);
         assert!(empty.error.is_none());
     }
 
@@ -311,7 +311,7 @@ mod tests {
             .poll(root.path(), &[], Some(&path), Some(renamed.revision))
             .unwrap()
             .unwrap();
-        assert!(deleted.directories[0].entries.is_empty());
+        assert_eq!(deleted.directories[0].entries, []);
         fs::write(&path, "back").unwrap();
         assert_eq!(
             browser

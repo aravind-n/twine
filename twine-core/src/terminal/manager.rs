@@ -105,7 +105,7 @@ impl TerminalManager {
         #[cfg(test)]
         if self
             .test_starts_before_failure
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |starts| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |starts| {
                 starts.checked_sub(1)
             })
             .is_err()

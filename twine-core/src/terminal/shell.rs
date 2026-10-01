@@ -222,13 +222,12 @@ mod tests {
     #[test]
     fn malformed_and_oversized_marks_are_ignored_and_decoder_recovers() {
         let mut decoder = ShellDecoder::new("test".into());
-        assert!(
-            decoder
-                .feed(
-                    b"\x1b]133;C;twine=test;command=gg\x07\x1b]133;D;twine=test;x\x07",
-                    0
-                )
-                .is_empty()
+        assert_eq!(
+            decoder.feed(
+                b"\x1b]133;C;twine=test;command=gg\x07\x1b]133;D;twine=test;x\x07",
+                0
+            ),
+            []
         );
         let mut bytes = b"\x1b]".to_vec();
         bytes.extend(vec![b'x'; MAX_MARK_BYTES + 1]);

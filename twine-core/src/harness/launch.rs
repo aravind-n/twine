@@ -205,7 +205,10 @@ mod tests {
                 "high"
             ]
         );
-        assert!(launch_arguments(HarnessId::Antigravity, LaunchOptions::default()).is_empty());
+        assert_eq!(
+            launch_arguments(HarnessId::Antigravity, LaunchOptions::default()),
+            Vec::<OsString>::new()
+        );
         assert_eq!(
             launch_arguments(HarnessId::Pi, LaunchOptions::default()),
             ["--tui-mode", "regular"]
@@ -214,7 +217,10 @@ mod tests {
             arguments(HarnessId::Omp),
             ["--auto-approve", "--model", "m1", "--thinking", "high"]
         );
-        assert!(launch_arguments(HarnessId::Omp, LaunchOptions::default()).is_empty());
+        assert_eq!(
+            launch_arguments(HarnessId::Omp, LaunchOptions::default()),
+            Vec::<OsString>::new()
+        );
         assert_eq!(
             arguments(HarnessId::Opencode),
             ["--standalone", "--model", "m1#high"]

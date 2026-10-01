@@ -81,7 +81,7 @@ mod tests {
             let after = app.snapshot().unwrap();
             assert_eq!(after.folders, before.folders);
             assert_eq!(after.sequence, before.sequence);
-            assert!(app.events_after(before.sequence, 16).unwrap().is_empty());
+            assert_eq!(app.events_after(before.sequence, 16).unwrap(), []);
         }
 
         // A successful read with no branch still clears a previously known branch.
