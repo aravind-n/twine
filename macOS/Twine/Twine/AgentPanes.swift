@@ -104,6 +104,7 @@ struct AgentPanes: View {
 /// One agent's terminal: filling the panel, or in Bento mode a rounded pane under a header whose
 /// menu picks the pane's agent.
 private struct AgentPane: View {
+    @Environment(CoreClient.self) private var coreClient
     @Environment(TraceTerminalNavigation.self) private var navigation
     let agent: CoreAgent
     let workflow: CoreWorkflow
@@ -149,6 +150,9 @@ private struct AgentPane: View {
                     padding: isTiled ? BentoLayout.terminalPadding : Spacing.agentTerminalContent,
                     subject: workflow.run == nil ? "Shell" : "Agent", isCancelled: workflow.status == .cancelled,
                     agentStatus: workflow.run?.agents.first(where: { $0.id == agent.id })?.status,
+                    beforeUserInput: {
+                        try await coreClient.continueWorkflowIfNeeded(workflowID: workflow.id, agentID: agent.id)
+                    },
                     didFocus: focus
                 )
                 // A stage that starts the agent gives it a new terminal, so the emulator must be rebuilt for it.

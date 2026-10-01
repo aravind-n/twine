@@ -30,6 +30,7 @@ nonisolated enum CoreCommand: Sendable {
         workflowID: UInt64, workflowType: CoreWorkflowType.Reference, roles: [CoreRoleLaunch],
         size: CoreTerminalSize)
     case completeWorkflowRole(workflowID: UInt64, agentID: UInt64, generation: UInt64, signal: CoreCompletionSignal)
+    case continueWorkflowRun(workflowID: UInt64, agentID: UInt64, generation: UInt64)
     case cancelWorkflowRun(workflowID: UInt64)
     case startTerminal(workingDirectory: String, size: CoreTerminalSize)
     case closeTerminal(terminalID: UInt64)

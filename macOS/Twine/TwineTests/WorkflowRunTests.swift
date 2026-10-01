@@ -84,4 +84,59 @@ struct WorkflowRunTests {
         let choices = try #require(command["roleLaunches"] as? [[String: String]])
         #expect(choices.map { $0["harness"] } == ["codex", "claudeCode"])
     }
+
+    @Test func continuationIdentifiesTheFirstAgentAndCompletedGeneration() throws {
+        let envelope = CommandEnvelope(
+            requestID: 1,
+            command: .continueWorkflowRun(workflowID: 3, agentID: 4, generation: 5))
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope)) as? [String: Any])
+        let command = try #require(object["command"] as? [String: Any])
+        #expect(command["type"] as? String == "continueWorkflowRun")
+        #expect(command["workflowId"] as? Int == 3)
+        #expect(command["agentId"] as? Int == 4)
+        #expect(command["generation"] as? Int == 5)
+    }
+
+    @Test(arguments: [CoreWorkflowRun.Status.running, .completed, .limitReached])
+    func firstStageInputChecksCoreWithAStaleSnapshot(status: CoreWorkflowRun.Status) async throws {
+        let type = CoreWorkflowType(
+            reference: .init(builtin: "adversarial"),
+            definition: .init(
+                name: "Adversarial", description: "", roles: [],
+                stages: [
+                    .init(
+                        id: "implement", name: "Implement", roles: ["implementer"],
+                        completion: .init(rule: .allRolesDone))
+                ]))
+        let run = CoreWorkflowRun(
+            generation: 2, stage: "Review", status: status, message: nil, needsTask: false,
+            agents: [
+                .init(
+                    agentId: 4, active: false, done: false, reviewer: false, harness: .codex, targets: [],
+                    role: "implementer"),
+                .init(
+                    agentId: 5, active: true, done: false, reviewer: true, harness: .claudeCode, targets: [],
+                    role: "reviewer"),
+            ], workflowType: type)
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.workflows.workflows = [
+            .init(
+                workflowID: 3, sessionID: 1, name: "Adversarial", kind: .agents, terminalID: 0,
+                status: .running, startedAt: 1, endedAt: nil, run: run)
+        ]
+        let transport = ScriptedAgentTransport(snapshot: snapshot)
+        let client = CoreClient(transport: transport)
+        client.start()
+        do {
+            try await waitUntil { client.runState == .running }
+            try await client.continueWorkflowIfNeeded(workflowID: 3, agentID: 5)
+            #expect(await transport.continuationAgentIDs.isEmpty)
+            try await client.continueWorkflowIfNeeded(workflowID: 3, agentID: 4)
+            #expect(await transport.continuationAgentIDs == [4])
+            await client.stop()
+        } catch {
+            await client.stop()
+            throw error
+        }
+    }
 }

@@ -76,8 +76,8 @@ fn record_starts(
             continue;
         }
         let exists: bool = transaction.query_row(
-            "SELECT EXISTS(SELECT 1 FROM trace_spans WHERE terminal_id = ?1)",
-            [sql_integer(agent.terminal_id.value())?],
+            "SELECT EXISTS(SELECT 1 FROM trace_spans WHERE terminal_id = ?1 AND run_generation = ?2)",
+            params![sql_integer(agent.terminal_id.value())?, sql_integer(run.generation)?],
             |row| row.get(0),
         )?;
         if exists {
@@ -91,7 +91,7 @@ fn record_starts(
         // Waiting tabs retain their prior terminal while the next stage is prepared.
         let Some(launch) = run.traces.iter().find(|event| {
             event.generation == run.generation
-                && event.kind == "agentStarted"
+                && matches!(event.kind.as_str(), "agentStarted" | "agentContinued")
                 && event.agent_id == Some(role.agent_id)
         }) else {
             continue;
@@ -118,19 +118,21 @@ fn record_starts(
                 sql_integer(agent.terminal_id.value())?
             ],
         )?;
-        insert_event(
-            transaction,
-            workflow.workflow_id,
-            span,
-            launch.timestamp,
-            TraceEventKind::ProcessStarted,
-            "Process started.",
-            Some(&TraceAnchor {
-                terminal_id: agent.terminal_id,
-                byte_offset: 0,
-                boundary_sizes: Some(Vec::new()),
-            }),
-        )?;
+        if launch.kind == "agentStarted" {
+            insert_event(
+                transaction,
+                workflow.workflow_id,
+                span,
+                launch.timestamp,
+                TraceEventKind::ProcessStarted,
+                "Process started.",
+                Some(&TraceAnchor {
+                    terminal_id: agent.terminal_id,
+                    byte_offset: 0,
+                    boundary_sizes: Some(Vec::new()),
+                }),
+            )?;
+        }
         spans.push((agent.terminal_id, span));
     }
     Ok(spans)

@@ -201,6 +201,7 @@ actor ScriptedAgentTransport {
     private var eventsToDeliver: [CoreEvent] = []
     private var chunks: [CoreTerminalChunk] = []
     private var nextRequestID: UInt64 = 1
+    private(set) var continuationAgentIDs: [UInt64] = []
 
     init(snapshot: CoreSnapshot) {
         initialSnapshot = snapshot
@@ -224,6 +225,7 @@ actor ScriptedAgentTransport {
     func close() {}
 
     func send(_ command: CoreCommand) -> CoreCommandReceipt {
+        if case .continueWorkflowRun(_, let agentID, _) = command { continuationAgentIDs.append(agentID) }
         let requestID = nextRequestID
         nextRequestID += 1
         switch (command, scriptedReply) {

@@ -1,5 +1,5 @@
-/// An accepted role completion explains why Twine stops its harness. Keep the raw process
-/// outcome for terminals that ended without a workflow completion signal.
+/// Assignment completion leaves an interactive harness alive. Show a status only after its
+/// terminal stops, retaining assignment outcomes for completed roles.
 nonisolated enum TerminalStatusMessage {
     static func text(
         subject: String, terminalStatus: CoreTerminalState.Status?,
@@ -7,6 +7,7 @@ nonisolated enum TerminalStatusMessage {
         failureMessage: String? = nil
     ) -> String? {
         if let failureMessage { return failureMessage }
+        if terminalStatus == .running { return nil }
         if agentStatus == .completed { return "Agent completed" }
         if agentStatus == .cancelled || isCancelled { return "Agent cancelled" }
         if agentStatus == .interrupted { return "Agent interrupted" }

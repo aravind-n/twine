@@ -7,6 +7,14 @@ use super::{NewTraceSpan, Store, StoreError, TraceEnding, sql_integer};
 use crate::harness::steps::{HarnessStep, StepKind};
 use crate::{TerminalId, TraceAnchor, TraceEventKind, TraceSpanId, TraceSpanStatus, WorkflowId};
 
+#[derive(Clone, Copy)]
+pub(crate) struct HarnessStepContext {
+    pub workflow_id: WorkflowId,
+    pub single_agent: bool,
+    pub activate: bool,
+    pub span: Option<TraceSpanId>,
+}
+
 impl Store {
     pub(crate) fn has_harness_workflow(&self, workflow_id: WorkflowId) -> Result<bool, StoreError> {
         Ok(self.connection.query_row(
@@ -34,13 +42,17 @@ impl Store {
 
     pub(crate) fn record_harness_step(
         &mut self,
-        workflow_id: WorkflowId,
-        single_agent: bool,
-        activate: bool,
+        context: HarnessStepContext,
         step: &HarnessStep,
         observed_at: u64,
         anchor: &TraceAnchor,
     ) -> Result<Option<TraceSpanId>, StoreError> {
+        let HarnessStepContext {
+            workflow_id,
+            single_agent,
+            activate,
+            span: assigned_span,
+        } = context;
         let transaction = self.connection.transaction()?;
         if activate {
             activate_harness_trace(&transaction, anchor.terminal_id)?;
@@ -49,7 +61,9 @@ impl Store {
             .query_row(
                 "SELECT s.id FROM trace_spans s JOIN trace_lanes l ON l.id = s.lane_id
              WHERE l.workflow_id = ?1 AND s.terminal_id = ?2
-             AND (?3 IS NULL OR s.harness_turn_id = ?3) ORDER BY s.id DESC LIMIT 1",
+             AND (?3 IS NULL OR s.harness_turn_id = ?3)
+             AND (?4 IS NULL OR s.id = ?4)
+             AND (?5 OR s.started_at <= ?6) ORDER BY s.id DESC LIMIT 1",
                 params![
                     sql_integer(workflow_id.0)?,
                     sql_integer(anchor.terminal_id.value())?,
@@ -58,6 +72,9 @@ impl Store {
                     } else {
                         None
                     },
+                    assigned_span.map(|span| sql_integer(span.0)).transpose()?,
+                    single_agent || assigned_span.is_some(),
+                    sql_integer(observed_at)?,
                 ],
                 |row| Ok(TraceSpanId(super::unsigned_column(row, 0)?)),
             )

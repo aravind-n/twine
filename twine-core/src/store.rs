@@ -14,6 +14,7 @@ mod workflow_types;
 mod workflows;
 pub(crate) use traces::{NewTraceSpan, TraceEnding};
 
+pub(crate) use harness_steps::HarnessStepContext;
 pub(crate) use workflow_types::StoredWorkflowType;
 
 /// Schema migrations in the order they apply. `PRAGMA user_version` counts the ones already applied,

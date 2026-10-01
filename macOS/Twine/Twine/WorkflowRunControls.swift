@@ -14,6 +14,11 @@ struct WorkflowRunControls: View {
     @State private var showsGraph = false
 
     private var agent: CoreWorkflowRun.Agent? { run.agents.first { $0.id == selectedAgentID } }
+    private var hasLiveAgents: Bool {
+        client.snapshot?.workflows.workflows.first(where: { $0.id == workflowID })?.terminalIDs.contains {
+            client.terminalStatus(for: $0) == .running
+        } == true
+    }
 
     var body: some View {
         HStack(spacing: AgentSubtabLayout.actionSpacing) {
@@ -39,7 +44,7 @@ struct WorkflowRunControls: View {
                 .help(selectedRole.map { "Mark \($0) done…" } ?? "Mark done…")
                 .accessibilityIdentifier("workflowMarkDone")
             }
-            if run.status == .running {
+            if run.status == .running || hasLiveAgents {
                 Button {
                     Task {
                         do { try await client.cancelWorkflowRun(workflowID: workflowID) } catch {

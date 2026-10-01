@@ -103,6 +103,14 @@ struct RawComplete {
     signal: CompletionSignal,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawContinue {
+    workflow_id: u64,
+    agent_id: u64,
+    generation: u64,
+}
+
 pub(super) fn decode_command(kind: &str, raw: &Value) -> Result<Command, BridgeError> {
     match kind {
         "startWorkflowRun" => {
@@ -129,6 +137,15 @@ pub(super) fn decode_command(kind: &str, raw: &Value) -> Result<Command, BridgeE
                 agent_id: AgentId(raw.agent_id),
                 generation: raw.generation,
                 signal: raw.signal,
+            })
+        }
+        "continueWorkflowRun" => {
+            let raw: RawContinue =
+                serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
+            Ok(Command::ContinueWorkflowRun {
+                workflow_id: WorkflowId(raw.workflow_id),
+                agent_id: AgentId(raw.agent_id),
+                generation: raw.generation,
             })
         }
         "cancelWorkflowRun" => raw
