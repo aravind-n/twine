@@ -91,6 +91,7 @@ final class MetalTerminalView: TerminalView {
             guard !Task.isCancelled, let self else { return }
             if hidden, window?.firstResponder === self { window?.makeFirstResponder(nil) }
             isHidden = hidden
+            if visible { setFrameSize(frame.size) }
             if visible && isSelected { requestKeyboardFocus() }
         }
     }
@@ -144,12 +145,14 @@ final class MetalTerminalView: TerminalView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         font = .terminal
+        changeScrollback(100_000)
         applyTwinePalette()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         font = .terminal
+        changeScrollback(100_000)
         applyTwinePalette()
     }
 
@@ -180,6 +183,23 @@ final class MetalTerminalView: TerminalView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTwinePalette()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        guard newSize.width > 0, newSize.height > 0 else { return }
+        let terminal = getTerminal()
+        terminalDelegate?.sizeChanged(source: self, newCols: terminal.cols, newRows: terminal.rows)
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        setFrameSize(frame.size)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        setFrameSize(frame.size)
     }
 
     func applyTwinePalette() {

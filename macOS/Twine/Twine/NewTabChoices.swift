@@ -129,9 +129,9 @@ struct NewTabChoices: View {
             }
 
             Button("Create your own", systemImage: "plus.square.on.square") { showsDesigner = true }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .keyboardShortcut("d", modifiers: [.command, .option])
                 .disabled(!isSelected || startingHarness != nil)
-                .help("Create your own workflow type (⇧⌘D)")
+                .help("Create your own workflow type (⌥⌘D)")
                 .accessibilityIdentifier("workflowCreateOwn")
         }
     }

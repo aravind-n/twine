@@ -26,6 +26,8 @@ struct TerminalSurface: View {
     }
 
     let terminalID: UInt64
+    var historyTerminalIDs: [UInt64] = []
+    var restoresOutput = false
     /// Hidden terminals keep running without drawing.
     let isVisible: Bool
     /// The selected terminal takes the keyboard.
@@ -51,6 +53,8 @@ struct TerminalSurface: View {
                     coreClient: coreClient,
                     font: coreClient.terminalFont,
                     terminalID: terminalID,
+                    historyTerminalIDs: historyTerminalIDs,
+                    restoresOutput: restoresOutput,
                     isVisible: isVisible,
                     isSelected: isSelected,
                     focusRequest: focusRequest,
@@ -130,6 +134,8 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     let coreClient: CoreClient
     let font: NSFont
     let terminalID: UInt64
+    var historyTerminalIDs: [UInt64] = []
+    var restoresOutput = false
     let isVisible: Bool
     let isSelected: Bool
     let focusRequest: Int
@@ -144,6 +150,8 @@ struct TerminalViewRepresentable: NSViewRepresentable {
             coreClient: coreClient, terminalID: terminalID, failureMessage: $failureMessage
         )
         controller.beforeUserInput = beforeUserInput
+        controller.historyTerminalIDs = historyTerminalIDs
+        controller.restoresOutput = restoresOutput
         return controller
     }
 
@@ -177,5 +185,9 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ nsView: MetalTerminalView, coordinator: TerminalController) {
         nsView.terminalDelegate = nil
         coordinator.stop()
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: MetalTerminalView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
     }
 }

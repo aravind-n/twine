@@ -10,6 +10,7 @@ nonisolated struct WorkflowLayout: Codable, Equatable, Sendable {
     static let maximumPanes = 4
 
     var mode = Mode.tabs
+    var terminalSplit: TerminalSplit?
     /// The agent with the keyboard: the one tab mode shows, or the focused Bento pane's.
     var focusedAgentID: UInt64?
     /// The agent in each Bento pane, in pane order. `panes(of:)` fits it to the workflow's agents.

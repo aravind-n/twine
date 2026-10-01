@@ -60,6 +60,7 @@ impl<'a> From<&'a Session> for WireSession<'a> {
 #[serde(rename_all = "camelCase")]
 pub(super) struct WireWorkflow<'a> {
     restored: bool,
+    terminal_history: Vec<WireWorkflowTerminal>,
     run: Option<super::runs::WireRun<'a>>,
     workflow_id: u64,
     session_id: u64,
@@ -75,6 +76,13 @@ pub(super) struct WireWorkflow<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WireWorkflowTerminal {
+    terminal_id: u64,
+    agent_id: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WireAgent<'a> {
     agent_id: u64,
     role: &'a str,
@@ -85,6 +93,14 @@ impl<'a> From<&'a Workflow> for WireWorkflow<'a> {
     fn from(workflow: &'a Workflow) -> Self {
         Self {
             restored: workflow.restored,
+            terminal_history: workflow
+                .terminal_history
+                .iter()
+                .map(|entry| WireWorkflowTerminal {
+                    terminal_id: entry.terminal_id.value(),
+                    agent_id: entry.agent_id.map(|id| id.0),
+                })
+                .collect(),
             run: workflow.run.as_deref().map(Into::into),
             workflow_id: workflow.workflow_id.0,
             session_id: workflow.session_id.0,
@@ -326,6 +342,7 @@ mod tests {
             started_at: 1,
             ended_at: None,
             restored: false,
+            terminal_history: Vec::new(),
             run: None,
         };
         for (harness, status, harness_name, status_name) in [
@@ -431,12 +448,14 @@ mod tests {
             started_at: 10,
             ended_at: None,
             restored: true,
+            terminal_history: Vec::new(),
             run: None,
         };
         assert_eq!(
             serde_json::to_value(WireWorkflow::from(&workflow)).unwrap(),
             json!({
                 "restored": true,
+                "terminalHistory": [],
                 "run": null,
                 "workflowId": 3,
                 "sessionId": 1,

@@ -1,11 +1,17 @@
 import Foundation
 import SwiftTerm
 
+nonisolated struct TerminalReplayPrefix {
+    let text: String
+    let columns: Int
+    let rows: Int
+}
+
 /// A separate emulator consumes the complete prefix. Cursor motion and alternate screens are
 /// interpreted before a frozen snapshot is shown; window layout never resizes this emulator.
 @MainActor
 final class TerminalReplay: TerminalDelegate {
-    private(set) lazy var terminal = Terminal(delegate: self)
+    private(set) lazy var terminal = Terminal(delegate: self, options: TerminalOptions(scrollback: 100_000))
     private(set) var offset: UInt64 = 0
     private var outputStartLine: BufferLine?
     private var outputStartBuffer: Buffer?

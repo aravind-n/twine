@@ -30,14 +30,32 @@ final class WorkflowLayouts {
         save()
     }
 
+    func splitRoot(for id: UInt64, in folder: String, workflows: [CoreWorkflow]) -> UInt64 {
+        workflows.first { layout(for: $0.id, in: folder).terminalSplit?.ids.contains(id) == true }?.id ?? id
+    }
+
+    func terminalSplit(for id: UInt64, in folder: String) -> TerminalSplit {
+        layout(for: id, in: folder).terminalSplit ?? .pane(id)
+    }
+
     /// Forgets the layouts of a folder's workflows that closed. Only the folder's loaded workflow state
     /// lists all of its workflows, which the core gives for every session.
     func removeClosedWorkflows(in folder: String, state: CoreWorkflowState?) {
         guard let state, state.sessionsInitialized, state.session?.folder == folder, let saved = layouts[folder]
         else { return }
         let kept = Set(state.workflows.map { String($0.id) })
-        let remaining = saved.filter { kept.contains($0.key) }
-        guard remaining.count != saved.count else { return }
+        var remaining = saved.filter { kept.contains($0.key) }
+        for (root, original) in saved {
+            guard let split = original.terminalSplit else { continue }
+            guard let pruned = split.retaining(Set(state.workflows.map(\.id))), let first = pruned.ids.first else {
+                continue
+            }
+            let destination = kept.contains(root) ? root : String(first)
+            var layout = remaining[destination] ?? original
+            layout.terminalSplit = pruned.ids.count > 1 ? pruned : nil
+            remaining[destination] = layout
+        }
+        guard remaining != saved else { return }
         layouts[folder] = remaining.isEmpty ? nil : remaining
         save()
     }

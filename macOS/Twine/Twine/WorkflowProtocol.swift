@@ -65,6 +65,7 @@ nonisolated struct CoreWorkflow: Decodable, Equatable, Identifiable, Sendable {
     let startedAt: UInt64
     let endedAt: UInt64?
     var restored = false
+    var terminalHistory: [CoreWorkflowTerminal]?
     var run: CoreWorkflowRun?
 
     var id: UInt64 { workflowID }
@@ -77,7 +78,8 @@ nonisolated struct CoreWorkflow: Decodable, Equatable, Identifiable, Sendable {
 
     /// The workflow's live shells: its agents' in an agents workflow, and otherwise its own.
     var terminalIDs: [UInt64] {
-        (kind == .agents ? agents.map(\.terminalID) : [terminalID]).filter { $0 != 0 }
+        if restored && (kind == .singleAgent || run != nil) { return [] }
+        return (kind == .agents ? agents.map(\.terminalID) : [terminalID]).filter { $0 != 0 }
     }
 
     enum Kind: String, Codable, Sendable {
@@ -101,7 +103,17 @@ nonisolated struct CoreWorkflow: Decodable, Equatable, Identifiable, Sendable {
         case workflowID = "workflowId"
         case sessionID = "sessionId"
         case terminalID = "terminalId"
-        case name, kind, harness, agents, status, startedAt, endedAt, restored, run
+        case name, kind, harness, agents, status, startedAt, endedAt, restored, run, terminalHistory
+    }
+}
+
+nonisolated struct CoreWorkflowTerminal: Decodable, Equatable, Sendable {
+    let terminalID: UInt64
+    let agentID: UInt64?
+
+    private enum CodingKeys: String, CodingKey {
+        case terminalID = "terminalId"
+        case agentID = "agentId"
     }
 }
 

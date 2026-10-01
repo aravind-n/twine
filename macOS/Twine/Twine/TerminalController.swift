@@ -21,6 +21,9 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     private var resizeTask: Task<Void, Never>?
     private var isStopping = false
     private var isTerminalStopped = false
+    private var isRestoring = false
+    var historyTerminalIDs: [UInt64] = []
+    var restoresOutput = false
     private let terminalIDBinding: Binding<UInt64?>
     private let failureMessage: Binding<String?>
     var beforeUserInput: (() async throws -> Void)?
@@ -70,12 +73,13 @@ final class TerminalController: NSObject, TerminalViewDelegate {
                 }
                 self.terminalID = terminalID
                 terminalIDBinding.wrappedValue = terminalID
+                try await restoreOutput(terminalID: terminalID, view: view)
                 lastSize = workingDirectory == nil ? nil : size
                 let latestSize = pendingSize ?? terminalSize(for: view)
                 pendingSize = nil
                 enqueueResize(latestSize, terminalID: terminalID)
                 if !pendingInput.isEmpty {
-                    enqueueInput(pendingInput, terminalID: terminalID)
+                    enqueueInput(pendingInput, terminalID: terminalID, isUserInput: true)
                     pendingInput = Data()
                 }
                 try await pumpOutput(for: terminalID, into: view)
@@ -84,6 +88,26 @@ final class TerminalController: NSObject, TerminalViewDelegate {
             } catch {
                 report(error)
             }
+        }
+    }
+
+    private func restoreOutput(terminalID: UInt64, view: MetalTerminalView) async throws {
+        let consumed = coreClient.terminalChunkRouter.hasConsumedOutput(for: terminalID)
+        guard restoresOutput || consumed else { return }
+        isRestoring = true
+        defer {
+            isRestoring = false
+            view.setFrameSize(view.frame.size)
+        }
+        do {
+            expectedOffset = try await TerminalRestoration.restore(
+                history: historyTerminalIDs.filter { $0 != terminalID },
+                current: coreClient.terminalStatus(for: terminalID) == .running && !consumed ? nil : terminalID,
+                client: coreClient, view: view)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            report(error)
         }
     }
 
@@ -116,12 +140,16 @@ final class TerminalController: NSObject, TerminalViewDelegate {
 
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
         guard !data.isEmpty, !isStopping, !isTerminalStopped else { return }
+        let isUserInput = (source as? MetalTerminalView)?.isSendingTerminalResponse != true
+        if isRestoring {
+            if isUserInput { pendingInput.append(contentsOf: data) }
+            return
+        }
         guard let terminalID else {
             // The terminal takes focus before its shell starts, so hold typing until it has.
             pendingInput.append(contentsOf: data)
             return
         }
-        let isUserInput = (source as? MetalTerminalView)?.isSendingTerminalResponse != true
         enqueueInput(Data(data), terminalID: terminalID, isUserInput: isUserInput)
     }
 
@@ -162,7 +190,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
         (source as? MetalTerminalView)?.minimapState?.recordSize(columns: newCols, rows: newRows)
-        guard !isStopping, !isTerminalStopped else { return }
+        guard !isStopping, !isTerminalStopped, !isRestoring else { return }
         let size = terminalSize(for: source, columns: newCols, rows: newRows)
         pendingSize = size
         guard let terminalID else { return }
@@ -171,20 +199,24 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     }
 
     private func enqueueResize(_ size: CoreTerminalSize, terminalID: UInt64) {
-        guard size != lastSize, !isStopping, !isTerminalStopped else { return }
-        lastSize = size
-        let precedingResize = resizeTask
+        guard !isStopping, !isTerminalStopped else { return }
+        pendingSize = size
+        guard resizeTask == nil else { return }
         resizeTask = Task {
-            await precedingResize?.value
-            guard !Task.isCancelled, !isStopping, !isTerminalStopped else { return }
-            do {
-                try await coreClient.resizeTerminal(terminalID: terminalID, size: size)
-            } catch CoreFailure.terminalNotRunning {
-                markTerminalStopped()
-            } catch is CancellationError {
-                return
-            } catch {
-                report(error)
+            defer { resizeTask = nil }
+            while let latest = pendingSize, !Task.isCancelled, !isStopping, !isTerminalStopped {
+                pendingSize = nil
+                guard latest != lastSize else { continue }
+                do {
+                    try await coreClient.resizeTerminal(terminalID: terminalID, size: latest)
+                    lastSize = latest
+                } catch CoreFailure.terminalNotRunning {
+                    markTerminalStopped()
+                } catch is CancellationError {
+                    return
+                } catch {
+                    report(error)
+                }
             }
         }
     }
@@ -204,15 +236,18 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     private func pumpOutput(for terminalID: UInt64, into view: TerminalView) async throws {
         while !Task.isCancelled {
             if let chunk = try await coreClient.nextTerminalChunk(for: terminalID) {
-                guard chunk.offset == expectedOffset else {
+                let end = chunk.offset + UInt64(chunk.bytes.count)
+                if end <= expectedOffset { continue }
+                guard chunk.offset <= expectedOffset else {
                     throw TerminalControllerError.offset(
                         expected: expectedOffset,
                         received: chunk.offset
                     )
                 }
                 (view as? MetalTerminalView)?.minimapState?.beginFeed()
-                expectedOffset += UInt64(chunk.bytes.count)
-                view.feed(byteArray: Array(chunk.bytes)[...])
+                let bytes = chunk.bytes.dropFirst(Int(expectedOffset - chunk.offset))
+                expectedOffset = end
+                view.feed(byteArray: Array(bytes)[...])
                 (view as? MetalTerminalView)?.minimapState?.received(through: expectedOffset)
                 await Task.yield()
                 continue
@@ -224,7 +259,21 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         }
     }
 
-    private func terminalSize(
+    private func report(_ error: any Error) {
+        guard !isStopping else { return }
+        terminalLogger.error("Terminal \(self.terminalID ?? 0) failed: \(error.localizedDescription, privacy: .public)")
+        failureMessage.wrappedValue = error.localizedDescription
+    }
+
+    private func markTerminalStopped() {
+        guard !isTerminalStopped else { return }
+        isTerminalStopped = true
+        terminalLogger.debug("Stopped forwarding input and resizes to terminal \(self.terminalID ?? 0)")
+    }
+}
+
+extension TerminalController {
+    fileprivate func terminalSize(
         for view: TerminalView,
         columns: Int? = nil,
         rows: Int? = nil
@@ -239,17 +288,6 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         )
     }
 
-    private func report(_ error: any Error) {
-        guard !isStopping else { return }
-        terminalLogger.error("Terminal \(self.terminalID ?? 0) failed: \(error.localizedDescription, privacy: .public)")
-        failureMessage.wrappedValue = error.localizedDescription
-    }
-
-    private func markTerminalStopped() {
-        guard !isTerminalStopped else { return }
-        isTerminalStopped = true
-        terminalLogger.debug("Stopped forwarding input and resizes to terminal \(self.terminalID ?? 0)")
-    }
 }
 
 private enum TerminalControllerError: LocalizedError {

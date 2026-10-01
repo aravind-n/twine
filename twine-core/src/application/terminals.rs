@@ -412,6 +412,7 @@ mod tests {
             started_at: 0,
             ended_at: None,
             restored: false,
+            terminal_history: Vec::new(),
             run: None,
         }
     }

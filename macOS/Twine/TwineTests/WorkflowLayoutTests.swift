@@ -213,6 +213,22 @@ struct WorkflowLayoutTests {
         await replaced.load()
         #expect(replaced.layout(for: 1, in: "/f").mode == .bento, "The next change replaces an unreadable file")
     }
+
+    @Test func closingTheRootPromotesAndPersistsItsRemainingSplit() async throws {
+        let directory = TemporaryPath()
+        let file = directory.url.appending(path: "workflow-layouts.json")
+        let layouts = WorkflowLayouts(fileURL: file)
+        let split = TerminalSplit.pane(1).inserting(3, beside: 1, direction: .right)
+            .inserting(4, beside: 3, direction: .down)
+        layouts.setLayout(WorkflowLayout(terminalSplit: split), for: 1, in: "/folder")
+        layouts.removeClosedWorkflows(in: "/folder", state: workflowState(folder: "/folder", workflowIDs: [2, 3, 4]))
+        #expect(layouts.terminalSplit(for: 3, in: "/folder").ids == [3, 4])
+        #expect(layouts.layout(for: 1, in: "/folder").terminalSplit == nil)
+        await layouts.flush()
+        let restored = WorkflowLayouts(fileURL: file)
+        await restored.load()
+        #expect(restored.terminalSplit(for: 3, in: "/folder").ids == [3, 4])
+    }
 }
 
 /// A folder's workflow state as the core publishes it, with one session.

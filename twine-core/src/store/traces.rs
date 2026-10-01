@@ -119,6 +119,13 @@ impl Store {
         if let Some((span_id, ending)) = placeholder {
             finish_span(&transaction, span_id, ending)?;
         }
+        super::workflows::discard_draft_terminal(&transaction, new.workflow_id)?;
+        if let Some(anchor) = &new.anchor {
+            transaction.execute(
+                "INSERT OR IGNORE INTO workflow_terminals (terminal_id, workflow_id) VALUES (?1, ?2)",
+                params![sql_integer(anchor.terminal_id.value())?, sql_integer(new.workflow_id.0)?],
+            )?;
+        }
         let span_id = insert_span(&transaction, new)?;
         transaction.commit()?;
         Ok(span_id)

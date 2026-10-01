@@ -18,6 +18,7 @@ impl Store {
     ) -> Result<Vec<(TerminalId, TraceSpanId)>, StoreError> {
         let run = workflow.run.as_ref().expect("workflow has a run");
         let transaction = self.connection.transaction()?;
+        super::workflows::remember_terminals(&transaction, workflow)?;
         let spans = record_starts(&transaction, workflow, run)?;
         save_run_state(&transaction, workflow.workflow_id, run)?;
         transaction.commit()?;
@@ -375,6 +376,7 @@ mod tests {
             started_at: 1,
             ended_at: None,
             restored: false,
+            terminal_history: Vec::new(),
             run: Some(Box::new(run)),
         }
     }
