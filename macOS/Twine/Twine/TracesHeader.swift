@@ -9,7 +9,7 @@ struct TracesHeader: View {
         Button(action: toggle) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Activity").panelTitleStyle()
+                    Text("Traces").panelTitleStyle()
                     if isExpanded { Text("Steps in start order").panelSubtitleStyle() }
                 }
                 Spacer(minLength: 0)
@@ -31,8 +31,8 @@ struct TracesHeader: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(isExpanded ? "Activity, expanded" : "Activity, collapsed")
-        .accessibilityHint("Toggle the activity sequence")
+        .accessibilityLabel(isExpanded ? "Traces, expanded" : "Traces, collapsed")
+        .accessibilityHint("Toggle the trace sequence")
         .accessibilityIdentifier("tracesHeader")
     }
     private var countLabel: String {

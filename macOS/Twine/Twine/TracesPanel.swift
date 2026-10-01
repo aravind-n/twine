@@ -109,15 +109,15 @@ struct TracesPanel: View {
     private func sequenceContent(now: UInt64, labelWidth: CGFloat) -> some View {
         if state.spans.isEmpty {
             if state.isLoading {
-                ProgressView("Loading activity…").controlSize(.small)
+                ProgressView("Loading traces…").controlSize(.small)
             } else if let failure = state.failureMessage {
                 ContentUnavailableView(
-                    "Activity Couldn't Load", systemImage: "exclamationmark.triangle",
+                    "Traces Couldn't Load", systemImage: "exclamationmark.triangle",
                     description: Text(failure))
             } else {
                 ContentUnavailableView(
-                    "No activity yet", systemImage: "waveform.path",
-                    description: Text("Activity appears here when a workflow runs.")
+                    "No traces yet", systemImage: "waveform.path",
+                    description: Text("Traces appear here when a workflow runs.")
                 )
                 .accessibilityIdentifier("tracesEmptyState")
             }
@@ -135,7 +135,7 @@ struct TracesPanel: View {
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     if state.nextBefore != nil {
-                        Button("Older activity") { loadOlderRequested = true }
+                        Button("Older traces") { loadOlderRequested = true }
                             .buttonStyle(.borderless)
                             .disabled(state.isLoading)
                     }

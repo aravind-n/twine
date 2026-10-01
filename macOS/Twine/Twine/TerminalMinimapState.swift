@@ -241,10 +241,10 @@ final class TerminalMinimapState {
             anchors = [:]
             markerRows = [:]
             unresolved = []
-            failureMessage = "Earlier activity output is no longer available."
+            failureMessage = "Earlier trace output is no longer available."
         } catch {
             guard !Task.isCancelled, revision == geometryRevision else { return }
-            failureMessage = "Activity positions couldn't load."
+            failureMessage = "Trace positions couldn't load."
             terminalLogger.error("Minimap replay failed: \(error.localizedDescription, privacy: .public)")
         }
     }

@@ -36,7 +36,7 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["traceFocusSpan-104"].exists)
         XCTAssertTrue(app.buttons["traceFocusSpan-110"].exists)
         XCTAssertFalse(app.buttons["traceFocusSpan-103"].exists)
-        attachWindow(in: app, name: "Activity, compact agent tracks and seven-step focus")
+        attachWindow(in: app, name: "Traces, compact agent tracks and seven-step focus")
 
         app.buttons["nextTraceStep"].click()
         XCTAssertEqual(range.value as? String, "6–12 of 16")
@@ -65,7 +65,7 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["traceSpan-114"].isHittable, app.debugDescription)
         XCTAssertTrue(app.buttons["traceFocusSpan-114"].isHittable, app.debugDescription)
         XCTAssertTrue(app.buttons["closeTraceDetails"].isHittable)
-        attachWindow(in: app, name: "Activity, selected step at minimum width")
+        attachWindow(in: app, name: "Traces, selected step at minimum width")
     }
 
     /// Historical core records exercise the real read path without relying on live harness timing.

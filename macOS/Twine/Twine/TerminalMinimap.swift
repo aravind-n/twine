@@ -52,7 +52,7 @@ struct TerminalMinimap: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Terminal minimap")
         .accessibilityIdentifier("terminalMinimap")
-        .help(state.failureMessage ?? "Drag to scroll. Activity points match the steps below. Home / End to jump.")
+        .help(state.failureMessage ?? "Drag to scroll. Trace points match the steps below. Home / End to jump.")
     }
 
     private func rail(height: CGFloat) -> some View {
@@ -133,7 +133,7 @@ struct TerminalMinimap: View {
         .buttonStyle(.plain)
         .frame(height: 10)
         .help("\(marker.title) · \(marker.lane.name)")
-        .accessibilityLabel("Activity \(marker.title), \(marker.lane.name)")
+        .accessibilityLabel("Trace \(marker.title), \(marker.lane.name)")
         .accessibilityIdentifier("minimapStep-\(marker.id)")
     }
 }

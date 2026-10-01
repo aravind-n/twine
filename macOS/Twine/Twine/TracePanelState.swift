@@ -176,7 +176,7 @@ final class TracePanelState {
     /// Copy reads the entire selected span, independently of the visible log's pagination.
     func completeLog(spanID: UInt64, client: CoreClient) async throws -> String {
         guard let span = spans.first(where: { $0.id == spanID }) else { throw CoreFailure.invalidArgument }
-        let laneName = lanes.first { $0.id == span.laneID }?.name ?? "Activity"
+        let laneName = lanes.first { $0.id == span.laneID }?.name ?? "Trace"
         let events = try await completeEvents(spanID: spanID, client: client)
         let lines =
             ["\(laneName) — \(span.title)"]

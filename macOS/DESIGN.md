@@ -20,7 +20,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 
 - Window background: `windowBackgroundColor`.
 - Content margins: 14pt left, right, and top; 11pt bottom.
-- Vertical spacing between the terminal block, the Activity panel, and the footer: 13pt.
+- Vertical spacing between the terminal block, the Traces panel, and the footer: 13pt.
 - The folder toolbar has the sidebar toggle. Close Folder in the File menu returns to the start page.
 
 ## Corner radii
@@ -28,7 +28,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 | Component | Radius |
 |---|---|
 | Terminal panel (all corners) | 17 |
-| Activity panel | 17 |
+| Traces panel | 17 |
 | Start page logo | 23% of its width, baked into the approved artwork |
 | New-tab choices card | 14 |
 | Start page empty-recents card | 12 |
@@ -41,18 +41,18 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 
 ## Surfaces and materials
 
-- **Panel outline:** a 1pt hairline in the primary color at 12% opacity (8% for the Activity panel).
+- **Panel outline:** a 1pt hairline in the primary color at 12% opacity (8% for the Traces panel).
 - **Terminal panel shadow:** black at 8% opacity, radius 12, y offset 4.
-- **Glass:** Use Liquid Glass sparingly for important controls and navigation. Let native toolbars and menus adopt the system appearance; prefer the native glass button style for `+`. Sidebar section menus stay borderless on the sidebar material, and the Activity toggle uses a plain chevron. Terminal text, trace lanes, and logs sit on solid backgrounds. Follow Apple's [Materials](https://developer.apple.com/design/human-interface-guidelines/materials) and [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass) guidance.
+- **Glass:** Use Liquid Glass sparingly for important controls and navigation. Let native toolbars and menus adopt the system appearance; prefer the native glass button style for `+`. Sidebar section menus stay borderless on the sidebar material, and the Traces toggle uses a plain chevron. Terminal text, trace lanes, and logs sit on solid backgrounds. Follow Apple's [Materials](https://developer.apple.com/design/human-interface-guidelines/materials) and [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass) guidance.
 - **Workflow tint:** a workflow with multiple agents fills its selected tab and its terminal strip with `controlBackgroundColor` plus a 12% accent wash. Terminal and single-agent workflows use the terminal background for the selected tab.
-- **Secondary surfaces:** start page cards use `controlBackgroundColor`. The trace detail panel uses the same `windowBackgroundColor` as the Activity panel.
+- **Secondary surfaces:** start page cards use `controlBackgroundColor`. The trace detail panel uses the same `windowBackgroundColor` as the Traces panel.
 
 ## Color
 
 - **Terminal:** Silica colors in dark mode, with a parchment background and darker versions of the same hues in light mode. Dark mode uses background `#0c1013` and text `#e5e1cf`. Light mode uses background `#f7f4e8` and text `#1a2026`. The 16 ANSI slots each have their own color. The prompt marker `❯` is green.
 - **Roles and harnesses:** each has one stable color and one SF Symbol, used everywhere it appears: subtabs, trace lanes, span pills, and log entries. Colors are muted: blue (about RGB 110, 150, 224), orange (212, 150, 110), purple (171, 133, 201), and green (102, 153, 122), plus more in the same muted range as needed.
 - **Status:** green for running, secondary for complete, orange for needs attention.
-- **Activity tracks:** prefer each role or harness color, with green for Terminal. Give tracks
+- **Trace tracks:** prefer each role or harness color, with green for Terminal. Give tracks
   distinct colors from the muted palette while available, retaining each track's assigned color
   through refresh and pagination. Use it for the label, overview, focus rail, details, and minimap.
 - **File selection:** accent at 12% opacity. Folder icons use accent at 80%.
@@ -64,7 +64,7 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 | Section labels ("WORKFLOWS", "TERMINAL") | caption2, semibold, uppercase, tracking 1.0, secondary |
 | Sidebar section labels ("FILES") | caption2, semibold, uppercase, tracking 1.2, secondary |
 | Tabs and subtabs | caption; selected is semibold and primary, others regular and secondary |
-| Panel titles ("Activity") | 16pt semibold, with a caption2 secondary subtitle |
+| Panel titles ("Traces") | 16pt semibold, with a caption2 secondary subtitle |
 | Start page title | 30pt semibold |
 | Terminal text | 13pt monospaced (12.5pt for dense output) |
 | Time axes | 9pt medium monospaced, tertiary |
@@ -79,7 +79,7 @@ All ease-in-out, all tied to a user action. The one exception is the workflow gr
 |---|---|---|
 | Tab close button on hover | 0.12s | fade in, replacing the tab's icon |
 | Scroll to the selected tab | 0.18s | scroll |
-| Activity collapse and expand | 0.18s | height change |
+| Traces collapse and expand | 0.18s | height change |
 | Trace detail panel | 0.22s | slide in from the trailing edge with a fade |
 | Typing in a new tab turns it into a Terminal | 0.32s | choices card fades out in place |
 | New-tab choices card appears | default | fade in from 96% scale |
@@ -146,9 +146,9 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
   stays top-aligned and compact instead of stretching to the rail height. Use the output’s ANSI
   colors at reduced opacity, following **03 / The quiet edge** in `designs/minimap.html`. Clicking or dragging scrolls the pane independently;
   Home, End, Page Up/Down, and arrow keys operate the focused rail.
-- Activity points share step identities, sequence numbers, lane colors, failure orange,
-  and the selected ring with the Activity panel. Expanded points show their step number;
-  tooltips include the step title and lane. A click selects and reveals that Activity step
+- Trace points share step identities, sequence numbers, lane colors, failure orange,
+  and the selected ring with the Traces panel. Expanded points show their step number;
+  tooltips include the step title and lane. A click selects and reveals that trace step
   and opens its recorded output through the shared trace navigation.
 - Position points from recorded byte anchors interpreted through terminal replay. Do not
   estimate a row from bytes or elapsed time. Live points follow the view's resize sequence;
@@ -168,17 +168,17 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 - A small borderless `xmark` button sits 8pt inside the card's top trailing corner. It closes the card and leaves the tab as a Terminal, like typing does.
 - The workflow launch form gives each role instance one row: its colored role label, then pop-up menus for the harness, the model ("Default model" first, then the harness's own list, grouped by provider for pi), the effort level ("Default effort" first) when the harness has levels, and a YOLO checkbox, disabled with an explaining tooltip for harnesses without permission prompts.
 
-### Activity panel
+### Traces panel
 
 - A separate rounded panel below the terminal: 48pt collapsed, about 272pt expanded.
 - The panel shows the window background through its border; it has no terminal-colored fill.
-- Header, 21pt horizontal padding: "Activity" (16pt semibold) with the subtitle "Steps in start order" when expanded, then a caption2 secondary count of steps and agents, then a plain chevron in a 26×26 area (11pt semibold). Clicking anywhere on the header toggles the panel.
+- Header, 21pt horizontal padding: "Traces" (16pt semibold) with the subtitle "Steps in start order" when expanded, then a caption2 secondary count of steps and agents, then a plain chevron in a 26×26 area (11pt semibold). Clicking anywhere on the header toggles the panel.
 - Overview: 18pt tracks, one per agent or shell, labeled with the role's colored symbol and name in a 126pt column (104pt with details, symbol only in narrow windows). Tracks scroll vertically when needed.
 - All steps share one X axis ordered by start timestamp. Exact ties use stable track ID priority, then span ID. Every step occupies its own column; gaps and durations never affect spacing. A 14pt axis shows sequence numbers for the loaded history.
 - Overview points: 7pt role-colored dots, with a selected ring, a running ring, and an orange failure symbol. Columns are 22–32pt wide and scroll horizontally. A subtle accent band marks the focused range.
 - Focus: seven consecutive steps, centered on the selection when possible, or the latest seven before a selection. A 24pt header shows the range and previous/next buttons. The single rail below is 102pt tall, with numbered 10pt points, two-line titles, agent names, and duration/status metadata. Cells fit the available width from 84–116pt and scroll horizontally in narrow panels. Both views reveal the selected step after selection, refresh, or resize.
-- A 28pt hint row at the bottom, in caption2 secondary text, with Older activity when history is paginated.
-- Detail panel: 40% of the panel width, clamped between 280 and 440pt, on the same `windowBackgroundColor` as the Activity panel, separated by a divider. It has a 48pt header (role symbol, span title as subheadline semibold, role and duration as caption2), glass copy and close buttons, a status line with the state's symbol and a one-line summary, then a scrolling log. Each log row has a monospaced timestamp and kind (the kind in the role color), the message as caption text, 8pt vertical padding, and faint dividers.
+- A 28pt hint row at the bottom, in caption2 secondary text, with Older traces when history is paginated.
+- Detail panel: 40% of the panel width, clamped between 280 and 440pt, on the same `windowBackgroundColor` as the Traces panel, separated by a divider. It has a 48pt header (role symbol, span title as subheadline semibold, role and duration as caption2), glass copy and close buttons, a status line with the state's symbol and a one-line summary, then a scrolling log. Each log row has a monospaced timestamp and kind (the kind in the role color), the message as caption text, 8pt vertical padding, and faint dividers.
 
 ### Sidebar
 
@@ -191,7 +191,7 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 
 ### Status footer
 
-- A 22pt plain-text row below the Activity panel, with 4pt horizontal padding and 8pt spacing, in caption2 secondary text; not a card.
+- A 22pt plain-text row below the Traces panel, with 4pt horizontal padding and 8pt spacing, in caption2 secondary text; not a card.
 - Contents: the Git branch with a branch symbol, and the selected workflow's status and elapsed time, separated by a 10pt-tall divider when both are present. A run's message, such as a review limit or a rejected completion, follows after another divider in the needs-attention color, truncated with its full text in the tooltip. A completed, cancelled, or interrupted run's message is left out, since the status already says it.
 
 ### Workflow graph
@@ -204,7 +204,7 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 
 ### Empty states
 
-Use the system's standard unavailable-content view with an SF Symbol and one line of guidance, for example "No activity yet" or "No open tabs".
+Use the system's standard unavailable-content view with an SF Symbol and one line of guidance, for example "No traces yet" or "No open tabs".
 
 ### Other screens
 

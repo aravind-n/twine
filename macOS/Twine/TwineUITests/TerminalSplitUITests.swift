@@ -93,7 +93,7 @@ extension TwineUITests {
         let second = app.staticTexts["Terminal · 2"].firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(second.waitForExistence(timeout: 5), app.debugDescription)
-        attachWindow(in: app, name: "Bento split with unified activity and image paste")
+        attachWindow(in: app, name: "Bento split with unified traces and image paste")
     }
 
     @MainActor

@@ -98,7 +98,7 @@
                     .tabTitleStyle(isSelected: false)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "Activity").panelTitleStyle()
+                    Text(verbatim: "Traces").panelTitleStyle()
                     Text(verbatim: "Steps in start order").panelSubtitleStyle()
                 }
             }
