@@ -79,7 +79,7 @@ impl AgentInput {
         terminals: &TerminalManager,
         terminal: TerminalId,
         bytes: &[u8],
-    ) -> Result<(), TerminalError> {
+    ) -> Result<bool, TerminalError> {
         let mut draft = self.draft.clone();
         let boundary = draft.observe(bytes);
         let submits = boundary.is_some();
@@ -110,7 +110,7 @@ impl AgentInput {
         if submits {
             self.feedback.clear();
         }
-        Ok(())
+        Ok(submits)
     }
 
     pub(super) fn notify(
@@ -118,7 +118,7 @@ impl AgentInput {
         terminals: &TerminalManager,
         terminal: TerminalId,
         message: &str,
-    ) -> Result<(), TerminalError> {
+    ) -> Result<bool, TerminalError> {
         let message: String = message
             .chars()
             .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
@@ -129,14 +129,14 @@ impl AgentInput {
                 self.feedback.pop_front();
             }
             self.feedback.push_back(message);
-            Ok(())
+            Ok(false)
         } else {
             terminals.write_input(
                 terminal,
                 format!("\x1b[200~{message}\x1b[201~\r").as_bytes(),
             )?;
             self.feedback.clear();
-            Ok(())
+            Ok(true)
         }
     }
 }
