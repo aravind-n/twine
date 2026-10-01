@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "commands for the workflow type catalog arrive with its UI"
-    )
-)]
-
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use super::{Store, StoreError, sql_integer, unsigned_column};

@@ -2,6 +2,8 @@ import Foundation
 
 nonisolated enum CoreCommand: Sendable {
     case ping
+    case validateWorkflowType(definition: CoreWorkflowType.Definition)
+    case saveWorkflowType(source: CoreWorkflowType.Reference?, definition: CoreWorkflowType.Definition)
     case openFolder(path: String)
     /// Closes the open folder, so the window shows the start page.
     case closeFolder
@@ -122,6 +124,7 @@ nonisolated struct CoreEvent: Decodable, Equatable, Sendable {
 
     enum Kind: Equatable, Sendable {
         case applicationReady
+        case workflowTypesChanged([CoreWorkflowType])
         case traceChanged(CoreTraceSummary)
         case workflowsChanged(CoreWorkflowState)
         case workflowChanged(CoreWorkflow)
@@ -150,6 +153,8 @@ nonisolated struct CoreEvent: Decodable, Equatable, Sendable {
 }
 
 nonisolated enum CoreCommandResult: Equatable, Sendable {
+    case workflowTypeValidated(issues: [CoreWorkflowValidationIssue])
+    case workflowTypeSaved(reference: CoreWorkflowType.Reference)
     case sessionCreated(sessionID: UInt64)
     case sessionRenamed(sessionID: UInt64)
     case sessionSelected(sessionID: UInt64)
@@ -233,6 +238,7 @@ nonisolated private struct EventPayload: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case folders
+        case workflowTypes
         case summary
         case workflows
         case workflow
@@ -247,6 +253,7 @@ nonisolated private struct EventPayload: Decodable {
 
     private enum EventType: String, Decodable {
         case applicationReady
+        case workflowTypesChanged
         case traceChanged
         case commandCompleted
         case foldersChanged
@@ -262,6 +269,8 @@ nonisolated private struct EventPayload: Decodable {
         switch try container.decode(EventType.self, forKey: .type) {
         case .traceChanged:
             kind = .traceChanged(try container.decode(CoreTraceSummary.self, forKey: .summary))
+        case .workflowTypesChanged:
+            kind = .workflowTypesChanged(try container.decode([CoreWorkflowType].self, forKey: .workflowTypes))
         case .applicationReady:
             kind = .applicationReady
         case .commandCompleted:
@@ -301,12 +310,12 @@ nonisolated private struct CommandResultPayload: Decodable {
         case sessionID = "sessionId"
         case workflowID = "workflowId"
         case terminalID = "terminalId"
-        case type
+        case type, issues, reference
     }
 
     private enum ResultType: String, Decodable {
         case sessionCreated, sessionRenamed, sessionSelected, sessionDeleted
-        case pong
+        case pong, workflowTypeValidated, workflowTypeSaved
         case workflowCreated
         case workflowActivated
         case workflowClosed
@@ -343,6 +352,12 @@ nonisolated private struct CommandResultPayload: Decodable {
             result = .sessionDeleted(sessionID: try container.decode(UInt64.self, forKey: .sessionID))
         case .workflowCreated, .workflowActivated, .workflowClosed, .agentStarted, .agentCancelled:
             result = try Self.workflowResult(type, workflowID: try container.decode(UInt64.self, forKey: .workflowID))
+        case .workflowTypeValidated:
+            result = .workflowTypeValidated(
+                issues: try container.decode([CoreWorkflowValidationIssue].self, forKey: .issues))
+        case .workflowTypeSaved:
+            result = .workflowTypeSaved(
+                reference: try container.decode(CoreWorkflowType.Reference.self, forKey: .reference))
         case .pong:
             result = .pong
         case .terminalStarted:

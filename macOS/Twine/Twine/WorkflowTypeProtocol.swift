@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct CoreWorkflowType: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct CoreWorkflowType: Codable, Equatable, Identifiable, Sendable {
     let reference: Reference
     let definition: Definition
     var id: String { reference.builtin ?? "custom-\(reference.user?.typeID ?? 0)-\(reference.user?.version ?? 0)" }
@@ -12,61 +12,62 @@ nonisolated struct CoreWorkflowType: Decodable, Equatable, Identifiable, Sendabl
         var user: CoreUserWorkflowVersion?
     }
 
-    struct Definition: Decodable, Equatable, Sendable {
-        let name: String
-        let description: String
-        let roles: [Role]
+    struct Definition: Codable, Hashable, Sendable {
+        var name: String
+        var description: String
+        var roles: [Role]
         var stages: [Stage] = []
         var handoffs: [Handoff] = []
         var reviewLoops: [ReviewLoop] = []
 
     }
 
-    struct Role: Decodable, Equatable, Identifiable, Sendable {
-        let id: String
-        let name: String
-        let instances: Instances
+    struct Role: Codable, Hashable, Identifiable, Sendable {
+        var id: String
+        var name: String
+        var instances: Instances
+        var instructions: String = ""
     }
 
-    struct Instances: Decodable, Equatable, Sendable {
-        let min: Int
-        let max: Int
+    struct Instances: Codable, Hashable, Sendable {
+        var min: Int
+        var max: Int
     }
 
-    struct Stage: Decodable, Equatable, Identifiable, Sendable {
-        let id: String
-        let name: String
-        let roles: [String]
-        let completion: Completion
+    struct Stage: Codable, Hashable, Identifiable, Sendable {
+        var id: String
+        var name: String
+        var roles: [String]
+        var completion: Completion
     }
 
-    struct Completion: Decodable, Equatable, Sendable {
-        let rule: CompletionRule
+    struct Completion: Codable, Hashable, Sendable {
+        var rule: CompletionRule
         var reviewer: String?
     }
 
-    enum CompletionRule: String, Decodable, Sendable {
+    enum CompletionRule: String, Codable, Sendable {
         case allRolesDone = "all_roles_done"
         case reviewDecision = "review_decision"
     }
 
-    struct Endpoint: Decodable, Equatable, Sendable {
-        let stage: String
-        let role: String
+    struct Endpoint: Codable, Hashable, Sendable {
+        var stage: String
+        var role: String
     }
 
-    struct Handoff: Decodable, Equatable, Sendable {
-        let from: Endpoint
-        let destination: Endpoint
-        let content: HandoffContent
+    struct Handoff: Codable, Hashable, Sendable {
+        var from: Endpoint
+        var destination: Endpoint
+        var content: HandoffContent
     }
 
-    enum HandoffContent: String, Decodable, Sendable { case result, feedback, assignment }
+    enum HandoffContent: String, Codable, Sendable { case result, feedback, assignment }
 
-    struct ReviewLoop: Decodable, Equatable, Sendable {
-        let reviewStage: String
-        let backTo: String
-        let maxRounds: Int
+    struct ReviewLoop: Codable, Hashable, Sendable {
+        var reviewStage: String
+        var backTo: String
+        var maxRounds: Int
     }
 }
 

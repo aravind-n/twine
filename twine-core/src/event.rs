@@ -10,6 +10,7 @@ use crate::workflow::{SessionId, Workflow, WorkflowId, WorkflowState};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateEvent {
     ApplicationReady,
+    WorkflowTypesChanged(Vec<crate::WorkflowType>),
     TraceChanged(crate::TraceSummary),
     WorkflowsChanged(WorkflowState),
     WorkflowChanged(Workflow),
@@ -30,6 +31,8 @@ pub enum StateEvent {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandResult {
+    WorkflowTypeValidated { issues: Vec<crate::ValidationIssue> },
+    WorkflowTypeSaved { reference: crate::WorkflowTypeRef },
     SessionCreated { session_id: SessionId },
     SessionRenamed { session_id: SessionId },
     SessionSelected { session_id: SessionId },

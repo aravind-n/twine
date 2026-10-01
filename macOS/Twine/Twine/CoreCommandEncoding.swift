@@ -18,6 +18,8 @@ nonisolated struct CommandEnvelope: Encodable {
 }
 
 nonisolated private struct CommandPayload: Encodable {
+    var definition: CoreWorkflowType.Definition?
+    var source: CoreWorkflowType.Reference?
     var type: String
     var path: String?
     var folder: String?
@@ -40,6 +42,7 @@ nonisolated private struct CommandPayload: Encodable {
     var terminalID: UInt64?
 
     private enum CodingKeys: String, CodingKey {
+        case definition, source
         case path, folder, kind, roles, size, type, workingDirectory, name, harness, model, effort, yolo
         case terminalID = "terminalId"
         case workflowID = "workflowId"
@@ -51,6 +54,13 @@ nonisolated private struct CommandPayload: Encodable {
 
     init(_ command: CoreCommand) {
         switch command {
+        case .validateWorkflowType(let definition):
+            type = "validateWorkflowType"
+            self.definition = definition
+        case .saveWorkflowType(let source, let definition):
+            type = "saveWorkflowType"
+            self.source = source
+            self.definition = definition
         case .ping:
             type = "ping"
         case .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .refreshGitBranch:

@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "commands for the workflow type catalog arrive with its UI"
-    )
-)]
-
 use thiserror::Error;
 use tracing::warn;
 
@@ -102,11 +94,8 @@ impl<'a> WorkflowCatalog<'a> {
         Ok(WorkflowTypeRef::User { type_id, version })
     }
 
-    /// Adds a user-made copy of a type, which can then be edited.
-    pub(crate) fn copy(
-        &mut self,
-        reference: WorkflowTypeRef,
-    ) -> Result<WorkflowTypeRef, CatalogError> {
+    #[cfg(test)]
+    fn copy(&mut self, reference: WorkflowTypeRef) -> Result<WorkflowTypeRef, CatalogError> {
         let mut definition = self.get(reference)?.definition;
         definition.name.push_str(" copy");
         self.create(&definition)
