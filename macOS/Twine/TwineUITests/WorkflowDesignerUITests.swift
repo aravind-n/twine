@@ -12,8 +12,12 @@ extension TwineUITests {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
         XCTAssertTrue(item("workflowCreateOwn").waitForExistence(timeout: 10), app.debugDescription)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 720))
+        app.buttons["newWorkflow"].click()
+        XCTAssertTrue(app.buttons["workflowTab-2"].waitForExistence(timeout: 5))
+        app.buttons["workflowTab-1"].click()
+        // Both drafts stay mounted; only the selected one owns the designer command.
         // The shell owns focus here. The shortcut must open the designer without typing into it.
-        app.typeKey("d", modifierFlags: [.command, .option])
+        app.typeKey("n", modifierFlags: [.command, .option])
         XCTAssertTrue(item("designerName").waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(item("designerError-name").waitForExistence(timeout: 5))
         XCTAssertFalse(item("designerSave").isEnabled)
@@ -42,5 +46,10 @@ extension TwineUITests {
         custom.click()
         XCTAssertTrue(item("workflowEditType").waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Keyboard review"].exists, app.debugDescription)
+        app.buttons["newWorkflow"].click()
+        item("workflowChoice-Terminal").click()
+        app.menuBars.menuBarItems["File"].click()
+        XCTAssertFalse(app.menuItems["Create Workflow Type…"].isEnabled)
+        app.typeKey(.escape, modifierFlags: [])
     }
 }

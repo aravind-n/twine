@@ -40,6 +40,13 @@ pub(crate) fn launch_arguments(harness: HarnessId, options: LaunchOptions<'_>) -
         effort,
         yolo,
     } = options;
+    match harness {
+        HarnessId::Codex => arguments.push(OsString::from("--no-alt-screen")),
+        HarnessId::Pi => {
+            arguments.extend([OsString::from("--tui-mode"), OsString::from("regular")]);
+        }
+        _ => {}
+    }
     if harness == HarnessId::Opencode {
         // A private server keeps tools and their child processes within this terminal's lifetime.
         arguments.push(OsString::from("--standalone"));
@@ -159,6 +166,7 @@ mod tests {
         assert_eq!(
             arguments(HarnessId::Codex),
             [
+                "--no-alt-screen",
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--model",
                 "m1",
@@ -178,7 +186,14 @@ mod tests {
         );
         assert_eq!(
             arguments(HarnessId::Pi),
-            ["--model", "m1", "--thinking", "high"]
+            [
+                "--tui-mode",
+                "regular",
+                "--model",
+                "m1",
+                "--thinking",
+                "high"
+            ]
         );
         assert_eq!(
             arguments(HarnessId::Antigravity),
@@ -191,7 +206,10 @@ mod tests {
             ]
         );
         assert!(launch_arguments(HarnessId::Antigravity, LaunchOptions::default()).is_empty());
-        assert!(launch_arguments(HarnessId::Pi, LaunchOptions::default()).is_empty());
+        assert_eq!(
+            launch_arguments(HarnessId::Pi, LaunchOptions::default()),
+            ["--tui-mode", "regular"]
+        );
         assert_eq!(
             arguments(HarnessId::Omp),
             ["--auto-approve", "--model", "m1", "--thinking", "high"]

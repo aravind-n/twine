@@ -10,12 +10,18 @@ nonisolated struct TraceTerminalTarget: Equatable, Identifiable, Sendable {
     let message: String
     var outputStartAnchor: CoreTraceAnchor?
     var readToCurrentEnd = false
+    var scrollAnchor: CoreTraceAnchor { outputStartAnchor ?? anchor }
 }
 
 @MainActor
 @Observable
 final class TraceTerminalNavigation {
-    var target: TraceTerminalTarget?
+    /// Explicit saved-output viewer. Activity points use scrollTarget instead.
+    var target: TraceTerminalTarget? {
+        didSet { if target != nil { scrollTarget = nil } }
+    }
+    var scrollTarget: TraceTerminalTarget?
+    var destination: TraceTerminalTarget? { target ?? scrollTarget }
     let activity = TracePanelState()
     let minimap = TraceMinimapState()
     var requestedSpanID: UInt64?
@@ -43,7 +49,8 @@ final class TraceTerminalNavigation {
 
     func jump(to event: CoreTraceEvent, lane: CoreTraceLane) {
         guard let anchor = event.anchor else { return }
-        target = TraceTerminalTarget(
+        target = nil
+        scrollTarget = TraceTerminalTarget(
             workflowID: event.workflowID, agentID: lane.agentID, anchor: anchor,
             timestamp: event.timestamp, message: event.message)
     }
@@ -55,7 +62,8 @@ final class TraceTerminalNavigation {
         let ending = events.last(where: {
             $0.spanID == span.id && $0.id != start.id && $0.anchor?.terminalID == startAnchor.terminalID
         })
-        target = TraceTerminalTarget(
+        target = nil
+        scrollTarget = TraceTerminalTarget(
             workflowID: start.workflowID, agentID: lane.agentID, anchor: ending?.anchor ?? startAnchor,
             timestamp: start.timestamp, message: span.title,
             outputStartAnchor: startAnchor, readToCurrentEnd: ending == nil)

@@ -301,7 +301,7 @@ impl Application {
         Ok(CommandDisposition::Accepted)
     }
 
-    /// Loads tabs from SQLite and gives each one a new shell and terminal ID. Earlier transcripts
+    /// Loads tabs from SQLite, restarting shells and resuming recorded harness sessions. Earlier transcripts
     /// remain independently readable until pruned. Failed starts keep their tab for inspection.
     #[expect(
         clippy::too_many_lines,
@@ -330,7 +330,7 @@ impl Application {
             .map(|workflow| {
                 let shells = match workflow.kind {
                     WorkflowKind::Draft | WorkflowKind::Terminal => 1,
-                    // Harness runs never restart; legacy multi-agent workflows restore shells.
+                    // Harnesses restore their archive first, then attempt exact-session resume below.
                     WorkflowKind::SingleAgent => 0,
                     WorkflowKind::Agents if workflow.run.is_some() => 0,
                     WorkflowKind::Agents => workflow.agents.len(),
@@ -383,7 +383,7 @@ impl Application {
             // An agents workflow has no shell of its own; each of its agents gets a fresh one.
             let (terminal_id, agents) = match stored.kind {
                 WorkflowKind::Draft | WorkflowKind::Terminal => (restart(), Vec::new()),
-                // Keep the recorded terminal available without restarting the harness.
+                // Keep the recorded terminal available until an exact session can resume.
                 WorkflowKind::SingleAgent => (
                     terminal_history
                         .last()
@@ -448,6 +448,7 @@ impl Application {
         drop(inner);
         self.terminals.close_all(&failed_terminals)?;
         published?;
+        self.resume_restored_agents(&folder)?;
         Ok(())
     }
 

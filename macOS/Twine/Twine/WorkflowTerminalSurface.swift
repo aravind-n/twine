@@ -8,6 +8,7 @@ struct WorkflowTerminalSurface: View {
     let workflow: CoreWorkflow
     let isSelected: Bool
     var isVisible: Bool?
+    var isTiled = false
     var didFocus: (() -> Void)?
     let reportFailure: (String) -> Void
     @State private var draft = WorkflowDraftPresentation()
@@ -25,7 +26,7 @@ struct WorkflowTerminalSurface: View {
                 folder: folder, workflow: workflow, isSelected: isSelected, reportFailure: reportFailure)
         } else {
             VStack(spacing: 0) {
-                if workflow.restored {
+                if workflow.restored || (workflow.kind == .singleAgent && workflow.status != .running) {
                     RestoredWorkflowNotice(workflow: workflow)
                 }
                 if workflow.terminalID == 0 {
@@ -71,6 +72,7 @@ struct WorkflowTerminalSurface: View {
             isVisible: (isVisible ?? isSelected) && history == nil,
             isSelected: isSelected && history == nil, focusRequest: focusRequest,
             automaticallyFocuses: workflow.kind != .draft || (selectedType == nil && startingHarness == nil),
+            padding: isTiled ? BentoLayout.terminalPadding : Spacing.terminalContent,
             subject: workflow.kind == .singleAgent ? "Agent" : "Shell", isCancelled: workflow.status == .cancelled,
             beforeUserInput: {
                 try await draft.activate(client: coreClient, workflowID: workflow.id)

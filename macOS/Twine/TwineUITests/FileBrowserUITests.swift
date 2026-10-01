@@ -16,7 +16,6 @@ extension TwineUITests {
         app.launch()
         XCTAssertTrue(app.buttons["sidebarToggle"].waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
-        app.buttons["sidebarToggle"].click()
         let root = fileRow(folder, in: app)
         XCTAssertTrue(root.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(root.label, folder.lastPathComponent)

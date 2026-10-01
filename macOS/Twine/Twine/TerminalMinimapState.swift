@@ -140,7 +140,37 @@ final class TerminalMinimapState {
         refresh()
     }
 
-    func returnToLive() { scroll(to: geometry.maximumTop) }
+    /// Reuse the minimap's ANSI replay to locate an exact byte boundary in the mounted terminal.
+    func scroll(to anchor: CoreTraceAnchor, client: CoreClient) async throws -> Bool {
+        guard let terminal = view?.getTerminal(), !terminal.isCurrentBufferAlternate,
+            liveSizes.first?.offset == 0, anchor.byteOffset <= receivedOffset
+        else { return false }
+        let revision = geometryRevision
+        let checkpoint = TerminalMinimapCheckpoint(terminal: terminal)
+        let index = TerminalMinimapReplay()
+        try await index.load(
+            terminalID: anchor.terminalID, endOffset: receivedOffset, points: [(0, anchor)], client: client,
+            liveSizes: liveSizes, prefix: replayPrefix)
+        try Task.checkCancellation()
+        guard revision == geometryRevision, terminal.cols == checkpoint.columns, terminal.rows == checkpoint.rows
+        else { throw CancellationError() }
+        guard !terminal.isCurrentBufferAlternate,
+            var mapped = index.liveAnchors(at: checkpoint)[0]
+        else { return false }
+        var rows: [ObjectIdentifier: Int] = [:]
+        for row in 0..<TerminalMinimapGeometry.lineCount(in: terminal) {
+            if let line = terminal.bufferLine(atRow: row) { rows[ObjectIdentifier(line)] = row }
+        }
+        guard let row = mapped.resolve(terminal: terminal, rows: rows) else { return false }
+        scroll(to: row)
+        if let view { view.window?.makeFirstResponder(view) }
+        return true
+    }
+
+    func returnToLive() {
+        scroll(to: geometry.maximumTop)
+        if let view { view.window?.makeFirstResponder(view) }
+    }
 
     func showHistory(text: String, rows: [UInt64: Int]) {
         if historyText != text {

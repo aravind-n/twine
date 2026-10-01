@@ -18,6 +18,7 @@ pub(crate) mod codex;
 pub(crate) mod launch;
 pub(crate) mod models;
 pub(crate) mod pi;
+pub(crate) mod resume;
 pub(crate) mod steps;
 
 /// How long to wait for the login shell to report its `PATH`.

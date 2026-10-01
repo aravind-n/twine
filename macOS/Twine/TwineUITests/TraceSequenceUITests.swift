@@ -10,6 +10,7 @@ extension TwineUITests {
         app.launch()
         defer { app.terminate() }
         XCTAssertTrue(app.buttons["tracesHeader"].waitForExistence(timeout: 10))
+        app.buttons["workflowChoice-Terminal"].click()
         app.terminate()
         try seedSequenceHistory(app)
         app.launch()
@@ -54,6 +55,12 @@ extension TwineUITests {
         app.buttons["traceFocusSpan-114"].click()
         XCTAssertTrue(points[14].isHittable, app.debugDescription)
 
+        verifySequenceAtMinimumWidth(app)
+    }
+
+    @MainActor
+    private func verifySequenceAtMinimumWidth(_ app: XCUIApplication) {
+        app.buttons["sidebarToggle"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 400, height: 620))
         XCTAssertTrue(app.buttons["traceSpan-114"].isHittable, app.debugDescription)
         XCTAssertTrue(app.buttons["traceFocusSpan-114"].isHittable, app.debugDescription)

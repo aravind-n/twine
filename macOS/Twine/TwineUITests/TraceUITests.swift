@@ -17,11 +17,13 @@ extension TwineUITests {
         let folder = try traceFolder()
         let app = try makeApp(lastOpenFolder: folder)
         app.launchEnvironment["TWINE_TEST_APPEARANCE"] = appearance
+        app.launchEnvironment["SHELL"] = "/bin/sh"
         app.launch()
         defer { app.terminate() }
         let header = app.buttons["tracesHeader"]
         XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(header.label, "Activity, collapsed")
+        app.buttons["workflowChoice-Terminal"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         attachWindow(in: app, name: "\(appearance), Traces collapsed")
         header.click()
@@ -43,6 +45,7 @@ extension TwineUITests {
         attachWindow(in: app, name: "\(appearance), Traces expanded with details")
 
         // At the supported minimum width the lane contracts to its role symbol.
+        app.buttons["sidebarToggle"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 400, height: 620))
         XCTAssertTrue(span.isHittable, app.debugDescription)
         XCTAssertTrue(close.isHittable, app.debugDescription)
@@ -59,10 +62,12 @@ extension TwineUITests {
     @MainActor
     func testTraceHistorySurvivesRelaunch() throws {
         let app = try makeApp(lastOpenFolder: traceFolder())
+        app.launchEnvironment["SHELL"] = "/bin/sh"
         app.launch()
         defer { app.terminate() }
         let header = app.buttons["tracesHeader"]
         XCTAssertTrue(header.waitForExistence(timeout: 10))
+        app.buttons["workflowChoice-Terminal"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         header.click()
         XCTAssertTrue(app.buttons["traceSpan-1"].waitForExistence(timeout: 10))

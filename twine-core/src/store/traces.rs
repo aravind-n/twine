@@ -105,8 +105,14 @@ impl Store {
         new: &NewTraceSpan<'_>,
         harness: crate::HarnessId,
         placeholder: Option<(TraceSpanId, &TraceEnding<'_>)>,
+        session: Option<&str>,
     ) -> Result<TraceSpanId, StoreError> {
         let transaction = self.connection.transaction()?;
+        let is_draft: bool = transaction.query_row(
+            "SELECT kind = 'draft' FROM workflows WHERE id = ?1",
+            [sql_integer(new.workflow_id.0)?],
+            |row| row.get(0),
+        )?;
         transaction.execute(
             "UPDATE workflows SET name = ?2, kind = 'single_agent', harness_id = ?3,
              lifecycle_status = 'running' WHERE id = ?1",
@@ -119,11 +125,13 @@ impl Store {
         if let Some((span_id, ending)) = placeholder {
             finish_span(&transaction, span_id, ending)?;
         }
-        super::workflows::discard_draft_terminal(&transaction, new.workflow_id)?;
+        if is_draft {
+            super::workflows::discard_draft_terminal(&transaction, new.workflow_id)?;
+        }
         if let Some(anchor) = &new.anchor {
             transaction.execute(
-                "INSERT OR IGNORE INTO workflow_terminals (terminal_id, workflow_id) VALUES (?1, ?2)",
-                params![sql_integer(anchor.terminal_id.value())?, sql_integer(new.workflow_id.0)?],
+                "INSERT OR IGNORE INTO workflow_terminals (terminal_id, workflow_id, harness_session) VALUES (?1, ?2, ?3)",
+                params![sql_integer(anchor.terminal_id.value())?, sql_integer(new.workflow_id.0)?, session],
             )?;
         }
         let span_id = insert_span(&transaction, new)?;

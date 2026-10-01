@@ -112,12 +112,17 @@ impl Workflow {
 
     /// The workflow's live shells.
     pub(crate) fn terminal_ids(&self) -> Vec<TerminalId> {
-        if self.restored && (self.kind == WorkflowKind::SingleAgent || self.run.is_some()) {
-            return Vec::new();
-        }
         self.shells()
             .into_iter()
             .filter(|terminal_id| terminal_id.value() != 0)
+            .filter(|id| {
+                !self.restored
+                    || !(self.kind == WorkflowKind::SingleAgent || self.run.is_some())
+                    || !self
+                        .terminal_history
+                        .iter()
+                        .any(|entry| entry.terminal_id == *id)
+            })
             .collect()
     }
 }

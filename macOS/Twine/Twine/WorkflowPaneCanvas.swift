@@ -9,6 +9,7 @@ struct WorkflowPaneCanvas: View {
     @Binding var selection: WorkflowTabSelection
     let isVisible: Bool
     let reportFailure: (String) -> Void
+    let closePane: (UInt64) -> Void
 
     private func root(_ id: UInt64) -> UInt64 {
         layouts.splitRoot(for: id, in: folder, workflows: workflows)
@@ -21,36 +22,46 @@ struct WorkflowPaneCanvas: View {
             ZStack(alignment: .topLeading) {
                 ForEach(workflows) { workflow in
                     let split = layouts.terminalSplit(for: root(workflow.id), in: folder)
-                    let frame = split.geometry(in: bounds).panes[workflow.id] ?? bounds
+                    let tiled = split.ids.count > 1
+                    let gutter = min(BentoLayout.gutter, min(bounds.width, bounds.height) / 2)
+                    let content = tiled ? bounds.insetBy(dx: gutter, dy: gutter) : bounds
+                    let frame = split.geometry(in: content).panes[workflow.id] ?? bounds
                     let shown = isVisible && workflow.sessionID == sessionID && root(workflow.id) == selectedRoot
                     let focused = shown && workflow.id == selection.selectedID
                     VStack(spacing: 0) {
-                        if split.ids.count > 1 {
+                        if tiled {
                             HStack {
-                                Text(workflow.name).lineLimit(1)
+                                Label(workflow.name, systemImage: workflow.kind == .singleAgent ? "person" : "terminal")
+                                    .lineLimit(1)
                                 Spacer()
+                                Button {
+                                    closePane(workflow.id)
+                                } label: {
+                                    Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Close Pane (⌘W)")
+                                .accessibilityLabel("Close \(workflow.name) pane")
+                                .accessibilityIdentifier("closeTerminalPane-\(workflow.id)")
                             }
-                            .font(.caption2).foregroundStyle(focused ? .primary : .secondary)
-                            .padding(.horizontal, 12).frame(height: 22)
+                            .tabTitleStyle(isSelected: focused)
+                            .padding(.horizontal, BentoLayout.headerPadding).frame(height: BentoLayout.headerHeight)
                             .contentShape(Rectangle())
                             .onTapGesture { selection.selectedID = workflow.id }
                         }
                         WorkflowTerminalSurface(
-                            folder: folder, workflow: workflow, isSelected: focused, isVisible: shown,
+                            folder: folder, workflow: workflow, isSelected: focused, isVisible: shown, isTiled: tiled,
                             didFocus: { selection.selectedID = workflow.id }, reportFailure: reportFailure)
                     }
                     .frame(width: frame.width, height: frame.height)
-                    .overlay {
-                        if split.ids.count > 1 {
-                            Rectangle().strokeBorder(focused ? Color.primary.opacity(0.16) : .clear, lineWidth: 1)
-                                .allowsHitTesting(false)
-                        }
-                    }
+                    .bentoPane(isTiled: tiled, isFocused: focused)
                     .position(x: frame.midX, y: frame.midY)
                     .opacity(shown ? 1 : 0).allowsHitTesting(shown).accessibilityHidden(!shown)
                 }
                 if let selectedRoot, isVisible {
-                    let dividers = layouts.terminalSplit(for: selectedRoot, in: folder).geometry(in: bounds).dividers
+                    let gutter = min(BentoLayout.gutter, min(bounds.width, bounds.height) / 2)
+                    let dividers = layouts.terminalSplit(for: selectedRoot, in: folder)
+                        .geometry(in: bounds.insetBy(dx: gutter, dy: gutter)).dividers
                     ForEach(dividers) { divider in
                         TerminalSplitDivider(divider: divider) { fraction in
                             var layout = layouts.layout(for: selectedRoot, in: folder)
@@ -62,6 +73,9 @@ struct WorkflowPaneCanvas: View {
                     }
                 }
             }
+            .background(
+                selectedRoot.map { layouts.terminalSplit(for: $0, in: folder).ids.count > 1 } == true
+                    ? Color.workflowTint : .terminalBackground)
         }
     }
 }
@@ -70,7 +84,7 @@ struct WorkflowPaneCanvas: View {
     @Previewable @State var selection = WorkflowTabSelection()
     WorkflowPaneCanvas(
         folder: "/", workflows: [], sessionID: nil, selection: $selection,
-        isVisible: true, reportFailure: { _ in NSSound.beep() }
+        isVisible: true, reportFailure: { _ in NSSound.beep() }, closePane: { _ in NSSound.beep() }
     )
     .environment(WorkflowLayouts(fileURL: URL(filePath: "/tmp/twine-preview-layouts.json")))
 }

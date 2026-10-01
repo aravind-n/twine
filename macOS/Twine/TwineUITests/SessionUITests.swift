@@ -11,7 +11,6 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
         app.typeText("exec /bin/sh\r")
         app.typeText("TWINE_SESSION_VALUE=original; echo $$ > original.pid\r")
-        app.buttons["sidebarToggle"].click()
         XCTAssertTrue(app.scrollViews["fileTree"].waitForExistence(timeout: 5))
         let firstSession = app.buttons["sessionRow-1"]
         XCTAssertTrue(firstSession.exists)
@@ -50,7 +49,6 @@ extension TwineUITests {
         secondSession.click()
         XCTAssertTrue(secondTab.waitForExistence(timeout: 5))
         relaunchSession(app: app, folder: folder)
-        app.buttons["sidebarToggle"].click()
         XCTAssertTrue(secondSession.waitForExistence(timeout: 5))
         XCTAssertEqual(secondSession.value as? String, "Selected")
         deleteSessions(app: app)

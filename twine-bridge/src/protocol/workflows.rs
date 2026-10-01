@@ -195,6 +195,13 @@ struct RawStartAgent {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RawResumeAgent {
+    workflow_id: u64,
+    session: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RawWorkflowId {
     workflow_id: u64,
 }
@@ -278,29 +285,13 @@ pub(super) fn decode_command(command_type: &str, raw: &Value) -> Result<Command,
                 name: command.name,
             })
         }
-        "startAgent" => {
-            let command: RawStartAgent =
+        "startAgent" => decode_start_agent(raw),
+        "resumeAgent" => {
+            let command: RawResumeAgent =
                 serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
-            Ok(Command::StartAgent {
-                model: command.model,
-                effort: command.effort,
-                yolo: command.yolo,
+            Ok(Command::ResumeAgent {
                 workflow_id: WorkflowId(command.workflow_id),
-                harness: match command.harness {
-                    RawHarness::Codex => HarnessId::Codex,
-                    RawHarness::ClaudeCode => HarnessId::ClaudeCode,
-                    RawHarness::Pi => HarnessId::Pi,
-                    RawHarness::Antigravity => HarnessId::Antigravity,
-                    RawHarness::Omp => HarnessId::Omp,
-                    RawHarness::Opencode => HarnessId::Opencode,
-                },
-                prompt: command.prompt,
-                size: TerminalSize {
-                    rows: command.size.rows,
-                    columns: command.size.columns,
-                    pixel_width: command.size.pixel_width,
-                    pixel_height: command.size.pixel_height,
-                },
+                session: command.session,
             })
         }
         "cancelAgent" => {
@@ -319,6 +310,32 @@ pub(super) fn decode_command(command_type: &str, raw: &Value) -> Result<Command,
         }
         _ => Err(BridgeError::MalformedCommand),
     }
+}
+
+fn decode_start_agent(raw: &Value) -> Result<Command, BridgeError> {
+    let command: RawStartAgent =
+        serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
+    Ok(Command::StartAgent {
+        model: command.model,
+        effort: command.effort,
+        yolo: command.yolo,
+        workflow_id: WorkflowId(command.workflow_id),
+        harness: match command.harness {
+            RawHarness::Codex => HarnessId::Codex,
+            RawHarness::ClaudeCode => HarnessId::ClaudeCode,
+            RawHarness::Pi => HarnessId::Pi,
+            RawHarness::Antigravity => HarnessId::Antigravity,
+            RawHarness::Omp => HarnessId::Omp,
+            RawHarness::Opencode => HarnessId::Opencode,
+        },
+        prompt: command.prompt,
+        size: TerminalSize {
+            rows: command.size.rows,
+            columns: command.size.columns,
+            pixel_width: command.size.pixel_width,
+            pixel_height: command.size.pixel_height,
+        },
+    })
 }
 
 #[cfg(test)]

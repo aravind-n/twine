@@ -105,7 +105,6 @@ struct AgentPanes: View {
 /// menu picks the pane's agent.
 private struct AgentPane: View {
     @Environment(TraceTerminalNavigation.self) private var navigation
-    @Environment(\.appearsActive) private var appearsActive
     let agent: CoreAgent
     let workflow: CoreWorkflow
     let isShown: Bool
@@ -165,17 +164,7 @@ private struct AgentPane: View {
                 .id(history.id)
             }
         }
-        .background(.terminalBackground)
-        .clipShape(.rect(cornerRadius: isTiled ? CornerRadius.bentoPane : 0))
-        .overlay {
-            if isTiled {
-                RoundedRectangle(cornerRadius: CornerRadius.bentoPane)
-                    .strokeBorder(
-                        outline, lineWidth: isFocused ? BentoLayout.focusRingWidth : Surface.hairlineWidth
-                    )
-                    .allowsHitTesting(false)
-            }
-        }
+        .bentoPane(isTiled: isTiled, isFocused: isFocused)
         .opacity(isShown ? 1 : 0)
         .allowsHitTesting(isShown)
         .accessibilityHidden(!isShown)
@@ -194,11 +183,6 @@ private struct AgentPane: View {
             }
         }
         return workflow.status == .running ? "Agent Waiting" : "Agent Stopped"
-    }
-
-    private var outline: Color {
-        guard isFocused else { return .hairline }
-        return appearsActive ? .paneFocus : .secondary
     }
 
     private var title: some View {
@@ -257,53 +241,5 @@ private struct AgentPane: View {
                 .onTapGesture(perform: focus)
                 .accessibilityHidden(true)
         }
-    }
-}
-
-/// The gutter between two panes, which drags to resize them.
-private struct PaneDivider: View {
-    /// The direction the divider moves in.
-    let axis: Axis
-    let fraction: Double
-    /// The length the two panes share, which a drag's translation is a fraction of.
-    let sharedLength: CGFloat
-    /// Shows a fraction while the divider is dragged, without saving it.
-    let drag: (Double) -> Void
-    /// Saves a fraction, when a drag ends or an accessibility action adjusts the divider.
-    let save: (Double) -> Void
-    @State private var dragStart: Double?
-
-    var body: some View {
-        Color.clear
-            .contentShape(.rect)
-            .pointerStyle(axis == .horizontal ? .columnResize : .rowResize)
-            .gesture(
-                // In window coordinates: the divider moves as it's dragged, so its own would shift under the pointer.
-                DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                    .onChanged { drag(fraction(after: $0)) }
-                    .onEnded { value in
-                        save(fraction(after: value))
-                        dragStart = nil
-                    }
-            )
-            .accessibilityElement()
-            .accessibilityLabel(axis == .horizontal ? "Column divider" : "Row divider")
-            .accessibilityValue(Text(fraction, format: .percent.precision(.fractionLength(0))))
-            .accessibilityAdjustableAction { direction in
-                switch direction {
-                case .increment: save(fraction + 0.05)
-                case .decrement: save(fraction - 0.05)
-                @unknown default: break
-                }
-            }
-            .accessibilityIdentifier(axis == .horizontal ? "columnDivider" : "rowDivider")
-    }
-
-    /// Where a drag has moved the divider, from where the drag started.
-    private func fraction(after drag: DragGesture.Value) -> Double {
-        let start = dragStart ?? fraction
-        dragStart = start
-        let translation = axis == .horizontal ? drag.translation.width : drag.translation.height
-        return sharedLength > 0 ? start + translation / sharedLength : start
     }
 }

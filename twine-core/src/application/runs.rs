@@ -19,6 +19,7 @@ pub(super) struct RunProcesses {
     size: TerminalSize,
     harnesses: HashMap<HarnessId, LocatedHarness>,
     inboxes: HashMap<AgentId, (u64, CompletionInbox)>,
+    resumed_sessions: HashMap<AgentId, String>,
 }
 
 struct PreparedAgent {
@@ -131,14 +132,116 @@ impl Application {
                     size,
                     harnesses,
                     inboxes: HashMap::new(),
+                    resumed_sessions: HashMap::new(),
                 },
             );
         self.launch_workflow_stage(workflow_id)?;
         Ok(CommandDisposition::Accepted)
     }
 
-    fn prepare_workflow_stage(&self, run: &mut WorkflowRun) -> Vec<PreparedAgent> {
-        let active: Vec<_> = run.active_agents().into_iter().cloned().collect();
+    /// Resume only a fully identified interrupted stage. Finished roles keep their completion,
+    /// while every unfinished role receives a fresh completion inbox and the same conversation.
+    pub(super) fn resume_workflow_run(
+        &self,
+        saved: &Workflow,
+        folder: &std::path::Path,
+    ) -> Result<(), ApplicationError> {
+        let Some(saved_run) = &saved.run else {
+            return Ok(());
+        };
+        if saved_run.status != RunStatus::Interrupted {
+            return Ok(());
+        }
+        let mut sessions = HashMap::new();
+        {
+            let mut inner = self.lock_inner()?;
+            for agent in saved_run
+                .active_agents()
+                .into_iter()
+                .filter(|a| !saved_run.completions.contains_key(&a.agent_id))
+            {
+                let Some(tab) = saved.agents.iter().find(|a| a.agent_id.0 == agent.agent_id) else {
+                    return Ok(());
+                };
+                let Some(session) = inner.folders.store().harness_session(tab.terminal_id)? else {
+                    return Ok(());
+                };
+                if crate::harness::resume::arguments(agent.harness, &session).is_none() {
+                    return Ok(());
+                }
+                sessions.insert(tab.agent_id, session);
+            }
+        }
+        if sessions.is_empty() {
+            return Ok(());
+        }
+        let mut harnesses = HashMap::new();
+        for agent in &saved_run.agents {
+            if let std::collections::hash_map::Entry::Vacant(entry) = harnesses.entry(agent.harness)
+            {
+                match self.locate_harness(agent.harness.definition()) {
+                    Ok(located) => {
+                        entry.insert(located);
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "couldn't locate a restored workflow harness");
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        let mut workflow = saved.clone();
+        let run = workflow.run.as_mut().expect("restored workflow has a run");
+        run.status = RunStatus::Running;
+        run.generation += 1;
+        run.message = None;
+        run.trace(
+            "workflowResumed",
+            None,
+            None,
+            "Resuming interrupted agent sessions",
+        );
+        workflow.status = WorkflowStatus::Running;
+        workflow.ended_at = None;
+        {
+            let mut inner = self.lock_inner()?;
+            let Some(index) = inner
+                .workflows
+                .workflows
+                .iter()
+                .position(|w| w.workflow_id == saved.workflow_id)
+            else {
+                return Ok(());
+            };
+            inner.publish_run(index, workflow)?;
+        }
+        self.run_processes
+            .lock()
+            .map_err(|_| ApplicationError::Poisoned)?
+            .insert(
+                saved.workflow_id,
+                RunProcesses {
+                    folder: folder.to_owned(),
+                    size: super::resume_agents::RESTORED_SIZE,
+                    harnesses,
+                    inboxes: HashMap::new(),
+                    resumed_sessions: sessions,
+                },
+            );
+        self.launch_workflow_stage(saved.workflow_id)
+    }
+
+    fn prepare_workflow_stage(
+        &self,
+        run: &mut WorkflowRun,
+        sessions: &HashMap<AgentId, String>,
+    ) -> Vec<PreparedAgent> {
+        let active: Vec<_> = run
+            .active_agents()
+            .into_iter()
+            .filter(|agent| !run.completions.contains_key(&agent.agent_id))
+            .cloned()
+            .collect();
         // Reserve every transcript outside application state locks; storage can wait on disk.
         let mut prepared = Vec::new();
         for agent in active {
@@ -164,8 +267,22 @@ impl Application {
                         );
                         crate::harness::launch::LaunchOptions::default()
                     });
-                    let (arguments, hooks) =
-                        self.harness_arguments(agent.harness, reserved, options, &prompt);
+                    let session = sessions.get(&AgentId(agent.agent_id));
+                    let (mut arguments, hooks) = self.harness_arguments(
+                        agent.harness,
+                        reserved,
+                        options,
+                        if session.is_some() { "" } else { &prompt },
+                    );
+                    if let Some(session) = session {
+                        arguments.extend(
+                            crate::harness::resume::arguments(agent.harness, session)
+                                .expect("resume handles validated before restarting a workflow"),
+                        );
+                        arguments.extend(agent.harness.definition().arguments(&format!(
+                            "Twine restarted. Resume your assignment using this updated completion command; \
+                             earlier completion commands are no longer valid.\n\n{prompt}")));
+                    }
                     prepared.push(PreparedAgent {
                         agent,
                         inbox,
@@ -186,6 +303,10 @@ impl Application {
         prepared
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "process, session, inbox, and trace cleanup stay paired during launch"
+    )]
     fn launch_workflow_stage(&self, workflow_id: WorkflowId) -> Result<(), ApplicationError> {
         let mut process_guard = self
             .run_processes
@@ -207,7 +328,7 @@ impl Application {
         drop(inner);
         let run = workflow.run.as_mut().expect("execution has a run");
         run.trace("stageStarted", None, None, "Stage started");
-        let prepared = self.prepare_workflow_stage(run);
+        let prepared = self.prepare_workflow_stage(run, &processes.resumed_sessions);
         let mut inner = self.lock_inner()?;
         let mut replaced = Vec::new();
         let mut unused = Vec::new();
@@ -269,7 +390,18 @@ impl Application {
             workflow.ended_at = Some(timestamp());
             processes.inboxes.clear();
         }
-        let saved = inner.publish_launch(index, &mut workflow);
+        let resumed: Vec<_> = workflow
+            .agents
+            .iter()
+            .filter_map(|agent| {
+                processes
+                    .resumed_sessions
+                    .get(&agent.agent_id)
+                    .map(|session| (agent.terminal_id, session.as_str()))
+            })
+            .collect();
+        let saved = inner.publish_launch(index, &mut workflow, &resumed);
+        processes.resumed_sessions.clear();
         if workflow.status != WorkflowStatus::Running {
             processes.inboxes.clear();
         }
@@ -285,6 +417,15 @@ impl Application {
         for id in unused {
             let _ = self.terminals.cancel_reserved_terminal(id);
         }
+        let replaced: Vec<_> = replaced
+            .into_iter()
+            .filter(|id| {
+                !workflow
+                    .terminal_history
+                    .iter()
+                    .any(|entry| entry.terminal_id == *id)
+            })
+            .collect();
         self.terminals.close_all(&replaced)?;
         saved
     }
@@ -569,8 +710,9 @@ impl super::Inner {
         &mut self,
         index: usize,
         workflow: &mut Workflow,
+        sessions: &[(TerminalId, &str)],
     ) -> Result<(), ApplicationError> {
-        match self.publish_run(index, workflow.clone()) {
+        match self.publish_run_with_sessions(index, workflow.clone(), sessions) {
             Ok(()) => Ok(()),
             Err(error) => {
                 tracing::warn!(%error, "failed to record stage launch; stopping its agents");
@@ -586,7 +728,19 @@ impl super::Inner {
     }
 
     fn publish_run(&mut self, index: usize, workflow: Workflow) -> Result<(), ApplicationError> {
-        let spans = self.folders.store().save_workflow_run(&workflow)?;
+        self.publish_run_with_sessions(index, workflow, &[])
+    }
+
+    fn publish_run_with_sessions(
+        &mut self,
+        index: usize,
+        workflow: Workflow,
+        sessions: &[(TerminalId, &str)],
+    ) -> Result<(), ApplicationError> {
+        let spans = self
+            .folders
+            .store()
+            .save_workflow_run_with_sessions(&workflow, sessions)?;
         self.trace_spans.extend(spans);
         self.publish_trace(workflow.workflow_id)?;
         self.record_run(index, workflow)
@@ -768,6 +922,63 @@ mod tests {
     esac
     printf '{"decision":"%s","summary":"Result or feedback"}' "$decision" | "$command"
     "#;
+
+    #[test]
+    fn interrupted_workflow_resumes_its_assignment_and_accepts_fresh_completion() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(
+            folder.path(),
+            bin.path(),
+            "while read line; do echo \"$line\"; done",
+        );
+        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let original = wait_for(&app, id, |w| !w.terminal_ids().is_empty());
+        let old_terminal = original.agents[0].terminal_id;
+        app.lock_inner()
+            .unwrap()
+            .folders
+            .store()
+            .remember_harness_session(old_terminal, "/tmp/implementer.jsonl")
+            .unwrap();
+        accepted(&app, Command::CloseFolder);
+        accepted(
+            &app,
+            Command::OpenFolder {
+                path: folder.path().to_owned(),
+            },
+        );
+        let restored = wait_for(&app, id, |w| w.status == WorkflowStatus::Running);
+        let run = restored.run.as_ref().unwrap();
+        assert_eq!(run.stage_index, original.run.as_ref().unwrap().stage_index);
+        assert!(run.generation > original.run.as_ref().unwrap().generation);
+        assert_ne!(restored.agents[0].terminal_id, old_terminal);
+        assert!(
+            restored
+                .terminal_history
+                .iter()
+                .any(|entry| entry.terminal_id == old_terminal)
+        );
+        accepted(
+            &app,
+            Command::CompleteWorkflowRole {
+                workflow_id: id,
+                agent_id: restored.agents[0].agent_id,
+                generation: run.generation,
+                signal: CompletionSignal {
+                    decision: Decision::Done,
+                    summary: "Resumed assignment finished".into(),
+                    assignments: vec![],
+                    task: String::new(),
+                },
+            },
+        );
+        let advanced = wait_for(&app, id, |w| {
+            w.run.as_ref().unwrap().stage_index != run.stage_index
+        });
+        assert_eq!(advanced.status, WorkflowStatus::Running);
+        assert_ne!(advanced.agents[1].terminal_id.value(), 0);
+    }
 
     #[test]
     fn fake_harness_completes_adversarial_and_hits_review_limit() {

@@ -14,6 +14,7 @@ pub(crate) fn prepare(position: Arc<ReplayPosition>) -> io::Result<(StepInbox, V
     let command = inbox.hook_command();
     let mut hooks = serde_json::Map::new();
     for event in [
+        "SessionStart",
         "UserPromptSubmit",
         "PreToolUse",
         "PostToolUse",
@@ -39,7 +40,13 @@ fn preview(value: &Value) -> String {
 
 fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     let input: Value = serde_json::from_slice(bytes).ok()?;
+    if input["agent_id"].is_string() {
+        return None;
+    }
     let event = input["hook_event_name"].as_str()?;
+    if event == "SessionStart" {
+        return HarnessStep::session_started(&input["session_id"]);
+    }
     let (kind, title, detail) = match event {
         "UserPromptSubmit" => {
             let prompt = input["prompt"].as_str()?;
@@ -97,6 +104,7 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
         _ => return None,
     };
     Some(HarnessStep {
+        session_id: super::resume::session_handle(&input["session_id"]),
         kind,
         turn_id: input["prompt_id"].as_str().map(|id| truncate(id, 160)),
         tool_call_id: input["tool_use_id"].as_str().map(|id| truncate(id, 160)),
@@ -108,6 +116,15 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captures_session_identity_before_any_prompt() {
+        let step =
+            parse(br#"{"hook_event_name":"SessionStart","session_id":"session-1"}"#).unwrap();
+        assert_eq!(step.kind, StepKind::SessionStarted);
+        assert_eq!(step.session_id.as_deref(), Some("session-1"));
+        assert!(step.turn_id.is_none());
+    }
 
     #[test]
     fn tool_descriptions_and_large_payloads_are_bounded() {

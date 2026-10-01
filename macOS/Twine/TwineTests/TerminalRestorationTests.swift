@@ -7,6 +7,17 @@ import Testing
 
 @MainActor
 struct TerminalRestorationTests {
+    @Test func resumedAgentOwnsItsNewTerminalWhileArchivedTerminalsStayReadOnly() {
+        let workflow = CoreWorkflow(
+            workflowID: 1, sessionID: 1, name: "Codex", kind: .singleAgent, terminalID: 20,
+            status: .running, startedAt: 0, endedAt: nil, restored: true,
+            terminalHistory: [.init(terminalID: 10, agentID: nil)])
+        #expect(workflow.terminalIDs == [20])
+        var archived = workflow
+        archived.terminalHistory = [.init(terminalID: 20, agentID: nil)]
+        #expect(archived.terminalIDs.isEmpty)
+    }
+
     @Test func savedOutputRetainsScrollbackBeyondTheOldFiveHundredLineLimit() async throws {
         let bytes = Data(("FIRST_RETAINED_LINE\r\n" + String(repeating: "output\r\n", count: 800) + "last").utf8)
         let client = CoreClient(transport: TranscriptFixtureTransport(bytes: bytes))

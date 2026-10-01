@@ -7,9 +7,10 @@ private let gitLogger = Logger(subsystem: "com.twineproject.Twine", category: "g
 /// The window content while a folder is open.
 struct FolderView: View {
     @Environment(CoreClient.self) private var coreClient
+    @Environment(WorkflowLayouts.self) private var layouts
     @Environment(FileEditorModel.self) private var editor
     let path: String
-    @State private var sidebarVisibility: NavigationSplitViewVisibility = .detailOnly
+    @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var selection = WorkflowTabSelection()
     @State private var files = FileBrowserModel()
     @State private var htmlNavigationURL: URL?
@@ -45,7 +46,7 @@ struct FolderView: View {
                         .id(selectedPath)
                     }
                 }
-                if editor.path == nil { TracesPanel(workflow: selectedWorkflow) }
+                if editor.path == nil { TracesPanel(workflows: traceWorkflows) }
                 StatusFooter(
                     branch: coreClient.snapshot?.folders.currentBranch,
                     workflow: selectedWorkflow
@@ -58,8 +59,8 @@ struct FolderView: View {
             FolderWindowLifetime(coreClient: coreClient, folder: path, editor: editor).frame(width: 0, height: 0)
         }
         .environment(traceNavigation)
-        .onChange(of: traceNavigation.target) {
-            if let target = traceNavigation.target {
+        .onChange(of: traceNavigation.destination) {
+            if let target = traceNavigation.destination {
                 selection.selectedID = target.workflowID
                 editor.select(nil)
             }
@@ -97,6 +98,14 @@ struct FolderView: View {
     private var selectedWorkflow: CoreWorkflow? {
         guard let state = coreClient.snapshot?.workflows, state.session?.folder == path else { return nil }
         return state.workflows.first { $0.id == selection.selectedID && $0.sessionID == state.session?.sessionID }
+    }
+
+    private var traceWorkflows: [CoreWorkflow] {
+        guard let selectedWorkflow, let state = coreClient.snapshot?.workflows else { return [] }
+        let root = layouts.splitRoot(for: selectedWorkflow.id, in: path, workflows: state.workflows)
+        return layouts.terminalSplit(for: root, in: path).ids.compactMap { id in
+            state.workflows.first { $0.id == id && $0.sessionID == selectedWorkflow.sessionID }
+        }
     }
 
     private func refreshGitBranch() async {

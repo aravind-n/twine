@@ -38,6 +38,9 @@ pub(crate) fn prepare(
 
 fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     let input: Value = serde_json::from_slice(bytes).ok()?;
+    if input["type"] == "session" {
+        return HarnessStep::session_started(&input["session_id"]);
+    }
     let turn_id = input["turn_id"].as_str().filter(|id| !id.is_empty())?;
     let detail = truncate(
         input["detail"].as_str().unwrap_or_default(),
@@ -73,6 +76,7 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
         _ => return None,
     };
     Some(HarnessStep {
+        session_id: super::resume::session_handle(&input["session_id"]),
         kind,
         turn_id: Some(truncate(turn_id, 160)),
         tool_call_id: input["tool_call_id"].as_str().map(|id| truncate(id, 160)),
@@ -85,6 +89,14 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn captures_session_identity_before_any_prompt() {
+        let step = parse(br#"{"type":"session","session_id":"/tmp/pi session.jsonl"}"#).unwrap();
+        assert_eq!(step.kind, StepKind::SessionStarted);
+        assert_eq!(step.session_id.as_deref(), Some("/tmp/pi session.jsonl"));
+        assert!(step.turn_id.is_none());
+    }
 
     #[test]
     fn pi_steps_preserve_prompt_and_call_identity_and_bound_text() {

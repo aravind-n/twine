@@ -108,7 +108,6 @@ extension TwineUITests {
         app.launch()
         XCTAssertTrue(app.buttons["sidebarToggle"].waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
-        app.buttons["sidebarToggle"].click()
         XCTAssertTrue(fileRow(file, in: app).waitForExistence(timeout: 3))
         fileRow(file, in: app).click()
         XCTAssertTrue(app.textViews["fileText"].waitForExistence(timeout: 3))

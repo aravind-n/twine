@@ -14,11 +14,47 @@ pub(super) struct HarnessRecording {
     pending: VecDeque<ObservedStep>,
     open_tools: HashMap<String, Option<String>>,
     ended_since: Option<Instant>,
+    session_observed_at: Option<Instant>,
+    has_session_start: bool,
 }
 
 const HOOK_GRACE: Duration = Duration::from_millis(1500);
 
 impl HarnessRecording {
+    /// Session identity follows receipt order, independent of causal reordering of trace steps.
+    /// Once a session-start is known, late tool hooks from an earlier conversation cannot replace it.
+    fn capture_session(
+        &mut self,
+        store: &crate::store::Store,
+        terminal: TerminalId,
+    ) -> Result<(), crate::StoreError> {
+        let has_start = self.has_session_start
+            || self.pending.iter().any(|item| {
+                item.step.kind == StepKind::SessionStarted && item.step.session_id.is_some()
+            });
+        let candidate = self
+            .pending
+            .iter()
+            .filter(|item| {
+                item.step.session_id.is_some()
+                    && (!has_start || item.step.kind == StepKind::SessionStarted)
+            })
+            .max_by_key(|item| item.received_at);
+        if let Some(item) = candidate
+            && self
+                .session_observed_at
+                .is_none_or(|time| item.received_at > time)
+        {
+            store.remember_harness_session(
+                terminal,
+                item.step.session_id.as_deref().expect("has session"),
+            )?;
+            self.session_observed_at = Some(item.received_at);
+            self.has_session_start = has_start;
+        }
+        Ok(())
+    }
+
     fn acknowledge(&mut self, index: usize) {
         let item = self.pending.remove(index).expect("pending step exists");
         if item.step.kind == StepKind::Responded {
@@ -40,7 +76,7 @@ impl HarnessRecording {
     ) -> Result<Option<usize>, crate::StoreError> {
         for (index, item) in self.pending.iter().enumerate() {
             let step = &item.step;
-            if step.kind == StepKind::Prompt {
+            if matches!(step.kind, StepKind::Prompt | StepKind::SessionStarted) {
                 return Ok(Some(index));
             }
             if self.single_agent
@@ -181,11 +217,17 @@ impl Application {
                 pending: VecDeque::new(),
                 open_tools: HashMap::new(),
                 ended_since: None,
+                session_observed_at: None,
+                has_session_start: false,
             },
         );
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "session capture and step lifecycle commit in the same ordered polling loop"
+    )]
     pub(super) fn poll_harness_steps(&self) -> Result<(), ApplicationError> {
         let mut recordings = self
             .harness_steps
@@ -210,8 +252,13 @@ impl Application {
                     .inbox
                     .take(256_usize.saturating_sub(recording.pending.len())),
             );
+            recording.capture_session(inner.folders.store(), terminal_id)?;
             while let Some(index) = recording.next_ready(inner.folders.store(), terminal_id)? {
                 let item = &recording.pending[index];
+                if item.step.kind == StepKind::SessionStarted {
+                    recording.acknowledge(index);
+                    continue;
+                }
                 // Keep the fallback until a prompt is durably recorded. Unavailable hooks
                 // and failed first-prompt writes must leave the ordinary agent trace intact.
                 if !recording.active && item.step.kind != StepKind::Prompt {
@@ -503,7 +550,10 @@ mod tests {
         let extension = Path::new(arguments[1]);
         assert!(extension.is_file());
         assert!(!extension.starts_with(folder));
-        assert_eq!(&arguments[2..], ["--", "Initial prompt"]);
+        assert_eq!(
+            &arguments[2..],
+            ["--tui-mode", "regular", "--", "Initial prompt"]
+        );
         assert!(
             !std::fs::read_to_string(extension)
                 .unwrap()
@@ -538,6 +588,55 @@ mod tests {
         assert!(
             events[4].anchor.as_ref().unwrap().byte_offset
                 > events[1].anchor.as_ref().unwrap().byte_offset
+        );
+    }
+
+    #[test]
+    fn old_session_tools_cannot_replace_a_new_session_start() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let mut app = Application::with_event_capacity(4096).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        let terminal = start_single(&app, id);
+        let observation = app.terminals.observe(terminal).unwrap();
+        let mut recordings = app.harness_steps.lock().unwrap();
+        let recording = recordings.get_mut(&terminal).unwrap();
+        let mut inner = app.lock_inner().unwrap();
+        let mut old =
+            crate::harness::steps::HarnessStep::session_started(&json!("old-session")).unwrap();
+        old.kind = StepKind::ToolFinished;
+        let now = Instant::now();
+        recording.pending.push_back(ObservedStep {
+            step: old.clone(),
+            observation: observation.clone(),
+            received_at: now.checked_sub(HOOK_GRACE).unwrap(),
+        });
+        recording.pending.push_back(ObservedStep {
+            step: crate::harness::steps::HarnessStep::session_started(&json!("new-session"))
+                .unwrap(),
+            observation: observation.clone(),
+            received_at: now,
+        });
+        recording
+            .capture_session(inner.folders.store(), terminal)
+            .unwrap();
+        recording.pending.pop_back();
+        recording.pending.push_back(ObservedStep {
+            step: old,
+            observation,
+            received_at: now + Duration::from_millis(1),
+        });
+        recording
+            .capture_session(inner.folders.store(), terminal)
+            .unwrap();
+        assert_eq!(
+            inner
+                .folders
+                .store()
+                .harness_session(terminal)
+                .unwrap()
+                .as_deref(),
+            Some("new-session")
         );
     }
 
@@ -971,6 +1070,7 @@ mod tests {
                     observation: observation.clone(),
                     received_at: Instant::now().checked_sub(HOOK_GRACE).unwrap(),
                     step: crate::harness::steps::HarnessStep {
+                        session_id: None,
                         kind: StepKind::ToolStarted,
                         turn_id: Some("missing".into()),
                         tool_call_id: None,

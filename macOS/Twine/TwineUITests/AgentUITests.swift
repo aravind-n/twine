@@ -70,12 +70,14 @@ extension TwineUITests {
     }
 
     @MainActor
-    func testForceQuitRestoresActiveAgentAsInterrupted() throws {
+    func testForceQuitPreservesAgentOutputAndCanResumeItsSession() throws {
         let folder = try makeFolder()
         try """
         echo $$ > agent.pid
         echo CRASH-HISTORY
+        printf '%s\\n' "$@" > agent-arguments
         read line
+        echo "$line" > resumed-input
         """.write(to: folder.appending(path: "stub.txt"), atomically: true, encoding: .utf8)
         let app = try makeApp(lastOpenFolder: folder)
         defer { app.terminate() }
@@ -116,10 +118,25 @@ extension TwineUITests {
         XCTAssertTrue(app.staticTexts["Interrupted"].exists, app.debugDescription)
         XCTAssertFalse(app.staticTexts["Completed"].exists)
         attachAgentWindow(in: app, name: "Force-quit agent recovered as interrupted")
+        resumeTestAgentSession(in: app, folder: folder)
 
         app.buttons["workflowTab-1"].click()
         app.typeText("printf '%s' RECOVERED-INPUT > recovered-input.txt\r")
         waitForFile(folder.appending(path: "recovered-input.txt"), containing: "RECOVERED-INPUT")
+    }
+
+    @MainActor
+    private func resumeTestAgentSession(in app: XCUIApplication, folder: URL) {
+        app.buttons["resumeAgentSession"].click()
+        let session = app.textFields["resumeSessionID"]
+        XCTAssertTrue(session.waitForExistence(timeout: 5), app.debugDescription)
+        session.click()
+        session.typeText("/tmp/twine-fixture-session.jsonl")
+        app.sheets.buttons["Resume"].click()
+        XCTAssertTrue(app.staticTexts["Running"].waitForExistence(timeout: 10), app.debugDescription)
+        waitForFile(folder.appending(path: "agent-arguments"), containing: "/tmp/twine-fixture-session.jsonl", in: app)
+        app.typeText("RESUMED-INPUT\r")
+        waitForFile(folder.appending(path: "resumed-input"), containing: "RESUMED-INPUT", in: app)
     }
 
     /// Starts a stub `pi` from the new-tab card without a prompt, types to it, and cancels it.
@@ -144,6 +161,7 @@ extension TwineUITests {
         app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(harnesses.path(percentEncoded: false)):/bin:/usr/bin"
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["sidebarToggle"].click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 520, height: 302))
         element("workflowChoice-Terminal", in: app).click()
         app.typeText("mkdir bin; printf '#!/bin/sh\\n' > bin/pi; cat stub.txt >> bin/pi; chmod +x bin/pi\r")

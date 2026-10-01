@@ -373,7 +373,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         }
         "createSession" | "renameSession" | "selectSession" | "deleteSession"
         | "createWorkflow" | "activateWorkflow" | "nameDraftWorkflow" | "closeWorkflow"
-        | "startAgent" | "cancelAgent" => {
+        | "startAgent" | "resumeAgent" | "cancelAgent" => {
             DecodedCommand::Known(workflows::decode_command(command_type, &raw.command)?)
         }
         "startTerminal" => {

@@ -2,7 +2,7 @@
 //!
 //! Wire schema: <https://learn.chatgpt.com/docs/hooks>
 //! Scoped trust identity follows Codex 0.159's hooks/engine/discovery.rs and config/fingerprint.rs.
-//! Only our four session-flag handlers are trusted; user hooks and policy remain unchanged.
+//! Only our session-flag handlers are trusted; user hooks and policy remain unchanged.
 
 use std::ffi::OsString;
 use std::io;
@@ -14,7 +14,8 @@ use sha2::{Digest, Sha256};
 use super::steps::{HarnessStep, MAX_DETAIL_BYTES, StepInbox, StepKind, truncate};
 use crate::terminal::ReplayPosition;
 
-const EVENTS: [(&str, &str); 4] = [
+const EVENTS: [(&str, &str); 5] = [
+    ("SessionStart", "session_start"),
     ("UserPromptSubmit", "user_prompt_submit"),
     ("PreToolUse", "pre_tool_use"),
     ("PostToolUse", "post_tool_use"),
@@ -75,6 +76,9 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     if input["agent_id"].is_string() {
         return None;
     }
+    if input["hook_event_name"] == "SessionStart" {
+        return HarnessStep::session_started(&input["session_id"]);
+    }
     // Require a turn id so a delayed hook can never finish a different prompt.
     let turn_id = input["turn_id"].as_str().filter(|id| !id.is_empty())?;
     let (kind, title, detail) = match input["hook_event_name"].as_str()? {
@@ -119,6 +123,7 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
         _ => return None,
     };
     Some(HarnessStep {
+        session_id: super::resume::session_handle(&input["session_id"]),
         kind,
         turn_id: Some(truncate(turn_id, 160)),
         tool_call_id: input["tool_use_id"].as_str().map(|id| truncate(id, 160)),
@@ -156,6 +161,15 @@ fn tool_action(tool: &str, input: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captures_session_identity_before_any_prompt() {
+        let step =
+            parse(br#"{"hook_event_name":"SessionStart","session_id":"session-1"}"#).unwrap();
+        assert_eq!(step.kind, StepKind::SessionStarted);
+        assert_eq!(step.session_id.as_deref(), Some("session-1"));
+        assert!(step.turn_id.is_none());
+    }
 
     #[test]
     fn codex_hooks_preserve_turns_calls_and_bounded_details() {
@@ -202,7 +216,7 @@ mod tests {
         assert_eq!(arguments[0], "-c");
         let config: toml::Value = toml::from_str(arguments[1].to_str().unwrap()).unwrap();
         let entries = config["hooks"]["state"].as_table().unwrap();
-        assert_eq!(entries.len(), 4);
+        assert_eq!(entries.len(), 5);
         for (event, key) in EVENTS {
             let handler = &config["hooks"][event][0]["hooks"][0];
             assert_eq!(handler["command"].as_str(), Some(command));

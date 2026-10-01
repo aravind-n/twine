@@ -55,7 +55,8 @@ struct WorkflowWorkspace: View {
                 }
                 WorkflowPaneCanvas(
                     folder: folder, workflows: allWorkflows, sessionID: sessionID,
-                    selection: $selection, isVisible: isVisible, reportFailure: { failureMessage = $0 })
+                    selection: $selection, isVisible: isVisible, reportFailure: { failureMessage = $0 },
+                    closePane: close)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.terminalBackground)

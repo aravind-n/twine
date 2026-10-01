@@ -23,6 +23,7 @@ nonisolated enum CoreCommand: Sendable {
     case closeWorkflow(workflowID: UInt64)
     /// The agent starts without a prompt and waits for the user in its terminal.
     case startAgent(workflowID: UInt64, choice: HarnessChoice, size: CoreTerminalSize)
+    case resumeAgent(workflowID: UInt64, session: String)
     case cancelAgent(workflowID: UInt64)
     /// The first stage's agents ask the user for the task and report it when they finish.
     case startWorkflowRun(

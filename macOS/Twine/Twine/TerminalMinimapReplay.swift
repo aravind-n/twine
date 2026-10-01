@@ -16,12 +16,22 @@ final class TerminalMinimapReplay {
         terminalID: UInt64, endOffset: UInt64, markers: [TraceMinimapMarker], client: CoreClient,
         liveSizes: [CoreTranscriptSize]? = nil, prefix: [TerminalReplayPrefix] = []
     ) async throws {
+        try await load(
+            terminalID: terminalID, endOffset: endOffset,
+            points: markers.compactMap { marker in marker.anchor.map { (marker.id, $0) } },
+            client: client, liveSizes: liveSizes, prefix: prefix)
+    }
+
+    func load(
+        terminalID: UInt64, endOffset: UInt64, points: [(id: UInt64, anchor: CoreTraceAnchor)], client: CoreClient,
+        liveSizes: [CoreTranscriptSize]? = nil, prefix: [TerminalReplayPrefix] = []
+    ) async throws {
         for entry in prefix {
             replay.terminal.resize(cols: entry.columns, rows: entry.rows)
             replay.terminal.feed(text: entry.text)
         }
-        let ordered = markers.filter { $0.anchor?.terminalID == terminalID }.sorted {
-            ($0.anchor?.byteOffset ?? 0) < ($1.anchor?.byteOffset ?? 0)
+        let ordered = points.filter { $0.anchor.terminalID == terminalID }.sorted {
+            $0.anchor.byteOffset < $1.anchor.byteOffset
         }
         var index = 0
         repeat {
@@ -32,16 +42,17 @@ final class TerminalMinimapReplay {
                     })
                 discardExpiredAnchors()
             }
-            while index < ordered.count, let anchor = ordered[index].anchor, anchor.byteOffset == replay.offset {
+            while index < ordered.count, ordered[index].anchor.byteOffset == replay.offset {
+                let anchor = ordered[index].anchor
                 if liveSizes != nil {
                     if anchor.boundarySizes != nil { capture(id: ordered[index].id) }
                 } else {
-                    try capture(ordered[index])
+                    try capture(id: ordered[index].id, anchor: anchor)
                 }
                 index += 1
             }
             if replay.offset >= endOffset { break }
-            let next = index < ordered.count ? ordered[index].anchor?.byteOffset ?? endOffset : endOffset
+            let next = index < ordered.count ? ordered[index].anchor.byteOffset : endOffset
             let limit = min(64 * 1024, min(next, endOffset) - replay.offset)
             let result = try await client.terminalTranscript(
                 terminalID: terminalID, offset: replay.offset, limit: UInt32(max(1, limit)))
@@ -72,12 +83,17 @@ final class TerminalMinimapReplay {
     }
 
     func capture(_ marker: TraceMinimapMarker) throws {
-        guard let anchor = marker.anchor, anchor.byteOffset == replay.offset,
+        guard let anchor = marker.anchor else { return }
+        try capture(id: marker.id, anchor: anchor)
+    }
+
+    private func capture(id: UInt64, anchor: CoreTraceAnchor) throws {
+        guard anchor.byteOffset == replay.offset,
             let sizes = anchor.boundarySizes
         else { return }
         try replay.applyBoundarySizes(sizes)
         discardExpiredAnchors()
-        capture(id: marker.id)
+        capture(id: id)
     }
 
     func discardExpiredAnchors() {
