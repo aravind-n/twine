@@ -2,9 +2,6 @@
 #/.codex/
 #.claude
 
-# Local Debug app build counter
-/.build-number
-
 # Only gitignore templates after this line
 # Add whatever you want above
 # https://github.com/github/gitignore

@@ -204,7 +204,7 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 
 - A 22pt plain-text row below the Traces panel, with 4pt horizontal padding and 8pt spacing, in caption2 secondary text; not a card.
 - Contents: the Git branch with a branch symbol, and the selected workflow's status and elapsed time, separated by a 10pt-tall divider when both are present. A run's message, such as a review limit or a rejected completion, follows after another divider in the needs-attention color, truncated with its full text in the tooltip. A completed, cancelled, or interrupted run's message is left out, since the status already says it.
-- Debug builds show `Build <number>` at the trailing edge, using the app's bundle build number.
+- Debug builds show `<version> (<build number>)` at the trailing edge, using the app's bundle version and build number.
 
 ### Workflow graph
 

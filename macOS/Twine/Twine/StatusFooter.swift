@@ -40,8 +40,10 @@ struct StatusFooter: View {
                 }
                 Spacer(minLength: 0)
                 #if DEBUG
-                    if let buildNumber = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
-                        Text("Build \(buildNumber)")
+                    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+                    let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+                    if let version, let buildNumber {
+                        Text("\(version) (\(buildNumber))")
                             .monospacedDigit()
                             .accessibilityIdentifier("buildNumber")
                             .fixedSize()
