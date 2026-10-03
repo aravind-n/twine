@@ -20,6 +20,7 @@ final class TerminalMinimapState {
     @ObservationIgnored private var historyText = ""
     @ObservationIgnored private var historyLines: [String] = []
     @ObservationIgnored private var anchors: [UInt64: TerminalMinimapAnchor] = [:]
+    @ObservationIgnored private var markerEvents: [UInt64: CoreTraceEvent] = [:]
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var dimensions: CGSize = .zero
     @ObservationIgnored private var unresolved: Set<UInt64> = []
@@ -37,6 +38,7 @@ final class TerminalMinimapState {
         guard !isFeeding, liveSizes.last?.columns != columns || liveSizes.last?.rows != rows else { return }
         // Replay starts at byte zero, so retain its resize prefix for this view's lifetime.
         liveSizes.append(.init(offset: receivedOffset, rows: rows, columns: columns))
+        scheduleRefresh()
     }
 
     func beginFeed() {
@@ -141,13 +143,15 @@ final class TerminalMinimapState {
     }
 
     /// Reuse the minimap's ANSI replay to locate an exact byte boundary in the mounted terminal.
-    func scroll(to anchor: CoreTraceAnchor, includingInput: Bool = false, client: CoreClient) async throws -> Bool {
+    func scroll(
+        to anchor: CoreTraceAnchor, includingInput: Bool = false, inputText: String? = nil, client: CoreClient
+    ) async throws -> Bool {
         guard let terminal = view?.getTerminal(), !terminal.isCurrentBufferAlternate,
             liveSizes.first?.offset == 0, anchor.byteOffset <= receivedOffset
         else { return false }
         let revision = geometryRevision
         let checkpoint = TerminalMinimapCheckpoint(terminal: terminal)
-        let index = TerminalMinimapReplay(includingInput: includingInput)
+        let index = TerminalMinimapReplay(includingInput: includingInput, inputText: inputText)
         try await index.load(
             terminalID: anchor.terminalID, endOffset: receivedOffset, points: [(0, anchor)], client: client,
             liveSizes: liveSizes, prefix: replayPrefix)
@@ -207,7 +211,12 @@ final class TerminalMinimapState {
     }
 
     func loadMarkers(_ markers: [TraceMinimapMarker], terminalID: UInt64, client: CoreClient) async {
-        unresolved = Set(markers.map(\.id)).subtracting(anchors.keys)
+        let ids = Set(markers.map(\.id))
+        let events = Dictionary(uniqueKeysWithValues: markers.map { ($0.id, $0.event) })
+        anchors = anchors.filter { events[$0.key] == markerEvents[$0.key] && ids.contains($0.key) }
+        markerEvents = events
+        markerRows = markerRows.filter { anchors[$0.key] != nil }
+        unresolved = ids.subtracting(anchors.keys)
         guard !markers.isEmpty else {
             anchors = [:]
             markerRows = [:]
@@ -219,7 +228,10 @@ final class TerminalMinimapState {
         let checkpoint = TerminalMinimapCheckpoint(terminal: terminal)
         let sizes = liveSizes
         guard sizes.first?.offset == 0 else { return }
-        guard markers.allSatisfy({ ($0.anchor?.byteOffset ?? 0) <= end }) else { return }
+        // A newly recorded hook can reach Swift before its terminal bytes. Keep earlier
+        // points usable and retry each pending point when its own boundary arrives.
+        let ready = markers.filter { ($0.anchor?.byteOffset ?? 0) <= end }
+        guard !ready.isEmpty else { return }
         indexing = true
         attemptedOffset = end
         defer {
@@ -229,11 +241,11 @@ final class TerminalMinimapState {
         do {
             let index = TerminalMinimapReplay()
             try await index.load(
-                terminalID: terminalID, endOffset: end, markers: markers, client: client,
+                terminalID: terminalID, endOffset: end, markers: ready, client: client,
                 liveSizes: sizes, prefix: replayPrefix)
             try Task.checkCancellation()
             guard revision == geometryRevision else { return }
-            accept(index, checkpoint: checkpoint, ids: Set(markers.map(\.id)))
+            accept(index, checkpoint: checkpoint, ids: ids)
         } catch is CancellationError {
             return
         } catch TerminalMinimapReplay.ReplayFailure.expired {

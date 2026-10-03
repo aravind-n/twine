@@ -2,6 +2,70 @@ import Darwin
 import XCTest
 
 extension TwineUITests {
+    @MainActor
+    func testClaudeMinimapDotsSelectTheirTraceAndScrollToThePrompt() throws {
+        let folder = try makeFolder()
+        try writeTraceAgent(in: folder)
+        let app = try makeApp(lastOpenFolder: folder)
+        defer { app.terminate() }
+        app.launchEnvironment["SHELL"] = "/bin/sh"
+        app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(folder.path)/bin:/bin:/usr/bin"
+        // The child must override inherited fullscreen preferences for its own terminal.
+        app.launchEnvironment["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN"] = "0"
+        app.launchEnvironment["CLAUDE_CODE_NO_FLICKER"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
+        element("workflowChoice-Terminal", in: app).click()
+        app.typeText("mkdir bin; printf '#!/bin/sh\\n' > bin/claude; cat stub.txt >> bin/claude; chmod +x bin/claude\r")
+        let installed = expectation(
+            for: NSPredicate { _, _ in
+                FileManager.default.isExecutableFile(atPath: folder.appending(path: "bin/claude").path)
+            }, evaluatedWith: nil)
+        wait(for: [installed], timeout: 10)
+        app.buttons["newWorkflow"].click()
+        chooseHarness("claudeCode", displayName: "Claude Code", in: app)
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 800))
+        waitForFile(folder.appending(path: "agent-ready"), containing: "1", in: app)
+        let map = element("terminalMinimap", in: app)
+        XCTAssertTrue(map.waitForExistence(timeout: 10), app.debugDescription)
+        map.hover()
+        let marker = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'minimapStep-'")).firstMatch
+        XCTAssertTrue(marker.waitForExistence(timeout: 10), app.debugDescription)
+        let id = marker.identifier.replacingOccurrences(of: "minimapStep-", with: "")
+        marker.click()
+        XCTAssertTrue(app.buttons["traceSpan-\(id)"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["minimapReturnToLive"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.textViews["terminalHistoryText"].exists, app.debugDescription)
+        attachAgentWindow(in: app, name: "Claude minimap dot and matching prompt trace")
+        app.buttons["minimapReturnToLive"].click()
+        app.typeText("follow-up\r")
+        waitForFile(folder.appending(path: "agent-input"), containing: "follow-up", in: app)
+    }
+
+    private func writeTraceAgent(in folder: URL) throws {
+        try #"""
+        case "$1" in --help) exit 0 ;; esac
+        while [ "$#" -gt 0 ]; do
+            if [ "$1" = --settings ]; then settings="$2"; break; fi
+            shift
+        done
+        prompt_hook=$(/usr/bin/plutil -extract hooks.UserPromptSubmit.0.hooks.0.command raw -o - "$settings")
+        stop_hook=$(/usr/bin/plutil -extract hooks.Stop.0.hooks.0.command raw -o - "$settings")
+        stty -echo
+        printf 'earlier\n❯ Check output\n──────────\n? for shortcuts\n'
+        printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"fixture","prompt":"Check output"}' \
+            | /bin/sh -c "$prompt_hook"
+        i=0
+        while [ "$i" -lt 120 ]; do printf 'response-%s\n' "$i"; i=$((i+1)); done
+        printf '%s' '{"hook_event_name":"Stop","session_id":"fixture","last_assistant_message":"Checked."}' \
+            | /bin/sh -c "$stop_hook"
+        printf '%s\n' "$CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN" > agent-ready
+        read line
+        printf '%s' "$line" > agent-input
+        while :; do sleep 1; done
+        """#.write(to: folder.appending(path: "stub.txt"), atomically: true, encoding: .utf8)
+    }
+
     /// Codex waits 250 ms for OSC 10/11 before permanently omitting its prompt shading.
     @MainActor
     func testAgentReceivesTerminalColorsBeforeItsStartupProbeTimesOut() throws {
@@ -234,11 +298,11 @@ extension TwineUITests {
 
     /// Starts `harness` with its default model from the Single agent tile's menu.
     @MainActor
-    private func chooseHarness(_ harness: String, in app: XCUIApplication) {
+    private func chooseHarness(_ harness: String, displayName: String? = nil, in app: XCUIApplication) {
         let tile = element("workflowChoice-Single agent", in: app)
         XCTAssertTrue(tile.waitForExistence(timeout: 10), app.debugDescription)
         tile.click()
-        let item = app.menuItems[harness]
+        let item = app.menuItems[displayName ?? harness]
         XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
         item.click()
         // Stub harnesses list no models or effort levels, so the default model starts it directly.

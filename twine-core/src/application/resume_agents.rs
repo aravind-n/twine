@@ -140,6 +140,7 @@ impl Application {
             &located.program,
             &arguments,
             &located.path,
+            crate::harness::launch::launch_environment(harness),
             RESTORED_SIZE,
             Arc::new(self.exit_callback()),
         )?;

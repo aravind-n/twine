@@ -29,10 +29,15 @@ struct TerminalTraceNavigation: ViewModifier {
                 let anchor = request.scrollAnchor
                 if anchor.terminalID == terminalID && anchor.byteOffset > minimap.receivedOffset { return }
                 do {
+                    // Selecting a dot expands Traces and animates the terminal's size.
+                    // Each geometry change restarts this task; reveal the point only
+                    // after layout settles so a later resize cannot undo the scroll.
+                    try await Task.sleep(for: .milliseconds(100))
                     let found =
                         anchor.terminalID == terminalID
                         ? try await minimap.scroll(
-                            to: anchor, includingInput: request.outputStartAnchor != nil, client: client) : false
+                            to: anchor, includingInput: request.outputStartAnchor != nil,
+                            inputText: request.inputText, client: client) : false
                     try Task.checkCancellation()
                     navigation.finishScroll(request, found: found)
                     handledID = request.id

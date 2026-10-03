@@ -11,6 +11,7 @@ nonisolated struct TraceTerminalTarget: Equatable, Identifiable, Sendable {
     let message: String
     var outputStartAnchor: CoreTraceAnchor?
     var readToCurrentEnd = false
+    var inputText: String?
     var scrollAnchor: CoreTraceAnchor { outputStartAnchor ?? anchor }
 }
 
@@ -117,6 +118,7 @@ final class TraceTerminalNavigation {
             workflowID: start.workflowID, agentID: lane.agentID,
             anchor: ending?.anchor ?? latest?.anchor ?? startAnchor,
             timestamp: start.timestamp, message: span.title, outputStartAnchor: startAnchor,
-            readToCurrentEnd: (span.isLive || resumed) && ending == nil)
+            readToCurrentEnd: (span.isLive || resumed) && ending == nil,
+            inputText: lane.isAgent ? span.title : nil)
     }
 }

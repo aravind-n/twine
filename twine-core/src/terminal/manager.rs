@@ -194,6 +194,7 @@ impl TerminalManager {
         program: &Path,
         arguments: &[OsString],
         path: &OsStr,
+        environment: &[(&str, &str)],
         size: TerminalSize,
         on_exit: ExitCallback,
     ) -> Result<TerminalId, TerminalError> {
@@ -204,7 +205,8 @@ impl TerminalManager {
                 return Err(error);
             }
         };
-        let command = program_launcher_command(&working_directory, program, arguments, path);
+        let command =
+            program_launcher_command(&working_directory, program, arguments, path, environment);
         self.start_command(terminal_id, command, size, Some(working_directory), on_exit)
     }
 

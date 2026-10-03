@@ -57,6 +57,43 @@ nonisolated struct TerminalMinimapGeometry: Equatable {
         return input
     }
 
+    /// Agent TUIs can leave the cursor below their prompt box. Locate the recorded
+    /// prompt in logical lines rather than treating a border or status row as input.
+    @MainActor static func inputRow(before row: Int, matching text: String, in terminal: Terminal) -> Int? {
+        let prompt = text.replacingOccurrences(of: "… [truncated]", with: "")
+            .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard !prompt.isEmpty else { return nil }
+        var part = prompt.count - 1
+        var current = row
+        let first = terminal.getTopVisibleRow()
+        while current >= first {
+            while current > 0, terminal.bufferLine(atRow: current)?.isWrapped == true { current -= 1 }
+            guard let line = logicalLine(at: current, in: terminal) else { return nil }
+            let content = line.trimmingCharacters(in: .whitespaces)
+            if part == prompt.count - 1 && isPromptDecoration(content) {
+                current -= 1
+                continue
+            }
+            let input = content.trimmingCharacters(in: CharacterSet(charactersIn: "›❯>│┃ "))
+            // Stop at substantive output or another input. Never search through a
+            // response for an earlier occurrence of a repeated prompt.
+            guard input.hasPrefix(prompt[part]) else { return nil }
+            if part == 0 {
+                guard content.first.map({ "›❯>".contains($0) }) == true else { return nil }
+                return current
+            }
+            part -= 1
+            current -= 1
+        }
+        return nil
+    }
+
+    private static func isPromptDecoration(_ text: String) -> Bool {
+        text.isEmpty || text.allSatisfy { "─━═│┃┌┐└┘╭╮╰╯┬┴├┤┼ ".contains($0) }
+            || text.hasPrefix("? for shortcuts") || text.hasPrefix("esc to interrupt")
+            || text.hasPrefix("shift+tab to") || text.hasPrefix("ctrl+")
+    }
+
     /// Compare input independently of the padding and physical rows introduced by reflow.
     @MainActor static func logicalLine(at row: Int, in terminal: Terminal) -> String? {
         guard terminal.bufferLine(atRow: row) != nil else { return nil }

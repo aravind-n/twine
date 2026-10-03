@@ -510,7 +510,7 @@ mod tests {
             .to_string_lossy()
             .replace('\'', "'\\''");
         let binary = bin.join("claude");
-        std::fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{args_file}'\nprintf 'READY\\n'\nwhile read line; do printf 'OUTPUT:%s\\n' \"$line\"; done\n")).unwrap();
+        std::fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{args_file}'\nprintf '%s\\n' \"$CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN\" > '{args_file}.renderer'\nprintf 'READY\\n'\nwhile read line; do printf 'OUTPUT:%s\\n' \"$line\"; done\n")).unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::copy(&binary, bin.join("codex")).unwrap();
         std::fs::copy(&binary, bin.join("pi")).unwrap();
@@ -1900,6 +1900,16 @@ mod tests {
         );
     }
 
+    fn assert_claude_launch(bin: &Path) {
+        let args = std::fs::read_to_string(bin.join("arguments")).unwrap();
+        assert!(args.starts_with("--settings\n"));
+        assert!(args.ends_with("\n--\n-initial prompt\n"));
+        assert_eq!(
+            std::fs::read_to_string(bin.join("arguments.renderer")).unwrap(),
+            "1\n"
+        );
+    }
+
     #[test]
     fn claude_turns_have_ordered_steps_anchors_and_durable_history() {
         let folder = tempfile::tempdir().unwrap();
@@ -1925,9 +1935,7 @@ mod tests {
         );
         let terminal = workflow(&app, id).terminal_id;
         wait_for_output(&app, terminal, b"READY");
-        let args = std::fs::read_to_string(bin.path().join("arguments")).unwrap();
-        assert!(args.starts_with("--settings\n"));
-        assert!(args.ends_with("\n--\n-initial prompt\n"));
+        assert_claude_launch(bin.path());
         send_hook(
             &app,
             terminal,
