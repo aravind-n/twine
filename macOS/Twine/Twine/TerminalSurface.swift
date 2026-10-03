@@ -13,10 +13,11 @@ struct TerminalSurface: View {
     }
 
     private var markerKey: String {
-        let latest = markers.compactMap { $0.anchor?.byteOffset }.max() ?? 0
-        return "\(terminalID):\(minimap.geometryRevision):\(minimap.receivedOffset >= latest):\(isVisible):"
+        return "\(terminalID):\(minimap.geometryRevision):\(isVisible):"
             + "\(minimap.receivedOffset > 0):\(minimap.indexRevision):"
-            + markers.map { String($0.id) }.joined(separator: ",")
+            + markers.map {
+                "\($0.id):\($0.event.id):\(minimap.receivedOffset >= ($0.anchor?.byteOffset ?? 0))"
+            }.joined(separator: ",")
     }
 
     /// Two rows of terminal text, which short panels keep by giving up vertical padding first.

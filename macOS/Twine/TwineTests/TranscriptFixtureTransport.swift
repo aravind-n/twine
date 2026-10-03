@@ -6,8 +6,8 @@ actor TranscriptFixtureTransport: CoreTransport {
     private let bytes: Data?
     private let replayAvailable: Bool
     private let delayed: Bool
-    private let trace: CoreWorkflowTracePage?
-    private let recordedEvents: [CoreTraceEvent]
+    private var trace: CoreWorkflowTracePage?
+    private var recordedEvents: [CoreTraceEvent]
     private var pending: CheckedContinuation<Void, Never>?
     private(set) var readLimits: [UInt32] = []
     var hasPendingRead: Bool { pending != nil }
@@ -27,6 +27,9 @@ actor TranscriptFixtureTransport: CoreTransport {
         pending?.resume()
         pending = nil
     }
+
+    func replaceEvents(_ events: [CoreTraceEvent]) { recordedEvents = events }
+    func replaceTrace(_ trace: CoreWorkflowTracePage) { self.trace = trace }
 
     func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async -> CoreTranscriptPage? {
         readLimits.append(limit)

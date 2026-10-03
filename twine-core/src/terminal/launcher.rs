@@ -57,6 +57,7 @@ pub(super) fn program_launcher_command(
     program: &Path,
     arguments: &[OsString],
     path: &OsStr,
+    environment: &[(&str, &str)],
 ) -> CommandBuilder {
     let mut command = CommandBuilder::new("/bin/sh");
     command.args([
@@ -70,6 +71,9 @@ pub(super) fn program_launcher_command(
     command.env("PATH", path);
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
+    for (name, value) in environment {
+        command.env(name, value);
+    }
     command
 }
 

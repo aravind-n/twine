@@ -16,9 +16,14 @@ final class TerminalReplay: TerminalDelegate {
     private var outputStartLine: BufferLine?
     private var outputStartBuffer: Buffer?
 
-    func markOutputStart(includingInput: Bool = false) {
+    func markOutputStart(includingInput: Bool = false, inputText: String? = nil) {
         let row = terminal.getTopVisibleRow() + terminal.getCursorLocation().y
-        let start = includingInput ? TerminalMinimapGeometry.inputRow(before: row, in: terminal) : row
+        let start =
+            if let inputText {
+                TerminalMinimapGeometry.inputRow(before: row, matching: inputText, in: terminal) ?? row
+            } else {
+                includingInput ? TerminalMinimapGeometry.inputRow(before: row, in: terminal) : row
+            }
         outputStartLine = terminal.bufferLine(atRow: start)
         outputStartBuffer = terminal.buffer
     }

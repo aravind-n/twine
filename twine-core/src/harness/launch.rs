@@ -8,6 +8,15 @@ use super::HarnessId;
 /// A model is passed as one argument after `--model`, so it stays short and plain.
 const MAX_MODEL_BYTES: usize = 256;
 
+/// Keep Claude's conversation in native terminal scrollback, even when the user has
+/// enabled its fullscreen renderer. Apply this to fresh launches and resumed agents.
+pub(crate) fn launch_environment(harness: HarnessId) -> &'static [(&'static str, &'static str)] {
+    match harness {
+        HarnessId::ClaudeCode => &[("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN", "1")],
+        _ => &[],
+    }
+}
+
 /// A launch's model and effort level, checked so neither can read as a flag or break out of the
 /// Codex config value it goes into. Only `validate_options` makes one.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

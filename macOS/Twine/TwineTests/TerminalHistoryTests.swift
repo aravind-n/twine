@@ -6,6 +6,28 @@ import Testing
 
 @MainActor
 struct TerminalHistoryTests {
+    @Test func agentHistoryStartsAtThePromptAboveItsBorderAndStatusRows() async throws {
+        let prefix = "earlier\r\n› Check output\r\n──────────\r\n? for shortcuts\r\n"
+        let bytes = Data((prefix + "Response\r\n").utf8)
+        let marker = TerminalMinimapTests.marker(offset: UInt64(prefix.utf8.count))
+        let ending = CoreTraceEvent(
+            eventID: 200, workflowID: 1, spanID: marker.id, timestamp: 20, kind: .workflowEvent,
+            message: "Finished responding", anchor: .init(terminalID: 41, byteOffset: UInt64(bytes.count)))
+        let navigation = TraceTerminalNavigation()
+        navigation.jump(toSpan: marker.step.span, events: [marker.event, ending], lane: marker.lane)
+        let target = try #require(navigation.scrollTarget)
+        #expect(target.inputText == "Check output")
+        let state = TerminalHistoryState()
+        await state.load(target, client: CoreClient(transport: TranscriptFixtureTransport(bytes: bytes)))
+        guard case .ready(let replay) = state.status else {
+            Issue.record("Agent history failed to load")
+            return
+        }
+        let range = try #require(replay.outputStartRange)
+        #expect((replay.text as NSString).substring(from: range.location).hasPrefix("› Check output"))
+        #expect(replay.text.contains("Response"))
+    }
+
     @Test func commandSelectionIncludesItsOutputAndPointsAtItsFirstRow() async throws {
         let bytes = Data("old output\r\n$ printf hello\r\nhello\r\nlater prompt".utf8)
         let startOffset = UInt64(Data("old output\r\n$ printf hello\r\n".utf8).count)
@@ -78,7 +100,7 @@ struct TerminalHistoryTests {
     @Test(arguments: [false, true])
     func promptSelectionSkipsTheClearedLaunchScreenAndIncludesItsResponse(staleRunning: Bool) async throws {
         let prefix = "launch\u{1B}[2J\u{1B}[H"
-        let input = "say hi\r\n"
+        let input = "› say hi\r\n"
         let response = "Hi!\r\n"
         let bytes = Data((prefix + input + response + "next prompt").utf8)
         let lane = CoreTraceLane(
@@ -111,7 +133,7 @@ struct TerminalHistoryTests {
         #expect(replay.text.contains("Hi!"))
         #expect(!replay.text.contains("next prompt"))
         let range = try #require(replay.outputStartRange)
-        #expect((replay.text as NSString).substring(from: range.location).hasPrefix("say hi"))
+        #expect((replay.text as NSString).substring(from: range.location).hasPrefix("› say hi"))
     }
 
     @Test func runningCommandLoadsRecordedOutputAfterItsStartAnchor() async throws {
