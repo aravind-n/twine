@@ -222,6 +222,7 @@ pub struct Application {
     terminals: TerminalManager,
     /// Shared with threads that list harness models.
     login_path: Arc<LoginPath>,
+    model_lists: crate::harness::models::ModelListWorkers,
     /// Makes harness lookup search only this `PATH`, so tests don't depend on installed tools.
     #[cfg(test)]
     harness_path: Option<std::ffi::OsString>,
@@ -333,6 +334,7 @@ impl Application {
             })),
             terminal_output: Arc::clone(&terminal_output),
             terminals,
+            model_lists: crate::harness::models::ModelListWorkers::default(),
             // Unit tests must not start the developer's login shell.
             #[cfg(test)]
             login_path: Arc::new(LoginPath::ready(None)),
@@ -593,6 +595,11 @@ impl Inner {
 
 impl Drop for Application {
     fn drop(&mut self) {
+        // Model discovery may be waiting on the login shell. Cancel it before joining listings,
+        // including requests still held by the UI after this runtime closes.
+        self.login_path.cancel();
+        self.model_lists.shutdown();
+        self.login_path.shutdown();
         let _ = self.poll_harness_steps();
         let _ = self.poll_shell_observations();
         if let Ok(mut inner) = self.inner.lock() {

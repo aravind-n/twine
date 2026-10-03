@@ -6,6 +6,10 @@ use portable_pty::Child;
 use tracing::warn;
 
 use super::TerminalExit;
+#[cfg(unix)]
+use crate::process::signal_process_group;
+#[cfg(target_os = "macos")]
+use crate::process::signal_session;
 
 const SUPERVISOR_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -104,24 +108,7 @@ fn child_exited_without_reaping(process: &mut ChildProcess) -> std::io::Result<b
         .process_id
         .and_then(|value| libc::pid_t::try_from(value).ok())
         .ok_or_else(|| std::io::Error::other("terminal child has no usable process ID"))?;
-    let wait_id = libc::id_t::try_from(process_id)
-        .map_err(|_| std::io::Error::other("terminal child has no usable wait ID"))?;
-    // SAFETY: `siginfo` is zero-initialized as required for WNOHANG, and the owned, unreaped child
-    // PID stays valid while the process lock is held. WNOWAIT deliberately preserves that identity.
-    let mut siginfo: libc::siginfo_t = unsafe { std::mem::zeroed() };
-    let result = unsafe {
-        libc::waitid(
-            libc::P_PID,
-            wait_id,
-            &raw mut siginfo,
-            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
-        )
-    };
-    if result != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    // SAFETY: A successful waitid call with WEXITED initializes the SIGCHLD process fields.
-    Ok(unsafe { siginfo.si_pid() } != 0)
+    crate::process::child_exited_without_reaping(process_id)
 }
 
 #[cfg(not(unix))]
@@ -165,7 +152,7 @@ fn terminate_running_process(process: &mut ChildProcess) -> ExitResult {
         warn!(%error, process_id, "failed to hang up terminal process group");
     }
     #[cfg(target_os = "macos")]
-    if let Err(error) = signal_terminal_session(process_id, libc::SIGHUP) {
+    if let Err(error) = signal_session(process_id, libc::SIGHUP) {
         warn!(%error, process_id, "failed to hang up terminal session");
     }
     thread::sleep(Duration::from_millis(250));
@@ -177,7 +164,7 @@ fn terminate_running_process(process: &mut ChildProcess) -> ExitResult {
         let _ = process.child.kill();
     }
     #[cfg(target_os = "macos")]
-    if let Err(error) = signal_terminal_session(process_id, libc::SIGKILL) {
+    if let Err(error) = signal_session(process_id, libc::SIGKILL) {
         warn!(%error, process_id, "failed to kill terminal session");
     }
     reap_child(process)
@@ -192,68 +179,6 @@ fn reap_child(process: &mut ChildProcess) -> ExitResult {
             signal: status.signal().map(ToOwned::to_owned),
         })
         .map_err(|error| error.to_string())
-}
-
-#[cfg(unix)]
-fn signal_process_group(process_id: i32, signal: i32) -> std::io::Result<()> {
-    // SAFETY: The child is live and unreaped under its ownership lock, and portable-pty creates a
-    // process group whose ID matches this PID before exec.
-    let result = unsafe { libc::kill(-process_id, signal) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn signal_terminal_session(session_id: libc::pid_t, signal: i32) -> std::io::Result<()> {
-    if session_id == unsafe { libc::getsid(0) } {
-        return Err(std::io::Error::other(
-            "terminal shares Twine's process session",
-        ));
-    }
-
-    // proc_listallpids returns PID counts, while its buffer size is measured in bytes.
-    let required = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
-    if required < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    let mut capacity =
-        usize::try_from(required).map_err(|_| std::io::Error::other("invalid process count"))? + 64;
-    let pids = loop {
-        let mut pids = vec![0; capacity];
-        let bytes = (capacity * std::mem::size_of::<libc::pid_t>())
-            .try_into()
-            .map_err(|_| std::io::Error::other("process list is too large"))?;
-        let count = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
-        if count < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        let count =
-            usize::try_from(count).map_err(|_| std::io::Error::other("invalid process count"))?;
-        if count == capacity {
-            capacity *= 2;
-            continue;
-        }
-        pids.truncate(count);
-        break pids;
-    };
-
-    for pid in pids.into_iter().filter(|&pid| pid > 0) {
-        // A job-control shell can move background jobs into another process group, but they
-        // remain in its PTY session even if the shell exits and they are reparented.
-        if unsafe { libc::getsid(pid) } != session_id {
-            continue;
-        }
-        if unsafe { libc::kill(pid, signal) } != 0 {
-            let error = std::io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                warn!(%error, pid, signal, "failed to signal terminal session member");
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(not(unix))]
