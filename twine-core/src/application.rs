@@ -140,6 +140,13 @@ pub enum Command {
         workflow_id: WorkflowId,
         agent_id: crate::AgentId,
         generation: u64,
+        mode_revision: u64,
+    },
+    SetWorkflowIndividualMode {
+        workflow_id: WorkflowId,
+        generation: u64,
+        mode_revision: u64,
+        individual_mode: bool,
     },
     CancelWorkflowRun {
         workflow_id: WorkflowId,
@@ -430,7 +437,19 @@ impl Application {
                 workflow_id,
                 agent_id,
                 generation,
-            } => self.continue_workflow_run(workflow_id, agent_id, generation)?,
+                mode_revision,
+            } => self.continue_workflow_run(workflow_id, agent_id, generation, mode_revision)?,
+            Command::SetWorkflowIndividualMode {
+                workflow_id,
+                generation,
+                mode_revision,
+                individual_mode,
+            } => self.set_workflow_individual_mode(
+                workflow_id,
+                generation,
+                mode_revision,
+                individual_mode,
+            )?,
             Command::CancelWorkflowRun { workflow_id } => self.cancel_workflow_run(workflow_id)?,
             Command::StartTerminal {
                 working_directory,

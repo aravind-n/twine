@@ -139,6 +139,12 @@ pub struct WorkflowRun {
     pub stage_index: usize,
     /// Changes on every stage entry, including loop backs. UI actions must match this value.
     pub generation: u64,
+    /// Private follow-ups never start another workflow cycle. Missing in older records.
+    #[serde(default)]
+    pub individual_mode: bool,
+    /// Invalidates input queued before a mode change without changing stage generations.
+    #[serde(default)]
+    pub mode_revision: u64,
     pub status: RunStatus,
     pub completions: BTreeMap<u64, CompletionSignal>,
     pub rounds: BTreeMap<String, u8>,
@@ -206,6 +212,8 @@ impl WorkflowRun {
             agents,
             stage_index: 0,
             generation: 1,
+            individual_mode: false,
+            mode_revision: 0,
             status: RunStatus::Running,
             completions: BTreeMap::new(),
             rounds: BTreeMap::new(),
@@ -261,6 +269,7 @@ impl WorkflowRun {
         &mut self,
         agent_id: u64,
         generation: u64,
+        mode_revision: u64,
     ) -> Result<bool, RunError> {
         let first = &self.workflow_type.definition.stages[0];
         if !self.agents.iter().any(|agent| {
@@ -270,6 +279,9 @@ impl WorkflowRun {
         }
         if generation > self.generation {
             return Err(RunError::StaleSignal);
+        }
+        if self.individual_mode || mode_revision != self.mode_revision {
+            return Ok(false);
         }
         // Input can arrive before Swift consumes the latest state, or queue behind an earlier
         // continuation. A running workflow needs no reset, and old-cycle input still reaches the
@@ -308,6 +320,40 @@ impl WorkflowRun {
             Some(agent_id),
             None,
             "Continuing with a new task",
+        );
+        Ok(true)
+    }
+
+    /// Changing follow-up mode preserves the completed result and starts no work.
+    pub(crate) fn set_individual_mode(
+        &mut self,
+        individual_mode: bool,
+        generation: u64,
+        mode_revision: u64,
+    ) -> Result<bool, RunError> {
+        if generation != self.generation || mode_revision != self.mode_revision {
+            return Err(RunError::StaleSignal);
+        }
+        if !matches!(self.status, RunStatus::Completed | RunStatus::LimitReached) {
+            return Err(RunError::ModeWhileActive);
+        }
+        if self.individual_mode == individual_mode {
+            return Ok(false);
+        }
+        self.mode_revision = self
+            .mode_revision
+            .checked_add(1)
+            .ok_or(RunError::StaleSignal)?;
+        self.individual_mode = individual_mode;
+        self.trace(
+            "workflowIndividualModeChanged",
+            None,
+            None,
+            if individual_mode {
+                "Individual mode On"
+            } else {
+                "Individual mode Off"
+            },
         );
         Ok(true)
     }
@@ -732,6 +778,8 @@ pub enum RunError {
     Model,
     #[error("This stage has already advanced or this agent has already finished.")]
     StaleSignal,
+    #[error("Individual mode can change after the workflow completes or reaches its review limit.")]
+    ModeWhileActive,
     #[error("This role needs an explicit review decision, or done for a non-review role.")]
     Decision,
     #[error("Requested changes need actionable feedback.")]
@@ -803,6 +851,61 @@ mod tests {
     }
 
     #[test]
+    fn individual_mode_preserves_results_and_invalidates_queued_continuations() {
+        let mut run = run(BuiltinType::Adversarial.definition());
+        assert!(!run.individual_mode);
+        run.complete(1, 1, signal(Decision::Done)).unwrap();
+        run.complete(2, 2, signal(Decision::Approve)).unwrap();
+        let completed = run.clone();
+        assert!(run.set_individual_mode(true, 2, 0).unwrap());
+        assert_eq!(run.generation, completed.generation);
+        assert_eq!(run.completions, completed.completions);
+        assert_eq!(run.agents, completed.agents);
+        assert_eq!(run.prompt, completed.prompt);
+        assert_eq!(run.message, completed.message);
+        assert!(run.traces.starts_with(&completed.traces));
+        assert!(!run.continue_with(1, 2, 1).unwrap());
+        assert!(run.complete(1, 2, signal(Decision::Done)).is_err());
+        assert!(run.set_individual_mode(false, 2, 0).is_err());
+        assert!(run.set_individual_mode(false, 2, 1).unwrap());
+        assert_eq!(run.status, RunStatus::Completed);
+        assert!(!run.continue_with(1, 2, 0).unwrap());
+        assert!(!run.continue_with(1, 2, 1).unwrap());
+        assert!(run.continue_with(1, 2, 2).unwrap());
+        assert_eq!(run.generation, 3);
+        assert_eq!(run.mode_revision, 2);
+    }
+
+    #[test]
+    fn individual_mode_only_changes_after_completion_or_review_limit() {
+        for status in [
+            RunStatus::Running,
+            RunStatus::Failed,
+            RunStatus::Cancelled,
+            RunStatus::Interrupted,
+        ] {
+            let mut run = run(BuiltinType::Adversarial.definition());
+            run.status = status;
+            let before = run.clone();
+            assert!(matches!(
+                run.set_individual_mode(true, 1, 0),
+                Err(RunError::ModeWhileActive)
+            ));
+            assert_eq!(run, before);
+        }
+        let mut run = run(BuiltinType::Adversarial.definition());
+        run.status = RunStatus::LimitReached;
+        assert!(run.set_individual_mode(true, 1, 0).unwrap());
+        let before = run.clone();
+        assert!(!run.set_individual_mode(true, 1, 1).unwrap());
+        assert_eq!(run, before);
+        run.mode_revision = u64::MAX;
+        let before = run.clone();
+        assert!(run.set_individual_mode(false, 1, u64::MAX).is_err());
+        assert_eq!(run, before);
+    }
+
+    #[test]
     fn a_follow_up_starts_new_work_without_reusing_old_completions_or_feedback() {
         let mut run = run(BuiltinType::Adversarial.definition());
         run.complete(1, 1, signal(Decision::Done)).unwrap();
@@ -811,16 +914,16 @@ mod tests {
         run.complete(1, 3, signal(Decision::Done)).unwrap();
         run.complete(2, 4, signal(Decision::Approve)).unwrap();
         let history = run.traces.clone();
-        assert!(run.continue_with(2, 4).is_err());
-        assert!(run.continue_with(1, u64::MAX).is_err());
-        assert!(run.continue_with(1, 4).unwrap());
+        assert!(run.continue_with(2, 4, 0).is_err());
+        assert!(run.continue_with(1, u64::MAX, 0).is_err());
+        assert!(run.continue_with(1, 4, 0).unwrap());
         assert_eq!(run.status, RunStatus::Running);
         assert_eq!(run.stage_index, 0);
         assert_eq!(run.generation, 5);
         assert!(run.needs_task());
         assert!(run.completions.is_empty() && run.incoming.is_empty() && run.rounds.is_empty());
         assert!(run.traces.starts_with(&history));
-        assert!(!run.continue_with(1, 4).unwrap());
+        assert!(!run.continue_with(1, 4, 0).unwrap());
         assert!(run.complete(1, 3, signal(Decision::Done)).is_err());
         assert!(matches!(
             run.complete(1, 5, signal(Decision::Done)),
@@ -835,7 +938,7 @@ mod tests {
                 .contains("Task:\nA new task")
         );
         run.complete(2, 6, signal(Decision::Approve)).unwrap();
-        assert!(!run.continue_with(1, 4).unwrap());
+        assert!(!run.continue_with(1, 4, 0).unwrap());
     }
 
     #[test]

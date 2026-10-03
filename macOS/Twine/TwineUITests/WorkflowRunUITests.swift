@@ -24,6 +24,8 @@ extension TwineUITests {
         app.typeKey(.return, modifierFlags: [])
         // The run opens on the implementer, which asks for the task in its terminal.
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(item("workflowIndividualMode").value as? String, "Off")
+        XCTAssertFalse(item("workflowIndividualMode").isEnabled)
         XCTAssertEqual(app.buttons["agentSubtab-1"].value as? String, "Selected", app.debugDescription)
         XCTAssertTrue(app.buttons["agentSubtab-2"].exists)
         inspectStage("implement", in: app)
@@ -48,9 +50,35 @@ extension TwineUITests {
         completeRole(in: app, summary: "Approved")
         XCTAssertTrue(app.staticTexts["Completed"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(item("workflowCancel").exists)
+        inspectIndividualMode(in: app)
         XCTAssertTrue(app.staticTexts["Agent completed"].waitForExistence(timeout: 5), app.debugDescription)
         inspectTraceHandoff(in: app)
         inspectSavedHarnesses(in: app)
+    }
+
+    @MainActor
+    private func inspectIndividualMode(in app: XCUIApplication) {
+        func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        let individualMode = item("workflowIndividualMode")
+        XCTAssertTrue(individualMode.isEnabled)
+        individualMode.click()
+        XCTAssertTrue(individualMode.waitForExistence(timeout: 5))
+        waitForIndividualMode("On", button: individualMode)
+        let layout = app.radioGroups["agentLayout"]
+        layout.radioButtons["Bento"].click()
+        XCTAssertEqual(individualMode.value as? String, "On")
+        XCTAssertFalse(item("workflowTypeInspector").exists)
+        attachScreenshot(of: app, named: "Individual mode On in Bento")
+        individualMode.click()
+        waitForIndividualMode("Off", button: individualMode)
+        layout.radioButtons["Tabs"].click()
+        XCTAssertEqual(individualMode.value as? String, "Off")
+    }
+
+    @MainActor
+    private func waitForIndividualMode(_ value: String, button: XCUIElement) {
+        let changed = expectation(for: NSPredicate { _, _ in button.value as? String == value }, evaluatedWith: nil)
+        wait(for: [changed], timeout: 5)
     }
 
     @MainActor

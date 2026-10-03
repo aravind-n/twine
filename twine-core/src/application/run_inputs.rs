@@ -74,6 +74,10 @@ pub(super) struct AgentInput {
 }
 
 impl AgentInput {
+    pub(super) fn clear_feedback(&mut self) {
+        self.feedback.clear();
+    }
+
     pub(super) fn write(
         &mut self,
         terminals: &TerminalManager,
@@ -144,6 +148,17 @@ impl AgentInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn individual_mode_clears_feedback_without_discarding_the_user_draft() {
+        let mut input = AgentInput::default();
+        input.draft.observe(b"My unfinished draft");
+        input.feedback.push_back("Review feedback".into());
+        input.clear_feedback();
+        assert!(input.feedback.is_empty());
+        assert!(input.draft.pending);
+        assert_eq!(input.draft.observe(b"\r"), Some(0));
+    }
 
     #[test]
     fn multiline_paste_and_split_markers_keep_the_draft_pending() {

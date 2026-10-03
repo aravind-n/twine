@@ -3,6 +3,8 @@ import OSLog
 import SwiftTerm
 import SwiftUI
 
+typealias TerminalInputPreparation = @MainActor () async throws -> Void
+
 let terminalLogger = Logger(subsystem: "com.twineproject.Twine", category: "terminal")
 
 /// Feeds a retained terminal view and forwards input and size changes. Workflow shells are owned
@@ -27,6 +29,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     private let terminalIDBinding: Binding<UInt64?>
     private let failureMessage: Binding<String?>
     var beforeUserInput: (() async throws -> Void)?
+    var prepareUserInput: (() -> TerminalInputPreparation)?
 
     init(
         coreClient: CoreClient,
@@ -155,6 +158,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
 
     private func enqueueInput(_ bytes: Data, terminalID: UInt64, isUserInput: Bool = false) {
         let precedingWrite = inputTask
+        let preparation = isUserInput ? prepareUserInput?() : nil
         inputTask = Task {
             await precedingWrite?.value
             guard !Task.isCancelled, !isStopping, !isTerminalStopped else { return }
@@ -163,6 +167,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
                     throw CoreFailure.terminalNotRunning
                 }
                 if isUserInput { try await beforeUserInput?() }
+                try await preparation?()
                 try Task.checkCancellation()
                 var lowerBound = bytes.startIndex
                 while lowerBound < bytes.endIndex {

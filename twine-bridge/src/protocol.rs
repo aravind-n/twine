@@ -350,6 +350,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         "startWorkflowRun"
         | "completeWorkflowRole"
         | "continueWorkflowRun"
+        | "setWorkflowIndividualMode"
         | "cancelWorkflowRun" => {
             DecodedCommand::Known(runs::decode_command(command_type, &raw.command)?)
         }
@@ -718,7 +719,7 @@ mod tests {
             r#"{"requestId":6,"command":{"type":"continueWorkflowRun","workflowId":3,"agentId":4,"generation":5}}"#,
         );
         assert!(
-            matches!(command, Command::ContinueWorkflowRun { workflow_id, agent_id, generation: 5 }
+            matches!(command, Command::ContinueWorkflowRun { workflow_id, agent_id, generation: 5, mode_revision: 0 }
             if workflow_id.0 == 3 && agent_id.0 == 4)
         );
     }

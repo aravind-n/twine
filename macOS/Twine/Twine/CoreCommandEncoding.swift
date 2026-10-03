@@ -36,6 +36,8 @@ nonisolated private struct CommandPayload: Encodable {
     var roleLaunches: [CoreRoleLaunch]?
     var agentID: UInt64?
     var generation: UInt64?
+    var individualMode: Bool?
+    var modeRevision: UInt64?
     var signal: CoreCompletionSignal?
     var workingDirectory: String?
     var size: CoreTerminalSize?
@@ -48,7 +50,7 @@ nonisolated private struct CommandPayload: Encodable {
         case terminalID = "terminalId"
         case workflowID = "workflowId"
         case sessionID = "sessionId"
-        case workflowType, generation, signal
+        case workflowType, generation, signal, individualMode, modeRevision
         case roleLaunches = "roleLaunches"
         case agentID = "agentId"
     }
@@ -74,7 +76,8 @@ nonisolated private struct CommandPayload: Encodable {
             .cancelAgent:
             type = ""
             configureWorkflow(command)
-        case .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun, .cancelWorkflowRun:
+        case .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun, .setWorkflowIndividualMode,
+            .cancelWorkflowRun:
             type = ""
             configureRun(command)
         case .startTerminal(let workingDirectory, let size):
@@ -121,11 +124,18 @@ nonisolated private struct CommandPayload: Encodable {
             self.agentID = agentID
             self.generation = generation
             self.signal = signal
-        case .continueWorkflowRun(let workflowID, let agentID, let generation):
+        case .continueWorkflowRun(let workflowID, let agentID, let generation, let modeRevision):
             type = "continueWorkflowRun"
             self.workflowID = workflowID
             self.agentID = agentID
             self.generation = generation
+            self.modeRevision = modeRevision
+        case .setWorkflowIndividualMode(let workflowID, let generation, let modeRevision, let individualMode):
+            type = "setWorkflowIndividualMode"
+            self.workflowID = workflowID
+            self.generation = generation
+            self.modeRevision = modeRevision
+            self.individualMode = individualMode
         case .cancelWorkflowRun(let workflowID):
             type = "cancelWorkflowRun"
             self.workflowID = workflowID

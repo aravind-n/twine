@@ -47,9 +47,13 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
     let agents: [Agent]
     var stageID: String?
     var workflowType: CoreWorkflowType?
+    var individualMode = false
+    var modeRevision: UInt64 = 0
+
+    var canChangeIndividualMode: Bool { status == .completed || status == .limitReached }
 
     private enum CodingKeys: String, CodingKey {
-        case generation, stage, status, message, needsTask, agents, workflowType
+        case generation, stage, status, message, needsTask, agents, workflowType, individualMode, modeRevision
         case stageID = "stageId"
     }
 
@@ -88,6 +92,22 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
         var id: String { "\(role)-\(instance)" }
     }
 
+}
+
+extension CoreWorkflowRun {
+    nonisolated init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        generation = try values.decode(UInt64.self, forKey: .generation)
+        stage = try values.decode(String.self, forKey: .stage)
+        status = try values.decode(Status.self, forKey: .status)
+        message = try values.decodeIfPresent(String.self, forKey: .message)
+        needsTask = try values.decode(Bool.self, forKey: .needsTask)
+        agents = try values.decode([Agent].self, forKey: .agents)
+        stageID = try values.decodeIfPresent(String.self, forKey: .stageID)
+        workflowType = try values.decodeIfPresent(CoreWorkflowType.self, forKey: .workflowType)
+        individualMode = try values.decodeIfPresent(Bool.self, forKey: .individualMode) ?? false
+        modeRevision = try values.decodeIfPresent(UInt64.self, forKey: .modeRevision) ?? 0
+    }
 }
 
 nonisolated struct CoreUserWorkflowVersion: Codable, Equatable, Sendable {

@@ -12,6 +12,8 @@ use crate::error::BridgeError;
 #[serde(rename_all = "camelCase")]
 pub(super) struct WireRun<'a> {
     generation: u64,
+    individual_mode: bool,
+    mode_revision: u64,
     stage: &'a str,
     stage_id: &'a str,
     workflow_type: &'a twine_core::WorkflowType,
@@ -48,6 +50,8 @@ impl<'a> From<&'a WorkflowRun> for WireRun<'a> {
         let active = run.active_agents();
         Self {
             generation: run.generation,
+            individual_mode: run.individual_mode,
+            mode_revision: run.mode_revision,
             stage: &run.workflow_type.definition.stages[run.stage_index].name,
             stage_id: &run.workflow_type.definition.stages[run.stage_index].id.0,
             workflow_type: &run.workflow_type,
@@ -109,6 +113,17 @@ struct RawContinue {
     workflow_id: u64,
     agent_id: u64,
     generation: u64,
+    #[serde(default)]
+    mode_revision: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawIndividualMode {
+    workflow_id: u64,
+    generation: u64,
+    mode_revision: u64,
+    individual_mode: bool,
 }
 
 pub(super) fn decode_command(kind: &str, raw: &Value) -> Result<Command, BridgeError> {
@@ -146,6 +161,17 @@ pub(super) fn decode_command(kind: &str, raw: &Value) -> Result<Command, BridgeE
                 workflow_id: WorkflowId(raw.workflow_id),
                 agent_id: AgentId(raw.agent_id),
                 generation: raw.generation,
+                mode_revision: raw.mode_revision,
+            })
+        }
+        "setWorkflowIndividualMode" => {
+            let raw: RawIndividualMode =
+                serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
+            Ok(Command::SetWorkflowIndividualMode {
+                workflow_id: WorkflowId(raw.workflow_id),
+                generation: raw.generation,
+                mode_revision: raw.mode_revision,
+                individual_mode: raw.individual_mode,
             })
         }
         "cancelWorkflowRun" => raw
@@ -162,6 +188,25 @@ pub(super) fn decode_command(kind: &str, raw: &Value) -> Result<Command, BridgeE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn individual_mode_commands_require_an_explicit_mode_and_revision() {
+        let raw = serde_json::json!({"workflowId": 3, "generation": 5, "modeRevision": 2, "individualMode": true});
+        assert!(matches!(
+            decode_command("setWorkflowIndividualMode", &raw).unwrap(),
+            Command::SetWorkflowIndividualMode {
+                workflow_id: WorkflowId(3),
+                generation: 5,
+                mode_revision: 2,
+                individual_mode: true
+            }
+        ));
+        for field in ["individualMode", "modeRevision", "generation"] {
+            let mut invalid = raw.clone();
+            invalid.as_object_mut().unwrap().remove(field);
+            assert!(decode_command("setWorkflowIndividualMode", &invalid).is_err());
+        }
+    }
 
     #[test]
     fn run_serializes_the_pinned_definition_stage_id_and_role_assignments() {
@@ -188,6 +233,8 @@ mod tests {
         .unwrap();
         let wire = serde_json::to_value(WireRun::from(&run)).unwrap();
         assert_eq!(wire["stage"], "Work");
+        assert_eq!(wire["individualMode"], false);
+        assert_eq!(wire["modeRevision"], 0);
         assert_eq!(wire["stageId"], "review");
         assert_eq!(
             wire["workflowType"],

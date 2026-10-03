@@ -14,6 +14,13 @@ final class CoreClient {
     private(set) var terminalFont = NSFont.terminal
     private(set) var traceSnapshotGeneration: UInt64 = 0
     private(set) var lastCommandCompletion: CoreCommandCompletion?
+    struct WorkflowModeChange {
+        let individualMode: Bool
+        let generation: UInt64
+        let modeRevision: UInt64
+        let completion: Task<Void, any Error>
+    }
+    var workflowModeChanges: [UInt64: WorkflowModeChange] = [:]
 
     let transport: any CoreTransport
     private var eventTask: Task<Void, Never>?
@@ -51,7 +58,8 @@ final class CoreClient {
                     ignoredCommandResults.insert(receipt.requestID)
                 }
             case .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .nameDraftWorkflow,
-                .refreshGitBranch, .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun, .cancelWorkflowRun:
+                .refreshGitBranch, .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun,
+                .setWorkflowIndividualMode, .cancelWorkflowRun:
                 break
             }
         }

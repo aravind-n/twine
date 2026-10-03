@@ -113,6 +113,22 @@ mod tests {
     }
 
     #[test]
+    fn individual_mode_survives_storage_and_older_records_default_off() {
+        let mut run = run();
+        run.complete(1, 1, signal(Decision::Done)).unwrap();
+        run.complete(2, 2, signal(Decision::Approve)).unwrap();
+        run.set_individual_mode(true, 2, 0).unwrap();
+        let stored = serde_json::to_string(&run).unwrap();
+        assert_eq!(WorkflowRun::from_stored_json(&stored).unwrap(), run);
+        let mut old = serde_json::to_value(&run).unwrap();
+        old.as_object_mut().unwrap().remove("individualMode");
+        old.as_object_mut().unwrap().remove("modeRevision");
+        let restored = WorkflowRun::from_stored_json(&old.to_string()).unwrap();
+        assert!(!restored.individual_mode);
+        assert_eq!(restored.mode_revision, 0);
+    }
+
+    #[test]
     fn legacy_records_preserve_completed_roles_and_explicit_new_statuses() {
         let mut run = run();
         run.complete(1, 1, signal(Decision::Done)).unwrap();
