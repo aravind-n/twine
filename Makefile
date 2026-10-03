@@ -10,6 +10,23 @@ BUNDLE_DIR ?= $(CURDIR)/target/release-bundle
 OUTPUT_DIR ?= $(CURDIR)/dist
 XCODE_BUILD_ARGS ?=
 RELEASE_SCRIPT := bash .github/release/release.sh
+BUILD_NUMBER_FILE ?= $(CURDIR)/.build-number
+
+# Allocate at recipe execution time so help, linting, and dry runs do not increment.
+define BUILD_DEBUG_APP
+	@set -eu; \
+	build_number=1; \
+	if [ -f "$(BUILD_NUMBER_FILE)" ]; then \
+		read -r build_number < "$(BUILD_NUMBER_FILE)"; \
+	fi; \
+	case "$$build_number" in \
+		''|*[!0-9]*|0*) echo 'error: $(BUILD_NUMBER_FILE) must contain a positive integer without leading zeros' >&2; exit 1 ;; \
+	esac; \
+	build_number=$$((build_number + 1)); \
+	printf '%s\n' "$$build_number" > "$(BUILD_NUMBER_FILE)"; \
+	echo "Building Twine (build $$build_number)"; \
+	$(XCODEBUILD_DEBUG) CURRENT_PROJECT_VERSION="$$build_number" $(1)
+endef
 
 UI_TEST_DERIVED_DATA ?= /tmp/twine-uitests
 # Tests outside this list are retired from default runs, but remain available with ONLY or ALL=1.
@@ -71,7 +88,7 @@ help:
 	@echo 'macOS app:'
 	@echo '  framework             Build the Debug TwineCore XCFramework'
 	@echo '  framework-release     Build the Release TwineCore XCFramework'
-	@echo '  build-macos           Build the Debug app, after the Debug framework'
+	@echo '  build-macos           Increment the local build number and build the Debug app'
 	@echo '  build-macos-release   Build the universal Release app, after the Release framework'
 	@echo '  fmt-macos             Format Swift code'
 	@echo '  lint-macos            Prepare the framework, then run swift-format lint and SwiftLint'
@@ -113,7 +130,7 @@ framework-release:
 	$(FRAMEWORK_BUILD) release
 
 build-macos: framework
-	$(XCODEBUILD_DEBUG) build
+	$(call BUILD_DEBUG_APP,build)
 
 build-macos-release: framework-release
 	$(MAKE) release-build-app
@@ -143,10 +160,10 @@ lint-macos: framework
 	macOS/Twine/Scripts/swiftlint.sh
 
 test-macos: framework
-	$(XCODEBUILD_DEBUG) test -only-testing:TwineTests
+	$(call BUILD_DEBUG_APP,test -only-testing:TwineTests)
 
 ui-test-macos: framework
-	$(XCODEBUILD_DEBUG) -derivedDataPath "$(UI_TEST_DERIVED_DATA)" test $(UI_TEST_ARGS)
+	$(call BUILD_DEBUG_APP,-derivedDataPath "$(UI_TEST_DERIVED_DATA)" test $(UI_TEST_ARGS))
 
 ui-test-macos-built:
 	$(XCODEBUILD_DEBUG) -derivedDataPath "$(UI_TEST_DERIVED_DATA)" test-without-building $(UI_TEST_ARGS)

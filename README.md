@@ -153,6 +153,12 @@ prompted, and run the app. Xcode uses the prebuilt Rust framework; rebuild it wi
 `make framework` after Rust changes. For a command-line build, use
 `make build-macos`.
 
+The Makefile increments a local build number for each Debug app build, including
+unit and UI test builds. The counter is stored in the Git-ignored `.build-number`
+file and appears at the right edge of the app's status bar. Failed app builds also
+consume a number. Building directly in Xcode uses the project's configured build
+number.
+
 ## Settings and saved work
 
 Twine creates `~/.config/twine/config.toml` on first launch and reads it at startup.

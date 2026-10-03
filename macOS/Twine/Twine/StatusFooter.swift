@@ -39,6 +39,14 @@ struct StatusFooter: View {
                     }
                 }
                 Spacer(minLength: 0)
+                #if DEBUG
+                    if let buildNumber = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
+                        Text("Build \(buildNumber)")
+                            .monospacedDigit()
+                            .accessibilityIdentifier("buildNumber")
+                            .fixedSize()
+                    }
+                #endif
             }
             .footerStyle()
             .padding(.horizontal, FooterLayout.horizontalPadding)
