@@ -31,6 +31,7 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testBentoPanesKeepEachShellAndMoveTheKeyboardBetweenThem \
 	testTerminalSplitsResizeKeepTheirNeighborAndRestoreOutput \
 	testFileEditingUndoSaveAndConflictChoices \
+	testMarkdownPreviewSourceSaveReloadAndLocalLinks \
 	testClearedTraceOpensSavedInputAndOutputWithoutAScrollbackWarning
 UI_VISUAL_TESTS := testFolderWindowInDarkAppearance \
 	testDraftAndFooterAtMinimumWindowSizeInDarkAppearance \

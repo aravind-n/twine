@@ -67,7 +67,7 @@ struct WorkflowWorkspace: View {
                     let shown = editor.id == fileTabs.selectedID
                     FileViewer(
                         path: editor.path, folder: folder, failure: files.failure, isVisible: shown,
-                        openHTMLFile: { fileTabs.open(path: $0.path, folder: folder, navigationURL: $0) }
+                        openFile: { fileTabs.open(path: $0.path, folder: folder, navigationURL: $0) }
                     )
                     .environment(editor)
                     .opacity(shown ? 1 : 0)
