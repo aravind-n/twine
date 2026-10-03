@@ -1,0 +1,3 @@
+# Keep local builds compatible with the Python 3.9 bundled with Xcode.
+Markdown==3.9
+pymdown-extensions==10.16.1

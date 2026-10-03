@@ -8,6 +8,10 @@ DERIVED_DATA ?= $(CURDIR)/target/release-app
 BUILD_DIR ?= $(DERIVED_DATA)/Build/Products/Release
 BUNDLE_DIR ?= $(CURDIR)/target/release-bundle
 OUTPUT_DIR ?= $(CURDIR)/dist
+SITE_DIR := $(CURDIR)/dist/site
+SITE_ENV := $(CURDIR)/target/site-venv
+SITE_STAMP := $(SITE_ENV)/.requirements-installed
+SITE_PORT ?= 8000
 XCODE_BUILD_ARGS ?=
 RELEASE_SCRIPT := bash .github/release/release.sh
 
@@ -49,7 +53,8 @@ UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 .PHONY: help fmt-rust lint-rust test-rust check-rust clean-rust \
 	framework framework-release build-macos build-macos-release fmt-macos lint-macos \
 	test-macos ui-test-macos ui-test-macos-built ui-test-macos-all ui-test-macos-visual check-macos clean-macos \
-	fmt lint test check clean release-build-app release-bundle release-package check-release check-release-scripts
+	fmt lint test check clean release-build-app release-bundle release-package check-release check-release-scripts \
+	build-site serve-site check-site
 
 help:
 	@echo 'usage: make <target> [ONLY="testA testB"]'
@@ -60,6 +65,11 @@ help:
 	@echo '  test                  Run test-rust and test-macos'
 	@echo '  check                 Run check-rust and check-macos'
 	@echo '  clean                 Run clean-rust and clean-macos'
+	@echo ''
+	@echo 'GitHub Pages website:'
+	@echo '  build-site            Assemble the static website in dist/site'
+	@echo '  serve-site            Preview at http://localhost:8000 (override SITE_PORT)'
+	@echo '  check-site            Build the website and lint its deployment workflow'
 	@echo ''
 	@echo 'Rust workspace (twine-core, twine-bridge):'
 	@echo '  fmt-rust              Format Rust code'
@@ -134,6 +144,20 @@ check-release-scripts:
 
 check-release: check-release-scripts
 	actionlint -ignore 'label "xcode-27" is unknown'
+
+$(SITE_STAMP): site/requirements.txt
+	python3 -m venv "$(SITE_ENV)"
+	"$(SITE_ENV)/bin/python3" -m pip install --disable-pip-version-check -r site/requirements.txt
+	touch "$(SITE_STAMP)"
+
+build-site: $(SITE_STAMP)
+	"$(SITE_ENV)/bin/python3" site/build.py "$(SITE_DIR)"
+
+serve-site: build-site
+	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 --directory "$(SITE_DIR)"
+
+check-site: build-site
+	actionlint .github/workflows/pages.yml
 
 fmt-macos:
 	swift format --in-place --recursive macOS/
