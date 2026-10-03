@@ -7,6 +7,21 @@
 <p align="center">A native macOS workspace for coordinating coding agents.</p>
 
 <p align="center">
+  <a href="https://github.com/aravind-n/twine/releases/latest">
+    <img src="https://img.shields.io/github/v/release/aravind-n/twine" alt="Latest release">
+  </a>
+  <a href="https://github.com/aravind-n/twine/actions/workflows/ci.yml">
+    <img src="https://github.com/aravind-n/twine/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI status on main">
+  </a>
+  <a href="#try-twine">
+    <img src="https://img.shields.io/badge/macOS-26%2B-blue" alt="macOS 26 or later">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/aravind-n/twine" alt="MIT license">
+  </a>
+</p>
+
+<p align="center">
   <a href="#about">About</a> ·
   <a href="#try-twine">Try Twine</a> ·
   <a href="docs/reference.md">Reference</a> ·
@@ -16,6 +31,10 @@
 > [!NOTE]
 > Twine is in early development. Features, integrations, and interfaces are still
 > changing. Download a packaged release below, or build from source.
+
+<p align="center">
+  <img src="docs/images/twine-workspace.png" alt="Twine showing an Adversarial workflow with implementer and reviewer terminals and workflow traces">
+</p>
 
 ## About
 
