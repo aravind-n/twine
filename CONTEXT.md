@@ -21,6 +21,9 @@ _Avoid_: Pattern, DAG
 **Workflow graph**:
 A visual representation of a workflow type's roles, stages, and handoffs.
 
+**Individual mode**:
+A workflow-wide setting for follow-ups after completion or the review limit. Off by default, it allows a follow-up to a first-stage agent to start another workflow cycle with the same conversations. On keeps follow-ups individual without advancing the workflow. Switching mode starts no work, preserves the last result and history, and persists across relaunch. The setting appears in the terminal toolbar in both Tabs and Bento.
+
 **Role**:
 A responsibility within a workflow type, such as implementer, reviewer, coordinator, or worker. A role is independent of the harness that fills it.
 

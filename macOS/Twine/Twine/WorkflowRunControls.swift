@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// A run's actions in the terminal strip, as icon buttons: the workflow graph, Mark done for the
-/// selected agent, and Cancel. The run's messages appear in the status footer.
+/// Workflow-wide follow-up mode and run actions, shared by the Tabs and Bento terminal strips.
 struct WorkflowRunControls: View {
     @Environment(CoreClient.self) private var client
     let workflowID: UInt64
@@ -22,6 +21,36 @@ struct WorkflowRunControls: View {
 
     var body: some View {
         HStack(spacing: AgentSubtabLayout.actionSpacing) {
+            if run.agents.count > 1 {
+                Button {
+                    Task {
+                        do {
+                            try await client.setWorkflowIndividualMode(
+                                workflowID: workflowID, individualMode: !run.individualMode)
+                        } catch { reportFailure(error.localizedDescription) }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "person")
+                        Text("Individual mode")
+                        Divider().frame(height: 12)
+                        Text(run.individualMode ? "On" : "Off").fontWeight(.semibold)
+                    }
+                    .font(.caption)
+                }
+                .disabled(!run.canChangeIndividualMode || client.workflowModeChanges[workflowID] != nil)
+                .help(
+                    !run.canChangeIndividualMode
+                        ? "Individual mode is available after the workflow finishes."
+                        : run.individualMode
+                            ? "On: follow up with each agent individually. Turn Off to allow another workflow cycle."
+                            : "Off: a follow-up to a first-stage agent can start another workflow cycle. "
+                                + "Turn On to work with agents individually."
+                )
+                .accessibilityLabel("Individual mode")
+                .accessibilityValue(run.individualMode ? "On" : "Off")
+                .accessibilityIdentifier("workflowIndividualMode")
+            }
             if let type = run.workflowType {
                 Button {
                     showsGraph.toggle()

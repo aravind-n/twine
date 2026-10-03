@@ -67,7 +67,8 @@ actor DelayedStartTransport {
             .activateWorkflow, .closeWorkflow, .startAgent, .resumeAgent, .cancelAgent, .nameDraftWorkflow,
             .refreshGitBranch,
             .createSession, .renameSession, .selectSession, .deleteSession,
-            .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun, .cancelWorkflowRun:
+            .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun, .setWorkflowIndividualMode,
+            .cancelWorkflowRun:
             break
         }
         return CoreCommandReceipt(requestID: requestID, status: .accepted, error: nil)

@@ -225,7 +225,7 @@ actor ScriptedAgentTransport {
     func close() {}
 
     func send(_ command: CoreCommand) -> CoreCommandReceipt {
-        if case .continueWorkflowRun(_, let agentID, _) = command { continuationAgentIDs.append(agentID) }
+        if case .continueWorkflowRun(_, let agentID, _, _) = command { continuationAgentIDs.append(agentID) }
         let requestID = nextRequestID
         nextRequestID += 1
         switch (command, scriptedReply) {

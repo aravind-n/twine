@@ -50,6 +50,27 @@ impl CompletionRouting {
 }
 
 impl RunProcesses {
+    fn finish_assignment(&mut self, agent: AgentId, advance: bool) {
+        if let Some(command) = self.completion_commands.get(&agent) {
+            command.deactivate();
+        }
+        if let Some((_, inbox)) = self.inboxes.remove(&agent) {
+            inbox.accept();
+            self.retire_inbox(inbox);
+        }
+        if advance {
+            for (_, (_, inbox)) in std::mem::take(&mut self.inboxes) {
+                inbox.reject(
+                    "This assignment ended before completion. Wait for your next assignment.",
+                );
+                self.retire_inbox(inbox);
+            }
+            for command in self.completion_commands.values() {
+                command.deactivate();
+            }
+        }
+    }
+
     fn continuation_prompt(
         &mut self,
         run: &WorkflowRun,
@@ -688,7 +709,7 @@ impl Application {
         signal: CompletionSignal,
     ) -> Result<CommandDisposition, ApplicationError> {
         self.poll_harness_steps()?;
-        let (advance, running, feedback) = {
+        let (advance, running, feedback, generation, mode_revision) = {
             let mut inner = self.lock_inner()?;
             let Some(index) = inner
                 .workflows
@@ -751,6 +772,8 @@ impl Application {
             } else {
                 Vec::new()
             };
+            let generation = run.generation;
+            let mode_revision = run.mode_revision;
             workflow.status = workflow_status(run.status);
             if !running {
                 workflow.ended_at = Some(timestamp());
@@ -758,7 +781,7 @@ impl Application {
             if let Err(error) = inner.publish_run(index, workflow) {
                 return Ok(super::rejection("completionStoreFailed", &error));
             }
-            (advance, running, feedback)
+            (advance, running, feedback, generation, mode_revision)
         };
         {
             let mut processes = self
@@ -766,39 +789,75 @@ impl Application {
                 .lock()
                 .map_err(|_| ApplicationError::Poisoned)?;
             if let Some(processes) = processes.get_mut(&workflow_id) {
-                if let Some(command) = processes.completion_commands.get(&agent_id) {
-                    command.deactivate();
-                }
-                if let Some((_, inbox)) = processes.inboxes.remove(&agent_id) {
-                    inbox.accept();
-                    processes.retire_inbox(inbox);
-                }
-                if advance {
-                    for (_, (_, inbox)) in std::mem::take(&mut processes.inboxes) {
-                        inbox.reject("This assignment ended before completion. Wait for your next assignment.");
-                        processes.retire_inbox(inbox);
-                    }
-                    for command in processes.completion_commands.values() {
-                        command.deactivate();
-                    }
-                }
+                processes.finish_assignment(agent_id, advance);
             }
         }
         if advance && running {
             self.launch_workflow_stage(workflow_id, false)?;
         }
-        self.deliver_review_feedback(feedback);
+        self.deliver_review_feedback(workflow_id, generation, mode_revision, feedback);
         Ok(CommandDisposition::Accepted)
     }
 
-    fn deliver_review_feedback(&self, feedback: Vec<(TerminalId, String)>) {
+    fn deliver_review_feedback(
+        &self,
+        workflow: WorkflowId,
+        generation: u64,
+        mode_revision: u64,
+        feedback: Vec<(TerminalId, String)>,
+    ) {
         for (terminal, message) in feedback {
             if self.terminals.is_running(terminal)
-                && let Err(error) = self.notify_workflow_agent(terminal, &message)
+                && let Err(error) = self.notify_final_review_feedback(
+                    workflow,
+                    generation,
+                    mode_revision,
+                    terminal,
+                    &message,
+                )
             {
                 tracing::warn!(%error, "couldn't deliver the final review feedback");
             }
         }
+    }
+
+    fn notify_final_review_feedback(
+        &self,
+        workflow: WorkflowId,
+        generation: u64,
+        mode_revision: u64,
+        terminal: TerminalId,
+        message: &str,
+    ) -> Result<(), ApplicationError> {
+        let Some(input) = self.workflow_agent_input(terminal)? else {
+            return Ok(());
+        };
+        // A harness can block its writer. Wait without holding application or registry locks,
+        // then revalidate the revision while owning the writer used by mode cleanup.
+        let mut writer = input.lock().map_err(|_| ApplicationError::Poisoned)?;
+        let registry = self
+            .run_processes
+            .lock()
+            .map_err(|_| ApplicationError::Poisoned)?;
+        let inner = self.lock_inner()?;
+        let current = inner
+            .workflows
+            .workflows
+            .iter()
+            .find(|w| w.workflow_id == workflow)
+            .and_then(|w| w.run.as_ref());
+        if !current.is_some_and(|run| {
+            !run.individual_mode
+                && run.mode_revision == mode_revision
+                && run.generation == generation
+                && matches!(run.status, RunStatus::Completed | RunStatus::LimitReached)
+        }) {
+            return Ok(());
+        }
+        drop(inner);
+        drop(registry);
+        writer.notify(&self.terminals, terminal, message)?;
+        Ok(())
     }
 
     fn notify_workflow_agent(
@@ -902,6 +961,7 @@ impl Application {
         workflow_id: WorkflowId,
         agent_id: AgentId,
         generation: u64,
+        mode_revision: u64,
     ) -> Result<CommandDisposition, ApplicationError> {
         {
             let mut inner = self.lock_inner()?;
@@ -929,7 +989,7 @@ impl Application {
             let Some(run) = workflow.run.as_mut() else {
                 return Ok(reject("notWorkflowRun", "This workflow has no stages."));
             };
-            match run.continue_with(agent_id.0, generation) {
+            match run.continue_with(agent_id.0, generation, mode_revision) {
                 Ok(false) => return Ok(CommandDisposition::Accepted),
                 Ok(true) => {}
                 Err(error) => return Ok(super::rejection("invalidContinuation", &error)),
@@ -939,6 +999,83 @@ impl Application {
             inner.publish_run(index, workflow)?;
         }
         self.launch_workflow_stage(workflow_id, true)?;
+        Ok(CommandDisposition::Accepted)
+    }
+
+    pub(super) fn set_workflow_individual_mode(
+        &self,
+        workflow_id: WorkflowId,
+        generation: u64,
+        mode_revision: u64,
+        individual_mode: bool,
+    ) -> Result<CommandDisposition, ApplicationError> {
+        let mut writers = if individual_mode {
+            let registry = self
+                .run_processes
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?;
+            registry
+                .get(&workflow_id)
+                .map(|processes| {
+                    processes
+                        .inputs
+                        .iter()
+                        .map(|(&terminal, input)| (terminal, Arc::clone(input)))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        writers.sort_by_key(|(terminal, _)| terminal.value());
+        // Wait for slow PTY writes without holding application state. Sorting provides a
+        // consistent order for concurrent changes; revalidate only after owning the writers.
+        let mut inputs = writers
+            .iter()
+            .map(|(_, input)| input.lock().map_err(|_| ApplicationError::Poisoned))
+            .collect::<Result<Vec<_>, _>>()?;
+        // Match stage launch's lock order. Hold the registry through persistence and cleanup so
+        // a new continuation cannot install routing that this mode change then deactivates.
+        let mut registry = self
+            .run_processes
+            .lock()
+            .map_err(|_| ApplicationError::Poisoned)?;
+        let mut inner = self.lock_inner()?;
+        let Some(index) = inner
+            .workflows
+            .workflows
+            .iter()
+            .position(|w| w.workflow_id == workflow_id)
+        else {
+            return Ok(reject(
+                "workflowNotFound",
+                "The workflow is no longer open.",
+            ));
+        };
+        let mut workflow = inner.workflows.workflows[index].clone();
+        let Some(run) = workflow.run.as_mut() else {
+            return Ok(reject("notWorkflowRun", "This workflow has no stages."));
+        };
+        match run.set_individual_mode(individual_mode, generation, mode_revision) {
+            Ok(false) => return Ok(CommandDisposition::Accepted),
+            Ok(true) => {}
+            Err(error) => return Ok(super::rejection("invalidIndividualMode", &error)),
+        }
+        // Synchronize with user writes before publishing the new mode. Clearing review feedback
+        // preserves any unfinished user draft and prevents old feedback reaching a private turn.
+        inner.publish_run(index, workflow)?;
+        for input in &mut inputs {
+            input.clear_feedback();
+        }
+        drop(inputs);
+        if let Some(processes) = registry.get_mut(&workflow_id) {
+            for command in processes.completion_commands.values() {
+                command.deactivate();
+            }
+            for routing in processes.completion_routing.values_mut() {
+                *routing = CompletionRouting::Private;
+            }
+        }
         Ok(CommandDisposition::Accepted)
     }
 
@@ -1815,6 +1952,7 @@ mod tests {
                 workflow_id: id,
                 agent_id: completed.agents[0].agent_id,
                 generation: completed.run.unwrap().generation,
+                mode_revision: 0,
             },
         );
         app.write_terminal_input(terminal, b"My next task").unwrap();
@@ -2010,6 +2148,192 @@ mod tests {
         );
     }
 
+    fn change_individual_mode(app: &Application, id: WorkflowId, individual_mode: bool) {
+        let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
+        let run = workflow.run.as_ref().unwrap();
+        accepted(
+            app,
+            Command::SetWorkflowIndividualMode {
+                workflow_id: id,
+                generation: run.generation,
+                mode_revision: run.mode_revision,
+                individual_mode,
+            },
+        );
+    }
+
+    #[test]
+    fn waiting_for_an_agent_writer_does_not_lock_application_state() {
+        for changing_mode in [true, false] {
+            let folder = tempfile::tempdir().unwrap();
+            let bin = tempfile::tempdir().unwrap();
+            let app = Arc::new(application(folder.path(), bin.path(), RECORD_INPUT));
+            let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+            finish_remaining_stages(&app, id);
+            let completed = app.snapshot().unwrap().workflows.workflows[0].clone();
+            let generation = completed.run.as_ref().unwrap().generation;
+            let terminal = completed.agents[0].terminal_id;
+            let input = app.workflow_agent_input(terminal).unwrap().unwrap();
+            // A blocked PTY write owns this same mutex. No state lock may be held while waiting.
+            let writer = input.lock().unwrap();
+            let references = Arc::strong_count(&input);
+            let worker = Arc::clone(&app);
+            let pending = thread::spawn(move || {
+                if changing_mode {
+                    worker
+                        .set_workflow_individual_mode(id, generation, 0, true)
+                        .unwrap();
+                } else {
+                    worker
+                        .notify_final_review_feedback(id, generation, 0, terminal, "Final feedback")
+                        .unwrap();
+                }
+            });
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Arc::strong_count(&input) == references && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(1));
+            }
+            let waiting = Arc::strong_count(&input) > references;
+            let state_available = app.inner.try_lock().is_ok();
+            drop(writer);
+            pending.join().unwrap();
+            assert!(waiting && state_available);
+        }
+    }
+
+    fn submit_individual_follow_ups(
+        app: &Application,
+        folder: &Path,
+        id: WorkflowId,
+        builtin: BuiltinType,
+        completed: &Workflow,
+    ) {
+        let generation = completed.run.as_ref().unwrap().generation;
+        let input = app
+            .workflow_agent_input(completed.agents[0].terminal_id)
+            .unwrap()
+            .unwrap();
+        // Final review feedback deferred behind an unfinished draft must not leak into a
+        // private turn, including delivery queued just before the mode change.
+        app.write_terminal_input(completed.agents[0].terminal_id, b"My draft")
+            .unwrap();
+        input
+            .lock()
+            .unwrap()
+            .notify(
+                &app.terminals,
+                completed.agents[0].terminal_id,
+                "Initial feedback",
+            )
+            .unwrap();
+        change_individual_mode(app, id, true);
+        app.notify_final_review_feedback(
+            id,
+            generation,
+            0,
+            completed.agents[0].terminal_id,
+            "Obsolete feedback",
+        )
+        .unwrap();
+        for agent in &completed.agents {
+            app.write_terminal_input(agent.terminal_id, b"Private question\r")
+                .unwrap();
+        }
+        accepted(
+            app,
+            Command::ContinueWorkflowRun {
+                workflow_id: id,
+                agent_id: completed.agents[0].agent_id,
+                generation,
+                mode_revision: 1,
+            },
+        );
+        if builtin == BuiltinType::Adversarial {
+            wait_for(app, id, |_| {
+                std::fs::read_to_string(folder.join("implement-input"))
+                    .is_ok_and(|text| text.contains("My draftPrivate question"))
+            });
+            let private = std::fs::read_to_string(folder.join("implement-input")).unwrap();
+            assert!(
+                !private.contains("Initial feedback") && !private.contains("Obsolete feedback")
+            );
+        }
+    }
+
+    #[test]
+    fn individual_mode_keeps_agents_live_and_rejoining_waits_for_fresh_input() {
+        for builtin in BuiltinType::ALL {
+            let folder = tempfile::tempdir().unwrap();
+            let bin = tempfile::tempdir().unwrap();
+            let app = application(folder.path(), bin.path(), RECORD_INPUT);
+            let id = launch(&app, folder.path(), builtin);
+            finish_remaining_stages(&app, id);
+            let completed = app.snapshot().unwrap().workflows.workflows[0].clone();
+            let generation = completed.run.as_ref().unwrap().generation;
+            let spans = app.workflow_trace(id, None, 100).unwrap().spans.len();
+            submit_individual_follow_ups(&app, folder.path(), id, builtin, &completed);
+            let individual = app.snapshot().unwrap().workflows.workflows[0].clone();
+            let stored = app
+                .lock_inner()
+                .unwrap()
+                .folders
+                .store()
+                .workflows(folder.path())
+                .unwrap();
+            assert!(
+                stored
+                    .iter()
+                    .find(|w| w.workflow_id == id)
+                    .unwrap()
+                    .run
+                    .as_ref()
+                    .unwrap()
+                    .individual_mode
+            );
+            assert_eq!(individual.status, WorkflowStatus::Completed);
+            assert!(individual.run.as_ref().unwrap().individual_mode);
+            assert_eq!(
+                individual.run.as_ref().unwrap().completions,
+                completed.run.as_ref().unwrap().completions
+            );
+            assert_eq!(individual.terminal_ids(), completed.terminal_ids());
+            assert_eq!(
+                app.workflow_trace(id, None, 100).unwrap().spans.len(),
+                spans
+            );
+            for terminal in individual.terminal_ids() {
+                assert!(app.terminals.is_running(terminal));
+            }
+            change_individual_mode(&app, id, false);
+            accepted(
+                &app,
+                Command::ContinueWorkflowRun {
+                    workflow_id: id,
+                    agent_id: completed.agents[0].agent_id,
+                    generation,
+                    mode_revision: 0,
+                },
+            );
+            assert_eq!(
+                app.snapshot().unwrap().workflows.workflows[0].status,
+                WorkflowStatus::Completed
+            );
+            accepted(
+                &app,
+                Command::ContinueWorkflowRun {
+                    workflow_id: id,
+                    agent_id: completed.agents[0].agent_id,
+                    generation,
+                    mode_revision: 2,
+                },
+            );
+            let continued = app.snapshot().unwrap().workflows.workflows[0].clone();
+            assert_eq!(continued.status, WorkflowStatus::Running);
+            assert_eq!(continued.terminal_ids(), completed.terminal_ids());
+            assert_eq!(continued.run.as_ref().unwrap().generation, generation + 1);
+        }
+    }
+
     #[test]
     fn final_feedback_preserves_a_user_draft_and_continuation_sends_no_setup_prompt() {
         for limited in [false, true] {
@@ -2068,6 +2392,7 @@ mod tests {
                     workflow_id: id,
                     agent_id: current.agents[0].agent_id,
                     generation: current.run.as_ref().unwrap().generation,
+                    mode_revision: 0,
                 },
             );
             app.write_terminal_input(terminal, b" message\r").unwrap();
@@ -2155,6 +2480,7 @@ mod tests {
                         workflow_id: id,
                         agent_id: first_agent,
                         generation: completed.run.as_ref().unwrap().generation,
+                        mode_revision: 0,
                     },
                 );
             }
@@ -2282,6 +2608,7 @@ mod tests {
                 workflow_id: id,
                 agent_id: limited.agents[0].agent_id,
                 generation: limited.run.as_ref().unwrap().generation,
+                mode_revision: 0,
             },
         );
         let continued = app.snapshot().unwrap().workflows.workflows[0].clone();

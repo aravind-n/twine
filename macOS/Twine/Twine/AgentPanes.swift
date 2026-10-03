@@ -150,8 +150,8 @@ private struct AgentPane: View {
                     padding: isTiled ? BentoLayout.terminalPadding : Spacing.agentTerminalContent,
                     subject: workflow.run == nil ? "Shell" : "Agent", isCancelled: workflow.status == .cancelled,
                     agentStatus: workflow.run?.agents.first(where: { $0.id == agent.id })?.status,
-                    beforeUserInput: {
-                        try await coreClient.continueWorkflowIfNeeded(workflowID: workflow.id, agentID: agent.id)
+                    prepareUserInput: {
+                        coreClient.prepareWorkflowInput(workflowID: workflow.id, agentID: agent.id)
                     },
                     didFocus: focus
                 )

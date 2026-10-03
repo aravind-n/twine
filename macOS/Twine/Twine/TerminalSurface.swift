@@ -44,6 +44,7 @@ struct TerminalSurface: View {
     /// The role's assignment outcome, independent of whether its terminal is still interactive.
     var agentStatus: CoreWorkflowRun.AgentStatus?
     var beforeUserInput: (() async throws -> Void)?
+    var prepareUserInput: (() -> TerminalInputPreparation)?
     /// Called after the terminal takes the keyboard, such as when it's clicked.
     var didFocus: (() -> Void)?
 
@@ -62,6 +63,7 @@ struct TerminalSurface: View {
                     automaticallyFocuses: automaticallyFocuses,
                     didFocus: didFocus,
                     beforeUserInput: beforeUserInput,
+                    prepareUserInput: prepareUserInput,
                     minimap: minimap,
                     failureMessage: $failureMessage
                 )
@@ -148,6 +150,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     let automaticallyFocuses: Bool
     var didFocus: (() -> Void)?
     var beforeUserInput: (() async throws -> Void)?
+    var prepareUserInput: (() -> TerminalInputPreparation)?
     var minimap: TerminalMinimapState?
     @Binding var failureMessage: String?
 
@@ -156,6 +159,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
             coreClient: coreClient, terminalID: terminalID, failureMessage: $failureMessage
         )
         controller.beforeUserInput = beforeUserInput
+        controller.prepareUserInput = prepareUserInput
         controller.historyTerminalIDs = historyTerminalIDs
         controller.restoresOutput = restoresOutput
         return controller
@@ -181,6 +185,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
         nsView.attachmentFailure = { failureMessage = $0 }
         nsView.applyTwineFont(font)
         context.coordinator.beforeUserInput = beforeUserInput
+        context.coordinator.prepareUserInput = prepareUserInput
         nsView.automaticallyFocuses = automaticallyFocuses
         nsView.didFocus = didFocus
         nsView.isSelected = isSelected
