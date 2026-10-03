@@ -350,7 +350,10 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(second.snapshot().unwrap().folders.recent_folders.is_empty());
+        assert_eq!(
+            second.snapshot().unwrap().folders.recent_folders,
+            Vec::new()
+        );
         assert_eq!(second.restorable_folders().unwrap(), [folder.path()]);
         std::fs::create_dir_all(folder.path()).unwrap();
         drop(first);
