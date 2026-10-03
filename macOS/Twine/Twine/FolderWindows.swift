@@ -71,7 +71,7 @@ final class FolderWindows {
             }
             return
         }
-        if source.coreClient.snapshot?.folders.openFolder == nil, source.requestedFolder == nil {
+        if source.folder == nil {
             source.requestedFolder = path
             Task { await openFolder(path, in: source) }
         } else {

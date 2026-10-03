@@ -115,6 +115,7 @@ extension TwineUITests {
     func testClosingAnUnavailableRestoredFolderKeepsItClosedOnRelaunch() throws {
         let missing = try makeTestFolder(prefix: "Twine restore missing")
         let available = try makeTestFolder(prefix: "Twine restore available")
+        let additional = try makeTestFolder(prefix: "Twine open from missing")
         let app = try makeApp(lastOpenFolder: missing)
         app.launch()
         XCTAssertTrue(folderWindow(missing, in: app).waitForExistence(timeout: 10))
@@ -131,6 +132,15 @@ extension TwineUITests {
         XCTAssertTrue(explanation.waitForExistence(timeout: 10), app.debugDescription)
         let unavailable = app.windows.matching(NSPredicate(format: "title == %@", "Twine")).firstMatch
         XCTAssertTrue(unavailable.waitForExistence(timeout: 10))
+        focusFolderWindow(unavailable, in: app)
+        chooseFolder(additional, in: app)
+        let additionalWindow = folderWindow(additional, in: app)
+        XCTAssertTrue(additionalWindow.waitForExistence(timeout: 10))
+        XCTAssertEqual(app.windows.count, 3, "The unavailable folder keeps its own window")
+        XCTAssertTrue(explanation.exists)
+        focusFolderWindow(additionalWindow, in: app)
+        additionalWindow.buttons[XCUIIdentifierCloseWindow].click()
+        XCTAssertTrue(additionalWindow.waitForNonExistence(timeout: 10))
         focusFolderWindow(unavailable, in: app)
         unavailable.buttons[XCUIIdentifierCloseWindow].click()
         XCTAssertTrue(unavailable.waitForNonExistence(timeout: 10))

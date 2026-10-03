@@ -125,6 +125,42 @@ struct FolderWindowsTests {
         for session in windows.sessions.values { await session.coreClient.stopForQuit() }
     }
 
+    @Test func anUnavailableFolderKeepsItsWindowWhenAnotherFolderCannotOpen() async throws {
+        let data = TemporaryPath()
+        let first = try folder()
+        let missing = TemporaryPath()
+        let seed = CoreWorker(dataDirectory: data.url, windowMode: true)
+        _ = try await seed.open()
+        _ = try await seed.send(.openFolder(path: first.path))
+        await seed.close()
+        try FileManager.default.removeItem(at: first.url)
+        let windows = FolderWindows(dataDirectory: data.url)
+        let initial = windows.session(id: UUID())
+        await windows.start(initial) { _ in Issue.record("Only one folder should restore") }
+        #expect(initial.folder == first.path)
+        var created: [UUID] = []
+        windows.open(missing.path, from: initial) { created.append($0) }
+        #expect(created.count == 1)
+        guard let nextID = created.first else {
+            await initial.coreClient.stopForQuit()
+            return
+        }
+        let next = windows.session(id: nextID)
+        await windows.start(next) { _ in Issue.record("Restoration should not repeat") }
+        try await waitUntil { next.coreClient.snapshot?.folders.unavailableFolder?.path == missing.path }
+        #expect(initial.folder == first.path)
+        #expect(initial.coreClient.snapshot?.folders.unavailableFolder?.path == first.path)
+        #expect(next.folder == missing.path)
+        try FileManager.default.createDirectory(at: first.url, withIntermediateDirectories: true)
+        windows.open(first.path, from: next) { _ in Issue.record("The original window must be reused") }
+        try await waitUntil { initial.coreClient.snapshot?.folders.openFolder == first.path }
+        #expect(windows.sessions.count == 2)
+        windows.retire(next)
+        await windows.finishClosingWindows()
+        #expect(try await initial.worker.restorableFolders() == [first.path])
+        await initial.coreClient.stopForQuit()
+    }
+
     private func folder() throws -> TemporaryPath {
         let path = TemporaryPath()
         try FileManager.default.createDirectory(at: path.url, withIntermediateDirectories: true)
