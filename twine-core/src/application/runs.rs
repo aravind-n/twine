@@ -2373,19 +2373,19 @@ mod tests {
                 );
             }
         }
-        let before = page.summary.revision;
         // Saving the same accepted state again never duplicates events or invocation spans.
+        // Hold the store lock so late harness hooks cannot change the revision between reads.
+        let mut inner = app.lock_inner().unwrap();
+        let store = inner.folders.store();
+        let before = store
+            .workflow_trace(workflow.workflow_id, None, 200)
+            .unwrap()
+            .summary
+            .revision;
+        assert_eq!(store.save_workflow_run(workflow).unwrap(), []);
         assert_eq!(
-            app.lock_inner()
-                .unwrap()
-                .folders
-                .store()
-                .save_workflow_run(workflow)
-                .unwrap(),
-            []
-        );
-        assert_eq!(
-            app.workflow_trace(workflow.workflow_id, None, 200)
+            store
+                .workflow_trace(workflow.workflow_id, None, 200)
                 .unwrap()
                 .summary
                 .revision,
