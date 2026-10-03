@@ -2,7 +2,7 @@ import Foundation
 
 @testable import Twine
 
-actor TranscriptFixtureTransport: CoreTransport {
+actor TranscriptFixtureTransport {
     private let bytes: Data?
     private let replayAvailable: Bool
     private let delayed: Bool
@@ -68,3 +68,6 @@ actor TranscriptFixtureTransport: CoreTransport {
             events: events, nextAfter: remaining.count > events.count ? events.last?.id : nil)
     }
 }
+
+// Declaring this conformance on the actor fails to compile in batch mode in Xcode 27.0.
+extension TranscriptFixtureTransport: CoreTransport {}
