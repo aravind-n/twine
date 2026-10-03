@@ -7,15 +7,15 @@ struct FileViewer: View {
     let folder: String
     let failure: String?
     let isVisible: Bool
-    let openHTMLFile: (URL) -> Void
+    let openFile: (URL) -> Void
     @State private var showsGoToLine = false
     @State private var line = "1"
     @State private var lineRequest: FileLineRequest?
     @State private var mode = Mode.preview
 
     private var current: FilePreview? { editor.baseline }
-    private var isHTML: Bool { ["html", "htm"].contains(URL(filePath: path).pathExtension.lowercased()) }
-    private var showsPreview: Bool { isHTML && mode == .preview }
+    private var previewFormat: FilePreviewFormat? { FilePreviewFormat(path: path) }
+    private var showsPreview: Bool { previewFormat != nil && mode == .preview }
     private enum Mode { case preview, source }
 
     var body: some View {
@@ -25,14 +25,14 @@ struct FileViewer: View {
                 Text(path.hasPrefix(folder + "/") ? String(path.dropFirst(folder.count + 1)) : path)
                     .font(.caption).lineLimit(1).truncationMode(.middle).help(path)
                 Spacer(minLength: 0)
-                if isHTML {
-                    Picker("HTML display", selection: $mode) {
+                if let format = previewFormat {
+                    Picker("\(format.name) display", selection: $mode) {
                         Text("Preview").tag(Mode.preview)
                         Text("Source").tag(Mode.source)
                     }
                     .pickerStyle(.segmented).fixedSize().controlSize(.small)
-                    .help("Preview shows the saved file. Source lets you view and edit its HTML.")
-                    .accessibilityIdentifier("htmlDisplayMode")
+                    .help("Preview shows the saved file. Source lets you view and edit its \(format.name).")
+                    .accessibilityIdentifier("\(format.accessibilityPrefix)DisplayMode")
                 }
                 if editor.isDirty { Text("Edited").sectionLabelStyle().accessibilityIdentifier("fileEdited") }
                 Button(editor.isSaving ? "Saving…" : "Save") { editor.requestSave() }
@@ -58,10 +58,10 @@ struct FileViewer: View {
                         .accessibilityHidden(showsPreview)
                     if showsPreview {
                         if let diskFile = editor.diskFile {
-                            if diskFile.status == .text {
+                            if diskFile.status == .text, let format = previewFormat {
                                 HTMLPreview(
                                     file: diskFile, folder: folder, navigationURL: editor.navigationURL,
-                                    isVisible: isVisible, openFile: openHTMLFile
+                                    isVisible: isVisible, openFile: openFile, format: format
                                 )
                                 .id(editor.navigationID)
                             } else {

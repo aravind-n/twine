@@ -6,6 +6,7 @@ struct HTMLPreview: View {
     let navigationURL: URL?
     let isVisible: Bool
     let openFile: (URL) -> Void
+    var format: FilePreviewFormat = .html
     @State private var load: Load?
     @State private var failure: String?
 
@@ -14,10 +15,10 @@ struct HTMLPreview: View {
             if let load {
                 HTMLWebView(
                     location: load.location, version: load.version,
-                    isVisible: isVisible, failure: $failure
-                ) { destination in
-                    if let url = destination.fileURL(in: folder) { openFile(url) }
-                }
+                    isVisible: isVisible, failure: $failure,
+                    openFile: { destination in
+                        if let url = destination.fileURL(in: folder) { openFile(url) }
+                    }, format: format, html: load.html)
             }
             if let failure {
                 ContentUnavailableView(
@@ -36,7 +37,21 @@ struct HTMLPreview: View {
             guard !Task.isCancelled else { return }
             failure = nil
             if let location {
-                load = Load(location: location, version: file.version)
+                do {
+                    let html: String?
+                    if format == .markdown {
+                        html = try await MarkdownRenderer.render(
+                            file.text ?? "", baseURL: MarkdownPreviewURL.preview(location.file))
+                    } else {
+                        html = nil
+                    }
+                    guard !Task.isCancelled else { return }
+                    load = Load(location: location, version: file.version, html: html)
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    load = nil
+                    failure = error.localizedDescription
+                }
             } else {
                 load = nil
                 failure = "Only files inside the opened folder can be previewed."
@@ -47,6 +62,7 @@ struct HTMLPreview: View {
     private struct Load {
         let location: HTMLPreviewLocation
         let version: FileVersion?
+        let html: String?
     }
 
     private struct Request: Equatable {
