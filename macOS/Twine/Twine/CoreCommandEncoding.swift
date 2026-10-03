@@ -66,7 +66,7 @@ nonisolated private struct CommandPayload: Encodable {
             self.definition = definition
         case .ping:
             type = "ping"
-        case .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .refreshGitBranch:
+        case .openFolder, .restoreFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .refreshGitBranch:
             type = ""
             configureFolder(command)
         case .createSession, .renameSession, .selectSession, .deleteSession:
@@ -94,6 +94,9 @@ nonisolated private struct CommandPayload: Encodable {
         switch command {
         case .openFolder(let path):
             type = "openFolder"
+            self.path = path
+        case .restoreFolder(let path):
+            type = "restoreFolder"
             self.path = path
         case .closeFolder:
             type = "closeFolder"

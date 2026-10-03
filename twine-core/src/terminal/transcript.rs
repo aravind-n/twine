@@ -200,6 +200,11 @@ pub(crate) struct TranscriptRecorder {
 }
 
 impl TranscriptRecorder {
+    #[cfg(test)]
+    pub(crate) fn is_shutting_down(&self) -> bool {
+        !self.shared.queue.lock().unwrap().accepting
+    }
+
     pub(crate) fn open(path: &Path) -> Result<Self, TranscriptError> {
         Self::with_limits(path, Limits::default())
     }

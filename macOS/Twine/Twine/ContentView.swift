@@ -33,6 +33,9 @@ enum WindowContent: Equatable {
 }
 
 struct ContentView: View {
+    let session: FolderWindowSession
+    let windows: FolderWindows
+    @Environment(\.openWindow) private var openWindow
     @Environment(CoreClient.self) private var coreClient
     @Environment(FileTabsModel.self) private var fileTabs
     @State private var isChoosingFolder = false
@@ -43,8 +46,7 @@ struct ContentView: View {
             .fileImporter(isPresented: $isChoosingFolder, allowedContentTypes: [.folder]) { result in
                 switch result {
                 case .success(let url):
-                    guard fileTabs.closeAll() else { return }
-                    perform(.openFolder(path: url.path(percentEncoded: false)))
+                    openFolder(url.path(percentEncoded: false))
                 case .failure(let error):
                     folderLogger.error("Folder picker failed: \(error.localizedDescription, privacy: .public)")
                 }
@@ -72,7 +74,7 @@ struct ContentView: View {
             StartPage(
                 folders: folders,
                 chooseFolder: { isChoosingFolder = true },
-                openFolder: { perform(.openFolder(path: $0)) },
+                openFolder: openFolder,
                 removeRecentFolder: { perform(.removeRecentFolder(path: $0)) }
             )
         case .folder(let path):
@@ -84,5 +86,9 @@ struct ContentView: View {
 
     private func perform(_ command: CoreCommand) {
         Task { await coreClient.perform(command) }
+    }
+
+    private func openFolder(_ path: String) {
+        windows.open(path, from: session) { openWindow(id: "folder", value: $0) }
     }
 }

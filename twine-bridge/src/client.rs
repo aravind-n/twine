@@ -56,6 +56,16 @@ impl TwineClient {
         })
     }
 
+    pub(crate) fn new_window(data_directory: &Path) -> Result<Self, BridgeError> {
+        Ok(Self {
+            application: Application::new_window(data_directory)?,
+        })
+    }
+
+    pub(crate) fn restorable_folders(&self) -> Result<Vec<u8>, BridgeError> {
+        Ok(serde_json::to_vec(&self.application.restorable_folders()?)?)
+    }
+
     pub(crate) fn send_command(&self, bytes: &[u8]) -> Result<Vec<u8>, BridgeError> {
         let envelope = protocol::decode_command(bytes)?;
         let receipt = match envelope.command {

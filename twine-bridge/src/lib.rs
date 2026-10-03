@@ -164,6 +164,30 @@ pub unsafe extern "C" fn twine_client_create(
     data_directory_length: usize,
     out_client: *mut *mut TwineClient,
 ) -> TwineStatus {
+    // SAFETY: The helper has the same input and output contracts as this entry point.
+    unsafe { create_client(data_directory, data_directory_length, out_client, false) }
+}
+
+#[unsafe(no_mangle)]
+/// Creates an independent window runtime sharing storage with other window clients.
+///
+/// # Safety
+/// The pointer and length contracts are identical to [`twine_client_create`].
+pub unsafe extern "C" fn twine_client_create_window(
+    data_directory: *const u8,
+    data_directory_length: usize,
+    out_client: *mut *mut TwineClient,
+) -> TwineStatus {
+    // SAFETY: The helper has the same input and output contracts as this entry point.
+    unsafe { create_client(data_directory, data_directory_length, out_client, true) }
+}
+
+unsafe fn create_client(
+    data_directory: *const u8,
+    data_directory_length: usize,
+    out_client: *mut *mut TwineClient,
+    window: bool,
+) -> TwineStatus {
     catch_status(|| {
         // SAFETY: Guaranteed by this function's output contract.
         unsafe { ffi::write_client(out_client, std::ptr::null_mut()) }?;
@@ -182,12 +206,36 @@ pub unsafe extern "C" fn twine_client_create(
                     if !path.is_absolute() {
                         return Err(BridgeError::InvalidArgument);
                     }
-                    TwineClient::new(path)
+                    if window {
+                        TwineClient::new_window(path)
+                    } else {
+                        TwineClient::new(path)
+                    }
                 },
             )
         }?;
         // SAFETY: Guaranteed by this function's output contract.
         unsafe { ffi::write_client(out_client, Box::into_raw(Box::new(client))) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Returns a JSON array of folder paths to restore at app launch.
+///
+/// # Safety
+/// `client` must be live and actor-isolated. `out_result` must point to aligned, writable storage
+/// for an empty buffer. The returned buffer must be released once with `twine_buffer_release`.
+pub unsafe extern "C" fn twine_client_restorable_folders(
+    client: *mut TwineClient,
+    out_result: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: Guaranteed by this entry point's output contract.
+        unsafe { ffi::write_buffer(out_result, TwineBuffer::empty()) }?;
+        // SAFETY: Guaranteed by this entry point's client contract.
+        let bytes = unsafe { ffi::with_client(client, TwineClient::restorable_folders) }?;
+        // SAFETY: Output was validated before creating the response.
+        unsafe { ffi::write_buffer(out_result, TwineBuffer::from_vec(bytes)) }
     })
 }
 

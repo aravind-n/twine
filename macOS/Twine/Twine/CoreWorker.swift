@@ -4,32 +4,21 @@ import TwineCore
 actor CoreWorker: CoreTransport {
     /// The directory where the core keeps its database.
     private let dataDirectory: URL
+    private let windowMode: Bool
     private var client: OpaquePointer?
     private var nextRequestID: UInt64 = 1
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    init(dataDirectory: URL) {
+    init(dataDirectory: URL, windowMode: Bool = false) {
         self.dataDirectory = dataDirectory
+        self.windowMode = windowMode
     }
 
     isolated deinit {
         if let client {
             _ = twine_client_destroy(client)
         }
-    }
-
-    func open() throws -> CoreSnapshot {
-        if client == nil {
-            var createdClient: OpaquePointer?
-            let path = Array(dataDirectory.path(percentEncoded: false).utf8)
-            try check(path.withUnsafeBufferPointer { twine_client_create($0.baseAddress, $0.count, &createdClient) })
-            guard let createdClient else {
-                throw CoreFailure.nullPointer
-            }
-            client = createdClient
-        }
-        return try readSnapshot()
     }
 
     func close() {
@@ -277,4 +266,31 @@ actor CoreWorker: CoreTransport {
             throw CoreFailure.unknownStatus(status.rawValue)
         }
     }
+}
+
+extension CoreWorker {
+    func open() throws -> CoreSnapshot {
+        if client == nil {
+            var createdClient: OpaquePointer?
+            let path = Array(dataDirectory.path(percentEncoded: false).utf8)
+            let windowMode = self.windowMode
+            try check(
+                path.withUnsafeBufferPointer {
+                    if windowMode { return twine_client_create_window($0.baseAddress, $0.count, &createdClient) }
+                    return twine_client_create($0.baseAddress, $0.count, &createdClient)
+                })
+            guard let createdClient else {
+                throw CoreFailure.nullPointer
+            }
+            client = createdClient
+        }
+        return try readSnapshot()
+    }
+
+    func restorableFolders() throws -> [String] {
+        var response = TwineBuffer()
+        try check(try withClient { twine_client_restorable_folders($0, &response) })
+        return try decoder.decode([String].self, from: consume(&response))
+    }
+
 }

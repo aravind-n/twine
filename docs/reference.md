@@ -15,6 +15,19 @@ packaging produces an ad hoc signed app that is not notarized. If macOS blocks
 the first launch, use **System Settings → Privacy & Security → Open Anyway**
 for Twine, then confirm Open. Managed Macs may restrict approval.
 
+## Folder windows
+
+**Open Folder… (⌘O)** reuses an empty window or opens another window when a folder
+is already open. **New Window (⌘N)** opens a start page. Opening a folder that is
+already open focuses its existing window, including when opened through a symlink.
+
+Each window has independent sessions, terminals, file tabs, and navigation. Menu
+commands act on the focused window. Settings, recent folders, and custom workflow
+types are shared. Closing a window stops only its folder's processes; **Close
+Folder** returns that window to the start page. Quitting stops every window's
+processes and restores all open folders on the next launch. Unavailable folders
+show an explanation and can be closed without reopening them next time.
+
 ## Files
 
 The sidebar starts open. Toggle it with the toolbar button or **⌃⌘S** to browse the folder or make more room for terminals. Expanding a directory loads only its children;

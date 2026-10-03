@@ -29,6 +29,7 @@ mod runs;
 mod sessions;
 mod terminals;
 mod traces;
+mod windows;
 mod workflow_types;
 mod workflows;
 
@@ -52,6 +53,10 @@ pub enum Command {
     },
     /// Opens the folder at an absolute path and records it as the most recent folder.
     OpenFolder {
+        path: PathBuf,
+    },
+    /// Attaches a window to a persisted restore entry, including an unavailable folder.
+    RestoreFolder {
         path: PathBuf,
     },
     /// Closes the open folder, so the window shows the start page.
@@ -206,6 +211,9 @@ struct Inner {
 }
 
 pub struct Application {
+    window_storage: Option<windows::WindowStorageLease>,
+    /// Window runtimes share their recorder; only its final owner shuts it down.
+    shared_recording: bool,
     files: crate::files::FileWatcher,
     // Serialize lifetime commands without holding state while joining terminal supervisors.
     commands: Mutex<()>,
@@ -275,6 +283,16 @@ impl Application {
         // Recover every folder, including closed or currently unavailable folders, before ready.
         store.recover_interrupted_work()?;
         let folders = Folders::restore(store)?;
+        Self::with_folders(folders, config, event_capacity, transcripts, false)
+    }
+
+    fn with_folders(
+        folders: Folders,
+        config: Config,
+        event_capacity: usize,
+        transcripts: Arc<TranscriptRecorder>,
+        shared_recording: bool,
+    ) -> Result<Self, ApplicationError> {
         let mut events = EventJournal::new(event_capacity)?;
         events.append(EventKind::State(StateEvent::ApplicationReady))?;
 
@@ -292,6 +310,8 @@ impl Application {
             terminals
         };
         let application = Self {
+            window_storage: None,
+            shared_recording,
             files: crate::files::FileWatcher::new()?,
             run_processes: Mutex::new(HashMap::new()),
             harness_steps: Mutex::new(HashMap::new()),
@@ -362,6 +382,7 @@ impl Application {
                 CommandDisposition::Accepted
             }
             Command::OpenFolder { path } => self.change_folder(Some(&path))?,
+            Command::RestoreFolder { path } => self.restore_window_folder(&path)?,
             Command::CloseFolder => self.change_folder(None)?,
             Command::CloseFolderIfOpen { path } => {
                 if self.lock_inner()?.folders.state().open_folder.as_deref() == Some(path.as_path())
@@ -521,7 +542,21 @@ impl Application {
     ) -> Result<Vec<Event>, ApplicationError> {
         self.poll_shell_observations()?;
         self.poll_workflow_signals()?;
-        Ok(self.lock_inner()?.events.after(sequence, limit)?)
+        let mut inner = self.lock_inner()?;
+        let previous = inner.folders.state().clone();
+        if inner.folders.refresh_shared()? {
+            if *inner.folders.state() != previous {
+                let folders = inner.folders.state().clone();
+                inner
+                    .events
+                    .append(EventKind::State(StateEvent::FoldersChanged(folders)))?;
+            }
+            let types = crate::workflow_type::WorkflowCatalog::new(inner.folders.store()).list()?;
+            inner
+                .events
+                .append(EventKind::State(StateEvent::WorkflowTypesChanged(types)))?;
+        }
+        Ok(inner.events.after(sequence, limit)?)
     }
 
     fn lock_inner(&self) -> Result<MutexGuard<'_, Inner>, ApplicationError> {
@@ -580,7 +615,10 @@ impl Drop for Application {
             inner.terminals.clear();
         }
         self.terminals.shutdown();
-        self.terminal_output.shutdown_recording();
+        if !self.shared_recording {
+            self.terminal_output.shutdown_recording();
+        }
+        self.window_storage.take();
     }
 }
 

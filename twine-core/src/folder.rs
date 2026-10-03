@@ -53,6 +53,10 @@ pub enum UnavailableReason {
 pub(crate) struct Folders {
     store: Store,
     state: FolderState,
+    window_mode: bool,
+    data_version: i64,
+    /// Durable restore ownership is independent of failed folder-picker attempts.
+    owned_path: Option<PathBuf>,
 }
 
 impl Folders {
@@ -80,7 +84,7 @@ impl Folders {
         let mut state = FolderState::default();
         for StoredFolder { path, is_open } in store.recent_folders()? {
             let reason = unavailable_reason(&path);
-            if is_open {
+            if is_open && state.open_folder.is_none() && state.unavailable_folder.is_none() {
                 match reason {
                     None => state.open_folder = Some(path.clone()),
                     Some(reason) => {
@@ -97,11 +101,73 @@ impl Folders {
                 path,
             });
         }
-        Ok(Self { store, state })
+        let data_version = store.data_version()?;
+        Ok(Self {
+            store,
+            state,
+            window_mode: false,
+            data_version,
+            owned_path: None,
+        })
+    }
+
+    /// Additional windows start blank; only the first restores a previously open folder.
+    pub(crate) fn for_window(store: Store, restore: bool) -> Result<Self, StoreError> {
+        let restored = if restore {
+            store.open_folder_paths()?.into_iter().next()
+        } else {
+            None
+        };
+        let mut folders = Self::restore(store)?;
+        folders.window_mode = true;
+        folders.state.open_folder = None;
+        folders.state.unavailable_folder = None;
+        folders.owned_path.clone_from(&restored);
+        if let Some(path) = restored {
+            match unavailable_reason(&path) {
+                None => folders.state.open_folder = Some(path),
+                Some(reason) => {
+                    folders.state.unavailable_folder = Some(UnavailableFolder { path, reason });
+                }
+            }
+        }
+        Ok(folders)
+    }
+
+    pub(crate) fn restorable_paths(&self) -> Result<Vec<PathBuf>, StoreError> {
+        self.store.open_folder_paths()
+    }
+
+    /// Refresh shared recents without replacing this window's open folder or processes.
+    pub(crate) fn refresh_shared(&mut self) -> Result<bool, StoreError> {
+        let version = self.store.data_version()?;
+        if !self.window_mode || version == self.data_version {
+            return Ok(false);
+        }
+        self.state.recent_folders = check_recent_folders(self.store.recent_folders()?);
+        self.data_version = version;
+        Ok(true)
     }
 
     pub(crate) const fn state(&self) -> &FolderState {
         &self.state
+    }
+
+    /// Attaches this window to a saved entry even when the folder is currently unavailable.
+    pub(crate) fn restore_path(&mut self, path: &Path) -> Result<(), FolderError> {
+        let path = PathBuf::from(normalize(path)?);
+        if !self.window_mode || !self.store.open_folder_paths()?.contains(&path) {
+            return Err(FolderError::InvalidPath);
+        }
+        let unavailable = unavailable_reason(&path).map(|reason| UnavailableFolder {
+            path: path.clone(),
+            reason,
+        });
+        self.state.open_folder = unavailable.is_none().then(|| path.clone());
+        self.owned_path = Some(path);
+        self.state.unavailable_folder = unavailable;
+        self.state.current_branch = None;
+        Ok(())
     }
 
     /// Opens the folder at `path` and records it as the most recent folder.
@@ -124,9 +190,21 @@ impl Folders {
             });
         }
 
-        let stored = self
-            .store
-            .record_folder_opened(&path, unix_millis(), MAX_RECENT_FOLDERS)?;
+        let stored = if self.window_mode {
+            self.store.record_window_folder_opened(
+                &path,
+                unix_millis(),
+                MAX_RECENT_FOLDERS,
+                self.owned_path.as_deref(),
+                false,
+            )?
+        } else {
+            self.store
+                .record_folder_opened(&path, unix_millis(), MAX_RECENT_FOLDERS)?
+        };
+        if self.window_mode {
+            self.owned_path = Some(PathBuf::from(&path));
+        }
         self.state = FolderState {
             current_branch: None,
             open_folder: Some(PathBuf::from(path)),
@@ -138,7 +216,13 @@ impl Folders {
 
     /// Closes the open folder, so the window shows the start page now and after the next launch.
     pub(crate) fn close(&mut self) -> Result<(), FolderError> {
-        let stored = self.store.record_folder_closed()?;
+        let stored = if self.window_mode {
+            self.store
+                .record_window_folder_closed(self.owned_path.as_deref())?
+        } else {
+            self.store.record_folder_closed()?
+        };
+        self.owned_path = None;
         self.state = FolderState {
             current_branch: None,
             open_folder: None,
@@ -151,7 +235,19 @@ impl Folders {
     /// Forgets the recent folder at `path`.
     pub(crate) fn remove_recent(&mut self, path: &Path) -> Result<(), FolderError> {
         let path = normalize(path)?;
-        let stored = self.store.remove_recent_folder(&path)?;
+        let stored = if self.window_mode {
+            let owns_unavailable = self.owned_path.as_deref() == Some(Path::new(&path))
+                && self.state.open_folder.is_none();
+            let stored = self
+                .store
+                .remove_recent_folder_preserving_windows(&path, !owns_unavailable)?;
+            if owns_unavailable {
+                self.owned_path = None;
+            }
+            stored
+        } else {
+            self.store.remove_recent_folder(&path)?
+        };
         self.state.recent_folders = check_recent_folders(stored);
         if self
             .state

@@ -12,15 +12,14 @@ import SwiftUI
 @main
 struct TwineApp: App {
     @NSApplicationDelegateAdaptor(AppTerminationDelegate.self) private var terminationDelegate
-    @State private var coreClient = CoreClient(transport: CoreWorker(dataDirectory: Self.dataDirectory))
-    @State private var fileTabs = FileTabsModel()
+    @State private var initialWindowID = UUID()
+    @State private var windows = FolderWindows(dataDirectory: Self.dataDirectory)
     @State private var harnessModels = HarnessModelCatalog()
     @State private var workflowLayouts = WorkflowLayouts(
         fileURL: Self.dataDirectory.appending(path: "workflow-layouts.json"))
 
     init() {
-        // The core has one open folder, so a new window tab could only mirror it. SwiftUI has no
-        // scene modifier for this.
+        // Each folder has its own window and runtime.
         NSWindow.allowsAutomaticWindowTabbing = false
         #if DEBUG
             // UI tests exercise both appearances without changing the desktop's appearance.
@@ -36,22 +35,18 @@ struct TwineApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        WindowGroup(id: "folder", for: UUID.self) { id in
+            FolderWindowRoot(id: id.wrappedValue ?? initialWindowID, windows: windows)
                 .defaultAppStorage(WorkflowLaunchPreferences.defaultStore())
-                .environment(coreClient)
-                .environment(fileTabs)
                 .environment(workflowLayouts)
                 .environment(harnessModels)
                 .task {
-                    terminationDelegate.attach(to: coreClient, tabs: fileTabs, layouts: workflowLayouts)
-                    // Workflows appear with the core's first snapshot, so their layouts must be ready first.
-                    await workflowLayouts.load()
-                    coreClient.start()
+                    terminationDelegate.attach(windows: windows, layouts: workflowLayouts)
                 }
         }
+        .restorationBehavior(.disabled)
         .commands {
-            FolderCommands(coreClient: coreClient, tabs: fileTabs)
+            FolderCommands()
         }
     }
 
@@ -72,10 +67,16 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
     private var isTerminating = false
     private var tabs: FileTabsModel?
     private var layouts: WorkflowLayouts?
+    private var windows: FolderWindows?
 
     func attach(to coreClient: CoreClient, tabs: FileTabsModel? = nil, layouts: WorkflowLayouts? = nil) {
         self.coreClient = coreClient
         self.tabs = tabs
+        self.layouts = layouts
+    }
+
+    func attach(windows: FolderWindows, layouts: WorkflowLayouts) {
+        self.windows = windows
         self.layouts = layouts
     }
 
@@ -85,12 +86,17 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
 
     /// The reply closure also lets tests verify that AppKit is released only after shutdown.
     func beginTermination(reply: @escaping @MainActor (Bool) -> Void) -> NSApplication.TerminateReply {
-        guard let coreClient else { return .terminateNow }
         guard !isTerminating else { return .terminateLater }
-        guard tabs?.closeAll() != false else { return .terminateCancel }
+        let sessions = Array(windows?.sessions.values ?? [:].values)
+        let clients = sessions.map(\.coreClient) + (coreClient.map { [$0] } ?? [])
+        let fileTabs = sessions.map(\.tabs) + (tabs.map { [$0] } ?? [])
+        guard !clients.isEmpty else { return .terminateNow }
+        guard fileTabs.allSatisfy({ $0.closeAll() }) else { return .terminateCancel }
         isTerminating = true
+        windows?.isTerminating = true
         Task {
-            await coreClient.stopForQuit()
+            await windows?.finishClosingWindows()
+            for client in clients { await client.stopForQuit() }
             await layouts?.flush()
             reply(true)
         }
