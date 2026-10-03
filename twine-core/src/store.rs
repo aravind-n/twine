@@ -206,7 +206,13 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE workflows ADD COLUMN harness_id TEXT;
      UPDATE workflows SET harness_id = legacy_harness_id",
     // 15: Exact harness sessions, tied to terminal ownership rather than a shared folder.
-    "ALTER TABLE workflow_terminals ADD COLUMN harness_session TEXT"
+    "ALTER TABLE workflow_terminals ADD COLUMN harness_session TEXT",
+    // 16: Open windows outlive removal from recents and the recent-folder limit.
+    "CREATE TABLE open_folders (
+        path TEXT PRIMARY KEY NOT NULL,
+        last_opened_at INTEGER NOT NULL
+    ) STRICT;
+    INSERT INTO open_folders SELECT path, last_opened_at FROM recent_folders WHERE is_open = 1"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
@@ -269,6 +275,21 @@ impl Store {
         query_recent_folders(&self.connection)
     }
 
+    pub(crate) fn data_version(&self) -> Result<i64, StoreError> {
+        Ok(self
+            .connection
+            .pragma_query_value(None, "data_version", |row| row.get(0))?)
+    }
+
+    pub(crate) fn open_folder_paths(&self) -> Result<Vec<PathBuf>, StoreError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT path FROM open_folders ORDER BY last_opened_at DESC")?;
+        Ok(statement
+            .query_map([], |row| Ok(PathBuf::from(row.get::<_, String>(0)?)))?
+            .collect::<Result<_, _>>()?)
+    }
+
     /// Records `path` as the open folder and the most recently opened one, then forgets all but the
     /// `limit` most recent folders. Returns the recent folders after the change.
     ///
@@ -280,17 +301,47 @@ impl Store {
         opened_at_millis: i64,
         limit: i64,
     ) -> Result<Vec<StoredFolder>, StoreError> {
+        self.record_window_folder_opened(path, opened_at_millis, limit, None, true)
+    }
+
+    pub(crate) fn record_window_folder_opened(
+        &mut self,
+        path: &str,
+        opened_at_millis: i64,
+        limit: i64,
+        previous: Option<&Path>,
+        exclusive: bool,
+    ) -> Result<Vec<StoredFolder>, StoreError> {
         let transaction = self.connection.transaction()?;
-        transaction.execute(
-            "UPDATE recent_folders SET is_open = 0 WHERE is_open = 1",
-            [],
-        )?;
+        if exclusive {
+            transaction.execute("DELETE FROM open_folders", [])?;
+            transaction.execute(
+                "UPDATE recent_folders SET is_open = 0 WHERE is_open = 1",
+                [],
+            )?;
+        } else if let Some(previous) = previous {
+            transaction.execute(
+                "DELETE FROM open_folders WHERE path = ?1",
+                [previous.to_string_lossy()],
+            )?;
+            transaction.execute(
+                "UPDATE recent_folders SET is_open = 0 WHERE path = ?1",
+                [previous.to_string_lossy()],
+            )?;
+        }
         transaction.execute(
             "INSERT INTO recent_folders (path, last_opened_at, is_open)
-             VALUES (?1, MAX(?2, (SELECT COALESCE(MAX(last_opened_at), 0) + 1 FROM recent_folders)), 1)
+             VALUES (?1, MAX(?2, (SELECT COALESCE(MAX(last_opened_at), 0) + 1 FROM
+                (SELECT last_opened_at FROM recent_folders UNION ALL SELECT last_opened_at FROM open_folders))), 1)
              ON CONFLICT (path) DO UPDATE
              SET last_opened_at = excluded.last_opened_at, is_open = 1",
             params![path, opened_at_millis],
+        )?;
+        transaction.execute(
+            "INSERT INTO open_folders (path, last_opened_at)
+            SELECT path, last_opened_at FROM recent_folders WHERE path = ?1
+            ON CONFLICT(path) DO UPDATE SET last_opened_at = excluded.last_opened_at",
+            [path],
         )?;
         transaction.execute(
             "DELETE FROM recent_folders WHERE path NOT IN
@@ -306,10 +357,31 @@ impl Store {
     /// folders after the change.
     pub(crate) fn record_folder_closed(&mut self) -> Result<Vec<StoredFolder>, StoreError> {
         let transaction = self.connection.transaction()?;
+        transaction.execute("DELETE FROM open_folders", [])?;
         transaction.execute(
             "UPDATE recent_folders SET is_open = 0 WHERE is_open = 1",
             [],
         )?;
+        let folders = query_recent_folders(&transaction)?;
+        transaction.commit()?;
+        Ok(folders)
+    }
+
+    pub(crate) fn record_window_folder_closed(
+        &mut self,
+        path: Option<&Path>,
+    ) -> Result<Vec<StoredFolder>, StoreError> {
+        let transaction = self.connection.transaction()?;
+        if let Some(path) = path {
+            transaction.execute(
+                "DELETE FROM open_folders WHERE path = ?1",
+                [path.to_string_lossy()],
+            )?;
+            transaction.execute(
+                "UPDATE recent_folders SET is_open = 0 WHERE path = ?1",
+                [path.to_string_lossy()],
+            )?;
+        }
         let folders = query_recent_folders(&transaction)?;
         transaction.commit()?;
         Ok(folders)
@@ -320,7 +392,18 @@ impl Store {
         &mut self,
         path: &str,
     ) -> Result<Vec<StoredFolder>, StoreError> {
+        self.remove_recent_folder_preserving_windows(path, false)
+    }
+
+    pub(crate) fn remove_recent_folder_preserving_windows(
+        &mut self,
+        path: &str,
+        preserve_open: bool,
+    ) -> Result<Vec<StoredFolder>, StoreError> {
         let transaction = self.connection.transaction()?;
+        if !preserve_open {
+            transaction.execute("DELETE FROM open_folders WHERE path = ?1", [path])?;
+        }
         transaction.execute("DELETE FROM recent_folders WHERE path = ?1", [path])?;
         let folders = query_recent_folders(&transaction)?;
         transaction.commit()?;
@@ -375,6 +458,11 @@ fn unsigned_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u6
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("failed to resolve data directory {}", path.display())]
+    ResolveDirectory {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("failed to encode workflow run state")]
     RunEncoding(#[from] serde_json::Error),
     #[error("database returned an invalid identifier")]

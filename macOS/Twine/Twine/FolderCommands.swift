@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 extension FocusedValues {
+    @Entry var folderWindow: FolderWindowSession?
     /// Whether the focused window shows the folder picker.
     @Entry var isChoosingFolder: Binding<Bool>?
     @Entry var workflowActions: WorkflowActions?
@@ -24,23 +25,24 @@ struct WorkflowActions {
 }
 
 /// File menu commands that open a folder and close it, returning the window to the start page.
-///
-/// They replace New Window: the core has one open folder, so a second window could only mirror it.
 struct FolderCommands: Commands {
     #if DEBUG
         private static let testRoles = ["Implementer", "Reviewer", "Coordinator", "Worker"]
     #endif
 
-    let coreClient: CoreClient
-    let tabs: FileTabsModel
+    @Environment(\.openWindow) private var openWindow
+    @FocusedValue(\.folderWindow) private var session
     @FocusedBinding(\.isChoosingFolder) private var isChoosingFolder
     @FocusedBinding(\.newWorkflowType) private var newWorkflowType
     @FocusedValue(\.workflowActions) private var workflowActions
     @FocusedValue(\.openFilePath) private var openFilePath
 
     var body: some Commands {
-        let isRunning = coreClient.runState == .running
+        let isRunning = session?.coreClient.runState == .running
         CommandGroup(replacing: .newItem) {
+            Button("New Window") { openWindow(id: "folder", value: UUID()) }
+                .keyboardShortcut("n")
+            Divider()
             Button("New Workflow") { workflowActions?.create() }
                 .keyboardShortcut("t")
                 .disabled(workflowActions == nil || !isRunning)
@@ -68,10 +70,10 @@ struct FolderCommands: Commands {
             .keyboardShortcut("o")
             .disabled(isChoosingFolder == nil || !isRunning)
             Button("Close Folder") {
-                guard tabs.closeAll() else { return }
-                Task { await coreClient.perform(.closeFolder) }
+                guard let session, session.tabs.closeAll() else { return }
+                Task { await session.coreClient.perform(.closeFolder) }
             }
-            .disabled(!isRunning || coreClient.snapshot?.folders.openFolder == nil)
+            .disabled(!isRunning || session?.coreClient.snapshot?.folders.openFolder == nil)
         }
         CommandGroup(after: .sidebar) {
             Button("Split Right") { workflowActions?.splitTerminal?(.right) }
@@ -96,12 +98,12 @@ struct FolderCommands: Commands {
                 .disabled(workflowActions?.moveFocus == nil)
         }
         CommandGroup(replacing: .saveItem) {
-            Button("Save") { tabs.selected?.requestSave() }
+            Button("Save") { session?.tabs.selected?.requestSave() }
                 .keyboardShortcut("s")
-                .disabled(tabs.selected?.canSave != true || !isRunning)
+                .disabled(session?.tabs.selected?.canSave != true || !isRunning)
             Button(closeTitle) {
                 if openFilePath != nil {
-                    if let selected = tabs.selected { tabs.close(selected.id) }
+                    if let tabs = session?.tabs, let selected = tabs.selected { tabs.close(selected.id) }
                 } else if let close = workflowActions?.close {
                     close()
                 } else {

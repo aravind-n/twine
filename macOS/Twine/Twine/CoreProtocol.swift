@@ -5,6 +5,7 @@ nonisolated enum CoreCommand: Sendable {
     case validateWorkflowType(definition: CoreWorkflowType.Definition)
     case saveWorkflowType(source: CoreWorkflowType.Reference?, definition: CoreWorkflowType.Definition)
     case openFolder(path: String)
+    case restoreFolder(path: String)
     /// Closes the open folder, so the window shows the start page.
     case closeFolder
     case closeFolderIfOpen(path: String)

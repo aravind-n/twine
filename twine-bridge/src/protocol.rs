@@ -358,6 +358,9 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         "openFolder" => DecodedCommand::Known(Command::OpenFolder {
             path: decode_path(&raw.command)?,
         }),
+        "restoreFolder" => DecodedCommand::Known(Command::RestoreFolder {
+            path: decode_path(&raw.command)?,
+        }),
         "closeFolder" => DecodedCommand::Known(Command::CloseFolder),
         "closeFolderIfOpen" => DecodedCommand::Known(Command::CloseFolderIfOpen {
             path: decode_path(&raw.command)?,

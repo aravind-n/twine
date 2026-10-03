@@ -25,6 +25,7 @@ final class CoreClient {
     let transport: any CoreTransport
     private var eventTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
+    private var closeFolderOnStop = false
     private(set) var isStopping = false
     private(set) var isTerminating = false
     private var commandResults: [UInt64: CoreCommandResult] = [:]
@@ -57,7 +58,7 @@ final class CoreClient {
                 if commandResults.removeValue(forKey: receipt.requestID) == nil {
                     ignoredCommandResults.insert(receipt.requestID)
                 }
-            case .openFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .nameDraftWorkflow,
+            case .openFolder, .restoreFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .nameDraftWorkflow,
                 .refreshGitBranch, .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun,
                 .setWorkflowIndividualMode, .cancelWorkflowRun:
                 break
@@ -350,10 +351,20 @@ extension CoreClient {
         await stop()
     }
 
+    func stopForWindowClose() async {
+        closeFolderOnStop = true
+        await stopForQuit()
+    }
+
     private func performStop() async {
         let task = eventTask
         task?.cancel()
         await task?.value
+        if closeFolderOnStop, task != nil {
+            do { _ = try await transport.send(.closeFolder) } catch {
+                coreLogger.error("Window folder cleanup failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         await transport.close()
         eventTask = nil
         snapshot = nil
@@ -364,34 +375,4 @@ extension CoreClient {
         failCommandWaiters(with: CoreFailure.notRunning)
         runState = .idle
     }
-}
-
-extension CoreClient {
-    /// Waits until twine-core is running. Throws if it fails or the waiting task is cancelled.
-    func waitUntilRunning() async throws {
-        while true {
-            try Task.checkCancellation()
-            switch runState {
-            case .running:
-                return
-            case .failed(let message):
-                throw CoreFailure.failed(message)
-            case .idle, .starting:
-                try await Task.sleep(for: .milliseconds(10))
-            }
-        }
-    }
-
-    /// Sends a command whose outcome arrives as state events, logging a rejection or failure.
-    func perform(_ command: CoreCommand) async {
-        do {
-            let receipt = try await send(command)
-            if let rejection = receipt.error {
-                coreLogger.notice("Command rejected: \(rejection.code, privacy: .public)")
-            }
-        } catch {
-            coreLogger.error("Command failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
 }

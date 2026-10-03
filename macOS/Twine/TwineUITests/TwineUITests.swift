@@ -24,7 +24,9 @@ final class TwineUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Welcome to Twine"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Open Folder…"].exists)
         XCTAssertTrue(app.staticTexts["Folders you open appear here."].exists)
-        XCTAssertFalse(app.menuItems["New Window"].exists)
+        app.menuBars.menuBarItems["File"].click()
+        XCTAssertTrue(app.menuItems["New Window"].exists)
+        app.typeKey(.escape, modifierFlags: [])
     }
 
     @MainActor

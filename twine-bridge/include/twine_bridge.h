@@ -53,6 +53,13 @@ TwineStatus twine_client_create(
 );
 TwineStatus twine_client_destroy(TwineClient *client);
 
+// Same pointer/length contract as twine_client_create. Window clients share durable history,
+// but each owns its own folder, event stream, workflows, and processes.
+TwineStatus twine_client_create_window(const uint8_t *data_directory, size_t data_directory_length, TwineClient **out_client);
+
+// Returns a caller-owned JSON array of folders to restore. Same contracts as get_snapshot.
+TwineStatus twine_client_restorable_folders(TwineClient *client, TwineBuffer *out_result);
+
 // A command larger than 1 MiB is rejected without reading command_bytes. For a nonzero command at
 // or below that limit, a null command_bytes is rejected; otherwise it must identify command_length
 // readable bytes for the duration of this call.

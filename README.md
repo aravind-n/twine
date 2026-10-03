@@ -52,6 +52,8 @@ The app uses SwiftUI and AppKit, with a Rust application core and
 
 ## What you can do today
 
+- **Work in multiple folders.** Keep each folder in its own window with independent
+  terminals and tabs, and restore open folders when Twine relaunches.
 - **Work in terminals.** Run shells and agents, split a terminal into up to four
   panes, and paste images or drop files into a pane as paths.
 - **Coordinate agents.** Use built-in Adversarial and Coordinator workflows with

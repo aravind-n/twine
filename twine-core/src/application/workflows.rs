@@ -456,10 +456,26 @@ impl Application {
         &self,
         path: Option<&Path>,
     ) -> Result<CommandDisposition, ApplicationError> {
+        self.change_folder_with_restore(path, false)
+    }
+
+    pub(super) fn restore_window_folder(
+        &self,
+        path: &Path,
+    ) -> Result<CommandDisposition, ApplicationError> {
+        self.change_folder_with_restore(Some(path), true)
+    }
+
+    fn change_folder_with_restore(
+        &self,
+        path: Option<&Path>,
+        restore: bool,
+    ) -> Result<CommandDisposition, ApplicationError> {
         let (disposition, terminal_ids) = {
             let mut inner = self.lock_inner()?;
             let previous = inner.folders.state().open_folder.clone();
             let disposition = inner.update_folders(|folders| match path {
+                Some(path) if restore => folders.restore_path(path),
                 Some(path) => folders.open(path),
                 None => Folders::close(folders),
             })?;

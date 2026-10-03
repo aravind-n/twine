@@ -58,6 +58,18 @@ struct CoreClientTests {
         await client.stop()
     }
 
+    @Test @MainActor func closingDuringStartupClearsTheLateRestoredFolderBeforeTeardown() async throws {
+        let transport = SuspendedOpenCoreTransport(finishesCancelledOpen: true)
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await waitUntil { await transport.openCount == 1 }
+        await client.stopForWindowClose()
+        #expect(await transport.clearedFolderBeforeClose)
+        #expect(client.runState == .idle)
+        client.start()
+        #expect(client.runState == .idle)
+    }
+
     @Test @MainActor func heavyCoreTrafficYieldsMainActor() async throws {
         let dataDirectory = TemporaryPath()
         let client = CoreClient(transport: CoreWorker(dataDirectory: dataDirectory.url))
@@ -192,19 +204,25 @@ struct CoreClientTests {
 /// finish at once.
 private actor SuspendedOpenCoreTransport: CoreTransport {
     private(set) var openCount = 0
+    private let finishesCancelledOpen: Bool
+    private var hasClearedFolder = false
+    private(set) var clearedFolderBeforeClose = false
+
+    init(finishesCancelledOpen: Bool = false) { self.finishesCancelledOpen = finishesCancelledOpen }
 
     func open() async throws -> CoreSnapshot {
         openCount += 1
         if openCount == 1 {
-            try await Task.sleep(for: .seconds(3_600))
+            do { try await Task.sleep(for: .seconds(3_600)) } catch { if !finishesCancelledOpen { throw error } }
         }
         return snapshot()
     }
 
-    func close() {}
+    func close() { clearedFolderBeforeClose = hasClearedFolder }
 
     func send(_ command: CoreCommand) -> CoreCommandReceipt {
-        CoreCommandReceipt(requestID: 1, status: .accepted, error: nil)
+        if case .closeFolder = command { hasClearedFolder = true }
+        return CoreCommandReceipt(requestID: 1, status: .accepted, error: nil)
     }
 
     func saveFile(_ request: FileSaveRequest) throws -> FileSaveResult {

@@ -41,9 +41,6 @@ struct FolderView: View {
             .padding(Spacing.windowMargins)
             .background(.windowBackground)
         }
-        .background {
-            FolderWindowLifetime(coreClient: coreClient, folder: path, tabs: tabs).frame(width: 0, height: 0)
-        }
         .environment(traceNavigation)
         .environment(\.traceLaneColors, traceNavigation.laneColors)
         .onChange(of: traceNavigation.activity.lanes) { traceNavigation.updateLaneColors() }

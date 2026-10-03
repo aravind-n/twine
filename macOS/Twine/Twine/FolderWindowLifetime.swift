@@ -1,31 +1,28 @@
 import AppKit
 import SwiftUI
 
-/// Closing the window also closes its folder's processes, even when the app remains running.
+/// Closing a window ends only its runtime. App quit keeps the core's folder restore flags.
 struct FolderWindowLifetime: NSViewRepresentable {
-    let coreClient: CoreClient
-    let folder: String
-    let tabs: FileTabsModel
+    let session: FolderWindowSession
+    let windows: FolderWindows
 
     func makeNSView(context: Context) -> FolderWindowObserver {
-        FolderWindowObserver(coreClient: coreClient, folder: folder, tabs: tabs)
+        FolderWindowObserver(session: session, windows: windows)
     }
 
     func updateNSView(_ nsView: FolderWindowObserver, context: Context) {
-        nsView.window?.isDocumentEdited = tabs.isDirty
+        nsView.window?.isDocumentEdited = session.tabs.isDirty
     }
 }
 
 final class FolderWindowObserver: NSView {
-    private let coreClient: CoreClient
-    private let folder: String
+    private let session: FolderWindowSession
+    private let windows: FolderWindows
     private weak var observedWindow: NSWindow?
-    private let tabs: FileTabsModel
 
-    init(coreClient: CoreClient, folder: String, tabs: FileTabsModel) {
-        self.coreClient = coreClient
-        self.folder = folder
-        self.tabs = tabs
+    init(session: FolderWindowSession, windows: FolderWindows) {
+        self.session = session
+        self.windows = windows
         super.init(frame: .zero)
         NotificationCenter.default.addObserver(
             self, selector: #selector(windowWillClose), name: NSWindow.willCloseNotification, object: nil
@@ -38,13 +35,16 @@ final class FolderWindowObserver: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // SwiftUI can briefly detach the observer while reconciling content. Keep the last live
+        // window so folder routing and the close notification still refer to its window.
+        guard let window else { return }
         observedWindow = window
-        window?.isDocumentEdited = tabs.isDirty
+        session.window = window
+        window.isDocumentEdited = session.tabs.isDirty
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
         guard let observedWindow, notification.object as? NSWindow === observedWindow else { return }
-        tabs.discardAll()
-        Task { await coreClient.perform(.closeFolderIfOpen(path: folder)) }
+        windows.retire(session)
     }
 }
