@@ -8,6 +8,7 @@ mod files;
 mod folder;
 mod git;
 mod harness;
+mod process;
 mod store;
 mod terminal;
 mod trace;

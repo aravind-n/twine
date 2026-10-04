@@ -153,6 +153,11 @@ prompted, and run the app. Xcode uses the prebuilt Rust framework; rebuild it wi
 `make framework` after Rust changes. For a command-line build, use
 `make build-macos`.
 
+Debug builds show the version and build number in the status bar, for example
+`0.1.0 (42)`. CI assigns the build number from its workflow run number; release
+packaging preserves that number. Local builds use the Xcode project's configured
+build number and never increment it.
+
 ## Settings and saved work
 
 Twine creates `~/.config/twine/config.toml` on first launch and reads it at startup.

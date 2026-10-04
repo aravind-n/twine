@@ -60,7 +60,7 @@ impl Application {
         #[cfg(not(test))]
         let test_path: Option<std::ffi::OsString> = None;
         let login_path = Arc::clone(&self.login_path);
-        crate::ModelListRequest::spawn(harness, folder, move || {
+        self.model_lists.request(harness, folder, move || {
             locate(harness.definition(), test_path.as_deref(), &login_path)
         })
     }
@@ -328,6 +328,79 @@ mod tests {
             )
             .unwrap();
         application
+    }
+
+    #[test]
+    fn runtime_shutdown_stops_live_model_requests_without_stopping_another_runtime() {
+        use crate::process::tests::FixtureProcess;
+
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let make_runtime = |directory: &Path| {
+            application(
+                directory,
+                directory,
+                Some(&format!(
+                    "echo $$ > '{}'; exec sleep 60",
+                    directory.join("helper.pid").display()
+                )),
+            )
+        };
+        let first_app = make_runtime(first.path());
+        let second_app = make_runtime(second.path());
+        let first_request = first_app.request_harness_models(HarnessId::Pi, None);
+        let second_request = second_app.request_harness_models(HarnessId::Pi, None);
+        let first_helper = FixtureProcess::read(&first.path().join("helper.pid"));
+        let second_helper = FixtureProcess::read(&second.path().join("helper.pid"));
+
+        drop(first_app);
+        assert!(!first_helper.is_running());
+        assert!(matches!(
+            first_request.poll(),
+            Some(Err(crate::ModelListError::Cancelled))
+        ));
+        assert!(
+            second_helper.is_running(),
+            "other windows keep their own helpers"
+        );
+        assert!(second_request.poll().is_none());
+
+        drop(second_app);
+        assert!(!second_helper.is_running());
+        assert!(matches!(
+            second_request.poll(),
+            Some(Err(crate::ModelListError::Cancelled))
+        ));
+    }
+
+    #[test]
+    fn runtime_shutdown_cancels_discovery_waiting_on_the_login_shell() {
+        use crate::process::tests::FixtureProcess;
+
+        let directory = tempfile::tempdir().unwrap();
+        let pid_path = directory.path().join("shell.pid");
+        let shell_path = directory.path().join("shell");
+        std::fs::write(
+            &shell_path,
+            format!(
+                "#!/bin/sh\necho $$ > '{}'; exec sleep 60\n",
+                pid_path.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&shell_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut app = Application::with_event_capacity(128).unwrap();
+        app.login_path = Arc::new(LoginPath::spawn(shell_path));
+        let request = app.request_harness_models(HarnessId::Pi, None);
+        let shell = FixtureProcess::read(&pid_path);
+        let started = Instant::now();
+        drop(app);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(!shell.is_running());
+        assert!(matches!(
+            request.poll(),
+            Some(Err(crate::ModelListError::Cancelled))
+        ));
     }
 
     fn draft(application: &Application, folder: &Path) -> crate::Workflow {
