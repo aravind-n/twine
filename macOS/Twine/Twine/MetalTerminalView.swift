@@ -47,6 +47,15 @@ struct TerminalPalette {
 final class MetalTerminalView: TerminalView {
     private(set) var isSendingTerminalResponse = false
     weak var minimapState: TerminalMinimapState?
+    var zoomScale: CGFloat = 1 {
+        didSet {
+            if zoomScale != oldValue { updateRasterizationScale() }
+        }
+    }
+
+    private func updateRasterizationScale() {
+        metalScaleFactorOverride = zoomScale * (window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1)
+    }
 
     var attachmentFailure: ((String) -> Void)?
 
@@ -201,6 +210,7 @@ final class MetalTerminalView: TerminalView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        updateRasterizationScale()
         applyTwinePalette()
 
         guard window != nil else {
@@ -242,6 +252,7 @@ final class MetalTerminalView: TerminalView {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        updateRasterizationScale()
         setFrameSize(frame.size)
     }
 

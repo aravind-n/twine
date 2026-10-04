@@ -46,6 +46,7 @@ struct ResumeAgentButton: View {
                     } catch { failure = error.localizedDescription }
                     isResuming = false
                 }
+                .appZoom()
             }
     }
 }

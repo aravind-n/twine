@@ -9,36 +9,51 @@ struct FolderView: View {
     @Environment(CoreClient.self) private var coreClient
     @Environment(WorkflowLayouts.self) private var layouts
     @Environment(FileTabsModel.self) private var tabs
+    @Environment(\.appZoom) private var zoom
     let path: String
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var selection = WorkflowTabSelection()
     @State private var files = FileBrowserModel()
     @State private var traceNavigation = TraceTerminalNavigation()
+    @State private var isTracesExpanded = false
+    private var scale: CGFloat { zoom?.scale ?? 1 }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
             FolderSidebar(path: path, files: files)
+                .appZoom()
                 .frame(
-                    minWidth: SidebarLayout.minimumWidth,
-                    idealWidth: SidebarLayout.idealWidth,
-                    maxWidth: SidebarLayout.maximumWidth
+                    minWidth: SidebarLayout.minimumWidth * scale,
+                    idealWidth: SidebarLayout.idealWidth * scale,
+                    maxWidth: SidebarLayout.maximumWidth * scale
                 )
                 .navigationSplitViewColumnWidth(
-                    min: SidebarLayout.minimumWidth,
-                    ideal: SidebarLayout.idealWidth,
-                    max: SidebarLayout.maximumWidth
+                    min: SidebarLayout.minimumWidth * scale,
+                    ideal: SidebarLayout.idealWidth * scale,
+                    max: SidebarLayout.maximumWidth * scale
                 )
                 .toolbar(removing: .sidebarToggle)
         } detail: {
-            VStack(spacing: Spacing.windowSections) {
-                WorkflowWorkspace(folder: path, selection: $selection, files: files)
-                if tabs.selected == nil { TracesPanel(workflows: traceWorkflows) }
-                StatusFooter(
-                    branch: coreClient.snapshot?.folders.currentBranch,
-                    workflow: selectedWorkflow
-                )
+            GeometryReader { geometry in
+                WorkspaceViewport(
+                    contentHeight: (workspaceHeight(in: geometry.size.height / scale) + workspaceChromeHeight) * scale
+                ) {
+                    VStack(spacing: Spacing.windowSections) {
+                        WorkflowWorkspace(folder: path, selection: $selection, files: files)
+                            .frame(height: workspaceHeight(in: geometry.size.height / scale))
+                        if tabs.selected == nil {
+                            TracesPanel(workflows: traceWorkflows, isExpanded: $isTracesExpanded)
+                        }
+                        StatusFooter(
+                            branch: coreClient.snapshot?.folders.currentBranch,
+                            workflow: selectedWorkflow
+                        )
+                    }
+                    .padding(Spacing.windowMargins)
+                    .appZoom()
+                }
+                .accessibilityIdentifier("workspaceViewport")
             }
-            .padding(Spacing.windowMargins)
             .background(.windowBackground)
         }
         .environment(traceNavigation)
@@ -72,6 +87,32 @@ struct FolderView: View {
     }
 
     private var sidebarIsVisible: Bool { sidebarVisibility != .detailOnly }
+
+    /// Keep two terminal rows usable when zoom leaves less room than the surrounding panels need.
+    /// The workspace scrolls in that case, retaining the window's physical size.
+    private func workspaceHeight(in height: CGFloat) -> CGFloat {
+        let font = coreClient.terminalFont
+        var minimum = WorkflowTabLayout.height + WorkflowSurfaceLayout.minimumHeight(for: selectedWorkflow, font: font)
+        if let selectedWorkflow {
+            let root = layouts.splitRoot(
+                for: selectedWorkflow.id, in: path, workflows: coreClient.snapshot?.workflows.workflows ?? [])
+            let split = layouts.terminalSplit(for: root, in: path)
+            if split.ids.count > 1 {
+                let paneHeight = BentoLayout.minimumTerminalPaneHeight(
+                    for: font, includesNotice: traceWorkflows.contains(where: \.showsRestoredNotice))
+                minimum =
+                    WorkflowTabLayout.height + 2 * BentoLayout.gutter + split.minimumHeight(paneHeight: paneHeight)
+            }
+        }
+        return max(minimum, height - workspaceChromeHeight)
+    }
+
+    private var workspaceChromeHeight: CGFloat {
+        let traces: CGFloat =
+            tabs.selected == nil ? (isTracesExpanded ? TracesLayout.expandedHeight : TracesLayout.collapsedHeight) : 0
+        let gaps = Spacing.windowSections * (tabs.selected == nil ? 2 : 1)
+        return Spacing.windowMargins.top + Spacing.windowMargins.bottom + gaps + FooterLayout.height + traces
+    }
 
     private var selectedWorkflow: CoreWorkflow? {
         guard let state = coreClient.snapshot?.workflows, state.session?.folder == path else { return nil }

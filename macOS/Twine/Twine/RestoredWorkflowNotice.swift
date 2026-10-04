@@ -8,6 +8,8 @@ struct RestoredWorkflowNotice: View {
     var body: some View {
         HStack {
             Label(message, systemImage: "arrow.clockwise")
+                .lineLimit(1)
+                .help(message)
                 .accessibilityIdentifier("restoredWorkflowNotice")
             Spacer(minLength: 0)
             if workflow.kind == .singleAgent && workflow.status != .running {
@@ -32,6 +34,7 @@ struct RestoredWorkflowNotice: View {
         .foregroundStyle(.secondary)
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: RestoredNoticeLayout.height)
     }
 
     private var message: String {
@@ -61,5 +64,11 @@ struct RestoredWorkflowNotice: View {
 
     private func title(for entry: CoreWorkflowTerminal) -> String {
         workflow.agents.first { $0.id == entry.agentID }?.role ?? workflow.name
+    }
+}
+
+extension CoreWorkflow {
+    var showsRestoredNotice: Bool {
+        restored || (kind == .singleAgent && status != .running)
     }
 }

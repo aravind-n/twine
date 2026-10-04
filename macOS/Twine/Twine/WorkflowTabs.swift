@@ -22,7 +22,7 @@ struct WorkflowTabs: View {
             createButton
             Spacer(minLength: 0)
         }
-        .frame(height: 42, alignment: .bottom)
+        .frame(height: WorkflowTabLayout.height, alignment: .bottom)
     }
 
     private var tabs: some View {

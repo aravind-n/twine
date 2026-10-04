@@ -23,6 +23,17 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 - Vertical spacing between the terminal block, the Traces panel, and the footer: 13pt.
 - The folder toolbar has the sidebar toggle. Close Folder in the File menu returns to the start page.
 
+## Interface zoom
+
+- View → Zoom In (⌘+, also ⌘=), Zoom Out (⌘−), and Actual Size (⌘0) scale all app content together,
+  including the start page, sidebar, terminal, minimap, traces, file editor and previews, sheets, and popovers.
+- Use one remembered scale across folder windows, from 50% to 200%, with 100% as the default.
+- Keep the existing design proportions. Lay content out in the available size divided by the scale,
+  so terminal grids and responsive pane layouts adapt without resizing the window.
+- When panels cannot fit, scroll the workspace while keeping two rows in each terminal pane.
+  Scrollable workflow forms and graph popovers stay within their own display's visible area.
+- Native window chrome, menus, and system dialogs follow the system's sizing.
+
 ## Corner radii
 
 | Component | Radius |

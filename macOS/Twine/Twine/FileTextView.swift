@@ -78,6 +78,13 @@ struct FileTextView: NSViewRepresentable {
         view.delegate = nil
     }
 
+    func sizeThatFits(
+        _ proposal: ProposedViewSize, nsView: FileContentHost<NSScrollView>, context: Context
+    ) -> CGSize? {
+        // Retain the editor and undo stack without reflowing hidden TextKit viewports during zoom.
+        isVisible ? proposal.replacingUnspecifiedDimensions() : .zero
+    }
+
     /// NSString offsets match NSTextView's UTF-16 selections, including CRLF and emoji.
     static func lineRange(in text: String, line: Int) -> NSRange? {
         guard line > 0 else { return nil }

@@ -3,6 +3,7 @@ import SwiftUI
 /// A running workflow keeps the core's pinned definition. Inspection offers no type selector.
 struct WorkflowTypeInspector: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appZoomMaximumPresentationSize) private var maximum
     let type: CoreWorkflowType
     let run: CoreWorkflowRun
 
@@ -32,9 +33,9 @@ struct WorkflowTypeInspector: View {
             .padding(NewTabLayout.padding)
         }
         .frame(
-            width: 600,
+            width: min(600, maximum.width),
             height: min(
-                600,
+                600, maximum.height,
                 WorkflowGraphLayout(definition: type.definition, counts: run.roleCounts, width: 600).size.height + 160)
         )
         .background(Color(nsColor: .windowBackgroundColor), in: .rect(cornerRadius: CornerRadius.panel))

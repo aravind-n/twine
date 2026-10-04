@@ -133,6 +133,7 @@ struct HarnessChoiceRow: View {
                 choice.model = model
                 showsCustomModel = false
             }
+            .appZoom()
         }
     }
 

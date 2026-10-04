@@ -6,6 +6,7 @@ import WebKit
 private let htmlLogger = Logger(subsystem: "com.twineproject.Twine", category: "html-preview")
 
 struct HTMLWebView: NSViewRepresentable {
+    @Environment(\.appZoom) private var zoom
     let location: HTMLPreviewLocation
     let version: FileVersion?
     let isVisible: Bool
@@ -22,10 +23,13 @@ struct HTMLWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> FileContentHost<WKWebView> {
         let view = WKWebView(frame: .zero, configuration: Self.configuration(for: format, location: location))
+        view.pageZoom = zoom?.scale ?? 1
         view.navigationDelegate = context.coordinator
         view.setAccessibilityIdentifier("\(format.accessibilityPrefix)Preview")
         view.setAccessibilityLabel("\(format.name) preview")
-        return FileContentHost(content: view, responder: view)
+        let host = FileContentHost(content: view, responder: view)
+        host.viewportScale = zoom?.scale ?? 1
+        return host
     }
 
     static func configuration(for format: FilePreviewFormat, location: HTMLPreviewLocation) -> WKWebViewConfiguration {
@@ -45,6 +49,9 @@ struct HTMLWebView: NSViewRepresentable {
 
     func updateNSView(_ host: FileContentHost<WKWebView>, context: Context) {
         let view = host.content
+        let pageZoom = zoom?.scale ?? 1
+        host.viewportScale = pageZoom
+        if view.pageZoom != pageZoom { view.pageZoom = pageZoom }
         let coordinator = context.coordinator
         coordinator.failure = $failure
         coordinator.openFile = openFile
@@ -68,6 +75,10 @@ struct HTMLWebView: NSViewRepresentable {
         coordinator.stop()
         view.stopLoading()
         view.navigationDelegate = nil
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: FileContentHost<WKWebView>, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {

@@ -230,6 +230,7 @@ final class TwineUITests: XCTestCase {
         let dataDirectory = FileManager.default.temporaryDirectory.appending(path: "TwineUITests-\(UUID().uuidString)")
         addTeardownBlock {
             try? FileManager.default.removeItem(at: dataDirectory)
+            UserDefaults.standard.removePersistentDomain(forName: dataDirectory.lastPathComponent)
         }
         if let lastOpenFolder {
             try seedDatabase(in: dataDirectory, lastOpenFolder: lastOpenFolder.path(percentEncoded: false))
@@ -239,6 +240,8 @@ final class TwineUITests: XCTestCase {
         // including an empty window list left by a unit-test host or a previous UI test.
         app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
         app.launchEnvironment["TWINE_DATA_DIRECTORY"] = dataDirectory.path(percentEncoded: false)
+        // Remember preferences across this app's relaunches without inheriting the user's saved zoom.
+        app.launchEnvironment["TWINE_TEST_PREFERENCES_SUITE"] = dataDirectory.lastPathComponent
         return app
     }
 

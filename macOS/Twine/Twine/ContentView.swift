@@ -70,6 +70,7 @@ struct ContentView: View {
                 systemImage: "exclamationmark.triangle",
                 description: Text(message)
             )
+            .appZoom()
         case .startPage(let folders):
             StartPage(
                 folders: folders,
@@ -77,6 +78,7 @@ struct ContentView: View {
                 openFolder: openFolder,
                 removeRecentFolder: { perform(.removeRecentFolder(path: $0)) }
             )
+            .appZoom()
         case .folder(let path):
             // A new identity per folder, so the folder's views, such as its terminal, start fresh.
             FolderView(path: path)

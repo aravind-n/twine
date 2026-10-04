@@ -139,6 +139,7 @@ nonisolated private struct TerminalPadding: Layout {
 }
 
 struct TerminalViewRepresentable: NSViewRepresentable {
+    @Environment(\.appZoom) private var zoom
     let coreClient: CoreClient
     let font: NSFont
     let terminalID: UInt64
@@ -167,6 +168,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> MetalTerminalView {
         let view = MetalTerminalView(frame: .zero)
+        view.zoomScale = zoom?.scale ?? 1
         view.applyTwineFont(font)
         view.automaticallyFocuses = automaticallyFocuses
         view.isSelected = isSelected
@@ -182,6 +184,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MetalTerminalView, context: Context) {
+        nsView.zoomScale = zoom?.scale ?? 1
         nsView.attachmentFailure = { failureMessage = $0 }
         nsView.applyTwineFont(font)
         context.coordinator.beforeUserInput = beforeUserInput

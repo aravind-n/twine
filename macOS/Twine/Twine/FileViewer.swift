@@ -42,7 +42,7 @@ struct FileViewer: View {
                     .keyboardShortcut("l", modifiers: .command)
                     .disabled(current?.status != .text || showsPreview)
                     .accessibilityIdentifier("goToLine")
-                    .popover(isPresented: $showsGoToLine) { goToLineForm }
+                    .popover(isPresented: $showsGoToLine) { goToLineForm.appZoom() }
             }
             .padding(14)
             Divider()

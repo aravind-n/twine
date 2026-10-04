@@ -2,6 +2,7 @@ import SwiftUI
 
 /// The gutter between two panes, which drags to resize them.
 struct PaneDivider: View {
+    @Environment(\.appZoom) private var zoom
     /// The direction the divider moves in.
     let axis: Axis
     let fraction: Double
@@ -44,7 +45,14 @@ struct PaneDivider: View {
         let start = dragStart ?? fraction
         dragStart = start
         let translation = axis == .horizontal ? drag.translation.width : drag.translation.height
-        return sharedLength > 0 ? start + translation / sharedLength : start
+        return Self.fraction(
+            start: start, translation: translation, sharedLength: sharedLength, scale: zoom?.scale ?? 1)
+    }
+
+    nonisolated static func fraction(
+        start: Double, translation: CGFloat, sharedLength: CGFloat, scale: CGFloat
+    ) -> Double {
+        sharedLength > 0 ? start + translation / scale / sharedLength : start
     }
 }
 

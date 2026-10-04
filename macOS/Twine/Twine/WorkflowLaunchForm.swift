@@ -50,7 +50,7 @@ struct WorkflowLaunchForm: View {
             }.controlSize(.small)
         }
         .sheet(isPresented: $showsDesigner) {
-            WorkflowDesigner(type: type) { _ in back() }.environment(client)
+            WorkflowDesigner(type: type) { _ in back() }.environment(client).appZoom()
         }
         .onAppear {
             if !hasLoaded {
