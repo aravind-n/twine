@@ -10,6 +10,8 @@ extension TwineUITests {
         defer { app.terminate() }
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 760))
+        // A long CI hostname in Bash's default prompt can wrap the input checked below.
+        app.typeText("PS1='$ '\r")
         app.typeText("printf 'SAVED_RESPONSE\\n'; echo ready > history-ready\r")
         waitForFile(folder.appending(path: "history-ready"), containing: "ready", in: app)
         app.typeText("printf '\\033[3J\\033[2J\\033[H'; echo cleared > history-cleared\r")
