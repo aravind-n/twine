@@ -14,7 +14,7 @@ for contributors; these symbols are not a stable library API.
 
 For installation and usage, see the [Twine user guide](https://aravind-n.github.io/twine/docs/guide/).
 For the underlying application core and C ABI, see the
-[Rust API reference](https://aravind-n.github.io/twine/docs/rust/twine_core/).
+[Rust API reference](https://aravind-n.github.io/twine/docs/rust/).
 
 ## Topics
 

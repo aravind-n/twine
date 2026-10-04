@@ -1,16 +1,17 @@
 # Twine website
 
 This directory contains the static GitHub Pages landing page, documentation index,
-and user guide template.
+user guide template, and combined Rust workspace reference entry page.
 Keep it in plain HTML and CSS, with relative asset URLs so it works under `/twine/` and in local
 previews. No JavaScript runtime is required. `make build-site` creates an isolated
 Python environment under `target/site-venv` with the pinned Markdown renderer.
 
 Use the terminology in `../CONTEXT.md`. Keep feature descriptions and installation
 requirements consistent with `../README.md` and `../docs/reference.md`. Link to
-GitHub Releases for downloads and to `docs/` for detailed usage. The docs page is
+GitHub Releases for downloads and to `docs/` for detailed usage. The user guide is
 generated from `../docs/reference.md`; edit that source instead of generated HTML.
-Rust APIs come from `cargo doc --workspace --no-deps`; Swift APIs come from Xcode
+Rust APIs come from `cargo doc --workspace --no-deps`; `rust.html` provides one
+entry page and shared search for the core and C ABI bridge. Swift APIs come from Xcode
 DocC, including internal app symbols. The Swift overview lives in
 `../macOS/Twine/Twine/Documentation.docc/Twine.md`.
 

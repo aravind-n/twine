@@ -199,9 +199,10 @@ guidance is in [AGENTS.md](AGENTS.md).
 ### GitHub Pages website
 
 The landing page, documentation index, and user guide template live in `site/`.
-The guide is generated from `docs/reference.md`. Rust API references for the core
-and C ABI bridge are generated with `cargo doc --workspace --no-deps`; the Swift
-app reference is generated with Xcode DocC and includes internal app symbols.
+The guide is generated from `docs/reference.md`. The combined Rust API reference
+at `docs/rust/` covers the core and C ABI bridge with shared search, generated
+with `cargo doc --workspace --no-deps`. The Swift app reference is generated with
+Xcode DocC and includes internal app symbols.
 
 Run `make serve-site` to preview the full website at `http://localhost:8000/twine/`,
 or `make build-site` to assemble it in `dist/twine`. These targets need the macOS

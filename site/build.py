@@ -52,6 +52,7 @@ def build(output: Path) -> None:
         if destination.exists():
             rmtree(destination)
         copytree(generated, destination)
+    copyfile(source / "rust.html", output / "docs/rust/index.html")
     print(f"Built landing page, user guide, and Rust and Swift API docs in {output}")
 
 
