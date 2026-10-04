@@ -1,0 +1,151 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+      timezone: America/Los_Angeles
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      publish: ${{ steps.guard.outputs.publish }}
+      tag: ${{ steps.guard.outputs.tag }}
+      sha: ${{ steps.guard.outputs.sha }}
+      ci_run: ${{ steps.guard.outputs.ci_run }}
+      build_run: ${{ steps.guard.outputs.build_run }}
+      build_number: ${{ steps.guard.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Select an unpublished commit with successful main CI
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash .github/release/nightly.sh guard "$RUNNER_TEMP/notes.md"
+      - uses: actions/upload-artifact@v7
+        if: steps.guard.outputs.publish == 'true'
+        with:
+          name: nightly-notes
+          path: ${{ runner.temp }}/notes.md
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  rebuild:
+    needs: guard
+    if: needs.guard.outputs.publish == 'true' && needs.guard.outputs.build_run == ''
+    uses: ./.github/workflows/_release-build.yml
+    with:
+      ref: ${{ needs.guard.outputs.sha }}
+      version: ci-${{ needs.guard.outputs.sha }}
+      build_number: ${{ needs.guard.outputs.build_number }}
+
+  package:
+    needs: [guard, rebuild]
+    if: >-
+      always() && !cancelled() && needs.guard.result == 'success' &&
+      needs.guard.outputs.publish == 'true' &&
+      (needs.rebuild.result == 'success' || needs.rebuild.result == 'skipped')
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+      - uses: ./.github/actions/setup-macos
+      - name: Download the CI bundle or pinned rebuild
+        uses: actions/download-artifact@v8
+        with:
+          name: Twine-ci-${{ needs.guard.outputs.sha }}
+          path: ${{ runner.temp }}/bundle
+          run-id: ${{ needs.guard.outputs.build_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Package and verify nightly archives
+        env:
+          NIGHTLY_ID: ${{ needs.guard.outputs.tag }}
+        run: >-
+          make nightly-package NIGHTLY_ID="$NIGHTLY_ID" BUNDLE_DIR="$RUNNER_TEMP/bundle"
+          OUTPUT_DIR="$RUNNER_TEMP/nightly"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-assets
+          path: ${{ runner.temp }}/nightly/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  publish:
+    needs: [guard, package]
+    if: >-
+      !cancelled() && needs.guard.result == 'success' &&
+      needs.package.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: nightly-assets
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: nightly-notes
+          path: notes
+      - name: Publish the complete nightly prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NIGHTLY_ID: ${{ needs.guard.outputs.tag }}
+        run: bash .github/release/nightly.sh publish "$NIGHTLY_ID" dist notes/notes.md
+
+  summary:
+    needs: [guard, rebuild, package, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+      SHA: ${{ needs.guard.outputs.sha }}
+      TAG: ${{ needs.guard.outputs.tag }}
+      CI_RUN: ${{ needs.guard.outputs.ci_run }}
+      BUILD_RUN: ${{ needs.guard.outputs.build_run }}
+      GUARD_RESULT: ${{ needs.guard.result }}
+      REBUILD_RESULT: ${{ needs.rebuild.result }}
+      PACKAGE_RESULT: ${{ needs.package.result }}
+      PUBLISH_RESULT: ${{ needs.publish.result }}
+      SHOULD_PUBLISH: ${{ needs.guard.outputs.publish }}
+    steps:
+      - name: Report the nightly outcome
+        run: |
+          {
+            echo "Commit: $SHA"
+            echo "Guard: $GUARD_RESULT; rebuild: $REBUILD_RESULT; package: $PACKAGE_RESULT; publish: $PUBLISH_RESULT"
+            if [[ -n "$CI_RUN" ]]; then echo "CI: $REPOSITORY_URL/actions/runs/$CI_RUN"; fi
+            if [[ "$SHOULD_PUBLISH" == false ]]; then
+              echo 'Skipped: this commit already has a complete published nightly.'
+            elif [[ "$SHOULD_PUBLISH" == true ]]; then
+              if [[ -n "$BUILD_RUN" ]]; then echo 'Used the CI Release bundle.'; else echo 'Requested a pinned rebuild.'; fi
+            fi
+            if [[ "$PUBLISH_RESULT" == success || "$SHOULD_PUBLISH" == false ]]; then
+              echo "Nightly: $REPOSITORY_URL/releases/tag/$TAG"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

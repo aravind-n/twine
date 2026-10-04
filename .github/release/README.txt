@@ -24,4 +24,4 @@ Verification: download SHA256SUMS alongside this ZIP. Run
 and compare the ZIP's checksum with its entry in SHA256SUMS.
 
 Source, development instructions, and issues: https://github.com/aravind-n/twine
-Release notes: https://github.com/aravind-n/twine/releases/tag/v@VERSION@
+Release notes: https://github.com/aravind-n/twine/releases/tag/@RELEASE_TAG@
