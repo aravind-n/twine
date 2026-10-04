@@ -66,11 +66,18 @@ case "${1:-}" in
         cp "$framework/Headers/twine_bridge.h" "$bundle/twine_bridge.h"
         git rev-parse HEAD > "$bundle/commit.txt"
         ;;
-    package)
+    package|nightly-package)
         version="${2:?version required}"
         bundle="${3:?bundle directory required}"
         output="${4:?output directory required}"
-        version_check "$version"
+        release_tag="v$version"
+        if [[ "$1" == nightly-package ]]; then
+            [[ "$version" =~ ^nightly-[0-9]{8}-[0-9a-f]{12}$ ]] || fail 'expected nightly-YYYYMMDD-COMMIT (12 hex characters)'
+            [[ "$version" == *-"$(git rev-parse --short=12 HEAD)" ]] || fail 'nightly identifier belongs to another commit'
+            release_tag="$version"
+        else
+            version_check "$version"
+        fi
         [[ "$(cat "$bundle/commit.txt")" == "$(git rev-parse HEAD)" ]] || fail 'build artifact belongs to another commit'
         mkdir -p "$output" target
         [[ -z "$(ls -A "$output")" ]] || fail 'output directory must be empty'
@@ -81,7 +88,11 @@ case "${1:-}" in
         ditto -x -k "$bundle/Twine.app.zip" "$folder"
         app="$folder/Twine.app"
         plist="$app/Contents/Info.plist"
-        [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == "$version" ]] || fail 'built app version differs from tag'
+        app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+        version_check "$app_version"
+        if [[ "$1" == package ]]; then
+            [[ "$app_version" == "$version" ]] || fail 'built app version differs from tag'
+        fi
         universal "$app/Contents/MacOS/Twine"
         build_number="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
         [[ "$build_number" =~ ^[1-9][0-9]*$ ]] || fail 'expected a positive integer build number'
@@ -95,7 +106,12 @@ case "${1:-}" in
         done < <(find "$app" -depth -type d \( -name '*.framework' -o -name '*.xpc' -o -name '*.appex' -o -name '*.app' \) -print0)
         codesign --verify --deep --strict "$app"
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "$build_number" ]] || fail 'incorrect bundle build number'
-        sed "s/@VERSION@/$version/g" .github/release/README.txt > "$folder/README.txt"
+        sed -e "s/@VERSION@/$version/g" -e "s/@RELEASE_TAG@/$release_tag/g" \
+            .github/release/README.txt > "$folder/README.txt"
+        if [[ "$1" == nightly-package ]]; then
+            printf '\nThis nightly replaces Twine.app and uses the same saved data and settings.\nCommit: %s\n' \
+                "$(git rev-parse HEAD)" >> "$folder/README.txt"
+        fi
         cp LICENSE "$folder/LICENSE"
         ditto -c -k --sequesterRsrc --keepParent "$folder" "$output/Twine-$version-macos-universal.zip"
         library="$staging/libtwinecore-$version-macos-universal"
@@ -104,7 +120,8 @@ case "${1:-}" in
         cp "$bundle/twine_bridge.h" "$library/include/twine_bridge.h"
         universal "$library/libtwinecore.a"
         test -s "$library/include/twine_bridge.h"
-        sed "s/@VERSION@/$version/g" .github/release/library-README.txt > "$library/README.txt"
+        sed -e "s/@VERSION@/$version/g" -e "s/@RELEASE_TAG@/$release_tag/g" \
+            .github/release/library-README.txt > "$library/README.txt"
         cp LICENSE "$library/LICENSE"
         tar -czf "$output/libtwinecore-$version-macos-universal.tar.gz" -C "$staging" "$(basename "$library")"
         symbols="$staging/Twine-$version-symbols"
@@ -117,5 +134,5 @@ case "${1:-}" in
         git archive --format=tar --prefix="twine-$version/" HEAD | gzip -n > "$output/twine-$version-source.tar.gz"
         (cd "$output"; shasum -a 256 ./*.zip ./*.tar.gz > SHA256SUMS; shasum -a 256 -c SHA256SUMS)
         ;;
-    *) fail 'usage: release.sh guard TAG NOTES | notes VERSION NOTES | bundle BUILD BUNDLE | package VERSION BUNDLE OUTPUT' ;;
+    *) fail 'usage: release.sh guard TAG NOTES | notes VERSION NOTES | bundle BUILD BUNDLE | package VERSION BUNDLE OUTPUT | nightly-package NIGHTLY_ID BUNDLE OUTPUT' ;;
 esac

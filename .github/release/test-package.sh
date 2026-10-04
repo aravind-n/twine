@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Exercise the real macOS archiving, signing, plist, and symbol checks with a tiny app.
+repo="$PWD"
+mkdir -p target
+fixture="$(mktemp -d "$repo/target/release-package-test.XXXXXX")"
+trap 'rm -rf "$fixture"' EXIT
+bundle="$fixture/bundle"
+app="$fixture/Twine.app"
+mkdir -p "$app/Contents/MacOS" "$bundle"
+cat > "$fixture/app.c" <<'C'
+int main(void) { return 0; }
+C
+cat > "$app/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>Twine</string>
+<key>CFBundleIdentifier</key><string>com.twineproject.Twine</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>1.2.3</string>
+<key>CFBundleVersion</key><string>42</string>
+<key>TwineBuildVersion</key><string>ci-fixture</string>
+</dict></plist>
+PLIST
+build_app() {
+    for arch in arm64 x86_64; do
+        xcrun clang -arch "$arch" -mmacosx-version-min=26.0 -g -c \
+            "$fixture/app.c" -o "$fixture/$1-$arch.o"
+        xcrun clang -arch "$arch" -mmacosx-version-min=26.0 \
+            "$fixture/$1-$arch.o" -o "$fixture/$1-$arch"
+    done
+    xcrun lipo -create "$fixture/$1-arm64" "$fixture/$1-x86_64" -output "$2"
+}
+build_app app "$app/Contents/MacOS/Twine"
+xcrun dsymutil "$app/Contents/MacOS/Twine" -o "$fixture/Twine.app.dSYM"
+for arch in arm64 x86_64; do
+    xcrun ar -rcs "$fixture/$arch.a" "$fixture/app-$arch.o"
+done
+xcrun lipo -create "$fixture/arm64.a" "$fixture/x86_64.a" -output "$bundle/libtwinecore.a"
+printf 'void twine_fixture(void);\n' > "$bundle/twine_bridge.h"
+git rev-parse HEAD > "$bundle/commit.txt"
+ditto -c -k --sequesterRsrc --keepParent "$app" "$bundle/Twine.app.zip"
+ditto -c -k --sequesterRsrc --keepParent "$fixture/Twine.app.dSYM" "$bundle/Twine.app.dSYM.zip"
+
+nightly="nightly-20261005-$(git rev-parse HEAD | cut -c 1-12)"
+package() { bash .github/release/release.sh "$@" "$bundle" "$fixture/output"; }
+reject() {
+    rm -rf "$fixture/output"
+    if package "$@" > "$fixture/rejected.log" 2>&1; then
+        echo "expected packaging rejection: $*" >&2
+        exit 1
+    fi
+}
+
+reject package "$nightly"
+reject package 1.2.4
+reject nightly-package 1.2.3
+reject nightly-package nightly-20261005-000000000000
+printf '%040d\n' 0 > "$bundle/commit.txt"
+reject nightly-package "$nightly"
+git rev-parse HEAD > "$bundle/commit.txt"
+
+for mode in package nightly-package; do
+    rm -rf "$fixture/output" "$fixture/extracted"
+    version=1.2.3
+    release_tag=v1.2.3
+    if [[ "$mode" == nightly-package ]]; then version="$nightly"; release_tag="$nightly"; fi
+    package "$mode" "$version"
+    (cd "$fixture/output" && shasum -a 256 -c SHA256SUMS)
+    [[ "$(find "$fixture/output" -type f | wc -l | tr -d ' ')" == 5 ]]
+    ditto -x -k "$fixture/output/Twine-$version-macos-universal.zip" "$fixture/extracted"
+    packaged="$fixture/extracted/Twine-$version"
+    plist="$packaged/Twine.app/Contents/Info.plist"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == 1.2.3 ]]
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == 42 ]]
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :TwineBuildVersion' "$plist")" == "$version" ]]
+    codesign --verify --deep --strict "$packaged/Twine.app"
+    grep -q "releases/tag/$release_tag" "$packaged/README.txt"
+    if grep -q '@[A-Z_]*@' "$packaged/README.txt"; then echo 'unexpanded README placeholder' >&2; exit 1; fi
+    tar -xzf "$fixture/output/libtwinecore-$version-macos-universal.tar.gz" -C "$fixture/extracted"
+    grep -q "releases/tag/$release_tag" "$fixture/extracted/libtwinecore-$version-macos-universal/README.txt"
+done
+
+# A thin library and mismatched symbols must never reach publication.
+cp "$fixture/arm64.a" "$bundle/libtwinecore.a"
+reject nightly-package "$nightly"
+xcrun lipo -create "$fixture/arm64.a" "$fixture/x86_64.a" -output "$bundle/libtwinecore.a"
+printf 'int main(void) { return 1; }\n' > "$fixture/app.c"
+build_app other "$fixture/other"
+rm -rf "$fixture/Twine.app.dSYM"
+xcrun dsymutil "$fixture/other" -o "$fixture/Twine.app.dSYM"
+ditto -c -k --sequesterRsrc --keepParent "$fixture/Twine.app.dSYM" "$bundle/Twine.app.dSYM.zip"
+reject nightly-package "$nightly"
+echo 'Stable and nightly packaging checks passed'

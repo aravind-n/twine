@@ -55,7 +55,8 @@ UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 .PHONY: help fmt-rust lint-rust test-rust check-rust clean-rust \
 	framework framework-release build-macos build-macos-release fmt-macos lint-macos \
 	test-macos ui-test-macos ui-test-macos-built ui-test-macos-all ui-test-macos-visual check-macos clean-macos \
-	fmt lint test check clean release-build-app release-bundle release-package check-release check-release-scripts \
+	fmt lint test check clean release-build-app release-bundle release-package nightly-package \
+	check-release check-release-scripts check-release-package \
 	build-site serve-site check-site docs-rust docs-swift
 
 help:
@@ -101,7 +102,8 @@ help:
 	@echo '  release-build-app     Build Release app using an existing Release framework'
 	@echo '  release-bundle        Save app, static C ABI library, header, symbols, commit'
 	@echo '  release-package       Package and verify archives for VERSION (BUNDLE_DIR, OUTPUT_DIR)'
-	@echo '  check-release         Test changelog extraction and lint release tooling'
+	@echo '  nightly-package       Package and verify archives for NIGHTLY_ID (BUNDLE_DIR, OUTPUT_DIR)'
+	@echo '  check-release         Test release scripts and macOS packaging, and lint workflows'
 	@echo ''
 	@echo '  help                  Show this message (default)'
 
@@ -142,11 +144,18 @@ release-bundle:
 release-package:
 	$(RELEASE_SCRIPT) package "$(VERSION)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
 
+nightly-package:
+	$(RELEASE_SCRIPT) nightly-package "$(NIGHTLY_ID)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
+
 check-release-scripts:
 	bash .github/release/test-notes.sh
+	bash .github/release/test-nightly.sh
 	shellcheck .github/release/*.sh
 
-check-release: check-release-scripts
+check-release-package:
+	bash .github/release/test-package.sh
+
+check-release: check-release-scripts check-release-package
 	actionlint -ignore 'label "xcode-27" is unknown'
 
 $(SITE_STAMP): site/requirements.txt

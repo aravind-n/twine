@@ -141,6 +141,9 @@ jobs:
         run: swift format lint --strict --recursive macOS/
       - name: Run SwiftLint
         run: macOS/Twine/Scripts/swiftlint.sh
+      - name: Check stable and nightly packaging
+        if: needs.changes.outputs.workflows == 'true'
+        run: make check-release-package
       - name: Build app for testing (Debug)
         run: >-
           xcodebuild build-for-testing -project macOS/Twine/Twine.xcodeproj -scheme Twine
