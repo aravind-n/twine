@@ -2,6 +2,61 @@ import XCTest
 
 extension TwineUITests {
     @MainActor
+    func testSidebarToolbarInFullScreenInDarkAppearance() throws {
+        try checkFullScreenSidebar(appearance: "Dark")
+    }
+
+    @MainActor
+    private func checkFullScreenSidebar(appearance: String) throws {
+        let folder = try makeTestFolder(prefix: "TwineSidebar")
+        let app = try makeApp(lastOpenFolder: folder)
+        app.launchEnvironment["TWINE_TEST_APPEARANCE"] = appearance
+        app.launch()
+        defer { app.terminate() }
+
+        let toggle = sidebarToggle(in: app)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
+        let root = fileRow(folder, in: app)
+        XCTAssertTrue(root.waitForExistence(timeout: 5), app.debugDescription)
+        let viewport = app.scrollViews["workspaceViewport"]
+        assertSidebarToolbar(in: app, viewport: viewport)
+        let windowedHeight = viewport.frame.height
+
+        app.typeKey("f", modifierFlags: .function)
+        let entered = expectation(
+            for: NSPredicate { _, _ in viewport.frame.height > windowedHeight + 100 }, evaluatedWith: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [entered], timeout: 10), .completed, app.debugDescription)
+        assertSidebarToolbar(in: app, viewport: viewport)
+        XCTAssertTrue(viewport.frame.contains(app.staticTexts["workflowStatus"].frame), app.debugDescription)
+
+        let sidebarWidth = viewport.frame.width
+        toggle.click()
+        XCTAssertTrue(root.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(toggle.isHittable, "The show button must remain available in full screen")
+        XCTAssertGreaterThan(viewport.frame.width, sidebarWidth)
+        XCTAssertGreaterThanOrEqual(app.buttons["newWorkflow"].frame.minY, toggle.frame.maxY)
+
+        app.typeKey("s", modifierFlags: [.command, .control])
+        XCTAssertTrue(root.waitForExistence(timeout: 5), app.debugDescription)
+        assertSidebarToolbar(in: app, viewport: viewport)
+        app.typeKey("f", modifierFlags: .function)
+        let exited = expectation(
+            for: NSPredicate { _, _ in abs(viewport.frame.height - windowedHeight) < 2 }, evaluatedWith: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [exited], timeout: 10), .completed, app.debugDescription)
+        assertSidebarToolbar(in: app, viewport: viewport)
+    }
+
+    @MainActor
+    private func assertSidebarToolbar(in app: XCUIApplication, viewport: XCUIElement) {
+        let toggle = sidebarToggle(in: app)
+        XCTAssertEqual(sidebarToggleButtons(in: app).count, 1)
+        XCTAssertTrue(toggle.isHittable, app.debugDescription)
+        XCTAssertLessThanOrEqual(toggle.frame.maxX, viewport.frame.minX, "Keep the toggle over its sidebar")
+        XCTAssertGreaterThanOrEqual(app.buttons["newWorkflow"].frame.minY, toggle.frame.maxY)
+    }
+
+    @MainActor
     func testFolderWindowInLightAppearance() throws {
         try checkFolderWindow(appearance: "Light")
     }
@@ -39,7 +94,7 @@ extension TwineUITests {
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         attachWindow(in: app, name: "\(appearance), centered draft and footer")
 
-        app.buttons["sidebarToggle"].click()
+        sidebarToggle(in: app).click()
         // The title bar adds 52 points to the 400 × 250 minimum content size.
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 400, height: 302))
         XCTAssertEqual(app.windows.firstMatch.frame.width, 400, accuracy: 2)
@@ -81,7 +136,7 @@ extension TwineUITests {
         app.launchEnvironment["TWINE_TEST_APPEARANCE"] = appearance
         app.launch()
 
-        let toggle = app.buttons["sidebarToggle"]
+        let toggle = sidebarToggle(in: app)
         XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
         let root = fileRow(folder, in: app)
         XCTAssertTrue(root.waitForExistence(timeout: 5), "The sidebar should start open")
@@ -101,7 +156,7 @@ extension TwineUITests {
 
         toggle.click()
         XCTAssertTrue(root.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Sidebar")).count, 1)
+        XCTAssertEqual(sidebarToggleButtons(in: app).count, 1)
         XCTAssertEqual(root.label, folder.lastPathComponent)
         XCTAssertEqual(root.value as? String, "Expanded")
         XCTAssertLessThan(traces.frame.width, fullWidth)

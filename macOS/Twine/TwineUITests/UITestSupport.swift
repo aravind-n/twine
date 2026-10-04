@@ -4,6 +4,17 @@ import XCTest
 /// Helpers for tests that drive shells in a folder. UI tests run only in CI, so their waits explain
 /// what they found when they time out.
 extension TwineUITests {
+    /// Restrict the system control's label to toolbars so file rows cannot match it.
+    @MainActor
+    func sidebarToggleButtons(in app: XCUIApplication) -> XCUIElementQuery {
+        app.toolbars.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Sidebar"))
+    }
+
+    @MainActor
+    func sidebarToggle(in app: XCUIApplication) -> XCUIElement {
+        sidebarToggleButtons(in: app).firstMatch
+    }
+
     /// A new folder under the temporary directory, deleted when the test ends.
     func makeTestFolder(prefix: String) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appending(path: "\(prefix)-\(UUID().uuidString)")

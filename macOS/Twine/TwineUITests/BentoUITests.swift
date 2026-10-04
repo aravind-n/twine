@@ -9,7 +9,7 @@ extension TwineUITests {
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 760))
-        app.buttons["sidebarToggle"].click()
+        sidebarToggle(in: app).click()
         openTestWorkflow(agents: 3, in: app)
         let subtabs = (1...3).map { app.buttons["agentSubtab-\($0)"] }
         XCTAssertTrue(subtabs[2].waitForExistence(timeout: 10), app.debugDescription)
@@ -52,7 +52,7 @@ extension TwineUITests {
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 760))
-        app.buttons["sidebarToggle"].click()
+        sidebarToggle(in: app).click()
         openTestWorkflow(agents: 4, in: app)
         let subtabs = (1...4).map { app.buttons["agentSubtab-\($0)"] }
         XCTAssertTrue(subtabs[3].waitForExistence(timeout: 10), app.debugDescription)
@@ -82,7 +82,7 @@ extension TwineUITests {
         let agentsTab = app.buttons["workflowTab-2"]
         XCTAssertTrue(agentsTab.waitForExistence(timeout: 10), app.debugDescription)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 760))
-        app.buttons["sidebarToggle"].click()
+        sidebarToggle(in: app).click()
         agentsTab.click()
         XCTAssertTrue(panes[3].waitForExistence(timeout: 10), app.debugDescription)
         waitUntilFocused(panes[3], in: app)

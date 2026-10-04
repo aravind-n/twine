@@ -11,7 +11,7 @@ extension TwineUITests {
         defer { app.terminate() }
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1400, height: 950))
-        app.buttons["sidebarToggle"].click()
+        sidebarToggle(in: app).click()
         app.buttons["workflowChoice-Terminal"].click()
         app.typeKey("d", modifierFlags: .command)
         XCTAssertTrue(app.buttons["closeTerminalPane-2"].waitForExistence(timeout: 5))

@@ -29,6 +29,27 @@ struct TerminalDeliveryTests {
         #expect(await transport.lastResize?.rows == 50)
     }
 
+    @Test func animatedPaneResizesReachTheShellOnlyAfterTheGridSettles() async throws {
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.terminals = [.init(terminalID: 41, status: .running)]
+        let transport = DelayedStartTransport(snapshot: snapshot)
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await client.waitUntilRunning()
+        defer { Task { await client.stop() } }
+        let controller = TerminalController(coreClient: client, terminalID: 41, failureMessage: .constant(nil))
+        defer { controller.stop() }
+        let view = MetalTerminalView(frame: .zero)
+        for columns in stride(from: 100, through: 140, by: 10) {
+            controller.sizeChanged(source: view, newCols: columns, newRows: 30)
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await waitUntil { await transport.lastResize?.columns == 140 }
+        #expect(await transport.resizeAttempts.map(\.columns) == [140])
+        #expect(await transport.input.isEmpty)
+        #expect(await transport.terminalResponses.isEmpty)
+    }
+
     @Test func remountRestoresExactlyOnceAndKeepsTypingDuringReplay() async throws {
         var snapshot = CoreSnapshot.testReady()
         snapshot.terminals = [.init(terminalID: 41, status: .running)]

@@ -49,6 +49,7 @@ struct TwineApp: App {
         }
         .restorationBehavior(.disabled)
         .commands {
+            SidebarCommands()
             FolderCommands()
             AppZoomCommands(zoom: zoom)
         }
