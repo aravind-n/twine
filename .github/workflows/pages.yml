@@ -4,9 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'site/**'
-      - 'docs/reference.md'
-      - 'docs/images/twine-workspace.png'
+      - 'docs/**'
       - 'twine-core/**'
       - 'twine-bridge/**'
       - 'Cargo.toml'
@@ -17,9 +15,7 @@ on:
       - '.github/workflows/pages.yml'
   pull_request:
     paths:
-      - 'site/**'
-      - 'docs/reference.md'
-      - 'docs/images/twine-workspace.png'
+      - 'docs/**'
       - 'twine-core/**'
       - 'twine-bridge/**'
       - 'Cargo.toml'

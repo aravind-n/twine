@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f8f2">
+    <title>User guide — Twine</title>
+    <meta name="description" content="Learn how to set up Twine, run your first workflow, and work with your coding agents.">
+    <link rel="canonical" href="https://aravind-n.github.io/twine/documentation/guide/">
+    <link rel="icon" type="image/png" href="../../assets/favicon.png">
+    <link rel="stylesheet" href="../../assets/styles.css">
+  </head>
+  <body class="docs-page" id="top">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="../../" aria-label="Twine home"><img src="../../assets/icon.png" width="40" height="40" alt=""><span>twine<span class="brand-period">.</span></span></a>
+      <nav aria-label="Main navigation"><a href="../../#workflows">Workflows</a><a href="../">Docs</a><a class="nav-github" href="https://github.com/aravind-n/twine">GitHub <span aria-hidden="true">↗</span></a></nav>
+    </header>
+    <div class="docs-layout wrap">
+      <aside class="docs-sidebar">
+        <a class="docs-back" href="../">← All documentation</a>
+        <nav aria-label="On this page"><p class="eyebrow">On this page</p><div class="toc">
+<ul>
+<li><a href="#install">Install</a></li>
+<li><a href="#run-your-first-workflow">Run your first workflow</a></li>
+<li><a href="#folder-windows">Folder windows</a></li>
+<li><a href="#files">Files</a></li>
+<li><a href="#agent-workflows">Agent workflows</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#terminal-panes">Terminal panes</a></li>
+<li><a href="#terminal-transcripts">Terminal transcripts</a></li>
+</ul>
+</div>
+</nav>
+        <a class="docs-source" href="https://github.com/aravind-n/twine/blob/main/docs/documentation/guide/index.html">View on GitHub <span aria-hidden="true">↗</span></a>
+      </aside>
+      <main id="main" class="docs-content">
+        <p class="eyebrow">User guide</p>
+        <h1 id="user-guide">User guide<a class="headerlink" href="#user-guide" title="Permanent link">#</a></h1>
+<p>Learn how to install Twine, run your first workflow, and work with coding agents
+in your folders.</p>
+<h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">#</a></h2>
+<p>Twine requires <strong>macOS 26+</strong> and supports Apple Silicon and Intel.</p>
+<p>Download the universal ZIP from
+<a href="https://github.com/aravind-n/twine/releases">GitHub Releases</a>, extract it, move
+<code>Twine.app</code> to Applications, and follow its included <code>README.txt</code>. The current
+packaging produces an ad hoc signed app that is not notarized. If macOS blocks
+the first launch, use <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>
+for Twine, then confirm Open. Managed Macs may restrict approval.</p>
+<p>To update, quit Twine and replace <code>Twine.app</code> with the new version. Your saved
+work and settings are retained. Nightly prereleases install the same way and use
+the same data as stable releases.</p>
+<h2 id="run-your-first-workflow">Run your first workflow<a class="headerlink" href="#run-your-first-workflow" title="Permanent link">#</a></h2>
+<ol>
+<li>Open Twine and choose <strong>Open Folder… (⌘O)</strong> to select the folder you want to work in.</li>
+<li>Create a session to keep the workflows for your task together.</li>
+<li>Add a workflow in a new tab. Choose <strong>Terminal</strong> for a shell, or <strong>Single agent</strong>
+   to work with a coding agent. For an agent workflow, install and authenticate its
+   harness separately, then select it in Twine's launch form.</li>
+<li>Start the workflow and enter your command or task in its terminal.</li>
+</ol>
+<p>You can return to the session later to review its output or continue working.
+The sections below explain how to use more workflows and organize your work.</p>
+<h2 id="folder-windows">Folder windows<a class="headerlink" href="#folder-windows" title="Permanent link">#</a></h2>
+<p><strong>Open Folder… (⌘O)</strong> reuses an empty window or opens another window when a folder
+is already open. <strong>New Window (⌘N)</strong> opens a start page. Opening a folder that is
+already open focuses its existing window, including when opened through a symlink.</p>
+<p>Each window has independent sessions, terminals, file tabs, and navigation. Menu
+commands act on the focused window. Settings, recent folders, and custom workflow
+types are shared. Closing a window stops only its folder's processes; <strong>Close
+Folder</strong> returns that window to the start page. Quitting stops every window's
+processes and restores all open folders on the next launch. Unavailable folders
+show an explanation and can be closed without reopening them next time.</p>
+<h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">#</a></h2>
+<p>The sidebar starts open. Toggle it with the toolbar button or <strong>⌃⌘S</strong> to browse the folder or make more room for terminals. Expanding a directory loads only its children;
+empty directories remain visible. Twine refreshes expanded directories and the selected file
+when they change, including changes made by shells and agents.</p>
+<p>Select a file to make small edits to UTF-8 text up to <strong>2 MiB</strong>. Use <strong>⌘Z</strong> to undo, <strong>⇧⌘Z</strong> to
+redo, <strong>⌘S</strong> to save, and <strong>⌘L</strong> to go to a line. Unsaved changes show “Edited” in the header.
+Before saving, Twine checks whether the file on disk has changed. If it has, choose <strong>Reload</strong> to discard
+your edits or <strong>Overwrite</strong> to save them; <strong>Cancel</strong> keeps the edits without changing the file.
+Disk updates refresh clean files and never replace unsaved edits. <strong>⌘W</strong> closes the file and returns to the
+workflow. Binary files, larger files, deleted paths, symbolic links, and special files show
+an explanatory state. Up to 256 directories can be expanded at once.</p>
+<h2 id="agent-workflows">Agent workflows<a class="headerlink" href="#agent-workflows" title="Permanent link">#</a></h2>
+<p>Choose <strong>Adversarial</strong>, <strong>Coordinator</strong>, or a stored custom workflow type from a new tab.
+Pick a harness for each role instance, and optionally its model and effort level, then start it.
+Supported harnesses are Codex, Claude Code, pi, Antigravity (<code>agy</code>), OMP (<code>omp</code>), and OpenCode (<code>opencode</code>), installed on your shell's PATH.
+Choose a model and effort level from the options shown in the launch form. Claude Code
+also accepts a model name you type yourself. Where available, <strong>YOLO</strong> lets the harness
+run without asking for permission before each action. Pi does not ask for permission,
+so it has no YOLO option. The first stage's agent asks for the task in
+its terminal and reports it when it finishes, so later roles receive it. Harnesses run directly
+in the open folder; parallel workers receive their own sub-task and advisory file ownership.
+Each role has a terminal subtab. Later stages and review rounds reuse a role's live
+harness conversation when it remains available. After a role completes its assignment,
+its terminal stays interactive for follow-up prompts. A follow-up can start another
+workflow cycle while retaining the agents and trace history. Restored workflows
+resume recorded harness conversations when all unfinished active agents have
+compatible session handles.</p>
+<p>Choose <strong>Create your own</strong> (<strong>⌥⌘N</strong>) in a new tab to design a workflow type. Add roles and
+instructions, order stages and their parallel roles, connect handoffs, and bound review loops.
+The designer shows validation errors beside each affected element and enables Save only after
+the current design validates. Use Tab and Shift-Tab to navigate controls, Return to save, and
+Escape to cancel. The Preview tab shows the graph.</p>
+<p>From a type's launch form, <strong>Edit workflow type</strong> or <strong>Edit a copy</strong> (<strong>⇧⌘E</strong>) opens the designer.
+Saving a built-in creates a custom copy. Editing a custom type adds a version; workflows already
+started keep their original version. Saved types appear in the catalog and survive relaunch.</p>
+<p>Agents advance stages when they explicitly report completion. Terminal text and
+process exits do not advance a workflow.</p>
+<p><strong>Mark done…</strong> is always available for an unfinished active role, including after its process
+exits. Its form also supports review decisions and worker assignments. Review loops stop at the
+type's limit; <strong>Cancel workflow</strong> stops all its agents. Runs restored after quitting or a crash
+resume their unfinished active agents when every one has a recorded harness session. Otherwise they remain interrupted with their saved output. The Traces panel shows each
+role's stage invocations on compact agent tracks in shared start order, with equal spacing
+regardless of pauses. Select a step to focus a seven-step window and inspect its stage
+changes, completions, and handoffs; this history survives reopening the app.</p>
+<p>Claude Code, Codex, pi, and OMP can show prompts, tool calls, and responses in
+<strong>Traces</strong>. Select a step to jump to its recorded terminal output. Antigravity and
+OpenCode show workflow activity but do not record individual prompts or tool calls.
+If detailed tracing is unavailable, you can still use the agent's terminal and
+review its saved output. Twine leaves your harness configuration files unchanged.</p>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
+<p>Twine reads <code>~/.config/twine/config.toml</code> at startup and creates a commented default file
+on first launch. Restart Twine after editing settings.</p>
+<pre class="highlight"><code class="language-toml">[appearance]
+color_scheme = "system" # "system", "light", or "dark"
+
+[terminal]
+font_family = "JetBrains Mono"
+font_size = 13.0</code></pre>
+<p>Terminal settings apply to live shell and agent terminals, including Bento panes, and terminal
+history. Install the font in macOS and use its family name. An omitted or empty <code>font_family</code>
+uses system monospace. Twine checks that <code>i</code> and <code>w</code> have equal character widths, allowing Nerd
+Fonts whose icons are wider. An unavailable font or one that fails this check falls back to
+system monospace with a warning. <code>font_size</code> defaults to 13 points and accepts sizes from 6
+through 72, including fractional sizes such as 13.5. Appearance settings are parsed but are
+not applied yet.</p>
+<p>Terminal colors use the Silica palette in dark mode and an adapted palette in light mode.</p>
+<p>Omitted settings use defaults. Invalid TOML, invalid values, or file errors use the complete
+defaults; unknown keys are ignored with a warning. Diagnostics include the file, line, and
+key (or <code>&lt;document&gt;</code> when a syntax error has no identifiable key). They appear in macOS
+Console under the <code>com.twineproject.Twine</code> subsystem, without logging config values.</p>
+<h2 id="terminal-panes">Terminal panes<a class="headerlink" href="#terminal-panes" title="Permanent link">#</a></h2>
+<p>Use the two buttons at the top right, <strong>⌘D</strong> to split right, or <strong>⇧⌘D</strong> to split down.
+Each split starts a shell in the same folder; run any command or coding agent there.
+Up to four panes share the same Bento styling and draggable dividers as agent workflows.
+<strong>⌘[</strong> and <strong>⌘]</strong> move keyboard focus. Each pane has a close button; <strong>⌘W</strong> closes the focused
+pane, and closing the tab closes its panes. Pane layouts survive reopening. The Traces panel combines
+all panes in a tab into one set of tracks, and selecting an event focuses its owning pane.</p>
+<p>Paste a clipboard screenshot with <strong>⌘V</strong>, or drop images and files onto any terminal or agent
+pane. Clipboard images become private PNG files in the temporary directory; Twine inserts their
+quoted paths so the shell or harness can read them. File drops use their original paths.
+How much output remains in live scrollback depends on the harness's terminal display mode.</p>
+<h2 id="terminal-transcripts">Terminal transcripts<a class="headerlink" href="#terminal-transcripts" title="Permanent link">#</a></h2>
+<p>Every terminal and agent pane has a compact minimap at its right edge. Hover or focus the
+14-point rail to expand it over the output; expansion does not change the terminal's columns.
+Click or drag the visible-region indicator to scroll. With the rail focused, use the arrow,
+Page Up/Down, Home, and End keys. <strong>Return to live</strong> resumes following the latest output.
+Each Bento pane keeps its own position.</p>
+<p>Minimap points use the same step IDs, numbers, role colors, and selection as <strong>Traces</strong>.
+Selecting a point opens that step in Traces and scrolls the live terminal to its recorded
+position. Points are placed by terminal row;
+the Traces panel spaces steps by start order. Loading <strong>Older traces</strong> adds those steps to the
+map when their output is still available. Output without an available anchor remains
+scrollable without a guessed point. Historical output also has its own minimap.</p>
+<p>Twine saves terminal output under <code>~/Library/Application Support/Twine/transcripts/</code>.
+Terminal IDs remain unique across launches. Closing a terminal preserves output already accepted
+for recording. Reopening a folder restores recorded output and scrollback. Shells append a fresh
+prompt. Single agents resume their exact recorded harness session, retaining earlier output.
+Codex and Claude Code use session IDs; pi and OMP use session files. Antigravity and OpenCode
+support exact-ID resume but don't expose launch observers, so use <strong>Resume Session…</strong> to supply
+the conversation/session ID once. The same action is available for older tabs without a captured
+session. Twine never guesses the latest conversation. Cancelled or failed agents remain stopped.
+<strong>Saved output</strong> opens earlier invocations, including an idle shell with no trace step.
+Live views and ANSI replay retain up to 100,000 rows in memory; the raw transcript limits below
+apply independently. New workflows appear in Traces once their terminals are active.</p>
+<p>Saved output is capped at <strong>64 MiB per terminal</strong> and <strong>512 MiB across all terminals</strong>.
+Older output expires when storage or metadata limits are reached. Expired output
+remains unavailable after reopening Twine.</p>
+<p>Click an anchored event in trace details to select its workflow and agent and scroll the mounted
+terminal to that point. <strong>Return to live</strong> scrolls back to the latest output. If a point belongs
+to an earlier invocation or has left scrollback, choose <strong>Show saved output</strong> in the notice to
+open a read-only snapshot. Saved output replays cursor movement and recorded terminal sizes;
+resizing the window only changes its viewport. It displays text without terminal colors or
+images. Events without an anchor keep their details without a jump action.</p>
+<p>Saved output needs the earlier terminal output and its recorded sizes to display correctly.
+If either has expired, Twine shows <strong>Output no longer available</strong>.</p>
+        <p class="docs-end"><a href="#top">Back to top ↑</a><a href="https://github.com/aravind-n/twine/issues">Questions or feedback? ↗</a></p>
+      </main>
+    </div>
+    <footer class="footer wrap"><div><a class="brand footer-brand" href="../../"><span>twine<span class="brand-period">.</span></span></a><p>A native macOS workspace for coordinating coding agents.</p></div><nav aria-label="Footer navigation"><a href="../">Documentation</a><a href="https://github.com/aravind-n/twine/releases/latest">Releases</a><a href="https://github.com/aravind-n/twine/blob/main/LICENSE">MIT License</a></nav></footer>
+  </body>
+</html>

@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f7f8f2">
     <title>Documentation — Twine</title>
-    <meta name="description" content="Twine’s user guide and generated API documentation for the Rust application core, C ABI bridge, and native Swift app.">
-    <link rel="canonical" href="https://aravind-n.github.io/twine/docs/">
+    <meta name="description" content="Learn how to use Twine, or explore reference documentation for the twine-core library and macOS app.">
+    <link rel="canonical" href="https://aravind-n.github.io/twine/documentation/">
     <link rel="icon" type="image/png" href="../assets/favicon.png">
-    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="../assets/styles.css">
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -19,28 +19,29 @@
     <main id="main" class="documentation wrap section">
       <p class="eyebrow">Find your way around</p>
       <h1>Documentation.</h1>
-      <p class="documentation-intro">Get started with Twine, or explore the APIs behind the app.</p>
+      <p class="documentation-intro">Learn how to use Twine, or explore reference documentation for the library and macOS app.</p>
       <div class="documentation-grid">
         <a class="documentation-card" href="guide/">
           <p class="card-number">USAGE &amp; SETUP</p>
           <h2>User guide <span aria-hidden="true">↗</span></h2>
-          <p>Installation, folders, sessions, agent workflows, terminals, traces, and configuration. Includes development and release instructions.</p>
+          <p>Learn how to set up Twine, run your first workflow, and work with your coding agents.</p>
           <span class="card-caption">Read the guide</span>
         </a>
-        <a class="documentation-card" href="rust/">
-          <p class="card-number">RUST · CARGO DOC</p>
-          <h2>Rust core &amp; C ABI <span aria-hidden="true">↗</span></h2>
-          <p>One workspace reference for the application core and its C ABI bridge, covering domain APIs, exported functions, buffers, and safety contracts.</p>
-          <span class="card-caption">twine_core + twine_bridge</span>
+        <a class="documentation-card" href="rust/twine_core/">
+          <p class="card-number">LIBRARY REFERENCE</p>
+          <h2>twine-core <span aria-hidden="true">↗</span></h2>
+          <p>Reference documentation for the twine-core library. Explore the APIs that manage sessions, workflows, and agents.</p>
+          <span class="card-caption">Browse the library reference</span>
         </a>
         <a class="documentation-card" href="swift/documentation/twine/">
-          <p class="card-number">SWIFT · APPLE DOCC</p>
-          <h2>Native macOS app <span aria-hidden="true">↗</span></h2>
-          <p>The SwiftUI and AppKit presentation layer, including CoreClient, folder windows, workflow views, and terminal controllers.</p>
-          <span class="card-caption">Twine</span>
+          <p class="card-number">APP REFERENCE</p>
+          <h2>macOS app <span aria-hidden="true">↗</span></h2>
+          <p>Reference documentation for the macOS app and its interface components.</p>
+          <span class="card-caption">Browse the app reference</span>
         </a>
       </div>
-      <p class="documentation-note">API references are generated from the source on <code>main</code>. The Swift reference includes internal app symbols for contributors. Interfaces are still evolving.</p>
+      <p class="documentation-note">Building or contributing to Twine? Read the <a href="development/">development guide</a> for build, test, and release instructions.</p>
+      <p class="documentation-note">The API references follow the latest source on <code>main</code>. Interfaces may change while Twine is in early development.</p>
       <p class="documentation-feedback">Something missing? <a href="https://github.com/aravind-n/twine/issues">Ask a question or suggest an improvement ↗</a></p>
     </main>
     <footer class="footer wrap"><div><a class="brand footer-brand" href="../"><span>twine<span class="brand-period">.</span></span></a><p>A native macOS workspace for coordinating coding agents.</p></div><nav aria-label="Footer navigation"><a href="../">Home</a><a href="https://github.com/aravind-n/twine/releases/latest">Releases</a><a href="https://github.com/aravind-n/twine/blob/main/LICENSE">MIT License</a></nav></footer>

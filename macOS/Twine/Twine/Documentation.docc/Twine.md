@@ -4,17 +4,17 @@ A native macOS workspace for coordinating coding agents.
 
 ## Overview
 
-Twine's SwiftUI and AppKit layer presents folder windows, sessions, workflows,
-terminals, files, and traces. Domain state and orchestration live in the Rust
-application core. ``CoreClient`` is the Swift entry point for commands and state
+Twine's macOS front end presents folder windows, sessions, workflows,
+terminals, files, and traces. Application state and orchestration live in the
+`twine-core` library. ``CoreClient`` is the Swift entry point for commands and state
 published across the C ABI.
 
 This reference includes internal app symbols. It describes the implementation
 for contributors; these symbols are not a stable library API.
 
-For installation and usage, see the [Twine user guide](https://aravind-n.github.io/twine/docs/guide/).
-For the underlying application core and C ABI, see the
-[Rust API reference](https://aravind-n.github.io/twine/docs/rust/).
+For installation and usage, see the [Twine user guide](https://aravind-n.github.io/twine/documentation/guide/).
+For the reusable application library and its C interface, see the
+[twine-core reference](https://aravind-n.github.io/twine/documentation/rust/).
 
 ## Topics
 

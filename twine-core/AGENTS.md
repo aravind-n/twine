@@ -1,6 +1,6 @@
-# Rust core
+# twine-core
 
-Keep `twine-core/` as a UI-independent library. Put domain state, orchestration, process supervision, PTYs, Git state, and persistence here; expose application commands and events without importing Swift or macOS UI types.
+Keep `twine-core/` as Twine's UI-independent application library. Put domain state, orchestration, process supervision, PTYs, Git state, and persistence here; expose application commands and events without importing Swift or macOS UI types.
 
 Preserve the distinction between a role in a workflow type and the harness assigned to it.
 
