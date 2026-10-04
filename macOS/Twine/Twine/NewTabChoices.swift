@@ -28,10 +28,9 @@ struct NewTabChoices: View {
     private var promptClearance: CGFloat { showsPrompt ? 0 : NewTabLayout.promptClearance }
 
     private var verticalPadding: CGFloat {
-        let minimumHeight = showsPrompt ? 2 * NewTabLayout.minimumChoiceHeight : NewTabLayout.minimumChoiceHeight
         return min(
             NewTabLayout.padding,
-            max(0, (availableHeight - promptClearance - minimumHeight) / 2))
+            max(0, (availableHeight - promptClearance - NewTabLayout.minimumChoiceViewportHeight) / 2))
     }
 
     private var viewportHeight: CGFloat {

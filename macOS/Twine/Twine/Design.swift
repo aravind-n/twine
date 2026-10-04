@@ -85,6 +85,8 @@ nonisolated enum NewTabLayout {
     static let choiceTextSpacing: CGFloat = 4
     static let minimumChoiceWidth: CGFloat = 160
     static let minimumChoiceHeight: CGFloat = 64
+    /// Keep the heading and first choice row visible together in the scrollable card.
+    static let minimumChoiceViewportHeight: CGFloat = 2 * minimumChoiceHeight
     static let choicePadding: CGFloat = 10
     static let symbolWidth: CGFloat = 16
     /// The close button's inset from the card's top trailing corner.
@@ -152,7 +154,10 @@ nonisolated enum WorkflowSurfaceLayout {
         let notice = workflow?.showsRestoredNotice == true ? RestoredNoticeLayout.height : 0
         let terminal = strip + notice + 2 * padding + 2 * (font.ascender - font.descender + font.leading).rounded(.up)
         return workflow?.kind == .draft
-            ? max(terminal, NewTabLayout.promptClearance + NewTabLayout.minimumChoiceHeight) : terminal
+            ? max(
+                terminal,
+                NewTabLayout.promptClearance + NewTabLayout.minimumChoiceViewportHeight + 2 * NewTabLayout.padding
+            ) : terminal
     }
 }
 
