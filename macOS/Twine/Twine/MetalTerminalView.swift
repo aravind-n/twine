@@ -3,48 +3,12 @@ import MetalKit
 import OSLog
 import SwiftTerm
 
-struct TerminalPalette {
-    let background: NSColor
-    let text: NSColor
-    let ansi: [SwiftTerm.Color]
-
-    static func resolved(for appearance: NSAppearance?) -> Self {
-        guard let appearance else {
-            return fixedPalette()
-        }
-        var resolved: Self?
-        appearance.performAsCurrentDrawingAppearance {
-            resolved = fixedPalette()
-        }
-        return resolved ?? fixedPalette()
-    }
-
-    private static func fixedPalette() -> Self {
-        let ansi: [NSColor] = [
-            .terminalBlack, .terminalTextRed, .terminalTextGreen, .terminalTextAmber,
-            .terminalTextBlue, .terminalTextMagenta, .terminalTextCyan, .terminalWhite,
-            .terminalTextMuted, .terminalBrightRed, .terminalBrightGreen, .terminalBrightAmber,
-            .terminalBrightBlue, .terminalBrightMagenta, .terminalBrightCyan, .terminalBrightWhite,
-        ]
-        return Self(
-            background: fixed(.terminalBackground),
-            text: fixed(.terminalText),
-            ansi: ansi.map { SwiftTerm.Color(nsColor: fixed($0)) }
-        )
-    }
-
-    private static func fixed(_ color: NSColor) -> NSColor {
-        guard let resolved = color.usingColorSpace(.sRGB) else { return color }
-        return NSColor(
-            srgbRed: resolved.redComponent,
-            green: resolved.greenComponent,
-            blue: resolved.blueComponent,
-            alpha: resolved.alphaComponent
-        )
-    }
-}
-
 final class MetalTerminalView: TerminalView {
+    var terminalPalettes: CoreTerminalPalettes?
+
+    var twinePalette: TerminalPalette {
+        TerminalPalette.resolved(for: effectiveAppearance, palettes: terminalPalettes)
+    }
     private(set) var isSendingTerminalResponse = false
     weak var minimapState: TerminalMinimapState?
     var zoomScale: CGFloat = 1 {
@@ -257,9 +221,12 @@ final class MetalTerminalView: TerminalView {
     }
 
     func applyTwinePalette() {
-        let palette = TerminalPalette.resolved(for: effectiveAppearance)
+        let palette = twinePalette
         nativeBackgroundColor = palette.background
         nativeForegroundColor = palette.text
+        caretColor = palette.cursor
+        selectedTextBackgroundColor = palette.selection
+        selectedTextForegroundColor = palette.text
         installColors(palette.ansi)
     }
 

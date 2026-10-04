@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Pane frames change without moving terminal views between branches of the view tree.
 struct WorkflowPaneCanvas: View {
+    @TerminalTheme private var palette
     @Environment(CoreClient.self) private var coreClient
     @Environment(WorkflowLayouts.self) private var layouts
     let folder: String
@@ -51,7 +52,7 @@ struct WorkflowPaneCanvas: View {
                                 .accessibilityLabel("Close \(workflow.name) pane")
                                 .accessibilityIdentifier("closeTerminalPane-\(workflow.id)")
                             }
-                            .tabTitleStyle(isSelected: focused)
+                            .tabTitleStyle(isSelected: focused, foreground: Color(nsColor: palette.text))
                             .padding(.horizontal, BentoLayout.headerPadding).frame(height: BentoLayout.headerHeight)
                             .contentShape(Rectangle())
                             .onTapGesture { selection.selectedID = workflow.id }
@@ -84,7 +85,7 @@ struct WorkflowPaneCanvas: View {
             }
             .background(
                 selectedRoot.map { layouts.terminalSplit(for: $0, in: folder).ids.count > 1 } == true
-                    ? Color.workflowTint : .terminalBackground)
+                    ? Color.workflowTint : Color(nsColor: palette.background))
         }
     }
 }

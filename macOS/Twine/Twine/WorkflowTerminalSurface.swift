@@ -35,7 +35,9 @@ struct WorkflowTerminalSurface: View {
                     } else {
                         ContentUnavailableView(
                             "Shell Couldn't Restart", systemImage: "terminal",
-                            description: Text("Open a new workflow to try again."))
+                            description: Text("Open a new workflow to try again.")
+                        )
+                        .background(.windowBackground)
                     }
                 } else {
                     terminal
@@ -63,6 +65,7 @@ struct WorkflowTerminalSurface: View {
             default: ("Agent Interrupted", "Twine quit while this agent was running. Its work didn't finish.")
             }
         return ContentUnavailableView(title, systemImage: "person", description: Text(detail))
+            .background(.windowBackground)
     }
 
     private var terminal: some View {

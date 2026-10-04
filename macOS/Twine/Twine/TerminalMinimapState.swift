@@ -80,7 +80,7 @@ final class TerminalMinimapState {
         geometry = .init(
             rows: count, visibleRows: terminal.rows, topRow: terminal.getTopVisibleRow(), columns: terminal.cols,
             cellAspectRatio: (font.ascender - font.descender + font.leading).rounded(.up) / max(1, cellWidth))
-        (strokes, strokeColors) = Self.sample(terminal, count: count)
+        (strokes, strokeColors) = Self.sample(terminal, count: count, palette: view?.twinePalette)
         if terminal.isCurrentBufferAlternate {
             markerRows = [:]
             return
@@ -105,7 +105,9 @@ final class TerminalMinimapState {
         }
     }
 
-    private static func sample(_ terminal: Terminal, count: Int) -> ([CGRect], [SwiftUI.Color]) {
+    private static func sample(_ terminal: Terminal, count: Int, palette: TerminalPalette?) -> (
+        [CGRect], [SwiftUI.Color]
+    ) {
         var result: [CGRect] = []
         var colors: [SwiftUI.Color] = []
         for row in stride(from: 0, to: count, by: max(1, count / 350)) {
@@ -122,7 +124,7 @@ final class TerminalMinimapState {
                             x: Double(lower) / Double(max(1, terminal.cols)), y: Double(row) / Double(count),
                             width: Double(column - lower) / Double(max(1, terminal.cols)), height: 0.58 / Double(count))
                     )
-                    colors.append(TerminalMinimapInk.color(line[lower].attribute.fg))
+                    colors.append(TerminalMinimapInk.color(line[lower].attribute.fg, palette: palette))
                     start = nil
                 }
             }

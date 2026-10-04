@@ -121,8 +121,10 @@ OpenCode show workflow activity but do not record individual prompts or tool cal
 If detailed tracing is unavailable, you can still use the agent's terminal and
 review its saved output. Twine leaves your harness configuration files unchanged.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
-<p>Twine reads <code>~/.config/twine/config.toml</code> at startup and creates a commented default file
-on first launch. Restart Twine after editing settings.</p>
+<p>Twine reads <code>$XDG_CONFIG_HOME/twine/config.toml</code> at startup, falling back to
+<code>~/.config/twine/config.toml</code> when <code>XDG_CONFIG_HOME</code> is unset, empty, or relative. It creates a
+commented default config and <code>themes/silica_dark.toml</code> and <code>themes/silica_light.toml</code> beside it
+on first launch. Existing files are never overwritten. Restart Twine after editing settings.</p>
 <pre class="highlight"><code class="language-toml">[appearance]
 color_scheme = "system" # "system", "light", or "dark"
 
@@ -136,9 +138,51 @@ Fonts whose icons are wider. An unavailable font or one that fails this check fa
 system monospace with a warning. <code>font_size</code> defaults to 13 points and accepts sizes from 6
 through 72, including fractional sizes such as 13.5. Appearance settings are parsed but are
 not applied yet.</p>
-<p>Terminal colors use the Silica palette in dark mode and an adapted palette in light mode.</p>
-<p>Omitted settings use defaults. Invalid TOML, invalid values, or file errors use the complete
-defaults; unknown keys are ignored with a warning. Diagnostics include the file, line, and
+<p>A top-level <code>import</code> loads one or more complete TOML configuration files. Put it before any
+table headers in <code>config.toml</code>:</p>
+<pre class="highlight"><code class="language-toml">import = ["themes/silica_dark.toml", "fonts.toml"]
+
+[terminal]
+font_size = 14.0
+
+[terminal.colors]
+# Settings here override the imported files.
+background = "#101820"
+foreground = "#e5e1cf"
+cursor = "#8fbe5c"
+selection = "#34495e"</code></pre>
+<p>A single file can also use <code>import = "themes/silica_dark.toml"</code>. Files merge in the order listed:
+later imports override earlier imports, then the importing file overrides them all. Tables merge
+recursively, so overriding <code>terminal.font_size</code> preserves an imported <code>terminal.font_family</code>.
+Arrays, including the ANSI palette, are replaced as a whole. Defaults fill omitted settings after
+merging. Imported files can contain any supported settings, including appearance and terminal fonts.</p>
+<p>Imports accept absolute paths, <code>~/</code> paths, and paths relative to the file containing the import.
+Imported files can have their own top-level imports. Cycles are rejected, including cycles through
+symlinks; each import tree is limited to 64 levels and 256 documents. Invalid imported settings cause
+the complete config to fall back to defaults even if a later file overrides that setting. Diagnostics
+identify the original file, line, and key. Missing imported files are reported and never created.</p>
+<p>Terminal colors normally come from <code>themes/silica_dark.toml</code> in dark mode and <code>themes/silica_light.toml</code>
+in light mode. Those files use the same config tables, so they can also be imported directly. A full
+palette import applies the same colors in both appearances. Partial imports and local overrides
+replace only supplied colors; omitted colors retain the corresponding default theme values.</p>
+<p>For example, a theme file contains:</p>
+<pre class="highlight"><code class="language-toml">[terminal.colors]
+background = "#101820"
+foreground = "#e5e1cf"
+cursor = "#8fbe5c"
+selection = "#34495e"
+ansi = [
+    "#1a2026", "#ef4d4d", "#8fbe5c", "#d9bd54",
+    "#4aa3e0", "#dc63a0", "#2dd6ab", "#cac5b3",
+    "#7d8794", "#ff8383", "#a9e488", "#ecd77e",
+    "#7cd2f5", "#f0a0d5", "#85f0d8", "#f7f4e8",
+]</code></pre>
+<p>Colors must be <code>#RRGGBB</code> strings. <code>ansi</code> accepts exactly 16 entries: black, red, green, yellow,
+blue, magenta, cyan, and white, followed by their bright variants. The same tables and keys work in
+<code>config.toml</code> and all imported files. Changes apply after restarting Twine, including shell and
+agent terminals, Bento panes, saved output, and minimaps.</p>
+<p>Omitted settings use defaults. Invalid TOML, invalid values, or file errors (including theme files)
+use the complete defaults; unknown keys are ignored with a warning. Diagnostics include the file, line, and
 key (or <code>&lt;document&gt;</code> when a syntax error has no identifiable key). They appear in macOS
 Console under the <code>com.twineproject.Twine</code> subsystem, without logging config values.</p>
 <h2 id="terminal-panes">Terminal panes<a class="headerlink" href="#terminal-panes" title="Permanent link">#</a></h2>

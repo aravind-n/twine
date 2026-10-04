@@ -1,0 +1,25 @@
+# Silica light terminal colors. Edit this file, then restart Twine.
+[terminal.colors]
+background = "#f7f4e8"
+foreground = "#1a2026"
+cursor = "#1a2026"
+selection = "#e5e1cf"
+# ANSI slots: black, red, green, yellow, blue, magenta, cyan, white; then bright variants.
+ansi = [
+    "#1a2026",
+    "#b72c32",
+    "#4c712f",
+    "#7c6917",
+    "#176b9b",
+    "#9f356d",
+    "#087a60",
+    "#666354",
+    "#626d78",
+    "#c53b43",
+    "#517a2d",
+    "#896a12",
+    "#00729c",
+    "#ac467f",
+    "#007d6a",
+    "#37382f",
+]

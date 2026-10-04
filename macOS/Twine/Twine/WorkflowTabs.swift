@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WorkflowTabs: View {
+    @TerminalTheme private var palette
     @Environment(FileTabsModel.self) private var fileTabs
     let workflows: [CoreWorkflow]
     let selectedID: UInt64?
@@ -32,7 +33,8 @@ struct WorkflowTabs: View {
                     name: workflow.name, symbol: workflow.tabSymbol,
                     tabID: "workflowTab-\(workflow.id)", closeID: "closeWorkflow-\(workflow.id)",
                     helpText: workflow.name,
-                    fill: workflow.showsTerminalStrip ? .workflowTint : .terminalBackground,
+                    fill: workflow.showsTerminalStrip ? .workflowTint : Color(nsColor: palette.background),
+                    selectedForeground: workflow.showsTerminalStrip ? nil : Color(nsColor: palette.text),
                     isSelected: workflow.id == selectedID,
                     select: { select(workflow.id) },
                     close: { close(workflow.id) }
@@ -116,6 +118,7 @@ private struct WorkspaceTab: View {
     let closeID: String
     let helpText: String
     let fill: Color
+    var selectedForeground: Color?
     var isEdited = false
     let isSelected: Bool
     let select: () -> Void
@@ -141,7 +144,7 @@ private struct WorkspaceTab: View {
                     Circle().fill(.secondary).frame(width: 5, height: 5).accessibilityHidden(true)
                 }
             }
-            .tabTitleStyle(isSelected: isSelected)
+            .tabTitleStyle(isSelected: isSelected, foreground: isSelected ? selectedForeground : nil)
             .padding(.horizontal, 12)
             .frame(height: isSelected ? 35 : 29)
             .contentShape(.rect)
@@ -165,6 +168,7 @@ private struct WorkspaceTab: View {
         .overlay(alignment: .leading) {
             Button("Close \(name)", systemImage: "xmark", action: close)
                 .labelStyle(.iconOnly)
+                .foregroundStyle(isSelected ? selectedForeground ?? .primary : .primary)
                 .font(.system(size: 9, weight: .semibold))
                 .frame(width: 20, height: 23)
                 .buttonStyle(.plain)

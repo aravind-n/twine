@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Explains process state while the saved terminal output is restored.
 struct RestoredWorkflowNotice: View {
+    @TerminalTheme private var palette
     @Environment(TraceTerminalNavigation.self) private var navigation
     let workflow: CoreWorkflow
 
@@ -31,10 +32,11 @@ struct RestoredWorkflowNotice: View {
             }
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color(nsColor: palette.text).opacity(0.7))
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: RestoredNoticeLayout.height)
+        .background(Color(nsColor: palette.background))
     }
 
     private var message: String {

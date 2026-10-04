@@ -8,6 +8,7 @@ struct TerminalHistoryText: NSViewRepresentable {
     var font = NSFont.terminal
     var minimap: TerminalMinimapState?
     var markerRows: [UInt64: Int] = [:]
+    var palette: TerminalPalette?
 
     func makeNSView(context: Context) -> TerminalHistoryScrollView {
         let scroll = Self.makeScrollView(font: font)
@@ -41,17 +42,22 @@ struct TerminalHistoryText: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: TerminalHistoryScrollView, context: Context) {
-        Self.show(text, outputStartRange: outputStartRange, in: scroll, font: font)
+        Self.show(text, outputStartRange: outputStartRange, in: scroll, font: font, palette: palette)
         minimap?.showHistory(text: text, rows: markerRows)
     }
 
     static func show(
-        _ text: String, outputStartRange: NSRange? = nil, in scroll: TerminalHistoryScrollView, font: NSFont = .terminal
+        _ text: String, outputStartRange: NSRange? = nil, in scroll: TerminalHistoryScrollView,
+        font: NSFont = .terminal,
+        palette: TerminalPalette? = nil
     ) {
         guard let view = scroll.documentView as? NSTextView else { return }
         if view.font != font { view.font = font }
-        view.backgroundColor = .terminalBackground
-        view.textColor = .terminalText
+        let palette = palette ?? TerminalPalette.resolved(for: scroll.effectiveAppearance)
+        scroll.backgroundColor = palette.background
+        view.backgroundColor = palette.background
+        view.textColor = palette.text
+        view.selectedTextAttributes = [.backgroundColor: palette.selection, .foregroundColor: palette.text]
         if view.string != text || scroll.outputStartRange != outputStartRange {
             view.string = text
             scroll.outputStartRange = outputStartRange

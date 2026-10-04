@@ -5,6 +5,7 @@ private let workflowLogger = Logger(subsystem: "com.twineproject.Twine", categor
 
 /// Every workflow stays mounted, including its output pump and terminal emulator, until it closes.
 struct WorkflowWorkspace: View {
+    @TerminalTheme private var palette
     @Environment(CoreClient.self) private var coreClient
     @Environment(WorkflowLayouts.self) private var layouts
     @Environment(FileTabsModel.self) private var fileTabs
@@ -58,6 +59,7 @@ struct WorkflowWorkspace: View {
                         "No Open Tabs", systemImage: "terminal",
                         description: Text("Open a workflow with + or ⌘T.")
                     )
+                    .background(.windowBackground)
                 }
                 WorkflowPaneCanvas(
                     folder: folder, workflows: allWorkflows, sessionID: sessionID,
@@ -77,7 +79,7 @@ struct WorkflowWorkspace: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.terminalBackground)
+            .background(Color(nsColor: palette.background))
             .clipShape(panelShape)
             .overlay {
                 panelShape.stroke(.hairline, lineWidth: Surface.hairlineWidth)

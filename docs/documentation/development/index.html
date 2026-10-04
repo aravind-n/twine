@@ -138,8 +138,9 @@ to print a marker. It does not edit pi settings or save sessions.</p>
   RUST_TEST_ARGS='pi_extension_preserves_queued_prompts_and_tool_identity -- --ignored'</code></pre>
 <h2 id="extending-configuration">Extending configuration<a class="headerlink" href="#extending-configuration" title="Permanent link">#</a></h2>
 <p>Add settings as fields with defaults in <code>twine-core/src/config.rs</code>. The Serde schema drives
-parsing, unknown-key warnings, the generated default file, and snapshot serialization;
-extend Swift's <code>CoreConfig</code> when a consumer needs the new field.</p>
+parsing, unknown-key warnings, the generated default file, and snapshot serialization. Global
+imports merge raw TOML tables before defaults are applied. Resolved terminal palettes are output-only
+and omitted from the starter config. Extend Swift's <code>CoreConfig</code> when a consumer needs the new field.</p>
 <h2 id="transcript-implementation">Transcript implementation<a class="headerlink" href="#transcript-implementation" title="Permanent link">#</a></h2>
 <p>Retention is capped at <strong>64 MiB per terminal</strong> and <strong>512 MiB across all terminals</strong>. Output is stored
 in segments of at most <strong>1 MiB</strong>, with at most <strong>512 segments</strong> and <strong>1,024 terminal metadata entries</strong>.

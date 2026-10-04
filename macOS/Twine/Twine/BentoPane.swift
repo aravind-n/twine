@@ -2,13 +2,14 @@ import SwiftUI
 
 /// The same rounded terminal surface and keyboard focus ring for shells and agents.
 private struct BentoPane: ViewModifier {
+    @TerminalTheme private var palette
     @Environment(\.appearsActive) private var appearsActive
     let isTiled: Bool
     let isFocused: Bool
 
     func body(content: Content) -> some View {
         content
-            .background(.terminalBackground)
+            .background(Color(nsColor: palette.background))
             .clipShape(.rect(cornerRadius: isTiled ? CornerRadius.bentoPane : 0))
             .overlay {
                 if isTiled {

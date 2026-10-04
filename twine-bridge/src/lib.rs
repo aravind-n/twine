@@ -678,6 +678,8 @@ mod tests {
     fn create_client_in(data_directory: &Path) -> *mut TwineClient {
         let home = tempfile::tempdir().expect("an isolated home directory should be available");
         let _home_override = EnvironmentOverride::set("HOME", home.path().as_os_str());
+        let config_home = home.path().join(".config");
+        let _config_override = EnvironmentOverride::set("XDG_CONFIG_HOME", config_home.as_os_str());
         let path = data_directory
             .to_str()
             .expect("the test data directory should be UTF-8");

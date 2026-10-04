@@ -18,6 +18,10 @@ pub enum ConfigProblem {
     InvalidToml,
     #[error("invalid setting value or type; using defaults")]
     InvalidValue,
+    #[error("configuration import cycle; using defaults")]
+    ImportCycle,
+    #[error("configuration import limit exceeded; using defaults")]
+    ImportLimit,
     #[error("unknown key; ignored")]
     UnknownKey,
     #[error("{0}")]

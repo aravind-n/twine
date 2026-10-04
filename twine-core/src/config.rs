@@ -1,16 +1,20 @@
 //! User configuration. Serde defaults are the schema for both loading and the starter file.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml::de::DeTable;
 
 mod diagnostics;
+mod imports;
+mod themes;
 
 pub use diagnostics::{ConfigDiagnostic, ConfigProblem};
+pub use themes::{HexColor, TerminalColors, TerminalPalette, TerminalPalettes};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
@@ -25,6 +29,10 @@ pub struct TerminalConfig {
     /// An installed font family. Empty selects the platform's system monospace font.
     pub font_family: String,
     pub font_size: FontSize,
+    pub colors: TerminalColors,
+    /// Resolved colors for consumers; never accepted as a user setting.
+    #[serde(skip_deserializing)]
+    pub palettes: TerminalPalettes,
 }
 
 /// A terminal font size in points, limited to 6 through 72.
@@ -82,16 +90,16 @@ pub struct LoadedConfig {
 }
 
 impl Config {
-    /// Loads the fixed user config path, reporting problems without preventing startup.
+    /// Loads `$XDG_CONFIG_HOME/twine/config.toml`, falling back to `~/.config/twine`.
     #[must_use]
     pub fn load_user() -> Self {
-        let Some(home) = std::env::home_dir().filter(|home| home.is_absolute()) else {
-            tracing::error!(
-                "cannot find home directory for ~/.config/twine/config.toml; using defaults"
-            );
+        let home = std::env::home_dir();
+        let xdg = std::env::var_os("XDG_CONFIG_HOME");
+        let Some(path) = user_config_path(xdg.as_deref(), home.as_deref()) else {
+            tracing::error!("cannot find user config directory; using defaults");
             return Self::default();
         };
-        let loaded = Self::load(&home.join(".config/twine/config.toml"));
+        let loaded = Self::load(&path);
         for diagnostic in &loaded.diagnostics {
             if diagnostic.problem == ConfigProblem::UnknownKey {
                 tracing::warn!(%diagnostic, "configuration warning");
@@ -106,76 +114,115 @@ impl Config {
     /// overwritten. Any read, syntax, or validation failure returns the complete defaults.
     #[must_use]
     pub fn load(path: &Path) -> LoadedConfig {
-        match read_or_create(path) {
-            Ok(source) => Self::parse(path, &source),
-            Err(error) => LoadedConfig {
-                diagnostics: vec![ConfigDiagnostic {
-                    file: path.to_owned(),
-                    line: 1,
-                    key: "<document>".to_owned(),
-                    problem: ConfigProblem::File(error.to_string()),
-                }],
-                ..LoadedConfig::default()
-            },
+        let source = match read_or_create(path) {
+            Ok(source) => source,
+            Err(error) => {
+                return LoadedConfig {
+                    diagnostics: vec![file_diagnostic(path, &error)],
+                    ..LoadedConfig::default()
+                };
+            }
+        };
+        let (mut palettes, diagnostics) = themes::load(path);
+        let mut loaded = imports::load(path, &source);
+        loaded.diagnostics.extend(diagnostics);
+        if loaded
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.problem != ConfigProblem::UnknownKey)
+        {
+            loaded.config = Self::default();
+        } else {
+            palettes.apply(&loaded.config.terminal.colors);
+            loaded.config.terminal.palettes = palettes;
         }
+        loaded
     }
 
     fn parse(path: &Path, source: &str) -> LoadedConfig {
-        let (table, errors) = DeTable::parse_recoverable(source);
-        let locations = diagnostics::locations(table.get_ref());
-        let mut diagnostics = Vec::new();
-        for error in errors {
-            let offset = error.span().map_or(0, |span| span.start);
-            diagnostics.push(ConfigDiagnostic::at(
-                path,
-                source,
-                offset,
-                diagnostics::key_at(&locations, source, &error),
-                ConfigProblem::InvalidToml,
-            ));
-        }
-        if !diagnostics.is_empty() {
-            return LoadedConfig {
-                config: Self::default(),
-                diagnostics,
-            };
-        }
-
-        let mut track = serde_path_to_error::Track::new();
-        let deserializer =
-            serde_path_to_error::Deserializer::new(toml::Deserializer::from(table), &mut track);
-        let result = serde_ignored::deserialize(deserializer, |key| {
-            let segments = diagnostics::ignored_segments(&key);
-            let offset = locations
-                .iter()
-                .find(|location| location.segments == segments)
-                .map_or(0, |location| location.start);
-            diagnostics.push(ConfigDiagnostic::at(
-                path,
-                source,
-                offset,
-                diagnostics::display_key(&segments),
-                ConfigProblem::UnknownKey,
-            ));
+        let (config, mut diagnostics) = parse_document(path, source);
+        // The document loader handles this reserved, top-level directive.
+        diagnostics.retain(|diagnostic| {
+            diagnostic.key != "import" || diagnostic.problem != ConfigProblem::UnknownKey
         });
-        let config = match result {
-            Ok(config) => config,
-            Err(error) => {
-                diagnostics.push(ConfigDiagnostic::at(
-                    path,
-                    source,
-                    error.span().map_or(0, |span| span.start),
-                    track.path().to_string(),
-                    ConfigProblem::InvalidValue,
-                ));
-                Self::default()
-            }
-        };
         LoadedConfig {
             config,
             diagnostics,
         }
     }
+}
+
+fn user_config_path(xdg: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
+    xdg.map(Path::new)
+        .filter(|path| path.is_absolute())
+        .map(|path| path.join("twine/config.toml"))
+        .or_else(|| {
+            home.filter(|path| path.is_absolute())
+                .map(|home| home.join(".config/twine/config.toml"))
+        })
+}
+
+fn file_diagnostic(path: &Path, error: &impl std::fmt::Display) -> ConfigDiagnostic {
+    ConfigDiagnostic {
+        file: path.to_owned(),
+        line: 1,
+        key: "<document>".to_owned(),
+        problem: ConfigProblem::File(error.to_string()),
+    }
+}
+
+fn parse_document<T: serde::de::DeserializeOwned + Default>(
+    path: &Path,
+    source: &str,
+) -> (T, Vec<ConfigDiagnostic>) {
+    let (table, errors) = DeTable::parse_recoverable(source);
+    let locations = diagnostics::locations(table.get_ref());
+    let mut diagnostics = Vec::new();
+    for error in errors {
+        let offset = error.span().map_or(0, |span| span.start);
+        diagnostics.push(ConfigDiagnostic::at(
+            path,
+            source,
+            offset,
+            diagnostics::key_at(&locations, source, &error),
+            ConfigProblem::InvalidToml,
+        ));
+    }
+    if !diagnostics.is_empty() {
+        return (T::default(), diagnostics);
+    }
+
+    let mut track = serde_path_to_error::Track::new();
+    let deserializer =
+        serde_path_to_error::Deserializer::new(toml::Deserializer::from(table), &mut track);
+    let result = serde_ignored::deserialize(deserializer, |key| {
+        let segments = diagnostics::ignored_segments(&key);
+        let offset = locations
+            .iter()
+            .find(|location| location.segments == segments)
+            .map_or(0, |location| location.start);
+        diagnostics.push(ConfigDiagnostic::at(
+            path,
+            source,
+            offset,
+            diagnostics::display_key(&segments),
+            ConfigProblem::UnknownKey,
+        ));
+    });
+    let config = match result {
+        Ok(config) => config,
+        Err(error) => {
+            diagnostics.push(ConfigDiagnostic::at(
+                path,
+                source,
+                error.span().map_or(0, |span| span.start),
+                track.path().to_string(),
+                ConfigProblem::InvalidValue,
+            ));
+            T::default()
+        }
+    };
+    (config, diagnostics)
 }
 
 fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
@@ -190,14 +237,24 @@ fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     fs::create_dir_all(parent).map_err(ConfigFileError::Create)?;
-    let defaults = toml::to_string_pretty(&Config::default())?;
+    let mut defaults = toml::Value::try_from(Config::default())?;
+    defaults["terminal"]
+        .as_table_mut()
+        .expect("terminal is a table")
+        .remove("palettes");
+    let defaults = toml::to_string_pretty(&defaults)?;
     let mut source = String::from(
         "# Twine configuration. Uncomment settings to override their defaults.\n\
          # Restart Twine after editing settings.\n\
          # appearance.color_scheme accepts \"system\", \"light\", or \"dark\"; it is not applied yet.\n\
          # terminal.font_family selects an installed monospace family (for example, \"JetBrains Mono\").\n\
          # An empty, unavailable, or proportional family uses system monospace.\n\
-         # terminal.font_size accepts 6 through 72 points, including fractional sizes.\n\n",
+         # terminal.font_size accepts 6 through 72 points, including fractional sizes.\n\
+         # Top-level import accepts a TOML file path or a list of paths.\n\
+         # Later imports override earlier imports; settings in this file override all imports.\n\
+         # Imported files use the same tables as this config; colors use #RRGGBB strings.\n\
+         # Default themes/silica_light.toml and silica_dark.toml follow macOS appearance.\n\n\
+         # import = [\"themes/silica_dark.toml\"]\n\n",
     );
     for line in defaults.lines() {
         if line.starts_with('[') || line.is_empty() {
@@ -207,8 +264,20 @@ fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
             source.push_str(line);
         }
         source.push('\n');
+        if line == "[terminal.colors]" {
+            source.push_str("# background = \"#0c1013\"\n# foreground = \"#e5e1cf\"\n");
+        }
     }
 
+    write_default(path, &source)
+}
+
+fn write_default(path: &Path, source: &str) -> Result<String, ConfigFileError> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    fs::create_dir_all(parent).map_err(ConfigFileError::Create)?;
     // Publish a complete file atomically without replacing a config created by another launch.
     let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(ConfigFileError::Create)?;
     temporary
@@ -219,7 +288,7 @@ fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
         .sync_all()
         .map_err(ConfigFileError::Create)?;
     match temporary.persist_noclobber(path) {
-        Ok(_) => Ok(source),
+        Ok(_) => Ok(source.to_owned()),
         Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
             fs::read_to_string(path).map_err(ConfigFileError::Read)
         }
@@ -229,9 +298,9 @@ fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
 
 #[derive(Debug, Error)]
 enum ConfigFileError {
-    #[error("cannot read config ({0}); using defaults")]
+    #[error("cannot read file ({0}); using defaults")]
     Read(io::Error),
-    #[error("cannot create default config ({0}); using defaults")]
+    #[error("cannot create default file ({0}); using defaults")]
     Create(io::Error),
     #[error("cannot serialize default config; using defaults")]
     Serialize(#[from] toml::ser::Error),
@@ -242,6 +311,26 @@ mod tests {
     use super::*;
 
     const PATH: &str = "/test/config.toml";
+
+    #[test]
+    fn xdg_config_path_uses_absolute_xdg_or_home_fallback() {
+        let home = Some(Path::new("/home/user"));
+        assert_eq!(
+            user_config_path(Some(OsStr::new("/xdg")), home),
+            Some(PathBuf::from("/xdg/twine/config.toml"))
+        );
+        for xdg in [None, Some(OsStr::new("")), Some(OsStr::new("relative"))] {
+            assert_eq!(
+                user_config_path(xdg, home),
+                Some(PathBuf::from("/home/user/.config/twine/config.toml"))
+            );
+        }
+        assert_eq!(
+            user_config_path(Some(OsStr::new("/xdg")), None),
+            Some(PathBuf::from("/xdg/twine/config.toml"))
+        );
+        assert_eq!(user_config_path(None, None), None);
+    }
 
     #[test]
     fn absent_fields_use_defaults() {
@@ -462,7 +551,10 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert_eq!(Config::parse(&path, &uncommented).config, Config::default());
+        assert_eq!(
+            Config::parse(&path, &uncommented).config.terminal.font_size,
+            FontSize::default()
+        );
         assert_eq!(Config::parse(&path, &uncommented).diagnostics, []);
 
         let edited = "[appearance]\ncolor_scheme = 'light'\n";
@@ -492,6 +584,20 @@ mod tests {
             ));
         }
         assert_eq!(fs::read(&path).unwrap(), [0xff, 0xfe]);
+    }
+
+    #[test]
+    fn unreadable_config_does_not_publish_sibling_theme_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::create_dir(&path).unwrap();
+        let loaded = Config::load(&path);
+        assert_eq!(loaded.config, Config::default());
+        assert!(matches!(
+            loaded.diagnostics[0].problem,
+            ConfigProblem::File(_)
+        ));
+        assert!(!directory.path().join("themes").exists());
     }
 
     #[test]
