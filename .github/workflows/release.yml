@@ -97,6 +97,10 @@ jobs:
 
   publish:
     needs: [guard, package]
+    # Reusing a CI artifact skips rebuild; override the skip propagated through package.
+    if: >-
+      !cancelled() && needs.guard.result == 'success' &&
+      needs.package.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
