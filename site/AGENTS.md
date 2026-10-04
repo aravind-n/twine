@@ -3,7 +3,9 @@
 This directory contains the static GitHub Pages landing page, documentation index,
 user guide template, and combined Rust workspace reference entry page.
 Keep it in plain HTML and CSS, with relative asset URLs so it works under `/twine/` and in local
-previews. No JavaScript runtime is required. `make build-site` creates an isolated
+previews. `download.js` uses the browser's built-in APIs to resolve the latest release
+and download its macOS universal ZIP when either download button is clicked. No
+JavaScript framework or build tool is required. `make build-site` creates an isolated
 Python environment under `target/site-venv` with the pinned Markdown renderer.
 
 Use the terminology in `../CONTEXT.md`. Keep feature descriptions and installation

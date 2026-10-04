@@ -30,6 +30,7 @@ def build(output: Path) -> None:
     icons = root / "macOS/Twine/Twine/Assets.xcassets/AppIcon.appiconset"
     copyfile(icons / "twine-256.png", output / "assets/icon.png")
     copyfile(icons / "twine-32.png", output / "assets/favicon.png")
+    copyfile(source / "download.js", output / "assets/download.js")
 
     renderer = markdown.Markdown(
         extensions=["pymdownx.superfences", "tables", "toc", "sane_lists"],

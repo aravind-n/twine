@@ -44,6 +44,9 @@ h1 span { color: var(--green); }
 .button-primary:hover { background: var(--green); }
 .button-secondary { border-color: var(--line); background: transparent; }
 .button-secondary:hover { background: #eef1e6; border-color: #bfc9b5; }
+.button[aria-disabled="true"] { cursor: progress; opacity: .75; }
+.download-feedback { color: var(--muted); font-size: 12px; line-height: 1.7; margin-block: 14px; }
+.download-feedback a { color: var(--green); }
 .download-detail { display: flex; justify-content: center; gap: 10px; color: var(--muted); font-size: 11px; margin-top: 17px; }
 .app-preview { margin: 62px 0 0; text-align: left; }
 .preview-label { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 13px; color: var(--muted); font-family: var(--mono); font-size: 10px; }
