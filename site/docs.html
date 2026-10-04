@@ -5,28 +5,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f7f8f2">
     <title>Documentation — Twine</title>
-    <meta name="description" content="Install Twine, set up your coding agents, design workflows, and learn about terminals, traces, configuration, and development.">
+    <meta name="description" content="Twine’s user guide and generated API documentation for the Rust application core, C ABI bridge, and native Swift app.">
     <link rel="canonical" href="https://aravind-n.github.io/twine/docs/">
     <link rel="icon" type="image/png" href="../assets/favicon.png">
     <link rel="stylesheet" href="../styles.css">
   </head>
-  <body class="docs-page" id="top">
+  <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="header wrap">
       <a class="brand" href="../" aria-label="Twine home"><img src="../assets/icon.png" width="40" height="40" alt=""><span>twine<span class="brand-period">.</span></span></a>
       <nav aria-label="Main navigation"><a href="../#workflows">Workflows</a><a href="./" aria-current="page">Docs</a><a class="nav-github" href="https://github.com/aravind-n/twine">GitHub <span aria-hidden="true">↗</span></a></nav>
     </header>
-    <div class="docs-layout wrap">
-      <aside class="docs-sidebar">
-        <nav aria-label="On this page"><p class="eyebrow">On this page</p>$toc</nav>
-        <a class="docs-source" href="https://github.com/aravind-n/twine/blob/main/docs/reference.md">View on GitHub <span aria-hidden="true">↗</span></a>
-      </aside>
-      <main id="main" class="docs-content">
-        <p class="eyebrow">Documentation</p>
-        $content
-        <p class="docs-end"><a href="#top">Back to top ↑</a><a href="https://github.com/aravind-n/twine/issues">Questions or feedback? ↗</a></p>
-      </main>
-    </div>
+    <main id="main" class="documentation wrap section">
+      <p class="eyebrow">Find your way around</p>
+      <h1>Documentation.</h1>
+      <p class="documentation-intro">Get started with Twine, or explore the APIs behind the app.</p>
+      <div class="documentation-grid">
+        <a class="documentation-card" href="guide/">
+          <p class="card-number">USAGE &amp; SETUP</p>
+          <h2>User guide <span aria-hidden="true">↗</span></h2>
+          <p>Installation, folders, sessions, agent workflows, terminals, traces, and configuration. Includes development and release instructions.</p>
+          <span class="card-caption">Read the guide</span>
+        </a>
+        <a class="documentation-card" href="rust/twine_core/">
+          <p class="card-number">RUST · CARGO DOC</p>
+          <h2>Application core <span aria-hidden="true">↗</span></h2>
+          <p>The reusable Rust application API for domain state, workflow orchestration, process supervision, files, and persistence.</p>
+          <span class="card-caption">twine_core</span>
+        </a>
+        <a class="documentation-card" href="rust/twine_bridge/">
+          <p class="card-number">RUST · CARGO DOC</p>
+          <h2>C ABI bridge <span aria-hidden="true">↗</span></h2>
+          <p>The Rust bridge between core and Swift, including exported functions, buffers, and ownership and safety contracts.</p>
+          <span class="card-caption">twine_bridge</span>
+        </a>
+        <a class="documentation-card" href="swift/documentation/twine/">
+          <p class="card-number">SWIFT · APPLE DOCC</p>
+          <h2>Native macOS app <span aria-hidden="true">↗</span></h2>
+          <p>The SwiftUI and AppKit presentation layer, including CoreClient, folder windows, workflow views, and terminal controllers.</p>
+          <span class="card-caption">Twine</span>
+        </a>
+      </div>
+      <p class="documentation-note">API references are generated from the source on <code>main</code>. The Swift reference includes internal app symbols for contributors. Interfaces are still evolving.</p>
+      <p class="documentation-feedback">Something missing? <a href="https://github.com/aravind-n/twine/issues">Ask a question or suggest an improvement ↗</a></p>
+    </main>
     <footer class="footer wrap"><div><a class="brand footer-brand" href="../"><span>twine<span class="brand-period">.</span></span></a><p>A native macOS workspace for coordinating coding agents.</p></div><nav aria-label="Footer navigation"><a href="../">Home</a><a href="https://github.com/aravind-n/twine/releases/latest">Releases</a><a href="https://github.com/aravind-n/twine/blob/main/LICENSE">MIT License</a></nav></footer>
   </body>
 </html>

@@ -198,17 +198,24 @@ guidance is in [AGENTS.md](AGENTS.md).
 
 ### GitHub Pages website
 
-The landing page and documentation template live in `site/`. The documentation is
-generated from `docs/reference.md`. Run `make serve-site` to preview both at
-`http://localhost:8000`, or `make build-site` to assemble the static files in
-`dist/site`. `make check-site` also checks the Pages workflow with `actionlint`.
-The build reuses the app icon and screenshot above and installs a pinned Markdown
-renderer in an isolated Python environment under `target/site-venv`.
+The landing page, documentation index, and user guide template live in `site/`.
+The guide is generated from `docs/reference.md`. Rust API references for the core
+and C ABI bridge are generated with `cargo doc --workspace --no-deps`; the Swift
+app reference is generated with Xcode DocC and includes internal app symbols.
+
+Run `make serve-site` to preview the full website at `http://localhost:8000/twine/`,
+or `make build-site` to assemble it in `dist/twine`. These targets need the macOS
+build toolchain described above. `make docs-rust` and `make docs-swift` build the
+API references separately. `make check-site` also checks the Pages workflow with
+`actionlint`. The build reuses the app icon and screenshot above and installs a
+pinned Markdown renderer in an isolated Python environment under `target/site-venv`.
 
 To enable hosting, select **GitHub Actions** under **Settings → Pages → Build and
 deployment → Source**. After the Pages workflow is merged, changes to the site on
-`main` deploy to `https://aravind-n.github.io/twine/`. Pull requests build the site
-without deploying it. No custom domain or additional secrets are required.
+`main` deploy to `https://aravind-n.github.io/twine/`. Rust and Swift source changes
+also regenerate their API references. Pull requests build the site without
+deploying it. Builds use the existing `xcode-27` runner; deployment runs on a
+GitHub-hosted Ubuntu runner. No custom domain or additional secrets are required.
 
 ## Acknowledgments
 

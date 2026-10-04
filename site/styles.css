@@ -105,6 +105,22 @@ h3 { font-size: 17px; letter-spacing: -.35px; line-height: 1.35; font-weight: 65
 .footer .footer-credit { grid-column: 1 / -1; margin: 0; font-size: 10px; }
 
 .docs-layout { display: grid; grid-template-columns: 205px minmax(0, 1fr); gap: 65px; padding-block: 47px 70px; }
+.documentation { min-height: calc(100vh - 235px); padding-top: 55px; }
+.documentation > .eyebrow { justify-content: flex-start; }
+.documentation h1 { font-size: clamp(42px, 5vw, 64px); letter-spacing: -2.7px; }
+.documentation-intro { color: var(--muted); font-size: 18px; line-height: 1.7; margin-bottom: 35px; }
+.documentation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.documentation-card { display: flex; flex-direction: column; padding: 28px; text-decoration: none; border: 1px solid var(--line); border-radius: 10px; background: #fffefa; }
+.documentation-card:hover { border-color: #9caf87; background: #f1f5e9; }
+.documentation-card h2 { display: flex; justify-content: space-between; gap: 12px; margin: 20px 0 15px; font-size: 25px; letter-spacing: -.7px; }
+.documentation-card h2 span { color: var(--green); font-size: 19px; }
+.documentation-card > p:not(.card-number) { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 0 24px; }
+.documentation-card .card-caption { margin-top: auto; border-top: 1px solid var(--line); padding-top: 17px; font-family: var(--mono); color: var(--green); font-size: 11px; }
+.documentation-note { color: var(--muted); font-size: 12px; line-height: 1.8; margin-top: 28px; }
+.documentation-note code { font-family: var(--mono); }
+.documentation-feedback { font-size: 13px; line-height: 1.8; margin-top: 22px; }
+.documentation-feedback a { color: var(--green); }
+.docs-back { display: inline-block; font-size: 11px; color: var(--green); margin-bottom: 23px; text-decoration: none; }
 .docs-sidebar { position: sticky; top: 28px; align-self: start; }
 .docs-sidebar .eyebrow { justify-content: flex-start; margin-top: 0; }
 .toc ul { list-style: none; padding: 0; margin: 18px 0 25px; }
@@ -191,6 +207,11 @@ h3 { font-size: 17px; letter-spacing: -.35px; line-height: 1.35; font-weight: 65
   .docs-content h1 { font-size: 35px; }
   .docs-content h2 { font-size: 25px; }
   .docs-content pre { padding: 15px; font-size: 11px; }
+  .documentation { padding-top: 35px; }
+  .documentation-intro { font-size: 16px; }
+  .documentation-grid { grid-template-columns: 1fr; gap: 15px; }
+  .documentation-card { padding: 23px; }
+  .documentation-card h2 { font-size: 23px; }
 }
 
 @media (max-width: 380px) {
