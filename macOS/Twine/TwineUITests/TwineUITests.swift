@@ -39,8 +39,8 @@ final class TwineUITests: XCTestCase {
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
 
-        let sidebarToggle = app.buttons["sidebarToggle"]
-        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 10), app.debugDescription)
+        let toggle = sidebarToggle(in: app)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.buttons["Start Page"].exists)
         // The window's accessibility title also includes the subtitle, the folder's path.
         XCTAssertTrue(app.windows.firstMatch.title.hasPrefix(folder.lastPathComponent), app.debugDescription)
@@ -59,7 +59,7 @@ final class TwineUITests: XCTestCase {
         XCTAssertTrue(recent.waitForExistence(timeout: 10), app.debugDescription)
 
         recent.click()
-        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
 
         closeFolder(in: app)
         XCTAssertTrue(app.staticTexts["Welcome to Twine"].waitForExistence(timeout: 10), app.debugDescription)

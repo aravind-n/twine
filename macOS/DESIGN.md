@@ -21,7 +21,9 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 - Window background: `windowBackgroundColor`.
 - Content margins: 14pt left, right, and top; 11pt bottom.
 - Vertical spacing between the terminal block, the Traces panel, and the footer: 13pt.
-- The folder toolbar has the sidebar toggle. Close Folder in the File menu returns to the start page.
+- The sidebar toolbar contains its show/hide button; the folder title and path appear over the main content.
+- Keep the toolbar visible in full screen so navigation remains available. Preserve the translucent native sidebar material in both window modes, and keep content within its safe areas. Follow Apple's [Sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars), [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars), [Windows](https://developer.apple.com/design/human-interface-guidelines/windows), and [Going full screen](https://developer.apple.com/design/human-interface-guidelines/going-full-screen) guidance.
+- Close Folder in the File menu returns to the start page.
 
 ## Interface zoom
 
@@ -193,7 +195,7 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 
 ### Sidebar
 
-- Hidden initially. Width 245 to 325pt, ideal 285.
+- Shown initially. Width 245 to 325pt, ideal 285.
 - Background: native sidebar material, with frosted translucency and a tone distinct from the window's solid content area. Follow the window's active state and system appearance.
 - Section header: 48pt tall, 17pt horizontal padding, the section label, and a trailing borderless ellipsis menu.
 - Files is the first section. Its root directory uses the same row as other directories, starts expanded, and has its children indented one level below it. Collapsing the root clears descendant expansion; Collapse All leaves the root collapsed. Row content has a 10pt horizontal inset.

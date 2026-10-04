@@ -32,7 +32,6 @@ struct FolderView: View {
                     ideal: SidebarLayout.idealWidth * scale,
                     max: SidebarLayout.maximumWidth * scale
                 )
-                .toolbar(removing: .sidebarToggle)
         } detail: {
             GeometryReader { geometry in
                 WorkspaceViewport(
@@ -55,6 +54,8 @@ struct FolderView: View {
                 .accessibilityIdentifier("workspaceViewport")
             }
             .background(.windowBackground)
+            .navigationTitle(URL(filePath: path).lastPathComponent)
+            .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
         }
         .environment(traceNavigation)
         .environment(\.traceLaneColors, traceNavigation.laneColors)
@@ -66,27 +67,14 @@ struct FolderView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle(URL(filePath: path).lastPathComponent)
-        .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
+        .windowToolbarFullScreenVisibility(.visible)
         .task(id: path) { await refreshGitBranch() }
         .task(id: files.request(folder: path, file: tabs.selected?.path)) {
             let editor = tabs.selected
             await files.watch(files.request(folder: path, file: editor?.path), client: coreClient, editor: editor)
         }
         .focusedSceneValue(\.openFilePath, tabs.selected?.path)
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left") {
-                    sidebarVisibility = sidebarIsVisible ? .detailOnly : .all
-                }
-                .keyboardShortcut("s", modifiers: [.command, .control])
-                .help(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar")
-                .accessibilityIdentifier("sidebarToggle")
-            }
-        }
     }
-
-    private var sidebarIsVisible: Bool { sidebarVisibility != .detailOnly }
 
     /// Keep two terminal rows usable when zoom leaves less room than the surrounding panels need.
     /// The workspace scrolls in that case, retaining the window's physical size.

@@ -60,7 +60,7 @@ extension TwineUITests {
 
     @MainActor
     private func verifySequenceAtMinimumWidth(_ app: XCUIApplication) {
-        app.buttons["sidebarToggle"].click()
+        sidebarToggle(in: app).click()
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 400, height: 620))
         XCTAssertTrue(app.buttons["traceSpan-114"].isHittable, app.debugDescription)
         XCTAssertTrue(app.buttons["traceFocusSpan-114"].isHittable, app.debugDescription)

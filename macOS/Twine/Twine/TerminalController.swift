@@ -211,9 +211,14 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         resizeTask = Task {
             defer { resizeTask = nil }
             while let latest = pendingSize, !Task.isCancelled, !isStopping, !isTerminalStopped {
-                pendingSize = nil
-                guard latest != lastSize else { continue }
                 do {
+                    // Sidebar animations produce a grid change on each frame. Wait for the pane
+                    // to settle so the shell redraws its prompt at the final size only.
+                    try await Task.sleep(for: .milliseconds(60))
+                    guard !isStopping, !isTerminalStopped else { return }
+                    guard latest == pendingSize else { continue }
+                    pendingSize = nil
+                    guard latest != lastSize else { continue }
                     try await coreClient.resizeTerminal(terminalID: terminalID, size: latest)
                     lastSize = latest
                 } catch CoreFailure.terminalNotRunning {

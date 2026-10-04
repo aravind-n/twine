@@ -10,8 +10,8 @@ extension TwineUITests {
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
         startSessionShell(app: app, folder: folder)
-        if app.buttons["sidebarToggle"].label == "Show Sidebar" {
-            app.buttons["sidebarToggle"].click()
+        if !app.scrollViews["fileTree"].exists {
+            sidebarToggle(in: app).click()
         }
         XCTAssertTrue(app.scrollViews["fileTree"].waitForExistence(timeout: 5))
         let firstSession = app.buttons["sessionRow-1"]
