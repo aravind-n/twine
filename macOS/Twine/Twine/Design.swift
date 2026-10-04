@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-// Shared design values from macOS/DESIGN.md. The terminal and role colors are named colors in
-// Assets.xcassets, used through their generated symbols, such as `.terminalBackground` and `.roleBlue`.
+// Shared design values from macOS/DESIGN.md. Core supplies terminal palettes; role and interface
+// colors use generated asset symbols such as `.roleBlue`.
 // The window background is SwiftUI's `.windowBackground`.
 
 // MARK: - Corner radii
@@ -203,10 +203,12 @@ extension ShapeStyle where Self == Color {
 
 /// The small chevron on a control that opens a menu.
 struct MenuChevron: View {
+    var foreground: Color = .secondary
+
     var body: some View {
         Image(systemName: "chevron.down")
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(foreground)
     }
 }
 
@@ -224,9 +226,9 @@ extension View {
     }
 
     /// Workflow tabs and agent subtabs.
-    func tabTitleStyle(isSelected: Bool) -> some View {
+    func tabTitleStyle(isSelected: Bool, foreground: Color? = nil) -> some View {
         font(.caption.weight(isSelected ? .semibold : .regular))
-            .foregroundStyle(isSelected ? .primary : .secondary)
+            .foregroundStyle(foreground?.opacity(isSelected ? 1 : 0.7) ?? (isSelected ? Color.primary : .secondary))
     }
 
     /// Panel titles, such as "Traces".

@@ -11,6 +11,8 @@ struct TerminalMinimap: View {
     @State private var dragOffset: CGFloat?
     private var isExpanded: Bool { isHovered || isFocused || dragOffset != nil }
 
+    @TerminalTheme private var palette
+
     var body: some View {
         GeometryReader { geometry in
             let height = state.geometry.contentHeight(available: geometry.size.height)
@@ -57,13 +59,14 @@ struct TerminalMinimap: View {
 
     private func rail(height: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 5).fill(.terminalBackground)
+            RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: palette.background))
                 .accessibilityHidden(true)
             Canvas { context, size in
                 for (index, stroke) in state.strokes.enumerated() {
                     let rect = TerminalMinimapGeometry.strokeRect(stroke, in: size, expanded: isExpanded)
                     let ink =
-                        state.strokeColors.indices.contains(index) ? state.strokeColors[index] : .terminalTextMuted
+                        state.strokeColors.indices.contains(index)
+                        ? state.strokeColors[index] : Color(nsColor: palette.text)
                     context.fill(Path(rect), with: .color(ink.opacity(isExpanded ? 0.65 : 0.18)))
                 }
                 let range = state.geometry.viewport
@@ -71,10 +74,12 @@ struct TerminalMinimap: View {
                 let thumb = CGRect(
                     x: 0, y: top, width: size.width, height: max(8, (range.upperBound - range.lowerBound) * size.height)
                 )
-                context.fill(Path(roundedRect: thumb, cornerRadius: 3), with: .color(.terminalTextMuted.opacity(0.12)))
+                context.fill(
+                    Path(roundedRect: thumb, cornerRadius: 3), with: .color(Color(nsColor: palette.text).opacity(0.12)))
                 if isExpanded {
                     context.stroke(
-                        Path(roundedRect: thumb, cornerRadius: 3), with: .color(.terminalTextMuted.opacity(0.45)))
+                        Path(roundedRect: thumb, cornerRadius: 3),
+                        with: .color(Color(nsColor: palette.text).opacity(0.45)))
                 }
             }
             .contentShape(Rectangle())
@@ -142,4 +147,5 @@ struct TerminalMinimap: View {
     @Previewable @State var selectedID: UInt64?
     TerminalMinimap(state: TerminalMinimapState(), markers: [], selectedID: selectedID) { selectedID = $0 }
         .frame(height: 350).padding(100).background(.terminalBackground)
+        .environment(CoreClient(transport: CoreWorker(dataDirectory: URL(filePath: NSTemporaryDirectory()))))
 }

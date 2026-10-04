@@ -8,6 +8,8 @@ struct TerminalSurface: View {
     @State private var failureMessage: String?
     @State private var minimap = TerminalMinimapState()
 
+    @TerminalTheme private var palette
+
     private var markers: [TraceMinimapMarker] {
         navigation.minimap.markers.filter { $0.anchor?.terminalID == terminalID }
     }
@@ -82,10 +84,10 @@ struct TerminalSurface: View {
                         .accessibilityLabel(statusMessage)
                         .accessibilityIdentifier("terminalStatus-\(terminalID)")
                         .font(.caption.monospaced())
-                        .foregroundStyle(.terminalTextMuted)
+                        .foregroundStyle(Color(nsColor: palette.text).opacity(0.65))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .background(.terminalBackground.opacity(0.92), in: .rect(cornerRadius: 6))
+                        .background(Color(nsColor: palette.background).opacity(0.92), in: .rect(cornerRadius: 6))
                         .padding(8)
                 }
             }
@@ -97,7 +99,7 @@ struct TerminalSurface: View {
         }
         .background {
             // Clicking the padding focuses the terminal, as clicking its text does.
-            Color.terminalBackground.onTapGesture { didFocus?() }
+            Color(nsColor: palette.background).onTapGesture { didFocus?() }
         }
         .task(id: markerKey) {
             if isVisible { await minimap.loadMarkers(markers, terminalID: terminalID, client: coreClient) }
@@ -170,6 +172,8 @@ struct TerminalViewRepresentable: NSViewRepresentable {
         let view = MetalTerminalView(frame: .zero)
         view.zoomScale = zoom?.scale ?? 1
         view.applyTwineFont(font)
+        view.terminalPalettes = coreClient.snapshot?.config.terminal.palettes
+        view.applyTwinePalette()
         view.automaticallyFocuses = automaticallyFocuses
         view.isSelected = isSelected
         view.focusRequest = focusRequest
@@ -194,6 +198,7 @@ struct TerminalViewRepresentable: NSViewRepresentable {
         nsView.isSelected = isSelected
         nsView.focusRequest = focusRequest
         nsView.setVisible(isVisible)
+        nsView.terminalPalettes = coreClient.snapshot?.config.terminal.palettes
         nsView.applyTwinePalette()
         minimap?.scheduleRefresh()
     }

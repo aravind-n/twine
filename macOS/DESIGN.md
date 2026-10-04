@@ -12,8 +12,8 @@ This is the design spec for the macOS app. Treat it like a concept car being tur
 
 ## Production rules
 
-- **The terminal follows the system appearance:** light in light mode, dark in dark mode, with matching text tones for each.
-- **Colors come from the asset catalog:** the terminal background, ANSI palette, and role colors are named colors with light and dark variants.
+- **The terminal follows the system appearance by default:** Silica light and dark palettes come from the user’s theme files. A configured import or inline colors can override them.
+- **Terminal colors come from core configuration:** terminal surfaces use the resolved background, foreground, cursor, selection, and ANSI palette. Named asset colors provide startup fallbacks; role and interface colors keep their light and dark asset variants.
 - **Real content wins over fixed sizes:** tabs, names, and labels truncate cleanly, tab rows scroll, and panels keep working in small windows.
 
 ## Window

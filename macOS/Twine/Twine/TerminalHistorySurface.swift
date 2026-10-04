@@ -8,6 +8,8 @@ struct TerminalHistorySurface: View {
     @State private var state = TerminalHistoryState()
     @State private var minimap = TerminalMinimapState()
 
+    @TerminalTheme private var palette
+
     private var markers: [TraceMinimapMarker] {
         navigation.minimap.markers.filter { $0.anchor?.terminalID == target.anchor.terminalID }
     }
@@ -22,27 +24,30 @@ struct TerminalHistorySurface: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
+                Image(systemName: "clock.arrow.circlepath").foregroundStyle(Color(nsColor: palette.text).opacity(0.7))
                 Text(
                     target.timestamp == 0 ? "Saved output" : "Output at \(TraceFormatting.timestamp(target.timestamp))"
                 )
                 .font(.caption.weight(.semibold))
-                Text(target.message).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(target.message).font(.caption).foregroundStyle(Color(nsColor: palette.text).opacity(0.7))
+                    .lineLimit(1)
                 Spacer(minLength: 0)
                 Button("Return to live", action: returnToLive)
                     .buttonStyle(.glass).controlSize(.small)
                     .accessibilityIdentifier("returnToLive")
             }
+            .foregroundStyle(Color(nsColor: palette.text))
             .padding(.horizontal, 14).frame(height: 40)
             Divider()
             switch state.status {
             case .loading:
                 ProgressView("Loading terminal output…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.windowBackground)
             case .ready(let replay):
                 TerminalHistoryText(
                     text: replay.text, outputStartRange: replay.outputStartRange, font: coreClient.terminalFont,
-                    minimap: minimap, markerRows: state.minimapRows
+                    minimap: minimap, markerRows: state.minimapRows, palette: palette
                 )
                 .padding(.trailing, 18)
                 .overlay(alignment: .trailing) {
@@ -57,15 +62,18 @@ struct TerminalHistorySurface: View {
                     "Output no longer available", systemImage: "clock.badge.exclamationmark",
                     description: Text("The history needed to show this moment is no longer available.")
                 )
+                .background(.windowBackground)
                 .accessibilityIdentifier("terminalHistoryExpired")
             case .failed(let message):
                 ContentUnavailableView(
                     "Output Couldn't Load", systemImage: "exclamationmark.triangle",
-                    description: Text(message))
+                    description: Text(message)
+                )
+                .background(.windowBackground)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.terminalBackground)
+        .background(Color(nsColor: palette.background))
         .task(id: target.id) { await state.load(target, client: coreClient) }
         .task(id: markerKey) { await state.updateMinimap(markers, target: target, client: coreClient) }
     }

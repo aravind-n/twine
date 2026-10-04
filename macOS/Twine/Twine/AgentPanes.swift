@@ -5,6 +5,7 @@ import SwiftUI
 /// so switching modes, panes, or window sizes only moves and resizes them. No shell starts or stops,
 /// and no terminal loses its screen.
 struct AgentPanes: View {
+    @TerminalTheme private var palette
     @Environment(CoreClient.self) private var coreClient
     let workflow: CoreWorkflow
     @Binding var layout: WorkflowLayout
@@ -75,7 +76,7 @@ struct AgentPanes: View {
                 }
             }
         }
-        .background(arrangement.isTiled ? Color.workflowTint : .terminalBackground)
+        .background(arrangement.isTiled ? Color.workflowTint : Color(nsColor: palette.background))
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
         // Clicking the layout picker can take the keyboard, so give it back to the focused terminal.
         .onChange(of: layout.mode) { focusRequest += 1 }
@@ -113,6 +114,7 @@ struct AgentPanes: View {
 /// One agent's terminal: filling the panel, or in Bento mode a rounded pane under a header whose
 /// menu picks the pane's agent.
 private struct AgentPane: View {
+    @TerminalTheme private var palette
     @Environment(CoreClient.self) private var coreClient
     @Environment(TraceTerminalNavigation.self) private var navigation
     let agent: CoreAgent
@@ -147,6 +149,7 @@ private struct AgentPane: View {
                             ? "This role starts when its stage begins."
                             : "Open a new workflow to try again.")
                 )
+                .background(.windowBackground)
                 .onTapGesture(perform: focus)
             } else {
                 TerminalSurface(
@@ -208,9 +211,9 @@ private struct AgentPane: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: AgentSubtabLayout.maximumTitleWidth)
             if isWorking { WorkingDot() }
-            MenuChevron()
+            MenuChevron(foreground: Color(nsColor: palette.text).opacity(0.7))
         }
-        .tabTitleStyle(isSelected: isFocused)
+        .tabTitleStyle(isSelected: isFocused, foreground: Color(nsColor: palette.text))
         .contentShape(.rect)
         // One control, not one per symbol and title.
         .accessibilityElement(children: .combine)

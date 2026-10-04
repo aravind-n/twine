@@ -644,7 +644,7 @@ mod tests {
                 "state": { "status": "ready" },
                 "config": {
                     "appearance": { "color_scheme": "dark" },
-                    "terminal": { "font_family": "Menlo", "font_size": 15.5 }
+                    "terminal": { "font_family": "Menlo", "font_size": 15.5, "colors": {}, "palettes": twine_core::config::TerminalPalettes::default() }
                 },
                 "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null, "currentBranch": null },
                 "terminals": [],
