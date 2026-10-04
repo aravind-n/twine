@@ -1,6 +1,6 @@
 # Twine
 
-Twine is a macOS-first agent workspace. SwiftUI and AppKit present the UI; Rust owns the reusable application core. The terminal is the primary interaction surface.
+Twine consists of its macOS front end and the reusable `twine-core` application library. SwiftUI and AppKit present the UI; `twine-core` owns application behavior and saved state. The terminal is the primary interaction surface.
 
 Use the terms defined in [CONTEXT.md](CONTEXT.md) when naming folder, session, workflow, role, harness, agent, or trace concepts in code or UI.
 
@@ -10,7 +10,7 @@ Use the terms defined in [CONTEXT.md](CONTEXT.md) when naming folder, session, w
 - Keep the Swift–Rust boundary explicit: commands go in, and state changes, trace events, and terminal bytes come out.
 - Keep the three layers independent:
   - `twine-core` exposes a plain Rust API with no knowledge of FFI or UI. Every core feature is testable in Rust without the app.
-  - `twine-bridge` only translates between the core API and the C ABI. It holds no domain logic or state.
+  - `twine-bridge` is an adapter between the library API and the C ABI, not a separate product. It holds no domain logic or state.
   - Swift talks to `twine-core` only through `CoreClient`.
 - Domain state (folders, sessions, workflows, traces, transcripts, config) lives in core. Presentation state (selected tabs, pane layouts, form prefills) lives in Swift.
 - Model workflow types as ways to coordinate agents. The workflow graph is not a general DAG executor.
@@ -18,7 +18,7 @@ Use the terms defined in [CONTEXT.md](CONTEXT.md) when naming folder, session, w
 ## Component instructions
 
 - Run builds, formatting, linting, and tests through the root `Makefile`. `make` lists the targets.
-- For Rust core work in `twine-core/`, read [twine-core/AGENTS.md](twine-core/AGENTS.md).
+- For application library work in `twine-core/`, read [twine-core/AGENTS.md](twine-core/AGENTS.md).
 - For C ABI work in `twine-bridge/`, read [twine-bridge/AGENTS.md](twine-bridge/AGENTS.md).
 - For Swift app work in `macOS/`, read [macOS/AGENTS.md](macOS/AGENTS.md).
 - For changes spanning components, follow each component's file, and run `make fmt` and `make check` in place of the per-component targets. Give any new component its own `AGENTS.md` when it needs distinct instructions.

@@ -4,6 +4,12 @@ Twine organizes coding work in a folder into sessions, each made of workflows wh
 
 ## Language
 
+**Twine front end**:
+The macOS app where users work with folders, sessions, and workflows.
+
+**twine-core**:
+Twine's reusable application library, which manages coding work and saved state.
+
 **Folder**:
 The directory the user opens and works in. Twine shows its files and the sessions worked on in it.
 _Avoid_: Workspace, project

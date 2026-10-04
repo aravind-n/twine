@@ -9,9 +9,6 @@ BUILD_DIR ?= $(DERIVED_DATA)/Build/Products/Release
 BUNDLE_DIR ?= $(CURDIR)/target/release-bundle
 OUTPUT_DIR ?= $(CURDIR)/dist
 SITE_DIR := $(CURDIR)/dist/twine
-SITE_ENV := $(CURDIR)/target/site-venv
-SITE_STAMP := $(SITE_ENV)/.requirements-installed
-SITE_PORT ?= 8000
 RUST_DOC_DIR := $(CURDIR)/target/api-docs-rust
 SWIFT_DOC_DIR := $(CURDIR)/target/api-docs-swift
 XCODE_BUILD_ARGS ?=
@@ -57,7 +54,7 @@ UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 	test-macos ui-test-macos ui-test-macos-built ui-test-macos-all ui-test-macos-visual check-macos clean-macos \
 	fmt lint test check clean release-build-app release-bundle release-package nightly-package \
 	check-release check-release-scripts check-release-package \
-	build-site serve-site check-site docs-rust docs-swift
+	build-site docs-rust docs-swift
 
 help:
 	@echo 'usage: make <target> [ONLY="testA testB"]'
@@ -70,9 +67,7 @@ help:
 	@echo '  clean                 Run clean-rust and clean-macos'
 	@echo ''
 	@echo 'GitHub Pages website:'
-	@echo '  build-site            Build landing page, user guide, and API docs in dist/twine'
-	@echo '  serve-site            Preview at http://localhost:8000/twine/ (override SITE_PORT)'
-	@echo '  check-site            Build the website and lint its deployment workflow'
+	@echo '  build-site            Copy static pages and generate API docs in dist/twine'
 	@echo '  docs-rust             Generate Rust workspace API docs with cargo doc'
 	@echo '  docs-swift            Generate Swift app API docs with Xcode DocC'
 	@echo ''
@@ -158,11 +153,6 @@ check-release-package:
 check-release: check-release-scripts check-release-package
 	actionlint -ignore 'label "xcode-27" is unknown'
 
-$(SITE_STAMP): site/requirements.txt
-	python3 -m venv "$(SITE_ENV)"
-	"$(SITE_ENV)/bin/python3" -m pip install --disable-pip-version-check -r site/requirements.txt
-	touch "$(SITE_STAMP)"
-
 docs-rust:
 	RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked --target-dir "$(RUST_DOC_DIR)"
 
@@ -170,25 +160,26 @@ docs-swift: framework
 	$(XCODEBUILD_DEBUG) docbuild -derivedDataPath "$(SWIFT_DOC_DIR)" \
 		-onlyUsePackageVersionsFromResolvedFile \
 		OTHER_SWIFT_FLAGS='-symbol-graph-skip-synthesized-members' \
-		DOCC_HOSTING_BASE_PATH=twine/docs/swift DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES
+		DOCC_HOSTING_BASE_PATH=twine/documentation/swift DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES
 	# Validate Twine's catalog strictly without treating dependency documentation warnings as errors.
 	xcrun docc convert macOS/Twine/Twine/Documentation.docc \
 		--additional-symbol-graph-dir "$(SWIFT_DOC_DIR)/Build/Intermediates.noindex/Twine.build/Debug/Twine.build/symbol-graph" \
 		--output-dir "$(SWIFT_DOC_DIR)/Build/Products/Debug/Twine.doccarchive" \
 		--fallback-display-name Twine --fallback-bundle-identifier com.twineproject.Twine \
-		--fallback-default-module-kind Application --hosting-base-path twine/docs/swift \
+		--fallback-default-module-kind Application --hosting-base-path twine/documentation/swift \
 		--transform-for-static-hosting --warnings-as-errors \
 		--source-service github --source-service-base-url https://github.com/aravind-n/twine/blob/main \
 		--checkout-path "$(CURDIR)"
 
-build-site: $(SITE_STAMP) docs-rust docs-swift
-	"$(SITE_ENV)/bin/python3" site/build.py "$(SITE_DIR)"
-
-serve-site: build-site
-	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 --directory "$(dir $(SITE_DIR))"
-
-check-site: build-site
-	actionlint -ignore 'label "xcode-27" is unknown' .github/workflows/pages.yml
+build-site: docs-rust docs-swift
+	rm -rf "$(SITE_DIR)"
+	mkdir -p "$(SITE_DIR)"
+	cp docs/index.html "$(SITE_DIR)/"
+	cp -R docs/assets docs/documentation "$(SITE_DIR)/"
+	cp macOS/Twine/Twine/Assets.xcassets/AppIcon.appiconset/twine-256.png "$(SITE_DIR)/assets/icon.png"
+	cp macOS/Twine/Twine/Assets.xcassets/AppIcon.appiconset/twine-32.png "$(SITE_DIR)/assets/favicon.png"
+	cp -R "$(RUST_DOC_DIR)/doc/." "$(SITE_DIR)/documentation/rust/"
+	cp -R "$(SWIFT_DOC_DIR)/Build/Products/Debug/Twine.doccarchive" "$(SITE_DIR)/documentation/swift"
 
 fmt-macos:
 	swift format --in-place --recursive macOS/

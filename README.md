@@ -24,7 +24,7 @@
 <p align="center">
   <a href="#about">About</a> ·
   <a href="#try-twine">Try Twine</a> ·
-  <a href="docs/reference.md">Reference</a> ·
+  <a href="https://aravind-n.github.io/twine/documentation/guide/">User guide</a> ·
   <a href="https://github.com/aravind-n/twine/issues">Feedback</a>
 </p>
 
@@ -33,7 +33,7 @@
 > changing. Download a packaged release below, or build from source.
 
 <p align="center">
-  <img src="docs/images/twine-workspace.png" alt="Twine showing an Adversarial workflow with implementer and reviewer terminals and workflow traces">
+  <img src="docs/assets/workspace.png" alt="Twine showing an Adversarial workflow with implementer and reviewer terminals and workflow traces">
 </p>
 
 ## About
@@ -47,7 +47,7 @@ You work directly with each agent in its terminal. Twine adds roles, handoffs,
 and a record of what happened around the command-line tools you already use.
 Each role can use a different harness and, where supported, a different model.
 
-The app uses SwiftUI and AppKit, with a Rust application core and
+The macOS front end uses SwiftUI and AppKit, with the `twine-core` application library and
 [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) for terminal emulation.
 
 ## What you can do today
@@ -69,7 +69,7 @@ The app uses SwiftUI and AppKit, with a Rust application core and
 - **Make small file edits.** Browse the open folder and edit UTF-8 text files up
   to 2 MiB, with undo and checks for changes made on disk before saving.
 
-See the [reference](docs/reference.md) for detailed behavior and limits.
+See the [user guide](https://aravind-n.github.io/twine/documentation/guide/) for detailed behavior and limits.
 
 ## Workflows
 
@@ -114,7 +114,7 @@ You can use Terminal workflows without installing an agent harness.
 Prompt and tool tracing is currently available through launch-only observers for
 Codex, Claude Code, pi, and OMP. Antigravity and OpenCode retain lifecycle and
 workflow traces. Compatibility depends on CLI versions; see the
-[integration notes](docs/reference.md#agent-workflows).
+[integration notes](https://aravind-n.github.io/twine/documentation/guide/#agent-workflows).
 
 ## Try Twine
 
@@ -123,7 +123,7 @@ Twine currently targets **macOS 26 or later**, on **Apple Silicon and Intel**.
 Download `Twine-0.1.0-macos-universal.zip` from the
 [v0.1.0 release](https://github.com/aravind-n/twine/releases/tag/v0.1.0), extract it,
 and move `Twine.app` to Applications. The app is ad hoc signed and not notarized;
-follow the included `README.txt` or the [install notes](docs/reference.md#install)
+follow the included `README.txt` or the [install notes](https://aravind-n.github.io/twine/documentation/guide/#install)
 for first-launch approval.
 
 Open a folder, create a session, and choose a workflow in a new tab. For an agent
@@ -177,13 +177,14 @@ Application data is stored in `~/Library/Application Support/Twine`. Recorded
 terminal output has retention limits of 64 MiB per terminal and 512 MiB overall,
 with additional metadata limits. Older output can expire. Tracing is best effort,
 and resuming work depends on the harness and its recorded session handle. See
-[configuration](docs/reference.md#configuration) and
-[terminal transcripts](docs/reference.md#terminal-transcripts).
+[configuration](https://aravind-n.github.io/twine/documentation/guide/#configuration) and
+[terminal transcripts](https://aravind-n.github.io/twine/documentation/guide/#terminal-transcripts).
 
 ## Development and feedback
 
-The Rust core lives in `twine-core`, the C ABI in `twine-bridge`, and the native app
-in `macOS`. The [development reference](docs/reference.md#development-setup)
+The macOS front end lives in `macOS`, and the reusable application library lives in
+`twine-core`. The `twine-bridge` adapter connects them through a C ABI.
+The [development guide](https://aravind-n.github.io/twine/documentation/development/#development-setup)
 describes the build and test setup; [CONTEXT.md](CONTEXT.md) defines the concepts
 used throughout the codebase.
 
@@ -203,18 +204,23 @@ guidance is in [AGENTS.md](AGENTS.md).
 
 ### GitHub Pages website
 
-The landing page, documentation index, and user guide template live in `site/`.
-The guide is generated from `docs/reference.md`. The combined Rust API reference
-at `docs/rust/` covers the core and C ABI bridge with shared search, generated
-with `cargo doc --workspace --no-deps`. The Swift app reference is generated with
-Xcode DocC and includes internal app symbols.
+The GitHub Pages source lives in `docs/`: `index.html` is the home page,
+`assets/` contains styles, scripts, and the screenshot, and `documentation/`
+contains the documentation index and guides. Edit
+`docs/documentation/guide/index.html` for the user guide and
+`docs/documentation/development/index.html` for the development guide.
+The `twine-core` reference is generated with
+`cargo doc --workspace --no-deps`, using Cargo's bundled navigation and search.
+The macOS app reference is generated with Xcode DocC and includes internal app symbols.
 
-Run `make serve-site` to preview the full website at `http://localhost:8000/twine/`,
-or `make build-site` to assemble it in `dist/twine`. These targets need the macOS
-build toolchain described above. `make docs-rust` and `make docs-swift` build the
-API references separately. `make check-site` also checks the Pages workflow with
-`actionlint`. The build reuses the app icon and screenshot above and installs a
-pinned Markdown renderer in an isolated Python environment under `target/site-venv`.
+`make build-site` generates the API references and copies them, the static pages,
+and the existing app icon and screenshot into `dist/twine` for GitHub Pages.
+Check in the static source files in `docs/`; the pipeline generates the API
+references and publishing output, which are ignored by Git. The HTML is copied
+unchanged. There is no website generator or Python dependency for the site.
+Local assembly needs the macOS toolchain described above. `make docs-rust` and
+`make docs-swift` generate the API references separately. `make check-release`
+lints all workflows, including Pages.
 
 To enable hosting, select **GitHub Actions** under **Settings → Pages → Build and
 deployment → Source**. After the Pages workflow is merged, changes to the site on

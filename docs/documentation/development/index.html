@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f8f2">
+    <title>Development guide — Twine</title>
+    <meta name="description" content="Build, test, and contribute to Twine, or package a release.">
+    <link rel="canonical" href="https://aravind-n.github.io/twine/documentation/development/">
+    <link rel="icon" type="image/png" href="../../assets/favicon.png">
+    <link rel="stylesheet" href="../../assets/styles.css">
+  </head>
+  <body class="docs-page" id="top">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="../../" aria-label="Twine home"><img src="../../assets/icon.png" width="40" height="40" alt=""><span>twine<span class="brand-period">.</span></span></a>
+      <nav aria-label="Main navigation"><a href="../../#workflows">Workflows</a><a href="../">Docs</a><a class="nav-github" href="https://github.com/aravind-n/twine">GitHub <span aria-hidden="true">↗</span></a></nav>
+    </header>
+    <div class="docs-layout wrap">
+      <aside class="docs-sidebar">
+        <a class="docs-back" href="../">← All documentation</a>
+        <nav aria-label="On this page"><p class="eyebrow">On this page</p><div class="toc">
+<ul>
+<li><a href="#development-setup">Development setup</a></li>
+<li><a href="#harness-integration">Harness integration</a><ul>
+<li><a href="#harness-launch-and-tracing-compatibility">Harness launch and tracing compatibility</a></li>
+<li><a href="#harness-integration-tests">Harness integration tests</a></li>
+</ul>
+</li>
+<li><a href="#extending-configuration">Extending configuration</a></li>
+<li><a href="#transcript-implementation">Transcript implementation</a></li>
+<li><a href="#releases">Releases</a><ul>
+<li><a href="#nightly-releases">Nightly releases</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</nav>
+        <a class="docs-source" href="https://github.com/aravind-n/twine/blob/main/docs/documentation/development/index.html">View on GitHub <span aria-hidden="true">↗</span></a>
+      </aside>
+      <main id="main" class="docs-content">
+        <p class="eyebrow">Development guide</p>
+        <h1 id="development-guide">Development guide<a class="headerlink" href="#development-guide" title="Permanent link">#</a></h1>
+<p>Build, test, and contribute to Twine, or package a release. For installation and
+help using the app, read the <a href="../guide/">user guide</a>.</p>
+<p>Twine consists of the macOS front end in <code>macOS/</code> and the reusable application
+library in <code>twine-core/</code>. The <code>twine-bridge/</code> adapter exposes the library through
+a C interface for the front end.</p>
+<h2 id="development-setup">Development setup<a class="headerlink" href="#development-setup" title="Permanent link">#</a></h2>
+<ul>
+<li>Install Xcode 27.0 and point the developer tools at it: <code>sudo xcode-select -s /Applications/Xcode.app/Contents/Developer</code>. The SwiftTerm build plugin and SwiftLint both require Xcode rather than the Command Line Tools.</li>
+<li>Install Xcode's Metal Toolchain if it is missing: <code>xcodebuild -downloadComponent MetalToolchain</code>.</li>
+<li>To build the library, install the latest stable Rust with <code>rustup</code>, then install both macOS targets: <code>rustup target add aarch64-apple-darwin x86_64-apple-darwin</code>.</li>
+<li>Build the framework once from the repository root: <code>make framework</code>.</li>
+<li>Open <code>macOS/Twine/Twine.xcodeproj</code>, select the <code>Twine</code> scheme, and build. Trust the SwiftTerm build plugin when Xcode prompts. Xcode consumes the prebuilt <code>TwineCore.xcframework</code> and does not invoke Cargo.</li>
+</ul>
+<p>From the repository root, the root <code>Makefile</code> runs the same builds and checks from the command line. <code>make</code> lists every target:</p>
+<pre class="highlight"><code class="language-sh">make build-macos          # build the Debug framework, then the Debug app
+make build-macos-release  # build the Release framework, then the universal Release app
+make check                # Rust and Swift lint plus unit tests
+make check-rust           # Rust only: rustfmt check, Clippy, workspace tests
+make check-macos          # Swift only: swift-format lint, SwiftLint, unit tests
+make fmt                  # format Rust and Swift
+make ui-test-macos        # default UI suite; takes over the desktop
+make ui-test-macos-all    # all UI tests, including retired tests and the launch benchmark
+make ui-test-macos-visual # optional appearance and screenshot checks
+make ui-test-macos ONLY='testFolderWindowInLightAppearance testFolderWindowInDarkAppearance'
+make ui-test-macos ONLY=testLaunchPerformance
+make clean                # remove Cargo, framework, and Xcode build output</code></pre>
+<p>The generated framework includes its C header and module map and is ignored by Git. If the framework is missing, package resolution reports the command needed to create it.</p>
+<p><code>make build-macos-release</code> builds the universal Release app. Each build replaces the local framework with the Debug or Release profile it needs.</p>
+<p>Linting prepares the framework before resolving the app's packages. The default UI suite runs the tests listed in <code>UI_DEFAULT_TESTS</code> in the Makefile. Other tests are retired from default runs; their source stays in place and they still build. Add a test to <code>UI_DEFAULT_TESTS</code> to re-enable it by default.</p>
+<p><code>ONLY</code> accepts one UI test name or a quoted, space-separated list, including retired tests, and overrides the default selection. <code>make ui-test-macos-all</code> runs all UI tests, including the appearance checks and launch benchmark. <code>make ui-test-macos-visual</code> runs the optional visual checks.</p>
+<p>CI uses the same default selection through <code>make ui-test-macos-built</code>, which reuses its existing build-for-testing products; set <code>UI_TEST_DERIVED_DATA</code> to their DerivedData directory. Add <code>ALL=1</code> to that command to run the full suite using those products. An explicit <code>ONLY</code> selection takes precedence over <code>ALL=1</code>. All UI test runs take over the desktop.</p>
+<p>SwiftLint runs the version pinned in <code>Package.resolved</code>, through <code>macOS/Twine/Scripts/swiftlint.sh</code>.</p>
+<h2 id="harness-integration">Harness integration<a class="headerlink" href="#harness-integration" title="Permanent link">#</a></h2>
+<p>Agents advance stages by invoking the private completion command included in their instructions.
+The command accepts JSON on stdin: <code>decision</code> is <code>done</code>, <code>approve</code>, or <code>requestChanges</code>, with
+a <code>summary</code> and, for assignment handoffs, <code>assignments</code> containing <code>role</code>, <code>instance</code>, <code>task</code>,
+and <code>files</code>. Until the task is known, the first completion must also include <code>task</code>. Each invocation gets a new mailbox; submissions are atomic and limited to 64 KiB.
+Rejected submissions can be corrected and resubmitted. Terminal prose and process exits never
+advance a stage.</p>
+<p>Startup recovers interrupted work across all folders before publishing state. Agents retain their
+individual lifecycle status, and unfinished trace spans gain a stopped event without changing
+earlier events or transcript anchors. Completed and cancelled runs keep their outcomes. Recovery
+requires exclusive ownership of the data directory; another live Twine core prevents startup.</p>
+<h3 id="harness-launch-and-tracing-compatibility">Harness launch and tracing compatibility<a class="headerlink" href="#harness-launch-and-tracing-compatibility" title="Permanent link">#</a></h3>
+<p>Twine reads each harness's models from its own CLI (<code>codex debug models</code>, <code>pi --list-models</code>, <code>agy models</code>, <code>omp models --json</code>, <code>opencode api model.list</code>, and
+the aliases in <code>claude --help</code>); Claude Code also takes any typed model name. A YOLO checkbox skips
+the harness's permission prompts (<code>--dangerously-bypass-approvals-and-sandbox</code> for Codex,
+<code>--dangerously-skip-permissions</code> for Claude Code and Antigravity, <code>--auto-approve</code> for OMP); pi doesn't ask for permission, so it has none.</p>
+<p>Claude Code, Codex, pi, and OMP also report prompts, tool calls, and responses through launch-only observers.
+Single-agent runs show a span for each prompt; multi-agent steps stay under the role's assignment.
+Select a step to jump to its recorded terminal position. Hook payloads are bounded and recording
+is best effort. If hooks are unavailable or disabled, the ordinary agent span remains. User and
+project harness config files are never edited. Codex hook compatibility is verified with CLI
+0.159; Twine trusts only its own invocation hooks and preserves existing hook policy.
+Pi uses a temporary extension supplied with <code>--extension</code>, verified with pi 0.99.1. It observes
+prompts as they enter the agent (including queued prompts), tool execution, and final response
+settlement. Delivery never waits on Twine, and user/project extensions remain enabled.
+Antigravity uses <code>--prompt-interactive</code> for initial tasks and keeps its terminal open for follow-up
+prompts. It retains lifecycle and workflow spans; per-prompt and tool observers aren't installed
+because <code>agy</code> doesn't expose a launch-only hook option. Its models and effort levels are discovered
+from <code>agy models</code> and <code>agy --help</code>, verified with agy 1.2.5 and 1.2.14.
+OMP uses an explicit <code>launch</code> subcommand and literal positional prompts. Its JSON catalog supplies
+provider groups and model-specific thinking levels; typed model selectors and aliases also work.
+Thinking options come from <code>omp --help</code> and use <code>--thinking</code>. OMP shares the temporary observer
+extension with pi, using OMP's continuation-aware <code>agent_end</code> event and observing only the root
+agent, verified with OMP 18.4.5. User and folder extensions remain enabled.
+OpenCode v2 uses <code>mini --standalone</code>, keeping its interactive terminal and private server within
+the agent's lifetime. Initial tasks use <code>--prompt</code>; model-specific effort choices select the model's
+named variant with <code>--model provider/model#variant</code>. Its CLI API supplies model names, provider
+groups, and variants for the open folder; catalogs are cached per folder. Custom selectors can
+include other variant names. The mini interface
+has no auto-approve or temporary-plugin flag, so YOLO is unavailable and it retains lifecycle
+and workflow spans. Compatibility is verified with OpenCode 2.0.21.</p>
+<p>Codex launches with <code>--no-alt-screen</code> and pi with <code>--tui-mode regular</code> so output remains in
+scrollback. Claude Code, OMP, and OpenCode's mini interface already render inline; harnesses
+without an inline launch option retain their own display setting.</p>
+<h3 id="harness-integration-tests">Harness integration tests<a class="headerlink" href="#harness-integration-tests" title="Permanent link">#</a></h3>
+<p>The automated Rust suite uses fake harnesses for complete runs. To repeat the optional real
+Adversarial smoke test with an authenticated Codex installation:</p>
+<pre class="highlight"><code class="language-sh">TWINE_REAL_CODEX="$(command -v codex)" make test-rust \
+  RUST_TEST_ARGS='real_adversarial_workflow_completes -- --ignored'</code></pre>
+<p>This test uses Codex's noninteractive mode in a disposable folder and verifies both agents'
+explicit completion signals.</p>
+<p>To verify the installed Codex's actual prompt/tool/response hooks and terminal anchors:</p>
+<pre class="highlight"><code class="language-sh">TWINE_REAL_CODEX="$(command -v codex)" make test-rust \
+  RUST_TEST_ARGS='real_codex_records_tool_steps -- --ignored'</code></pre>
+<p>This opt-in test uses interactive, authenticated Codex in a disposable folder with a read-only sandbox.</p>
+<p>To verify pi's interactive trace events using both DeepSeek Flash and DeepSeek V4 Pro:</p>
+<pre class="highlight"><code class="language-sh">TWINE_REAL_PI="$(command -v pi)" make test-rust \
+  RUST_TEST_ARGS='real_pi_deepseek_models_record_tool_steps -- --ignored'</code></pre>
+<p>This opt-in test uses your existing DeepSeek authentication, disposable folders, and the bash tool
+to print a marker. It does not edit pi settings or save sessions.</p>
+<p>The extension's queued-prompt, tool-correlation, Unicode, and unavailable-endpoint checks need only Node:</p>
+<pre class="highlight"><code class="language-sh">TWINE_NODE="$(command -v node)" make test-rust \
+  RUST_TEST_ARGS='pi_extension_preserves_queued_prompts_and_tool_identity -- --ignored'</code></pre>
+<h2 id="extending-configuration">Extending configuration<a class="headerlink" href="#extending-configuration" title="Permanent link">#</a></h2>
+<p>Add settings as fields with defaults in <code>twine-core/src/config.rs</code>. The Serde schema drives
+parsing, unknown-key warnings, the generated default file, and snapshot serialization;
+extend Swift's <code>CoreConfig</code> when a consumer needs the new field.</p>
+<h2 id="transcript-implementation">Transcript implementation<a class="headerlink" href="#transcript-implementation" title="Permanent link">#</a></h2>
+<p>Retention is capped at <strong>64 MiB per terminal</strong> and <strong>512 MiB across all terminals</strong>. Output is stored
+in segments of at most <strong>1 MiB</strong>, with at most <strong>512 segments</strong> and <strong>1,024 terminal metadata entries</strong>.
+Old segments or terminal entries expire when a limit is reached, so many short transcripts may
+expire before the byte limit. Metadata and its atomic replacement are each capped at 1 MiB,
+giving a maximum of <strong>514 MiB of transcript file contents</strong>, plus bounded filesystem overhead.
+Pruned ranges remain expired after reopening.</p>
+<p><code>Application::read_terminal_transcript(terminal_id, offset, limit)</code> returns a page of exact bytes
+starting at an absolute byte offset. Reads are limited to <strong>64 KiB</strong>. An offset at the recorded end
+returns an empty page; an offset beyond that end is an error. Pruned history returns
+<code>TranscriptRead::Expired</code> with the earliest retained offset, or <code>None</code> when no output remains.
+Unknown IDs and unavailable storage return typed errors. Byte offsets do not describe terminal
+screen state; ANSI replay and resize handling belong to the history viewer.</p>
+<p>Replay requires the complete output prefix and its resize history. Resize metadata
+is bounded to 8,192 entries across transcripts and 256 pending entries per terminal;
+losing geometry expires replay while preserving any retained raw output.</p>
+<p>Recording uses a worker with at most <strong>4 MiB / 256 requests</strong> pending, plus one in-flight request.
+The worker combines adjacent queued output from one terminal into batches up to <strong>64 KiB</strong>,
+preserving read order while avoiding a separate durable commit for every small PTY read.
+Backpressure pauses output readers without holding terminal input or application-state locks.
+Storage failures leave live input and output usable and make transcript reads fail explicitly.
+Reads wait for previously accepted output to commit and must run off the UI thread. Clean shutdown
+flushes accepted recording; a crash may lose pending bytes. Reopening discards uncommitted tails
+and orphan files, and reports damage to committed data instead of silently skipping it.</p>
+<p><code>Application::request_terminal_transcript</code> provides nonblocking admission and polling for the
+history viewer. A full queue returns no request; polling a pending request returns no result,
+so terminal input and live output polling can continue while disk reads are pending.</p>
+<p>One core owns a transcript directory at a time; a second concurrent owner receives an explicit
+error. The ownership lock is released after the recording worker has flushed and stopped.</p>
+<h2 id="releases">Releases<a class="headerlink" href="#releases" title="Permanent link">#</a></h2>
+<p>Pushing a <code>vMAJOR.MINOR.PATCH</code> tag runs <code>.github/workflows/release.yml</code> and creates a
+<strong>draft</strong> GitHub Release. It reuses the unsigned universal build from successful main CI
+for that commit, or rebuilds it using the same build workflow if the artifact has expired.
+No Apple Developer account, signing certificate, notarization credentials, or release
+secrets are required.</p>
+<p>To cut a release:</p>
+<ol>
+<li>Set the version in <code>Cargo.toml</code> and update <code>Cargo.lock</code>. Set the Twine app's
+   <strong>Marketing Version</strong> in both Debug and Release configurations to the same version.</li>
+<li>Move the finished changelog entries into a dated section such as
+   <code>## [0.1.0] - 2026-09-30</code>, leaving <code>[Unreleased]</code> above it. The release body comes from
+   exactly that section, following the same extraction as vhrn. Missing, empty, or duplicate
+   sections fail the release.</li>
+<li>Review and merge through a pull request. Wait for push-to-main CI on that commit to pass.</li>
+<li>Create and push the tag on that reviewed main commit:</li>
+</ol>
+<pre class="highlight"><code class="language-sh">git tag -a v0.1.0 &lt;reviewed-main-commit&gt; -m 'Twine 0.1.0'
+git push origin v0.1.0</code></pre>
+<ol start="5">
+<li>Wait for Release to finish. Download the draft ZIP, check its checksum, and test first
+   launch on a Mac with quarantine enabled using the included instructions. Check a shell
+   and the harnesses you intend to support, then publish the draft in GitHub Releases.</li>
+</ol>
+<p>The release contains:</p>
+<ul>
+<li><code>Twine-VERSION-macos-universal.zip</code>: ad hoc signed app, install README, and license.</li>
+<li><code>libtwinecore-VERSION-macos-universal.tar.gz</code>: the existing universal static C ABI library
+  as <code>libtwinecore.a</code>, matching C header, usage README, and license.
+  The protocol is experimental; pin matching header/library versions.</li>
+<li><code>twine-VERSION-source.tar.gz</code>: the tagged Git source tree.</li>
+<li><code>Twine-VERSION-symbols.tar.gz</code>: app debug symbols, checked against both executable UUIDs.</li>
+<li><code>SHA256SUMS</code>: SHA-256 checksums for all four archives.</li>
+</ul>
+<p>The packaged app's short version matches the tag; its build number comes from main CI. Its ad hoc signature
+provides integrity; users still approve the first launch themselves. No DMG or notarization
+is involved. This release matrix is macOS only.</p>
+<p>Re-run failed jobs to retry a draft release. Published releases are never overwritten; use
+a new patch version for a correction after publication. Do not move an existing release tag.</p>
+<p>For local packaging, run from the root (the output directory must be empty):</p>
+<pre class="highlight"><code class="language-sh">make check-release  # needs shellcheck and actionlint
+make build-macos-release XCODE_BUILD_ARGS=CODE_SIGNING_ALLOWED=NO
+make release-bundle
+make release-package VERSION=0.1.0
+(cd dist &amp;&amp; shasum -a 256 -c SHA256SUMS)</code></pre>
+<p><code>DERIVED_DATA</code>, <code>BUILD_DIR</code>, <code>BUNDLE_DIR</code>, and <code>OUTPUT_DIR</code> can override the default paths.
+These commands do not create a GitHub Release. The source archive always uses committed HEAD.</p>
+<h3 id="nightly-releases">Nightly releases<a class="headerlink" href="#nightly-releases" title="Permanent link">#</a></h3>
+<p><code>.github/workflows/nightly.yml</code> runs every day at 03:17 America/Los_Angeles.
+It publishes a universal <strong>Release</strong> build as a GitHub prerelease when the selected
+<code>main</code> commit does not already have a complete published nightly. Days without new
+commits skip publication; failed attempts are retried on the next run.</p>
+<p>The workflow pins the triggering commit, waits up to 30 minutes for its latest
+push-to-main CI run to pass, and reuses that run's Release bundle. If the artifact
+has expired, it rebuilds the same commit and preserves the CI build number.
+Failed or missing CI prevents publication. Manual runs are available from the
+Nightly workflow's <strong>Run workflow</strong> button; select <code>main</code>.</p>
+<p>Each nightly has a fixed tag such as <code>nightly-20261005-a1b2c3d4e5f6</code> pointing to its
+source commit. The five downloads match the stable release asset set, including
+symbols and checksums. Publication uploads and verifies all assets in a draft
+before making the prerelease public. Retries may repair an unfinished draft but
+never replace a published nightly or move its tag. Stable releases remain Latest.</p>
+<p>The app keeps its numeric marketing version and CI build number; <code>TwineBuildVersion</code>
+records the nightly identifier. Nightlies use the existing ad hoc signing and
+first-launch approval instructions. Quit Twine before replacing <code>Twine.app</code>;
+nightlies use the same saved data and configuration as stable builds.</p>
+<p>To package an existing CI-style bundle locally:</p>
+<pre class="highlight"><code class="language-sh">make nightly-package NIGHTLY_ID="nightly-20261005-$(git rev-parse --short=12 HEAD)"</code></pre>
+<p><code>make check-release</code> validates the workflows and runs the release notes, nightly
+guard/publication, and macOS packaging checks. Tests mock GitHub and do not publish.
+GitHub schedules are best effort and can be delayed; public-repository schedules
+can be disabled after 60 days without repository activity. Use manual dispatch to
+recover a missed run. Published nightlies are retained; no automatic pruning runs.</p>
+        <p class="docs-end"><a href="#top">Back to top ↑</a><a href="https://github.com/aravind-n/twine/issues">Questions or feedback? ↗</a></p>
+      </main>
+    </div>
+    <footer class="footer wrap"><div><a class="brand footer-brand" href="../../"><span>twine<span class="brand-period">.</span></span></a><p>A native macOS workspace for coordinating coding agents.</p></div><nav aria-label="Footer navigation"><a href="../">Documentation</a><a href="https://github.com/aravind-n/twine/releases/latest">Releases</a><a href="https://github.com/aravind-n/twine/blob/main/LICENSE">MIT License</a></nav></footer>
+  </body>
+</html>
