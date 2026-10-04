@@ -5,13 +5,16 @@ use std::ffi::{OsStr, OsString};
 use std::io::{Read, Seek};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
 use tracing::debug;
+
+use crate::process::CommandChild;
 
 pub(crate) mod claude;
 pub(crate) mod codex;
@@ -178,7 +181,10 @@ fn is_executable(path: &Path) -> bool {
 
 /// The login shell's `PATH`, looked up once in the background so starting an agent never waits on
 /// the user's shell startup files.
-pub(crate) struct LoginPath(Mutex<LoginPathState>);
+pub(crate) struct LoginPath {
+    state: Mutex<LoginPathState>,
+    cancelled: Arc<AtomicBool>,
+}
 
 enum LoginPathState {
     Pending(JoinHandle<Option<OsString>>),
@@ -187,8 +193,15 @@ enum LoginPathState {
 
 impl LoginPath {
     pub(crate) fn spawn(shell: PathBuf) -> Self {
-        match crate::blocking_worker::spawn("login-path".into(), move || login_shell_path(&shell)) {
-            Ok(handle) => Self(Mutex::new(LoginPathState::Pending(handle))),
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&cancelled);
+        match crate::blocking_worker::spawn("login-path".into(), move || {
+            login_shell_path(&shell, &flag)
+        }) {
+            Ok(handle) => Self {
+                state: Mutex::new(LoginPathState::Pending(handle)),
+                cancelled,
+            },
             Err(error) => {
                 debug!(%error, "failed to start the login PATH lookup");
                 Self::ready(None)
@@ -197,12 +210,15 @@ impl LoginPath {
     }
 
     pub(crate) fn ready(path: Option<OsString>) -> Self {
-        Self(Mutex::new(LoginPathState::Ready(path)))
+        Self {
+            state: Mutex::new(LoginPathState::Ready(path)),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     pub(crate) fn get(&self) -> Option<OsString> {
         let mut state = self
-            .0
+            .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let LoginPathState::Pending(_) = &*state {
@@ -213,35 +229,61 @@ impl LoginPath {
             };
             *state = LoginPathState::Ready(handle.join().unwrap_or(None));
         }
+        if self.cancelled.load(Ordering::Relaxed) {
+            return None;
+        }
         match &*state {
             LoginPathState::Ready(path) => path.clone(),
             LoginPathState::Pending(_) => None,
         }
     }
+
+    pub(crate) fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn shutdown(&self) {
+        self.cancel();
+        // `get` joins even a cancelled lookup, so every caller waits for process cleanup.
+        let _ = self.get();
+    }
+}
+
+impl Drop for LoginPath {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
 }
 
 /// Asks an interactive login shell for its `PATH`, where version managers such as nvm and fnm are
 /// usually set up. Only `PATH` is read, between markers so startup banners can't be mistaken for it.
-fn login_shell_path(shell: &Path) -> Option<OsString> {
+fn login_shell_path(shell: &Path, cancelled: &AtomicBool) -> Option<OsString> {
+    if cancelled.load(Ordering::Relaxed) {
+        return None;
+    }
     // A file avoids blocking on a full pipe while the shell is being supervised.
     let mut output = tempfile::tempfile().ok()?;
-    let child = Command::new(shell)
+    let mut command = Command::new(shell);
+    command
         .args(["-i", "-l", "-c"])
         .arg("printf '\\n__TWINE_PATH__%s__TWINE_END__\\n' \"$(printenv PATH)\"")
         .stdin(Stdio::null())
         .stdout(output.try_clone().ok()?)
-        .stderr(Stdio::null())
-        .spawn()
+        .stderr(Stdio::null());
+    let mut child = CommandChild::spawn(&mut command)
         .map_err(|error| debug!(%error, "failed to start the login shell for PATH lookup"))
         .ok()?;
-    let mut child = ShellChild(child);
     let deadline = Instant::now() + LOGIN_SHELL_TIMEOUT;
     loop {
+        if cancelled.load(Ordering::Relaxed) {
+            return None;
+        }
         if output.metadata().ok()?.len() > MAX_LOGIN_SHELL_OUTPUT {
             return None;
         }
-        // The shell exiting is enough, even if a background job it started still holds the output.
-        if child.0.try_wait().ok()?.is_some() {
+        if child.has_exited().ok()? {
+            // Stop background jobs before reaping the shell and releasing its process identity.
+            child.finish().ok()?;
             break;
         }
         if Instant::now() >= deadline {
@@ -257,16 +299,6 @@ fn login_shell_path(shell: &Path) -> Option<OsString> {
         .read_to_end(&mut bytes)
         .ok()?;
     parse_path(&bytes)
-}
-
-/// Terminates the shell on every early return and reaps it on success.
-struct ShellChild(Child);
-
-impl Drop for ShellChild {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
 }
 
 fn parse_path(output: &[u8]) -> Option<OsString> {
@@ -287,6 +319,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
+    use crate::process::tests::FixtureProcess;
 
     #[test]
     fn prompt_follows_a_double_dash() {
@@ -375,16 +408,40 @@ mod tests {
     #[test]
     fn a_background_job_holding_the_output_does_not_delay_the_lookup() {
         let directory = tempfile::tempdir().unwrap();
+        let pid_path = directory.path().join("child.pid");
         let shell = fake_shell(
             directory.path(),
-            "sleep 30 &\nprintf '\\n__TWINE_PATH__/fast__TWINE_END__\\n'",
+            &format!(
+                "sleep 60 & echo $! > '{}'; printf '\\n__TWINE_PATH__/fast__TWINE_END__\\n'",
+                pid_path.display()
+            ),
         );
 
         let started = Instant::now();
-        let path = login_shell_path(&shell);
+        let path = login_shell_path(&shell, &AtomicBool::new(false));
 
         assert_eq!(path, Some(OsString::from("/fast")));
         assert!(started.elapsed() < Duration::from_secs(4));
+        FixtureProcess::read(&pid_path).assert_stopped();
+    }
+
+    #[test]
+    fn dropping_an_unused_login_path_stops_and_joins_its_shell() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_path = directory.path().join("shell.pid");
+        let shell = fake_shell(
+            directory.path(),
+            &format!("echo $$ > '{}'; exec sleep 60", pid_path.display()),
+        );
+        let path = LoginPath::spawn(shell);
+        let shell = FixtureProcess::read(&pid_path);
+        let started = Instant::now();
+        drop(path);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(
+            !shell.is_running(),
+            "shutdown reaps the login shell before returning"
+        );
     }
 
     #[test]

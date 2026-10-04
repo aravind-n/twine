@@ -189,7 +189,11 @@ lint-macos: framework
 	macOS/Twine/Scripts/swiftlint.sh
 
 test-macos: framework
-	$(XCODEBUILD_DEBUG) test -only-testing:TwineTests
+	@set -eu; \
+	twine_test_data=$$(mktemp -d /tmp/twine-unit-tests.XXXXXX); \
+	trap 'rm -rf "$$twine_test_data"' EXIT; \
+	TEST_RUNNER_TWINE_DATA_DIRECTORY="$$twine_test_data" \
+		$(XCODEBUILD_DEBUG) test -only-testing:TwineTests
 
 ui-test-macos: framework
 	$(XCODEBUILD_DEBUG) -derivedDataPath "$(UI_TEST_DERIVED_DATA)" test $(UI_TEST_ARGS)

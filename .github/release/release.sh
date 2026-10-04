@@ -83,7 +83,8 @@ case "${1:-}" in
         plist="$app/Contents/Info.plist"
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == "$version" ]] || fail 'built app version differs from tag'
         universal "$app/Contents/MacOS/Twine"
-        /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$plist"
+        build_number="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
+        [[ "$build_number" =~ ^[1-9][0-9]*$ ]] || fail 'expected a positive integer build number'
         /usr/libexec/PlistBuddy -c "Set :TwineBuildVersion $version" "$plist"
         # Sign nested executable code inside out, then the app. Verify deeply, never sign deeply.
         while IFS= read -r -d '' path; do
@@ -93,7 +94,7 @@ case "${1:-}" in
             codesign --force --sign - "$path"
         done < <(find "$app" -depth -type d \( -name '*.framework' -o -name '*.xpc' -o -name '*.appex' -o -name '*.app' \) -print0)
         codesign --verify --deep --strict "$app"
-        [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "$version" ]] || fail 'incorrect bundle version'
+        [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "$build_number" ]] || fail 'incorrect bundle build number'
         sed "s/@VERSION@/$version/g" .github/release/README.txt > "$folder/README.txt"
         cp LICENSE "$folder/LICENSE"
         ditto -c -k --sequesterRsrc --keepParent "$folder" "$output/Twine-$version-macos-universal.zip"

@@ -20,6 +20,7 @@ jobs:
       version: ${{ steps.guard.outputs.version }}
       sha: ${{ steps.guard.outputs.sha }}
       build_run: ${{ steps.guard.outputs.build_run }}
+      build_number: ${{ steps.guard.outputs.build_number }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,13 +33,15 @@ jobs:
         run: |
           bash .github/release/release.sh guard "$GITHUB_REF_NAME" "$RUNNER_TEMP/notes.md"
           sha="$(git rev-parse HEAD)"
-          run_id="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs" --method GET \
+          build_run="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs" --method GET \
             -f branch=main -f event=push -f head_sha="$sha" -f status=success -f per_page=100 \
-            --jq '.workflow_runs[0].id // empty')"
+            --jq '.workflow_runs[0] // empty')"
+          run_id="$(jq -r '.id' <<< "$build_run")"
           if [[ -z "$run_id" ]]; then
             echo '::error::Wait for a successful push-to-main CI run on this commit before releasing'
             exit 1
           fi
+          build_number="$(jq -r '.run_number' <<< "$build_run")"
           available="$(gh api "repos/$GH_REPO/actions/runs/$run_id/artifacts?per_page=100" \
             | jq --arg name "Twine-ci-$sha" '[.artifacts[] | select(.name == $name and .expired == false)] | length')"
           if [[ "$available" == 0 ]]; then run_id=''; fi
@@ -46,6 +49,7 @@ jobs:
             echo "version=${GITHUB_REF_NAME#v}"
             echo "sha=$sha"
             echo "build_run=$run_id"
+            echo "build_number=$build_number"
           } >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
@@ -60,6 +64,7 @@ jobs:
     uses: ./.github/workflows/_release-build.yml
     with:
       version: ci-${{ needs.guard.outputs.sha }}
+      build_number: ${{ needs.guard.outputs.build_number }}
 
   package:
     needs: [guard, rebuild]
@@ -92,6 +97,10 @@ jobs:
 
   publish:
     needs: [guard, package]
+    # Reusing a CI artifact skips rebuild; override the skip propagated through package.
+    if: >-
+      !cancelled() && needs.guard.result == 'success' &&
+      needs.package.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
