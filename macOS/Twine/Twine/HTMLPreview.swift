@@ -18,7 +18,8 @@ struct HTMLPreview: View {
                     isVisible: isVisible, failure: $failure,
                     openFile: { destination in
                         if let url = destination.fileURL(in: folder) { openFile(url) }
-                    }, format: format, html: load.html)
+                    }, format: format, html: load.html
+                )
             }
             if let failure {
                 ContentUnavailableView(

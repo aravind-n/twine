@@ -7,7 +7,7 @@ struct TracesPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let workflows: [CoreWorkflow]
     private var workflowIDs: [UInt64] { workflows.map(\.id) }
-    @State private var isExpanded = false
+    @Binding var isExpanded: Bool
     private var state: TracePanelState { navigation.activity }
     @State private var loadOlderRequested = false
 

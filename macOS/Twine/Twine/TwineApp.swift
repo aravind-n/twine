@@ -15,6 +15,7 @@ struct TwineApp: App {
     @State private var initialWindowID = UUID()
     @State private var windows = FolderWindows(dataDirectory: Self.dataDirectory)
     @State private var harnessModels = HarnessModelCatalog()
+    @State private var zoom = AppZoom()
     @State private var workflowLayouts = WorkflowLayouts(
         fileURL: Self.dataDirectory.appending(path: "workflow-layouts.json"))
 
@@ -40,13 +41,16 @@ struct TwineApp: App {
                 .defaultAppStorage(WorkflowLaunchPreferences.defaultStore())
                 .environment(workflowLayouts)
                 .environment(harnessModels)
+                .environment(\.appZoom, zoom)
                 .task {
+                    zoom.installKeyboardShortcuts()
                     terminationDelegate.attach(windows: windows, layouts: workflowLayouts)
                 }
         }
         .restorationBehavior(.disabled)
         .commands {
             FolderCommands()
+            AppZoomCommands(zoom: zoom)
         }
     }
 

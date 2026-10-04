@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkflowDesigner: View {
     @Environment(CoreClient.self) private var client
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appZoomMaximumPresentationSize) private var maximum
     @State private var model: WorkflowDesignerModel
     @State private var section = Section.roles
     @FocusState private var nameFocused: Bool
@@ -77,7 +78,11 @@ struct WorkflowDesigner: View {
             }
         }
         .font(.caption).controlSize(.small).textFieldStyle(.roundedBorder)
-        .padding(16).frame(minWidth: 580, idealWidth: 760, minHeight: 430, idealHeight: 600)
+        .padding(16)
+        .frame(
+            minWidth: min(580, maximum.width), idealWidth: min(760, maximum.width), maxWidth: maximum.width,
+            minHeight: min(430, maximum.height), idealHeight: min(600, maximum.height), maxHeight: maximum.height
+        )
         .background(Color(nsColor: .windowBackgroundColor))
         .disabled(model.isSaving)
         .interactiveDismissDisabled(model.isSaving)

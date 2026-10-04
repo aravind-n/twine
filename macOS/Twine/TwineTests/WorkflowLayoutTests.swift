@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -154,6 +155,25 @@ struct WorkflowLayoutTests {
 
         let single = PaneArrangement(focusedAgentID: 3)
         #expect(single.frames(in: bounds, columnFraction: 0.5, rowFractions: []) == [.agent(3): bounds])
+    }
+
+    @Test func largeTerminalFontsReduceBentoPanesBeforeRowsAreClipped() throws {
+        let font = try #require(NSFont(name: "Menlo-Regular", size: 72))
+        let minimum = CGSize(
+            width: BentoLayout.minimumPaneSize.width,
+            height: max(BentoLayout.minimumPaneSize.height, BentoLayout.minimumTerminalPaneHeight(for: font)))
+        let short = CGSize(width: 1_000, height: minimum.height + 2 * BentoLayout.gutter - 1)
+        let focused = PaneArrangement(panes: [1, 2, 3, 4], focusedAgentID: 4, size: short, minimum: minimum)
+        #expect(focused.visibleAgentIDs == [4])
+        #expect(!focused.isTiled)
+
+        let bounds = CGRect(x: 0, y: 0, width: 1_000, height: 2 * minimum.height + 3 * BentoLayout.gutter)
+        let grid = PaneArrangement(panes: [1, 2, 3, 4], focusedAgentID: 4, size: bounds.size, minimum: minimum)
+        #expect(grid.visibleAgentIDs.count == 4)
+        let frames = grid.frames(in: bounds, columnFraction: 0.5, rowFractions: [0.01, 0.99])
+        for id: UInt64 in 1...4 {
+            #expect(try #require(frames[.agent(id)]).height >= minimum.height - 0.001)
+        }
     }
 
     @Test func splitFractionsStayUsable() {

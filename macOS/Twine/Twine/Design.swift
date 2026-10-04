@@ -120,6 +120,18 @@ nonisolated enum BentoLayout {
     static let focusRingWidth: CGFloat = 2
     /// The draggable band centered on the gutter between two panes.
     static let dividerThickness: CGFloat = 10
+
+    @MainActor static func minimumTerminalPaneHeight(for font: NSFont, includesNotice: Bool = false) -> CGFloat {
+        let notice = includesNotice ? RestoredNoticeLayout.height : 0
+        return max(
+            100,
+            headerHeight + notice + 2 * terminalPadding
+                + 2 * (font.ascender - font.descender + font.leading).rounded(.up))
+    }
+}
+
+nonisolated enum RestoredNoticeLayout {
+    static let height: CGFloat = 40
 }
 
 nonisolated enum FooterLayout {
@@ -127,6 +139,21 @@ nonisolated enum FooterLayout {
     static let horizontalPadding: CGFloat = 4
     static let spacing: CGFloat = 8
     static let dividerHeight: CGFloat = 10
+}
+
+nonisolated enum WorkflowTabLayout {
+    static let height: CGFloat = 42
+}
+
+nonisolated enum WorkflowSurfaceLayout {
+    @MainActor static func minimumHeight(for workflow: CoreWorkflow?, font: NSFont) -> CGFloat {
+        let padding = workflow?.kind == .agents ? Spacing.agentTerminalContent : Spacing.terminalContent
+        let strip = workflow?.showsTerminalStrip == true ? AgentSubtabLayout.height : 0
+        let notice = workflow?.showsRestoredNotice == true ? RestoredNoticeLayout.height : 0
+        let terminal = strip + notice + 2 * padding + 2 * (font.ascender - font.descender + font.leading).rounded(.up)
+        return workflow?.kind == .draft
+            ? max(terminal, NewTabLayout.promptClearance + NewTabLayout.minimumChoiceHeight) : terminal
+    }
 }
 
 nonisolated enum Surface {

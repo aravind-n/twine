@@ -78,7 +78,7 @@ struct NewTabChoices: View {
                 .accessibilityIdentifier("closeNewTabChoices")
         }
         .sheet(isPresented: $showsDesigner, onDismiss: focusTerminal) {
-            WorkflowDesigner { _ in }.environment(client)
+            WorkflowDesigner { _ in }.environment(client).appZoom()
         }
         .focusedSceneValue(
             \.newWorkflowType, isSelected && !showsPrompt && startingHarness == nil ? $showsDesigner : nil
@@ -98,6 +98,7 @@ struct NewTabChoices: View {
                     start(.init(harness: harness, model: model, effort: effort, yolo: singleAgentYolo))
                 }
             }
+            .appZoom()
         }
     }
 

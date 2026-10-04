@@ -6,6 +6,20 @@ import Testing
 @testable import Twine
 
 struct MetalTerminalViewTests {
+    @Test @MainActor func zoomRasterizesAtTheDisplayScaleWithoutChangingTheFont() {
+        let frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        let window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let terminal = MetalTerminalView(frame: frame)
+        terminal.automaticallyFocuses = false
+        window.contentView = terminal
+        let font = terminal.font
+        terminal.zoomScale = 1.5
+        #expect(terminal.metalScaleFactorOverride == 1.5 * window.backingScaleFactor)
+        #expect(terminal.font == font)
+        terminal.zoomScale = 1
+        #expect(terminal.metalScaleFactorOverride == window.backingScaleFactor)
+    }
+
     @Test @MainActor func fontChangesResizeTheGridAndUnchangedFontsPreserveSelection() throws {
         let terminal = MetalTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
         let small = try #require(NSFont(name: "Menlo-Regular", size: 13))

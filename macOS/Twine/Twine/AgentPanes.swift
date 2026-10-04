@@ -5,6 +5,7 @@ import SwiftUI
 /// so switching modes, panes, or window sizes only moves and resizes them. No shell starts or stops,
 /// and no terminal loses its screen.
 struct AgentPanes: View {
+    @Environment(CoreClient.self) private var coreClient
     let workflow: CoreWorkflow
     @Binding var layout: WorkflowLayout
     let isSelected: Bool
@@ -24,7 +25,7 @@ struct AgentPanes: View {
         let paneIDs = layout.panes(of: agents).map(\.id)
         let arrangement =
             if layout.mode == .bento, let focusedID, let size {
-                PaneArrangement(panes: paneIDs, focusedAgentID: focusedID, size: size)
+                PaneArrangement(panes: paneIDs, focusedAgentID: focusedID, size: size, minimum: minimumPaneSize)
             } else {
                 PaneArrangement(focusedAgentID: focusedID)
             }
@@ -83,6 +84,14 @@ struct AgentPanes: View {
 
     private var columnFraction: Double { draggedColumnFraction ?? layout.columnFraction }
 
+    private var minimumPaneSize: CGSize {
+        CGSize(
+            width: BentoLayout.minimumPaneSize.width,
+            height: max(
+                BentoLayout.minimumPaneSize.height, BentoLayout.minimumTerminalPaneHeight(for: coreClient.terminalFont))
+        )
+    }
+
     private func rowFraction(_ column: Int) -> Double {
         if let draggedRow, draggedRow.column == column { return draggedRow.fraction }
         return layout.rowFractions.indices.contains(column) ? layout.rowFractions[column] : 0.5
@@ -94,7 +103,7 @@ struct AgentPanes: View {
     }
 
     private func clampedFraction(_ fraction: Double, along axis: Axis, in size: CGSize) -> Double {
-        let minimum = BentoLayout.minimumPaneSize
+        let minimum = minimumPaneSize
         return axis == .horizontal
             ? PaneArrangement.clampedFraction(fraction, panelLength: size.width, minimum: minimum.width)
             : PaneArrangement.clampedFraction(fraction, panelLength: size.height, minimum: minimum.height)

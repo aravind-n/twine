@@ -20,14 +20,17 @@ nonisolated struct PaneArrangement: Equatable {
     }
 
     let columns: [Column]
+    private let minimum: CGSize
 
     /// Tab mode: the focused agent alone.
     init(focusedAgentID: UInt64?) {
+        minimum = BentoLayout.minimumPaneSize
         columns = focusedAgentID.map { [Column(index: 0, agentIDs: [$0])] } ?? []
     }
 
     /// Bento mode: the panes, fewer when `size` can't fit them at their minimum size.
-    init(panes: [UInt64], focusedAgentID: UInt64, size: CGSize) {
+    init(panes: [UInt64], focusedAgentID: UInt64, size: CGSize, minimum: CGSize = BentoLayout.minimumPaneSize) {
+        self.minimum = minimum
         let groups: [[UInt64]] =
             switch panes.count {
             case 0: []
@@ -37,7 +40,6 @@ nonisolated struct PaneArrangement: Equatable {
             default: [[panes[0], panes[1]], [panes[2], panes[3]]]
             }
         var columns = groups.enumerated().map { Column(index: $0.offset, agentIDs: $0.element) }
-        let minimum = BentoLayout.minimumPaneSize
         if Self.sharedLength(size.width) < 2 * minimum.width, let first = columns.first {
             columns = [columns.first { $0.agentIDs.contains(focusedAgentID) } ?? first]
         }
@@ -46,6 +48,10 @@ nonisolated struct PaneArrangement: Equatable {
                 let agentID = column.agentIDs.contains(focusedAgentID) ? focusedAgentID : column.agentIDs[0]
                 return Column(index: column.index, agentIDs: [agentID])
             }
+        }
+        if size.height < minimum.height + 2 * BentoLayout.gutter {
+            let agentID = columns.flatMap(\.agentIDs).first { $0 == focusedAgentID } ?? columns.first?.agentIDs.first
+            columns = agentID.map { [Column(index: 0, agentIDs: [$0])] } ?? []
         }
         self.columns = columns
     }
@@ -65,7 +71,6 @@ nonisolated struct PaneArrangement: Equatable {
         let content = CGRect(
             x: bounds.minX + gutter, y: bounds.minY + gutter,
             width: max(0, bounds.width - 2 * gutter), height: max(0, bounds.height - 2 * gutter))
-        let minimum = BentoLayout.minimumPaneSize
         var frames: [Slot: CGRect] = [:]
         var columnFrames = [content]
         if columns.count > 1 {

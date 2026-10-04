@@ -62,6 +62,7 @@ struct WorkflowRunControls: View {
                 .accessibilityIdentifier("inspectWorkflowType")
                 .popover(isPresented: $showsGraph) {
                     WorkflowTypeInspector(type: type, run: run)
+                        .appZoom()
                 }
             }
             if let agent, agent.active && !agent.done {
@@ -92,7 +93,9 @@ struct WorkflowRunControls: View {
         .sheet(isPresented: $showsCompletion) {
             if let agent {
                 WorkflowCompletionForm(
-                    workflowID: workflowID, generation: run.generation, agent: agent, needsTask: run.needsTask)
+                    workflowID: workflowID, generation: run.generation, agent: agent, needsTask: run.needsTask
+                )
+                .appZoom()
             }
         }
         .onChange(of: run.generation) { showsCompletion = false }

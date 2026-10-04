@@ -65,6 +65,7 @@ struct FolderSidebar: View {
                     }
                 }
             }
+            .appZoom()
         }
         .alert(
             "Delete Session?",

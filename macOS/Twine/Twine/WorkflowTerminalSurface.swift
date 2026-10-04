@@ -26,7 +26,7 @@ struct WorkflowTerminalSurface: View {
                 folder: folder, workflow: workflow, isSelected: isSelected, reportFailure: reportFailure)
         } else {
             VStack(spacing: 0) {
-                if workflow.restored || (workflow.kind == .singleAgent && workflow.status != .running) {
+                if workflow.showsRestoredNotice {
                     RestoredWorkflowNotice(workflow: workflow)
                 }
                 if workflow.terminalID == 0 {

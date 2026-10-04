@@ -14,6 +14,17 @@ nonisolated indirect enum TerminalSplit: Codable, Equatable, Sendable {
         }
     }
 
+    func minimumHeight(paneHeight: CGFloat) -> CGFloat {
+        switch self {
+        case .pane: paneHeight
+        case .branch(_, let direction, _, let first, let second):
+            direction == .down
+                ? first.minimumHeight(paneHeight: paneHeight) + BentoLayout.gutter
+                    + second.minimumHeight(paneHeight: paneHeight)
+                : max(first.minimumHeight(paneHeight: paneHeight), second.minimumHeight(paneHeight: paneHeight))
+        }
+    }
+
     func inserting(_ newID: UInt64, beside id: UInt64, direction: Direction) -> Self {
         switch self {
         case .pane(let existing):
@@ -54,7 +65,7 @@ nonisolated indirect enum TerminalSplit: Codable, Equatable, Sendable {
         let fraction: Double
     }
 
-    func geometry(in bounds: CGRect) -> (panes: [UInt64: CGRect], dividers: [Divider]) {
+    func geometry(in bounds: CGRect, paneHeight: CGFloat = 100) -> (panes: [UInt64: CGRect], dividers: [Divider]) {
         switch self {
         case .pane(let id): return ([id: bounds], [])
         case .branch(let key, let direction, let fraction, let first, let second):
@@ -62,8 +73,10 @@ nonisolated indirect enum TerminalSplit: Codable, Equatable, Sendable {
             let length = horizontal ? bounds.width : bounds.height
             let gap = min(BentoLayout.gutter, length)
             let usable = max(0, length - gap)
-            let minimum = min(horizontal ? 180.0 : 100.0, usable / 2)
-            let position = min(max(minimum, usable * fraction), usable - minimum)
+            let firstMinimum = horizontal ? 180 : first.minimumHeight(paneHeight: paneHeight)
+            let secondMinimum = horizontal ? 180 : second.minimumHeight(paneHeight: paneHeight)
+            let fit = min(1, usable / (firstMinimum + secondMinimum))
+            let position = min(max(firstMinimum * fit, usable * fraction), usable - secondMinimum * fit)
             var leading = bounds
             var trailing = bounds
             var divider = bounds
@@ -80,14 +93,14 @@ nonisolated indirect enum TerminalSplit: Codable, Equatable, Sendable {
                 divider.origin.y += position
                 divider.size.height = gap
             }
-            let left = first.geometry(in: leading)
-            let right = second.geometry(in: trailing)
+            let left = first.geometry(in: leading, paneHeight: paneHeight)
+            let right = second.geometry(in: trailing, paneHeight: paneHeight)
             return (
                 left.panes.merging(right.panes) { value, _ in value },
                 left.dividers + right.dividers + [
                     Divider(
                         id: key, direction: direction,
-                        bounds: bounds, frame: divider, fraction: fraction)
+                        bounds: bounds, frame: divider, fraction: usable > 0 ? position / usable : 0.5)
                 ]
             )
         }
