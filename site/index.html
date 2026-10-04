@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f8f2">
+    <title>Twine — A native macOS workspace for coding agents</title>
+    <meta name="description" content="Bring your terminals, coding agents, files, and workflow history together in Twine. A native, open-source macOS app for coordinating coding agents.">
+    <link rel="canonical" href="https://aravind-n.github.io/twine/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Twine — Coding agents, working together.">
+    <meta property="og:description" content="Your terminals, coding agents, files, and workflow history in one native macOS app.">
+    <meta property="og:url" content="https://aravind-n.github.io/twine/">
+    <meta property="og:image" content="https://aravind-n.github.io/twine/assets/workspace.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" type="image/png" href="assets/favicon.png">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="./" aria-label="Twine home">
+        <img src="assets/icon.png" width="40" height="40" alt="">
+        <span>twine<span class="brand-period">.</span></span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#workflows">Workflows</a>
+        <a href="docs/">Docs</a>
+        <a class="nav-github" href="https://github.com/aravind-n/twine">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Native macOS. Open source. Early days.</p>
+        <h1 id="hero-title">Coding agents,<br><span>working together.</span></h1>
+        <p class="hero-description">Your terminals, coding agents, files, and workflow history.<br class="desktop-break"> One Mac app. Room for the way you work.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/aravind-n/twine/releases/latest">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></svg>
+            Download for macOS
+          </a>
+          <a class="button button-secondary" href="https://github.com/aravind-n/twine">Explore the source <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="download-detail">macOS 26+ <span aria-hidden="true">·</span> Apple Silicon &amp; Intel <span aria-hidden="true">·</span> MIT licensed</p>
+        <figure class="app-preview">
+          <div class="preview-label"><span class="preview-tag">A look inside</span><span>Two agents. One shared task.</span></div>
+          <a href="assets/workspace.png" aria-label="View full-size Twine screenshot">
+            <img src="assets/workspace.png" width="2229" height="1278" fetchpriority="high" alt="Twine’s Adversarial workflow with implementer and reviewer terminals side by side, folder files and sessions in the sidebar, and workflow traces below.">
+          </a>
+          <figcaption>An implementer and a reviewer, each in their own terminal. Handoffs and history stay in view.</figcaption>
+        </figure>
+      </section>
+
+      <section class="harnesses wrap" aria-labelledby="harness-title">
+        <h2 id="harness-title">Bring the tools you already use.</h2>
+        <ul class="harness-list" aria-label="Supported agent harnesses">
+          <li>Codex</li><li>Claude Code</li><li>pi</li><li>Antigravity</li><li>OMP</li><li>OpenCode</li>
+        </ul>
+        <p>Install and authenticate your agent tools separately. Mix harnesses across roles, or start with a plain shell.</p>
+      </section>
+
+      <section class="workflows wrap section" id="workflows" aria-labelledby="workflow-title">
+        <div class="section-heading">
+          <p class="eyebrow">A little structure goes a long way</p>
+          <h2 id="workflow-title">Find your flow.</h2>
+          <p>Work solo, add a second pair of eyes, or share a task across agents.<br class="desktop-break"> You choose how the work moves forward.</p>
+        </div>
+        <div class="workflow-grid">
+          <article class="workflow-card">
+            <p class="card-number">01 / START SIMPLE</p>
+            <div class="flow-diagram" aria-label="You interact with a single agent"><span class="flow-node">You</span><span class="flow-arrow" aria-hidden="true">↔</span><span class="flow-node node-green">Agent</span></div>
+            <h3>A terminal. An agent. A task.</h3>
+            <p>Use a plain shell or one interactive coding agent. Split panes, keep files nearby, and work directly in the terminal.</p>
+            <p class="card-caption">Terminal &amp; Single agent</p>
+          </article>
+          <article class="workflow-card">
+            <p class="card-number">02 / BUILD &amp; REVIEW</p>
+            <div class="flow-diagram" aria-label="Implementer and reviewer exchange work"><span class="flow-node node-green">Implementer</span><span class="flow-arrow" aria-hidden="true">↔</span><span class="flow-node node-pink">Reviewer</span></div>
+            <h3>Give your work another look.</h3>
+            <p>One agent implements. Another reviews, approves, or requests changes. Explicit handoffs and bounded loops keep the work moving.</p>
+            <p class="card-caption">Adversarial</p>
+          </article>
+          <article class="workflow-card">
+            <p class="card-number">03 / DIVIDE THE WORK</p>
+            <div class="flow-diagram" aria-label="A coordinator assigns work to multiple workers"><span class="flow-node node-blue">Coordinator</span><span class="flow-arrow" aria-hidden="true">→</span><span class="worker-stack"><span class="flow-node node-green">Worker</span><span class="flow-node node-green">Worker</span></span></div>
+            <h3>Make room for more hands.</h3>
+            <p>A coordinator assigns sub-tasks to parallel workers, then gathers and checks their results. Each role has its own terminal.</p>
+            <p class="card-caption">Coordinator</p>
+          </article>
+        </div>
+        <div class="custom-workflow"><span class="custom-symbol" aria-hidden="true">↳</span><p><strong>Have your own way of working?</strong> Design a reusable workflow type with your own roles, stages, handoffs, and review loops.</p><a href="docs/guide/#agent-workflows">See how <span aria-hidden="true">↗</span></a></div>
+      </section>
+
+      <section class="details wrap section" aria-labelledby="details-title">
+        <div class="section-heading">
+          <p class="eyebrow">Keep the thread</p>
+          <h2 id="details-title">The work around the work,<br>all in one place.</h2>
+        </div>
+        <div class="details-grid">
+          <article><span class="detail-mark" aria-hidden="true">[ / ]</span><h3>A window for each folder.</h3><p>Organize work into sessions and workflows. Each folder keeps its own terminals, files, and tabs.</p></article>
+          <article><span class="detail-mark" aria-hidden="true">[ ↗ ]</span><h3>Follow the handoffs.</h3><p>See workflow activity in Traces, inspect what happened, and jump to recorded terminal output where available.</p></article>
+          <article><span class="detail-mark" aria-hidden="true">[ ↺ ]</span><h3>Pick up the thread.</h3><p>Restore sessions, pane layouts, and retained output. Resume agent conversations when the harness provides a session handle.</p></article>
+          <article><span class="detail-mark" aria-hidden="true">[ _ ]</span><h3>Stay close to your files.</h3><p>Browse your folder and make small text edits, with undo and checks for changes made on disk before saving.</p></article>
+        </div>
+      </section>
+
+      <section class="getting-started wrap section" id="get-started" aria-labelledby="start-title">
+        <div class="start-intro">
+          <img src="assets/icon.png" alt="Twine’s smiling plant mascot with colorful intertwined stems" width="80" height="80" loading="lazy">
+          <p class="eyebrow">Ready when you are</p>
+          <h2 id="start-title">Give it a spin.</h2>
+          <p>Twine is in early development.<br>Try it on a real task and tell us what you think.</p>
+          <a class="button button-primary" href="https://github.com/aravind-n/twine/releases/latest">Get the latest release <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="start-steps">
+          <ol>
+            <li><span class="step-number" aria-hidden="true">1</span><div><h3>Download &amp; install.</h3><p>Get the universal ZIP from GitHub Releases, extract it, and move Twine.app to Applications.</p></div></li>
+            <li><span class="step-number" aria-hidden="true">2</span><div><h3>Open your folder.</h3><p>Create a session, choose a workflow, and select the agent tools you’ve installed.</p></div></li>
+            <li><span class="step-number" aria-hidden="true">3</span><div><h3>Start with a task.</h3><p>Enter your task in the first agent’s terminal. Follow the work as the agents hand it off.</p></div></li>
+          </ol>
+          <p class="install-note">The current release is ad hoc signed and not notarized. Follow the included README.txt for first-launch approval, or read the <a href="docs/guide/#install">install notes</a>.</p>
+          <p class="source-note">Prefer to build it yourself? <a href="docs/guide/#development-setup">Build from source <span aria-hidden="true">↗</span></a></p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer wrap">
+      <div><a class="brand footer-brand" href="./"><span>twine<span class="brand-period">.</span></span></a><p>A native macOS workspace for coordinating coding agents.</p></div>
+      <nav aria-label="Footer navigation"><a href="docs/">Documentation</a><a href="https://github.com/aravind-n/twine/issues">Feedback</a><a href="https://github.com/aravind-n/twine/blob/main/LICENSE">MIT License</a></nav>
+      <p class="footer-credit">Premiered at <a href="https://seattle.aitinkerers.org/">AI Tinkerers Seattle</a>. Built with SwiftUI, Rust, and <a href="https://github.com/migueldeicaza/SwiftTerm">SwiftTerm</a>.</p>
+    </footer>
+  </body>
+</html>

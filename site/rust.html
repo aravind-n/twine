@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f8f2">
+    <title>Rust core &amp; C ABI — Twine</title>
+    <meta name="description" content="The combined Cargo documentation reference for Twine’s Rust application core and C ABI bridge, with search across both crates.">
+    <link rel="canonical" href="https://aravind-n.github.io/twine/docs/rust/">
+    <link rel="icon" type="image/png" href="../../assets/favicon.png">
+    <link rel="stylesheet" href="../../styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="../../" aria-label="Twine home"><img src="../../assets/icon.png" width="40" height="40" alt=""><span>twine<span class="brand-period">.</span></span></a>
+      <nav aria-label="Main navigation"><a href="../../#workflows">Workflows</a><a href="../">Docs</a><a class="nav-github" href="https://github.com/aravind-n/twine">GitHub <span aria-hidden="true">↗</span></a></nav>
+    </header>
+    <div class="docs-layout wrap">
+      <aside class="docs-sidebar" aria-label="Rust reference navigation">
+        <a class="docs-back" href="../">← All documentation</a>
+        <p class="eyebrow">Rust workspace</p>
+        <nav class="toc" aria-label="Crates"><ul><li><a href="twine_core/">Application core</a></li><li><a href="twine_bridge/">C ABI bridge</a></li></ul></nav>
+        <a class="docs-source" href="https://github.com/aravind-n/twine">View source on GitHub ↗</a>
+      </aside>
+      <main id="main" class="docs-content">
+        <p class="eyebrow">Rust · cargo doc</p>
+        <h1>Rust core &amp; C ABI.</h1>
+        <p>One workspace reference for Twine’s reusable application core and the C ABI that connects it to Swift. Browse either crate below, or search their APIs together.</p>
+        <form class="rust-search" action="twine_core/" method="get" role="search">
+          <label for="rust-query">Search both crates</label>
+          <div><input id="rust-query" type="search" name="search" placeholder="Find a type, module, or function" required><button class="button button-primary" type="submit">Search APIs <span aria-hidden="true">→</span></button></div>
+        </form>
+        <h2>Application core and bridge</h2>
+        <table class="rust-crates">
+          <thead><tr><th scope="col">Crate</th><th scope="col">API reference</th></tr></thead>
+          <tbody>
+            <tr><td><a href="twine_core/"><code>twine_core</code></a></td><td>Domain state, workflow orchestration, process supervision, files, and persistence. A Rust API independent of the UI and FFI.</td></tr>
+            <tr><td><a href="twine_bridge/"><code>twine_bridge</code></a></td><td>The C ABI between core and Swift: exported functions, buffers, and ownership and safety contracts.</td></tr>
+          </tbody>
+        </table>
+        <p>Both crates are generated together with <code>cargo doc --workspace --no-deps</code> and share Cargo’s documentation search.</p>
+        <p>For the Swift side of this boundary, see the <a href="../swift/documentation/twine/">native macOS app reference</a>. For installation and usage, see the <a href="../guide/">user guide</a>.</p>
+      </main>
+    </div>
+    <footer class="footer wrap"><div><a class="brand footer-brand" href="../../"><span>twine<span class="brand-period">.</span></span></a><p>A native macOS workspace for coordinating coding agents.</p></div><nav aria-label="Footer navigation"><a href="../">Documentation</a><a href="https://github.com/aravind-n/twine/releases/latest">Releases</a><a href="https://github.com/aravind-n/twine/blob/main/LICENSE">MIT License</a></nav></footer>
+  </body>
+</html>

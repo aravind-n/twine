@@ -1,0 +1,72 @@
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/reference.md'
+      - 'docs/images/twine-workspace.png'
+      - 'twine-core/**'
+      - 'twine-bridge/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'macOS/**'
+      - '.github/actions/setup-macos/**'
+      - 'Makefile'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - 'docs/reference.md'
+      - 'docs/images/twine-workspace.png'
+      - 'twine-core/**'
+      - 'twine-bridge/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'macOS/**'
+      - '.github/actions/setup-macos/**'
+      - 'Makefile'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-macos
+        with:
+          rust: 'true'
+          rust-targets: aarch64-apple-darwin x86_64-apple-darwin
+          metal: 'true'
+      - name: Build website and API documentation
+        run: make build-site
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist/twine
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy website
+        id: deployment
+        uses: actions/deploy-pages@v4
