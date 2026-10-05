@@ -204,8 +204,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tree-sitter-grammars/tree-sitter-yaml",
       "state" : {
-        "revision" : "b733d3f5f5005890f324333dd57e1f0badec5c87",
-        "version" : "0.7.0"
+        "revision" : "7708026449bed86239b1cd5bce6e3c34dbca6415",
+        "version" : "0.7.2"
       }
     }
   ],
