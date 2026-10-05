@@ -4,22 +4,19 @@ background = "#f7f4e8"
 foreground = "#1a2026"
 cursor = "#1a2026"
 selection = "#e5e1cf"
-# ANSI slots: black, red, green, yellow, blue, magenta, cyan, white; then bright variants.
-ansi = [
-    "#1a2026",
-    "#b72c32",
-    "#4c712f",
-    "#7c6917",
-    "#176b9b",
-    "#9f356d",
-    "#087a60",
-    "#666354",
-    "#626d78",
-    "#c53b43",
-    "#517a2d",
-    "#896a12",
-    "#00729c",
-    "#ac467f",
-    "#007d6a",
-    "#37382f",
-]
+black = "#1a2026"
+red = "#b72c32"
+green = "#4c712f"
+yellow = "#7c6917"
+blue = "#176b9b"
+magenta = "#9f356d"
+cyan = "#087a60"
+white = "#666354"
+brblack = "#626d78"
+brred = "#c53b43"
+brgreen = "#517a2d"
+bryellow = "#896a12"
+brblue = "#00729c"
+brmagenta = "#ac467f"
+brcyan = "#007d6a"
+brwhite = "#37382f"

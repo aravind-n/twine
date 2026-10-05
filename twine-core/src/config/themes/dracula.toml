@@ -1,0 +1,25 @@
+# Dracula terminal colors. Edit this file, then restart Twine.
+# Adapted for Twine from https://github.com/dracula/alacritty/blob/master/dracula.toml
+# License and attribution: licenses/dracula.txt
+[terminal.colors]
+background = "#282a36"
+foreground = "#f8f8f2"
+cursor = "#f8f8f2"
+selection = "#44475a"
+
+black = "#21222c"
+red = "#ff5555"
+green = "#50fa7b"
+yellow = "#f1fa8c"
+blue = "#bd93f9"
+magenta = "#ff79c6"
+cyan = "#8be9fd"
+white = "#f8f8f2"
+brblack = "#6272a4"
+brred = "#ff6e6e"
+brgreen = "#69ff94"
+bryellow = "#ffffa5"
+brblue = "#d6acff"
+brmagenta = "#ff92df"
+brcyan = "#a4ffff"
+brwhite = "#ffffff"

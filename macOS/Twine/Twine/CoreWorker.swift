@@ -278,6 +278,23 @@ actor CoreWorker: CoreTransport {
 }
 
 extension CoreWorker {
+    /// Config access does not create or require a folder runtime.
+    func configFile() throws -> FilePreview {
+        var response = TwineBuffer()
+        try check(twine_config_file(&response))
+        return try decoder.decode(FilePreview.self, from: consume(&response))
+    }
+
+    func saveConfigFile(_ request: FileSaveRequest) throws -> FileSaveResult {
+        let data = try encoder.encode(request)
+        var response = TwineBuffer()
+        let status = data.withUnsafeBytes { bytes in
+            twine_config_save_file(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &response)
+        }
+        try check(status)
+        return try decoder.decode(FileSaveResult.self, from: consume(&response))
+    }
+
     func open() throws -> CoreSnapshot {
         if client == nil {
             var createdClient: OpaquePointer?

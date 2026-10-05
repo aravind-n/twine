@@ -150,4 +150,17 @@ final class FolderWindows {
     func finishClosingWindows() async {
         for task in closingTasks.values { await task.value }
     }
+
+    func reloadConfig() async throws {
+        for session in Array(sessions.values) {
+            while session.coreClient.runState == .starting && !session.isClosing {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            guard !session.isClosing, !isTerminating, session.coreClient.runState == .running else { continue }
+            let receipt = try await session.coreClient.send(.reloadConfig)
+            if let rejection = receipt.error {
+                throw CoreFailure.commandRejected(code: rejection.code, message: rejection.message)
+            }
+        }
+    }
 }

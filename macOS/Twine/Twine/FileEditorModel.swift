@@ -10,6 +10,7 @@ final class FileEditorModel: Identifiable {
     let id = UUID()
     let path: String
     let folder: String
+    let isConfigFile: Bool
     private(set) var baseline: FilePreview?
     private(set) var diskFile: FilePreview?
     private(set) var navigationURL: URL?
@@ -30,9 +31,10 @@ final class FileEditorModel: Identifiable {
     var isSaving: Bool { pendingSave != nil }
     var canSave: Bool { isDirty && !isSaving && baseline?.version != nil }
 
-    init(path: String, folder: String) {
+    init(path: String, folder: String, isConfigFile: Bool = false) {
         self.path = path
         self.folder = folder
+        self.isConfigFile = isConfigFile
     }
 
     func navigate(to url: URL) {
@@ -59,10 +61,10 @@ final class FileEditorModel: Identifiable {
         saveID = UUID()
     }
 
-    func savePending(client: CoreClient) async {
+    func savePending(client: CoreClient, didSave: (() async throws -> Void)? = nil) async {
         guard let request = pendingSave else { return }
         do {
-            let result = try await client.saveFile(request)
+            let result = try await (isConfigFile ? client.saveConfigFile(request) : client.saveFile(request))
             switch result.status {
             case .saved:
                 guard let file = result.file, file.path == path, file.version != nil else {
@@ -70,6 +72,7 @@ final class FileEditorModel: Identifiable {
                 }
                 baseline = file
                 diskFile = file
+                try await didSave?()
             case .conflict:
                 guard let file = result.file, file.path == path else { throw CoreFailure.unexpectedCommandResult }
                 conflict = file

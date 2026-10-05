@@ -135,7 +135,12 @@ review its saved output. Twine leaves your harness configuration files unchanged
 <p>Twine reads <code>$XDG_CONFIG_HOME/twine/config.toml</code> at startup, falling back to
 <code>~/.config/twine/config.toml</code> when <code>XDG_CONFIG_HOME</code> is unset, empty, or relative. It creates a
 commented default config and <code>themes/silica_dark.toml</code> and <code>themes/silica_light.toml</code> beside it
-on first launch. Existing files are never overwritten. Restart Twine after editing settings.</p>
+on first launch. Existing files are never overwritten.</p>
+<p>Choose <strong>Twine → Settings…</strong> or press <strong>⌘,</strong> to edit the config file in a
+popup attached to the current window. Save with <strong>⌘S</strong> or the Save button. Valid settings
+apply immediately to every open folder; invalid settings keep the previous file and active settings.
+Unsaved edits are protected when
+closing the window or quitting, and external file changes prompt you to reload or overwrite.</p>
 <pre class="highlight"><code class="language-toml">[appearance]
 color_scheme = "system" # "system", "light", or "dark"
 
@@ -147,8 +152,8 @@ history. Install the font in macOS and use its family name. An omitted or empty 
 uses system monospace. Twine checks that <code>i</code> and <code>w</code> have equal character widths, allowing Nerd
 Fonts whose icons are wider. An unavailable font or one that fails this check falls back to
 system monospace with a warning. <code>font_size</code> defaults to 13 points and accepts sizes from 6
-through 72, including fractional sizes such as 13.5. Appearance settings are parsed but are
-not applied yet.</p>
+through 72, including fractional sizes such as 13.5. <code>appearance.color_scheme</code> selects
+system, light, or dark appearance for all app windows.</p>
 <p>A top-level <code>import</code> loads one or more complete TOML configuration files. Put it before any
 table headers in <code>config.toml</code>:</p>
 <pre class="highlight"><code class="language-toml">import = ["themes/silica_dark.toml", "fonts.toml"]
@@ -165,8 +170,7 @@ selection = "#34495e"</code></pre>
 <p>A single file can also use <code>import = "themes/silica_dark.toml"</code>. Files merge in the order listed:
 later imports override earlier imports, then the importing file overrides them all. Tables merge
 recursively, so overriding <code>terminal.font_size</code> preserves an imported <code>terminal.font_family</code>.
-Arrays, including the ANSI palette, are replaced as a whole. Defaults fill omitted settings after
-merging. Imported files can contain any supported settings, including appearance and terminal fonts.</p>
+Individual terminal colors merge by name. Defaults fill omitted settings after merging. Imported files can contain any supported settings, including appearance and terminal fonts.</p>
 <p>Imports accept absolute paths, <code>~/</code> paths, and paths relative to the file containing the import.
 Imported files can have their own top-level imports. Cycles are rejected, including cycles through
 symlinks; each import tree is limited to 64 levels and 256 documents. Invalid imported settings cause
@@ -182,15 +186,27 @@ background = "#101820"
 foreground = "#e5e1cf"
 cursor = "#8fbe5c"
 selection = "#34495e"
-ansi = [
-    "#1a2026", "#ef4d4d", "#8fbe5c", "#d9bd54",
-    "#4aa3e0", "#dc63a0", "#2dd6ab", "#cac5b3",
-    "#7d8794", "#ff8383", "#a9e488", "#ecd77e",
-    "#7cd2f5", "#f0a0d5", "#85f0d8", "#f7f4e8",
-]</code></pre>
-<p>Colors must be <code>#RRGGBB</code> strings. <code>ansi</code> accepts exactly 16 entries: black, red, green, yellow,
-blue, magenta, cyan, and white, followed by their bright variants. The same tables and keys work in
-<code>config.toml</code> and all imported files. Changes apply after restarting Twine, including shell and
+black = "#1a2026"
+red = "#ef4d4d"
+green = "#8fbe5c"
+yellow = "#d9bd54"
+blue = "#4aa3e0"
+magenta = "#dc63a0"
+cyan = "#2dd6ab"
+white = "#cac5b3"
+brblack = "#7d8794"
+brred = "#ff8383"
+brgreen = "#a9e488"
+bryellow = "#ecd77e"
+brblue = "#7cd2f5"
+brmagenta = "#f0a0d5"
+brcyan = "#85f0d8"
+brwhite = "#f7f4e8"</code></pre>
+<p>Colors must be <code>#RRGGBB</code> strings. Set ANSI colors individually with <code>black</code>, <code>red</code>, <code>green</code>,
+<code>yellow</code>, <code>blue</code>, <code>magenta</code>, <code>cyan</code>, and <code>white</code>.
+Bright variants use the <code>br</code> prefix: <code>brblack</code> through <code>brwhite</code>.
+Legacy <code>ansi</code> arrays remain readable; named colors override their corresponding slots. The same tables and keys work in
+<code>config.toml</code> and all imported files. Saving settings in Twine updates shell and
 agent terminals, Bento panes, saved output, and minimaps.</p>
 <p>Omitted settings use defaults. Invalid TOML, invalid values, or file errors (including theme files)
 use the complete defaults; unknown keys are ignored with a warning. Diagnostics include the file, line, and

@@ -58,7 +58,8 @@ final class CoreClient {
                 if commandResults.removeValue(forKey: receipt.requestID) == nil {
                     ignoredCommandResults.insert(receipt.requestID)
                 }
-            case .openFolder, .restoreFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .nameDraftWorkflow,
+            case .reloadConfig, .openFolder, .restoreFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder,
+                .nameDraftWorkflow,
                 .refreshGitBranch, .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun,
                 .setWorkflowIndividualMode, .cancelWorkflowRun:
                 break
@@ -202,6 +203,9 @@ final class CoreClient {
 
     private func apply(_ event: CoreEvent.Kind, to snapshot: inout CoreSnapshot) {
         switch event {
+        case .configChanged(let config):
+            snapshot.config = config
+            terminalFont = TerminalFont.resolve(config.terminal)
         case .workflowTypesChanged(let types):
             snapshot.workflowTypes = types
         case .traceChanged(let summary):
@@ -217,18 +221,8 @@ final class CoreClient {
             applyWorkflow(workflow, to: &snapshot)
         case .foldersChanged(let folders):
             snapshot.folders = folders
-        case .terminalClosed(let terminalID):
-            markTerminalClosed(terminalID, in: &snapshot)
-        case .terminalExited(let terminalID, let exit):
-            updateTerminal(
-                CoreTerminalState(terminalID: terminalID, status: .exited(exit)),
-                in: &snapshot
-            )
-        case .terminalFailed(let terminalID, let message):
-            updateTerminal(
-                CoreTerminalState(terminalID: terminalID, status: .failed(message: message)),
-                in: &snapshot
-            )
+        case .terminalClosed, .terminalExited, .terminalFailed:
+            applyTerminalEvent(event, to: &snapshot)
         }
     }
 

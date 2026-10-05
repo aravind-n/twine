@@ -8,8 +8,28 @@ use serde::{Deserialize, Serialize};
 
 use super::{ConfigDiagnostic, file_diagnostic, imports, write_default};
 
+mod bundled;
+
 const SILICA_LIGHT: &str = include_str!("themes/silica_light.toml");
 const SILICA_DARK: &str = include_str!("themes/silica_dark.toml");
+pub(super) const ANSI_COLOR_NAMES: [&str; 16] = [
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "white",
+    "brblack",
+    "brred",
+    "brgreen",
+    "bryellow",
+    "brblue",
+    "brmagenta",
+    "brcyan",
+    "brwhite",
+];
 
 /// An opaque sRGB color written as `#RRGGBB`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -48,12 +68,64 @@ pub struct TerminalColors {
     pub cursor: Option<HexColor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection: Option<HexColor>,
-    /// The standard eight ANSI slots followed by their bright variants.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_ansi"
-    )]
+    /// Legacy array input remains readable; new files use the individual color keys below.
+    #[serde(skip_serializing, deserialize_with = "deserialize_ansi")]
     pub ansi: Option<[HexColor; 16]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub black: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub red: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub green: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yellow: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blue: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub magenta: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cyan: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub white: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brblack: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brred: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brgreen: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bryellow: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brblue: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brmagenta: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brcyan: Option<HexColor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brwhite: Option<HexColor>,
+}
+
+impl TerminalColors {
+    fn named_ansi(&self) -> [Option<&HexColor>; 16] {
+        [
+            self.black.as_ref(),
+            self.red.as_ref(),
+            self.green.as_ref(),
+            self.yellow.as_ref(),
+            self.blue.as_ref(),
+            self.magenta.as_ref(),
+            self.cyan.as_ref(),
+            self.white.as_ref(),
+            self.brblack.as_ref(),
+            self.brred.as_ref(),
+            self.brgreen.as_ref(),
+            self.bryellow.as_ref(),
+            self.brblue.as_ref(),
+            self.brmagenta.as_ref(),
+            self.brcyan.as_ref(),
+            self.brwhite.as_ref(),
+        ]
+    }
 }
 
 fn deserialize_ansi<'de, D: serde::Deserializer<'de>>(
@@ -94,6 +166,11 @@ impl TerminalPalette {
         if let Some(colors) = &colors.ansi {
             self.ansi.clone_from(colors);
         }
+        for (slot, color) in self.ansi.iter_mut().zip(colors.named_ansi()) {
+            if let Some(color) = color {
+                *slot = color.clone();
+            }
+        }
     }
 }
 
@@ -121,14 +198,31 @@ impl TerminalPalettes {
 
 fn embedded_palette(source: &str) -> TerminalPalette {
     let table: toml::Table = toml::from_str(source).expect("valid embedded theme document");
-    table["terminal"]["colors"]
+    let colors: TerminalColors = table["terminal"]["colors"]
         .clone()
         .try_into()
-        .expect("valid embedded terminal palette")
+        .expect("valid embedded terminal palette");
+    let ansi = colors
+        .named_ansi()
+        .map(|color| color.expect("complete embedded ANSI palette").clone());
+    TerminalPalette {
+        background: colors.background.expect("embedded background"),
+        foreground: colors.foreground.expect("embedded foreground"),
+        cursor: colors.cursor.expect("embedded cursor"),
+        selection: colors.selection.expect("embedded selection"),
+        ansi,
+    }
+}
+
+pub(super) fn default_color_settings() -> &'static str {
+    &SILICA_DARK[SILICA_DARK
+        .find("cursor =")
+        .expect("embedded cursor setting")..]
 }
 
 pub(super) fn load(config_path: &Path) -> (TerminalPalettes, Vec<ConfigDiagnostic>) {
     let directory = config_path.parent().unwrap_or(Path::new("."));
+    bundled::publish(directory);
     let mut palettes = TerminalPalettes::default();
     let mut diagnostics = Vec::new();
     let mut files = Vec::new();
@@ -168,6 +262,130 @@ pub(super) fn load(config_path: &Path) -> (TerminalPalettes, Vec<ConfigDiagnosti
 mod tests {
     use super::*;
     use crate::config::{Config, ConfigProblem};
+
+    #[test]
+    fn named_colors_override_only_their_ansi_slots_in_both_appearances() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        for (slot, name) in [
+            "black",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "magenta",
+            "cyan",
+            "white",
+            "brblack",
+            "brred",
+            "brgreen",
+            "bryellow",
+            "brblue",
+            "brmagenta",
+            "brcyan",
+            "brwhite",
+        ]
+        .iter()
+        .enumerate()
+        {
+            fs::write(&config, format!("[terminal.colors]\n{name} = '#123456'\n")).unwrap();
+            let loaded = Config::load(&config);
+            assert_eq!(loaded.diagnostics, []);
+            let mut expected = TerminalPalettes::default();
+            expected.light.ansi[slot] = HexColor("#123456".into());
+            expected.dark.ansi[slot] = HexColor("#123456".into());
+            assert_eq!(loaded.config.terminal.palettes, expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn named_colors_merge_across_imports_and_report_invalid_values_by_name() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        fs::write(
+            directory.path().join("colors.toml"),
+            "[terminal.colors]\nblack = '#111111'\nblue = '#222222'\nbrmagenta = '#333333'\n",
+        )
+        .unwrap();
+        fs::write(
+            &config,
+            "import = 'colors.toml'\n[terminal.colors]\nblue = '#444444'\n",
+        )
+        .unwrap();
+        let loaded = Config::load(&config);
+        assert_eq!(loaded.diagnostics, []);
+        for palette in [
+            &loaded.config.terminal.palettes.light,
+            &loaded.config.terminal.palettes.dark,
+        ] {
+            assert_eq!(palette.ansi[0].as_str(), "#111111");
+            assert_eq!(palette.ansi[4].as_str(), "#444444");
+            assert_eq!(palette.ansi[13].as_str(), "#333333");
+        }
+        fs::write(&config, "[terminal.colors]\nbrblue = 'secret'\n").unwrap();
+        let loaded = Config::load(&config);
+        assert_eq!(loaded.config, Config::default());
+        assert_eq!(loaded.diagnostics[0].key, "terminal.colors.brblue");
+        assert_eq!(loaded.diagnostics[0].line, 2);
+        assert_eq!(loaded.diagnostics[0].problem, ConfigProblem::InvalidValue);
+        assert!(!loaded.diagnostics[0].to_string().contains("secret"));
+    }
+
+    #[test]
+    fn legacy_array_remains_readable_and_named_keys_override_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        fs::write(
+            &config,
+            format!(
+                "[terminal.colors]\nansi = [{}]\nblue = '#abcdef'\n",
+                vec!["'#112233'"; 16].join(",")
+            ),
+        )
+        .unwrap();
+        let loaded = Config::load(&config);
+        assert_eq!(loaded.diagnostics, []);
+        assert_eq!(
+            loaded.config.terminal.palettes.dark.ansi[0].as_str(),
+            "#112233"
+        );
+        assert_eq!(
+            loaded.config.terminal.palettes.dark.ansi[4].as_str(),
+            "#abcdef"
+        );
+        let serialized = toml::to_string(&loaded.config.terminal.colors).unwrap();
+        assert!(serialized.contains("blue ="));
+        assert!(!serialized.contains("ansi ="));
+    }
+
+    #[test]
+    fn mixed_formats_preserve_import_order_and_local_precedence() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        fs::write(
+            directory.path().join("named.toml"),
+            "[terminal.colors]\nblue = '#abcdef'\n",
+        )
+        .unwrap();
+        let legacy = format!(
+            "[terminal.colors]\nansi = [{}]\n",
+            vec!["'#112233'"; 16].join(",")
+        );
+        fs::write(directory.path().join("legacy.toml"), &legacy).unwrap();
+        for (source, expected) in [
+            (format!("import = 'named.toml'\n{legacy}"), "#112233"),
+            ("import = ['named.toml', 'legacy.toml']\n".into(), "#112233"),
+            ("import = ['legacy.toml', 'named.toml']\n".into(), "#abcdef"),
+        ] {
+            fs::write(&config, source).unwrap();
+            let loaded = Config::load(&config);
+            assert_eq!(loaded.diagnostics, []);
+            assert_eq!(
+                loaded.config.terminal.palettes.dark.ansi[4].as_str(),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn seeds_both_palettes_and_preserves_user_edits() {

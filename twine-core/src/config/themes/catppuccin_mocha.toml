@@ -1,0 +1,25 @@
+# Catppuccin Mocha terminal colors. Edit this file, then restart Twine.
+# Adapted for Twine from https://github.com/catppuccin/alacritty/blob/main/catppuccin-mocha.toml
+# License and attribution: licenses/catppuccin.txt
+[terminal.colors]
+background = "#1e1e2e"
+foreground = "#cdd6f4"
+cursor = "#f5e0dc"
+selection = "#f5e0dc"
+
+black = "#45475a"
+red = "#f38ba8"
+green = "#a6e3a1"
+yellow = "#f9e2af"
+blue = "#89b4fa"
+magenta = "#f5c2e7"
+cyan = "#94e2d5"
+white = "#bac2de"
+brblack = "#585b70"
+brred = "#f38ba8"
+brgreen = "#a6e3a1"
+bryellow = "#f9e2af"
+brblue = "#89b4fa"
+brmagenta = "#f5c2e7"
+brcyan = "#94e2d5"
+brwhite = "#a6adc8"

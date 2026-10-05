@@ -1,0 +1,25 @@
+# Catppuccin Latte terminal colors. Edit this file, then restart Twine.
+# Adapted for Twine from https://github.com/catppuccin/alacritty/blob/main/catppuccin-latte.toml
+# License and attribution: licenses/catppuccin.txt
+[terminal.colors]
+background = "#eff1f5"
+foreground = "#4c4f69"
+cursor = "#dc8a78"
+selection = "#dc8a78"
+
+black = "#bcc0cc"
+red = "#d20f39"
+green = "#40a02b"
+yellow = "#df8e1d"
+blue = "#1e66f5"
+magenta = "#ea76cb"
+cyan = "#179299"
+white = "#5c5f77"
+brblack = "#acb0be"
+brred = "#d20f39"
+brgreen = "#40a02b"
+bryellow = "#df8e1d"
+brblue = "#1e66f5"
+brmagenta = "#ea76cb"
+brcyan = "#179299"
+brwhite = "#6c6f85"

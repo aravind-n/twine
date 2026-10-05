@@ -204,6 +204,9 @@ struct WireEvent<'a> {
     rename_all_fields = "camelCase"
 )]
 enum WireEventKind<'a> {
+    ConfigChanged {
+        config: &'a twine_core::config::Config,
+    },
     WorkflowTypesChanged {
         workflow_types: &'a [twine_core::WorkflowType],
     },
@@ -355,6 +358,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
             DecodedCommand::Known(runs::decode_command(command_type, &raw.command)?)
         }
         "ping" => DecodedCommand::Known(Command::Ping),
+        "reloadConfig" => DecodedCommand::Known(Command::ReloadConfig),
         "openFolder" => DecodedCommand::Known(Command::OpenFolder {
             path: decode_path(&raw.command)?,
         }),
@@ -508,6 +512,9 @@ pub(crate) fn encode_events(events: &[Event]) -> Result<Vec<u8>, serde_json::Err
                     }
                 }
                 EventKind::State(StateEvent::ApplicationReady) => WireEventKind::ApplicationReady,
+                EventKind::State(StateEvent::ConfigChanged(config)) => {
+                    WireEventKind::ConfigChanged { config }
+                }
                 EventKind::State(StateEvent::FoldersChanged(folders)) => {
                     WireEventKind::FoldersChanged {
                         folders: folders.into(),
@@ -621,6 +628,26 @@ mod tests {
             .as_bytes(),
         );
         assert!(matches!(unknown, Err(BridgeError::MalformedCommand)));
+    }
+
+    #[test]
+    fn config_reload_decodes_and_publishes_the_validated_config() {
+        assert!(matches!(
+            decode(r#"{"requestId":1,"command":{"type":"reloadConfig"}}"#),
+            Command::ReloadConfig
+        ));
+        let config = Config::default();
+        let events = [Event {
+            sequence: 2,
+            kind: EventKind::State(StateEvent::ConfigChanged(Box::new(config.clone()))),
+        }];
+        let encoded: Value = serde_json::from_slice(&encode_events(&events).unwrap()).unwrap();
+        assert_eq!(
+            encoded,
+            serde_json::json!({ "events": [{ "sequence": 2,
+                "event": { "type": "configChanged", "config": config }
+            }] })
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ mod text;
 mod watcher;
 pub(crate) use editing::save;
 pub use editing::{FileSaveOutcome, FileSaveRequest};
-use text::read_preview;
+pub(crate) use text::read_preview;
 pub(crate) use watcher::FileWatcher;
 
 pub const TEXT_LIMIT: u64 = 2 * 1024 * 1024;

@@ -198,18 +198,6 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func clickDialogButton(_ title: String, in app: XCUIApplication) {
-        for query in [app.dialogs.buttons, app.sheets.buttons, app.windows.buttons] {
-            let button = query[title].firstMatch
-            if button.exists {
-                button.click()
-                return
-            }
-        }
-        XCTFail("Dialog button not found: \(title)\n\(app.debugDescription)")
-    }
-
-    @MainActor
     private func replaceText(_ replacement: String, in text: XCUIElement) {
         text.click()
         text.typeKey("a", modifierFlags: .command)

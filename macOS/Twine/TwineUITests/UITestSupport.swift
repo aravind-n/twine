@@ -4,6 +4,30 @@ import XCTest
 /// Helpers for tests that drive shells in a folder. UI tests run only in CI, so their waits explain
 /// what they found when they time out.
 extension TwineUITests {
+    /// Disk persistence precedes live reload; wait until the editor finishes both before interacting.
+    @MainActor
+    func waitForSave(in app: XCUIApplication) {
+        let button = app.buttons["saveFile"].firstMatch
+        let saved = expectation(
+            for: NSPredicate { _, _ in
+                button.exists && button.label == "Save"
+            }, evaluatedWith: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 10), .completed, app.debugDescription)
+    }
+
+    /// Scope dialog buttons to onscreen controls so Touch Bar duplicates cannot intercept clicks.
+    @MainActor
+    func clickDialogButton(_ title: String, in app: XCUIApplication) {
+        for query in [app.dialogs.buttons, app.sheets.buttons, app.windows.buttons] {
+            let button = query[title].firstMatch
+            if button.exists {
+                button.click()
+                return
+            }
+        }
+        XCTFail("Dialog button not found: \(title)\n\(app.debugDescription)")
+    }
+
     /// Restrict the system control's label to toolbars so file rows cannot match it.
     @MainActor
     func sidebarToggleButtons(in app: XCUIApplication) -> XCUIElementQuery {

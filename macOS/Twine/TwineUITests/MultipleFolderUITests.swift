@@ -3,6 +3,70 @@ import XCTest
 
 extension TwineUITests {
     @MainActor
+    func testSavingSettingsReflowsExistingTerminalsInAllFolderWindows() throws {
+        let first = try makeTestFolder(prefix: "Twine live settings first")
+        let second = try makeTestFolder(prefix: "Twine live settings second")
+        let configHome = try makeTestFolder(prefix: "Twine live settings config")
+        let file = configHome.appending(path: "twine/config.toml")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "terminal.font_size = 13\n".write(to: file, atomically: true, encoding: .utf8)
+        let app = try makeApp(lastOpenFolder: first)
+        app.launchEnvironment["XDG_CONFIG_HOME"] = configHome.path
+        app.launchEnvironment["SHELL"] = "/bin/bash"
+        app.launch()
+        defer { app.terminate() }
+        let firstWindow = folderWindow(first, in: app)
+        XCTAssertTrue(firstWindow.waitForExistence(timeout: 10))
+        app.typeText("echo $$ > pid-before; stty size > size-before\r")
+        waitForFile(first.appending(path: "size-before"), containing: " ", in: app)
+        chooseFolder(second, in: app)
+        let secondWindow = folderWindow(second, in: app)
+        XCTAssertTrue(secondWindow.waitForExistence(timeout: 10))
+        app.typeText("echo $$ > pid-before; stty size > size-before\r")
+        waitForFile(second.appending(path: "size-before"), containing: " ", in: app)
+        app.typeKey(",", modifierFlags: .command)
+        let popup = app.sheets.firstMatch
+        let text = popup.textViews["fileText"]
+        XCTAssertTrue(text.waitForExistence(timeout: 5))
+        text.click()
+        text.typeKey("a", modifierFlags: .command)
+        text.typeText("[terminal]\nfont_size = 24\n[terminal.colors]\nblue = '#123456'\nbrblue = '#abcdef'\n")
+        app.typeKey("s", modifierFlags: .command)
+        waitForFile(file, containing: "font_size = 24", in: app)
+        waitForSave(in: app)
+        popup.buttons["closeSettings"].click()
+        XCTAssertTrue(popup.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(app.windows.count, 2)
+        for (folder, window) in [(first, firstWindow), (second, secondWindow)] {
+            focusFolderWindow(window, in: app)
+            try verifyReloadedTerminal(in: folder, app: app)
+        }
+    }
+
+    @MainActor
+    private func verifyReloadedTerminal(in folder: URL, app: XCUIApplication) throws {
+        // Config events and PTY resize happen after the reload receipt; sample once reflow reaches the shell.
+        app.typeText(
+            "while [ \"$(stty size)\" = \"$(cat size-before)\" ]; do sleep 0.05; done; "
+                + "echo $$ > pid-after; stty size > size-after\r")
+        waitForFile(folder.appending(path: "size-after"), containing: " ", in: app)
+        let before = try String(contentsOf: folder.appending(path: "size-before"), encoding: .utf8)
+            .split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+        let after = try String(contentsOf: folder.appending(path: "size-after"), encoding: .utf8)
+            .split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+        guard before.count == 2, after.count == 2 else {
+            XCTFail("Invalid terminal sizes: before \(before), after \(after)")
+            return
+        }
+        XCTAssertLessThan(after[0], before[0])
+        XCTAssertLessThan(after[1], before[1])
+        XCTAssertEqual(
+            try String(contentsOf: folder.appending(path: "pid-after"), encoding: .utf8),
+            try String(contentsOf: folder.appending(path: "pid-before"), encoding: .utf8),
+            "Saving settings must keep the existing shell running")
+    }
+
+    @MainActor
     func testFolderWindowsKeepShellsAndCommandsIndependent() throws {
         let first = try makeTestFolder(prefix: "Twine first folder")
         let second = try makeTestFolder(prefix: "Twine second folder")

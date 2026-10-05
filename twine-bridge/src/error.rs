@@ -4,6 +4,8 @@ use twine_core::ApplicationError;
 #[derive(Debug, Error)]
 pub(crate) enum BridgeError {
     #[error(transparent)]
+    Config(#[from] twine_core::config::ConfigEditError),
+    #[error(transparent)]
     Application(#[from] ApplicationError),
     #[error("input exceeds the maximum size")]
     InputTooLarge,

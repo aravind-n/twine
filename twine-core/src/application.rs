@@ -18,6 +18,7 @@ use crate::harness::{HarnessId, LoginPath};
 use crate::workflow::{SessionId, WorkflowId, WorkflowKind, WorkflowState};
 
 mod agents;
+mod configuration;
 mod files;
 mod git;
 mod harness_steps;
@@ -44,6 +45,8 @@ pub struct RequestId(pub u64);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     Ping,
+    /// Applies the current user config to this runtime without restarting its processes.
+    ReloadConfig,
     ValidateWorkflowType {
         definition: crate::WorkflowTypeDefinition,
     },
@@ -197,6 +200,7 @@ pub struct Snapshot {
 #[derive(Debug)]
 struct Inner {
     state: ApplicationState,
+    config: Config,
     folders: Folders,
     events: EventJournal,
     terminals: HashMap<TerminalId, TerminalStatus>,
@@ -226,7 +230,6 @@ pub struct Application {
     /// Makes harness lookup search only this `PATH`, so tests don't depend on installed tools.
     #[cfg(test)]
     harness_path: Option<std::ffi::OsString>,
-    config: Config,
     run_processes: Mutex<HashMap<WorkflowId, runs::RunProcesses>>,
     harness_steps: Mutex<HashMap<TerminalId, harness_steps::HarnessRecording>>,
 }
@@ -317,9 +320,9 @@ impl Application {
             run_processes: Mutex::new(HashMap::new()),
             harness_steps: Mutex::new(HashMap::new()),
             commands: Mutex::new(()),
-            config,
             inner: Arc::new(Mutex::new(Inner {
                 state: ApplicationState::Ready,
+                config,
                 folders,
                 events,
                 terminals: HashMap::new(),
@@ -369,6 +372,7 @@ impl Application {
         self.poll_harness_steps()?;
         self.poll_shell_observations()?;
         let disposition = match command {
+            Command::ReloadConfig => self.reload_config()?,
             Command::ValidateWorkflowType { definition } => {
                 self.validate_workflow_type(request_id, &definition)?
             }
@@ -519,7 +523,7 @@ impl Application {
         Ok(Snapshot {
             sequence: inner.events.latest_sequence(),
             state: inner.state,
-            config: self.config.clone(),
+            config: inner.config.clone(),
             folders: inner.folders.state().clone(),
             terminals,
             workflows: inner.workflows.clone(),

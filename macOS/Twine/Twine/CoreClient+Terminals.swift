@@ -1,6 +1,25 @@
 import Foundation
 
 extension CoreClient {
+    func applyTerminalEvent(_ event: CoreEvent.Kind, to snapshot: inout CoreSnapshot) {
+        switch event {
+        case .terminalClosed(let terminalID):
+            markTerminalClosed(terminalID, in: &snapshot)
+        case .terminalExited(let terminalID, let exit):
+            updateTerminal(
+                CoreTerminalState(terminalID: terminalID, status: .exited(exit)),
+                in: &snapshot
+            )
+        case .terminalFailed(let terminalID, let message):
+            updateTerminal(
+                CoreTerminalState(terminalID: terminalID, status: .failed(message: message)),
+                in: &snapshot
+            )
+        default:
+            break
+        }
+    }
+
     func terminalStatus(for terminalID: UInt64) -> CoreTerminalState.Status? {
         snapshot?.terminals.first { $0.terminalID == terminalID }?.status
     }
