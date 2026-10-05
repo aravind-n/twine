@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export TWINE_SIGNING_MODE=adhoc
 
 # Exercise real macOS disk images, installation, signing, plists, and symbols with a tiny app.
 repo="$PWD"
@@ -49,6 +50,12 @@ done
 xcrun lipo -create "$fixture/arm64.a" "$fixture/x86_64.a" -output "$bundle/libtwinecore.a"
 printf 'void twine_fixture(void);\n' > "$bundle/twine_bridge.h"
 git rev-parse HEAD > "$bundle/commit.txt"
+# A reused build must not retain development debugging entitlements when re-signed.
+cat > "$fixture/development.entitlements" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>
+PLIST
+codesign --force --sign - --entitlements "$fixture/development.entitlements" "$app"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$bundle/Twine.app.zip"
 ditto -c -k --sequesterRsrc --keepParent "$fixture/Twine.app.dSYM" "$bundle/Twine.app.dSYM.zip"
 
@@ -105,6 +112,16 @@ for mode in package nightly-package; do
     hdiutil detach -quiet "$mountpoint"
     mounted=false
     codesign --verify --deep --strict "$installed"
+    codesign --display --entitlements - --xml "$installed" 2>/dev/null > "$fixture/release.entitlements"
+    python3 - "$fixture/release.entitlements" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], "rb") as source:
+    entitlements = plistlib.load(source)
+assert entitlements["com.apple.security.automation.apple-events"] is True
+assert entitlements["com.apple.security.device.camera"] is True
+assert not entitlements.get("com.apple.security.get-task-allow", False)
+assert not any(key.startswith("com.apple.security.cs.") for key in entitlements)
+PY
     cmp LICENSE "$installed/Contents/Resources/LICENSE"
     "$installed/Contents/MacOS/Twine"
     rm -rf "$fixture/Applications folder"

@@ -180,9 +180,7 @@ error. The ownership lock is released after the recording worker has flushed and
 <h2 id="releases">Releases<a class="headerlink" href="#releases" title="Permanent link">#</a></h2>
 <p>Pushing a <code>vMAJOR.MINOR.PATCH</code> tag runs <code>.github/workflows/release.yml</code> and creates a
 <strong>draft</strong> GitHub Release. It reuses the unsigned universal build from successful main CI
-for that commit, or rebuilds it using the same build workflow if the artifact has expired.
-No Apple Developer account, signing certificate, notarization credentials, or release
-secrets are required.</p>
+for that commit, or rebuilds it using the same build workflow if the artifact has expired.</p>
 <p>To cut a release:</p>
 <ol>
 <li>Set the version in <code>Cargo.toml</code> and update <code>Cargo.lock</code>. Set the Twine app's
@@ -203,7 +201,7 @@ git push origin v0.1.0</code></pre>
 </ol>
 <p>The release contains:</p>
 <ul>
-<li><code>Twine-VERSION-macos-universal.dmg</code>: ad hoc signed app and Applications folder shortcut in a compact installer window. The license is bundled at <code>Twine.app/Contents/Resources/LICENSE</code>. Open the disk image, drag Twine to Applications, eject the image, and launch the installed app.</li>
+<li><code>Twine-VERSION-macos-universal.dmg</code>: Developer ID signed, notarized app and Applications folder shortcut in a compact installer window. The license is bundled at <code>Twine.app/Contents/Resources/LICENSE</code>. Open the disk image, drag Twine to Applications, eject the image, and launch the installed app.</li>
 <li><code>libtwinecore-VERSION-macos-universal.tar.gz</code>: the existing universal static C ABI library
   as <code>libtwinecore.a</code>, matching C header, usage README, and license.
   The protocol is experimental; pin matching header/library versions.</li>
@@ -211,19 +209,21 @@ git push origin v0.1.0</code></pre>
 <li><code>Twine-VERSION-symbols.tar.gz</code>: app debug symbols, checked against both executable UUIDs.</li>
 <li><code>SHA256SUMS</code>: SHA-256 checksums for the disk image and three archives.</li>
 </ul>
-<p>The packaged app's short version matches the tag; its build number comes from main CI. Its ad hoc signature
-provides integrity; users still approve the first launch themselves. The disk image is not
-notarized. This release matrix is macOS only.</p>
+<p>The packaged app's short version matches the tag; its build number comes from main CI.
+Packaging signs the app with Developer ID and Hardened Runtime, notarizes and staples
+it, then signs, notarizes, and staples the DMG before generating checksums. Failed
+signing or notarization prevents publication. This release matrix is macOS only.</p>
 <p>Re-run failed jobs to retry a draft release. Published releases are never overwritten; use
 a new patch version for a correction after publication. Do not move an existing release tag.</p>
 <p>For local packaging, run from the root (the output directory must be empty):</p>
 <pre class="highlight"><code class="language-sh">make check-release  # needs shellcheck and actionlint
 make build-macos-release XCODE_BUILD_ARGS=CODE_SIGNING_ALLOWED=NO
 make release-bundle
-make release-package VERSION=0.1.0
+TWINE_SIGNING_MODE=adhoc make release-package VERSION=0.1.0
 (cd dist &amp;&amp; shasum -a 256 -c SHA256SUMS)</code></pre>
 <p><code>DERIVED_DATA</code>, <code>BUILD_DIR</code>, <code>BUNDLE_DIR</code>, and <code>OUTPUT_DIR</code> can override the default paths.
-These commands do not create a GitHub Release. The source archive always uses committed HEAD.</p>
+These commands create an ad hoc signed local package without publishing a GitHub Release.
+The source archive always uses committed HEAD.</p>
 <h3 id="nightly-releases">Nightly releases<a class="headerlink" href="#nightly-releases" title="Permanent link">#</a></h3>
 <p><code>.github/workflows/nightly.yml</code> runs every day at 03:17 America/Los_Angeles.
 It publishes a universal <strong>Release</strong> build as a GitHub prerelease when the selected
@@ -241,11 +241,11 @@ Publication uploads and verifies all assets in a draft
 before making the prerelease public. Retries may repair an unfinished draft but
 never replace a published nightly or move its tag. Stable releases remain Latest.</p>
 <p>The app keeps its numeric marketing version and CI build number; <code>TwineBuildVersion</code>
-records the nightly identifier. Nightlies use the existing ad hoc signing and
-first-launch approval instructions. Quit Twine before replacing <code>Twine.app</code>;
+records the nightly identifier. Nightlies use the same Developer ID signing, notarization, and
+installation flow as stable releases. Quit Twine before replacing <code>Twine.app</code>;
 nightlies use the same saved data and configuration as stable builds.</p>
 <p>To package an existing CI-style bundle locally:</p>
-<pre class="highlight"><code class="language-sh">make nightly-package NIGHTLY_ID="nightly-20261005-$(git rev-parse --short=12 HEAD)"</code></pre>
+<pre class="highlight"><code class="language-sh">TWINE_SIGNING_MODE=adhoc make nightly-package NIGHTLY_ID="nightly-20261005-$(git rev-parse --short=12 HEAD)"</code></pre>
 <p><code>make check-release</code> validates the workflows and runs the release notes, nightly
 guard/publication, and macOS packaging checks. Tests mock GitHub and do not publish.
 GitHub schedules are best effort and can be delayed; public-repository schedules

@@ -72,6 +72,7 @@ jobs:
       always() && !cancelled() && needs.guard.result == 'success' &&
       (needs.rebuild.result == 'success' || needs.rebuild.result == 'skipped')
     runs-on: xcode-27
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-macos
@@ -85,9 +86,25 @@ jobs:
       - name: Package and verify release DMG and archives
         env:
           VERSION: ${{ needs.guard.outputs.version }}
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
         run: >-
+          bash .github/release/with-signing.sh
           make release-package VERSION="$VERSION" BUNDLE_DIR="$RUNNER_TEMP/bundle"
           OUTPUT_DIR="$RUNNER_TEMP/release"
+      - name: Upload notarization diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notarization
+          path: target/notarization/
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 7
       - uses: actions/upload-artifact@v7
         with:
           name: release-assets

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 fail() { echo "error: $*" >&2; exit 1; }
+# shellcheck source=.github/release/signing.sh
+source "$(dirname "$0")/signing.sh"
 version_check() {
     [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'expected MAJOR.MINOR.PATCH'
 }
@@ -67,6 +69,7 @@ case "${1:-}" in
         git rev-parse HEAD > "$bundle/commit.txt"
         ;;
     package|nightly-package)
+        signing_check
         version="${2:?version required}"
         bundle="${3:?bundle directory required}"
         output="${4:?output directory required}"
@@ -107,14 +110,13 @@ case "${1:-}" in
         # Keep the license with the installed app, without adding an installer-window item.
         mkdir -p "$app/Contents/Resources"
         cp LICENSE "$app/Contents/Resources/LICENSE"
-        # Sign nested executable code inside out, then the app. Verify deeply, never sign deeply.
-        while IFS= read -r -d '' path; do
-            if [[ "$(file -b "$path")" == *Mach-O* ]]; then codesign --force --sign - "$path"; fi
-        done < <(find "$app" -type f -print0)
-        while IFS= read -r -d '' path; do
-            codesign --force --sign - "$path"
-        done < <(find "$app" -depth -type d \( -name '*.framework' -o -name '*.xpc' -o -name '*.appex' -o -name '*.app' \) -print0)
-        codesign --verify --deep --strict "$app"
+        sign_app "$app"
+        if [[ "${TWINE_SIGNING_MODE:-developer-id}" == developer-id ]]; then
+            ditto -c -k --sequesterRsrc --keepParent "$app" "$staging/Twine.app.zip"
+            notarize "$staging/Twine.app.zip" "$app"
+            verify_developer_id "$app" executable
+            spctl --assess --type execute --verbose=2 "$app"
+        fi
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "$build_number" ]] || fail 'incorrect bundle build number'
         ln -s /Applications "$folder/Applications"
         # Finder artwork stays hidden, leaving only the app and Applications visible.
@@ -150,6 +152,13 @@ case "${1:-}" in
         dmg_mount=""
         hdiutil convert -quiet "$writable" -format UDZO -o "$image"
         hdiutil verify -quiet "$image"
+        if [[ "${TWINE_SIGNING_MODE:-developer-id}" == developer-id ]]; then
+            sign_code "$image" container
+            verify_developer_id "$image" container
+            notarize "$image" "$image"
+            verify_developer_id "$image" container
+            spctl --assess --type open --context context:primary-signature --verbose=2 "$image"
+        fi
         (cd "$output"; shasum -a 256 ./*.dmg ./*.tar.gz > SHA256SUMS; shasum -a 256 -c SHA256SUMS)
         ;;
     *) fail 'usage: release.sh guard TAG NOTES | notes VERSION NOTES | bundle BUILD BUNDLE | package VERSION BUNDLE OUTPUT | nightly-package NIGHTLY_ID BUNDLE OUTPUT' ;;

@@ -35,6 +35,7 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testClosingAnUnavailableRestoredFolderKeepsItClosedOnRelaunch \
 	testSessionsOwnTabsAndRestoreFreshShellsAfterRelaunch \
 	testQuitStopsShellAndDescendant \
+	testTerminalRunsLibraryInjectionAndDebugger \
 	testSingleAgentStartsInteractivelyTakesInputAndCancels \
 	testClaudeMinimapDotsSelectTheirTraceAndScrollToThePrompt \
 	testTimelineInspectorShowsNestedCallsFiltersAndSurvivesRelaunch \
@@ -107,8 +108,9 @@ help:
 	@echo 'Release packaging:'
 	@echo '  release-build-app     Build Release app using an existing Release framework'
 	@echo '  release-bundle        Save app, static C ABI library, header, symbols, commit'
-	@echo '  release-package       Package and verify DMG and archives for VERSION (BUNDLE_DIR, OUTPUT_DIR)'
-	@echo '  nightly-package       Package and verify DMG and archives for NIGHTLY_ID (BUNDLE_DIR, OUTPUT_DIR)'
+	@echo '  release-package       Sign, notarize, and verify DMG and archives for VERSION'
+	@echo '  nightly-package       Sign, notarize, and verify DMG and archives for NIGHTLY_ID'
+	@echo '                        TWINE_SIGNING_MODE=adhoc skips Developer ID signing and notarization locally'
 	@echo '  check-release         Test release scripts and macOS packaging, and lint workflows'
 	@echo '  regenerate-dmg-artwork Render the installer SVG into a Retina Finder background'
 	@echo ''
@@ -157,6 +159,7 @@ nightly-package: dmg-tools
 check-release-scripts:
 	bash .github/release/test-notes.sh
 	bash .github/release/test-nightly.sh
+	bash .github/release/test-signing.sh
 	shellcheck .github/release/*.sh
 
 check-release-package: dmg-tools
