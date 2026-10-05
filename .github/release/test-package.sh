@@ -89,7 +89,8 @@ for mode in package nightly-package; do
     visible_items="$(find "$packaged" -mindepth 1 -maxdepth 1 ! -name '.*' -exec basename {} \; | sort)"
     [[ "$visible_items" == $'Applications\nTwine.app' ]]
     [[ -L "$packaged/Applications" && "$(readlink "$packaged/Applications")" == /Applications ]]
-    cmp .github/release/Finder.DS_Store "$packaged/.DS_Store"
+    "${TWINE_DMG_PYTHON:-$PWD/target/dmg-tools/bin/python3}" .github/release/dmg-layout.py --verify "$packaged"
+    cmp .github/release/installer-background.tiff "$packaged/.background.tiff"
     cmp LICENSE "$packaged/Twine.app/Contents/Resources/LICENSE"
     plist="$packaged/Twine.app/Contents/Info.plist"
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == 1.2.3 ]]

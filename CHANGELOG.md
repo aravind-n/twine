@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Distribute the macOS app in a DMG with an Applications shortcut for drag-and-drop
   installation, and select that installer from the website's download buttons.
+  The installer uses braided stems and a fuller green arrowhead to guide the copy.
 
 ## [0.1.0] - 2026-10-01
 

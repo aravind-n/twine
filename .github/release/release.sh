@@ -82,7 +82,14 @@ case "${1:-}" in
         mkdir -p "$output" target
         [[ -z "$(ls -A "$output")" ]] || fail 'output directory must be empty'
         staging="$(mktemp -d "$PWD/target/release-stage.XXXXXX")"
-        trap 'rm -rf "$staging"' EXIT
+        dmg_mount=""
+        cleanup() {
+            if [[ -n "$dmg_mount" ]]; then
+                hdiutil detach -quiet "$dmg_mount" || hdiutil detach -quiet -force "$dmg_mount" || return
+            fi
+            rm -rf "$staging"
+        }
+        trap cleanup EXIT
         folder="$staging/Twine-$version"
         mkdir "$folder"
         ditto -x -k "$bundle/Twine.app.zip" "$folder"
@@ -110,8 +117,8 @@ case "${1:-}" in
         codesign --verify --deep --strict "$app"
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "$build_number" ]] || fail 'incorrect bundle build number'
         ln -s /Applications "$folder/Applications"
-        # A fixed Finder layout works in headless CI without AppleScript or dependencies.
-        cp .github/release/Finder.DS_Store "$folder/.DS_Store"
+        # Finder artwork stays hidden, leaving only the app and Applications visible.
+        cp .github/release/installer-background.tiff "$folder/.background.tiff"
         library="$staging/libtwinecore-$version-macos-universal"
         mkdir -p "$library/include"
         cp "$bundle/libtwinecore.a" "$library/libtwinecore.a"
@@ -131,7 +138,17 @@ case "${1:-}" in
         tar -czf "$output/Twine-$version-symbols.tar.gz" -C "$staging" "$(basename "$symbols")"
         git archive --format=tar --prefix="twine-$version/" HEAD | gzip -n > "$output/twine-$version-source.tar.gz"
         image="$output/Twine-$version-macos-universal.dmg"
-        hdiutil create -quiet -volname 'Twine — Drag to Applications' -srcfolder "$folder" -fs HFS+ -format UDZO "$image"
+        dmg_python="${TWINE_DMG_PYTHON:-$PWD/target/dmg-tools/bin/python3}"
+        [[ -x "$dmg_python" ]] || fail 'run make dmg-tools before packaging'
+        writable="$staging/installer.dmg"
+        hdiutil create -quiet -volname 'Twine — Drag to Applications' -srcfolder "$folder" -fs HFS+ -format UDRW "$writable"
+        dmg_mount="$staging/mounted"
+        mkdir "$dmg_mount"
+        hdiutil attach -quiet -nobrowse -owners off -mountpoint "$dmg_mount" "$writable"
+        "$dmg_python" .github/release/dmg-layout.py "$dmg_mount"
+        hdiutil detach -quiet "$dmg_mount"
+        dmg_mount=""
+        hdiutil convert -quiet "$writable" -format UDZO -o "$image"
         hdiutil verify -quiet "$image"
         (cd "$output"; shasum -a 256 ./*.dmg ./*.tar.gz > SHA256SUMS; shasum -a 256 -c SHA256SUMS)
         ;;

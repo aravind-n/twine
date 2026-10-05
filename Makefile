@@ -12,7 +12,9 @@ SITE_DIR := $(CURDIR)/dist/twine
 RUST_DOC_DIR := $(CURDIR)/target/api-docs-rust
 SWIFT_DOC_DIR := $(CURDIR)/target/api-docs-swift
 XCODE_BUILD_ARGS ?=
-RELEASE_SCRIPT := bash .github/release/release.sh
+DMG_TOOLS_DIR := $(CURDIR)/target/dmg-tools
+DMG_PYTHON := $(DMG_TOOLS_DIR)/bin/python3
+RELEASE_SCRIPT := TWINE_DMG_PYTHON="$(DMG_PYTHON)" bash .github/release/release.sh
 PLAYWRIGHT_INSTALL_ARGS ?=
 
 UI_TEST_DERIVED_DATA ?= /tmp/twine-uitests
@@ -61,7 +63,7 @@ UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 	framework framework-release build-macos build-macos-release fmt-macos lint-macos \
 	test-macos ui-test-macos ui-test-macos-built ui-test-macos-all ui-test-macos-visual check-macos clean-macos \
 	fmt lint test check clean release-build-app release-bundle release-package nightly-package \
-	check-release check-release-scripts check-release-package \
+	check-release check-release-scripts check-release-package dmg-tools regenerate-dmg-artwork \
 	build-site check-site docs-rust docs-swift
 
 help:
@@ -108,6 +110,7 @@ help:
 	@echo '  release-package       Package and verify DMG and archives for VERSION (BUNDLE_DIR, OUTPUT_DIR)'
 	@echo '  nightly-package       Package and verify DMG and archives for NIGHTLY_ID (BUNDLE_DIR, OUTPUT_DIR)'
 	@echo '  check-release         Test release scripts and macOS packaging, and lint workflows'
+	@echo '  regenerate-dmg-artwork Render the installer SVG into a Retina Finder background'
 	@echo ''
 	@echo '  help                  Show this message (default)'
 
@@ -145,10 +148,10 @@ release-build-app:
 release-bundle:
 	$(RELEASE_SCRIPT) bundle "$(BUILD_DIR)" "$(BUNDLE_DIR)"
 
-release-package:
+release-package: dmg-tools
 	$(RELEASE_SCRIPT) package "$(VERSION)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
 
-nightly-package:
+nightly-package: dmg-tools
 	$(RELEASE_SCRIPT) nightly-package "$(NIGHTLY_ID)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
 
 check-release-scripts:
@@ -156,8 +159,19 @@ check-release-scripts:
 	bash .github/release/test-nightly.sh
 	shellcheck .github/release/*.sh
 
-check-release-package:
-	bash .github/release/test-package.sh
+check-release-package: dmg-tools
+	TWINE_DMG_PYTHON="$(DMG_PYTHON)" bash .github/release/test-package.sh
+
+$(DMG_TOOLS_DIR)/.installed: .github/release/dmg-requirements.txt
+	python3 -m venv "$(DMG_TOOLS_DIR)"
+	"$(DMG_PYTHON)" -m pip install --disable-pip-version-check -r $<
+	touch "$@"
+
+dmg-tools: $(DMG_TOOLS_DIR)/.installed
+
+regenerate-dmg-artwork:
+	swift format --in-place .github/release/render-background.swift
+	swift .github/release/render-background.swift
 
 check-release: check-release-scripts check-release-package
 	actionlint -ignore 'label "xcode-27" is unknown'

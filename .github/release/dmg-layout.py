@@ -1,23 +1,49 @@
-"""Regenerate Finder.DS_Store when changing the installer layout.
+"""Write or verify Finder layout on a mounted installer volume.
 
-Maintenance only: install ds_store==1.3.1 in a temporary virtual environment,
-then run this script. Release builds copy the committed template and do not
-need Python packages, Finder, or a GUI session. The template contains no
-machine-specific paths or aliases; it applies to any mounted release volume.
-https://ds-store.readthedocs.io/en/latest/
+The background alias is created on the writable image before compression. Its
+volume creation date and catalog ID survive conversion and let Finder resolve
+it after download, even at a different mount point. No Finder session is needed.
 """
 
 from pathlib import Path
+import sys
 
 from ds_store import DSStore
+from mac_alias import Alias
 
 
-with DSStore.open(str(Path(__file__).with_name("Finder.DS_Store")), "w+") as store:
+verify = len(sys.argv) == 3 and sys.argv[1] == "--verify"
+if len(sys.argv) != (3 if verify else 2):
+    raise SystemExit("usage: dmg-layout.py [--verify] MOUNTED_VOLUME")
+mount = Path(sys.argv[-1]).resolve()
+image = mount / ".background.tiff"
+background = Alias.for_file(str(image))
+
+def text(value):
+    return value.decode("utf-8") if isinstance(value, bytes) else value
+
+
+if verify:
+    with DSStore.open(str(mount / ".DS_Store"), "r") as store:
+        options = store["."]["icvp"]
+        actual = Alias.from_bytes(options["backgroundImageAlias"])
+        assert options["backgroundType"] == 2
+        assert options["iconSize"] == 80.0
+        assert store["Twine.app"]["Iloc"] == (130, 134)
+        assert store["Applications"]["Iloc"] == (410, 134)
+        assert text(actual.volume.name) == text(background.volume.name)
+        assert actual.volume.creation_date == background.volume.creation_date
+        assert actual.target.cnid == background.target.cnid
+        assert text(actual.target.posix_path) == "/.background.tiff"
+    print("Finder background resolves on the packaged volume")
+    raise SystemExit(0)
+
+with DSStore.open(str(mount / ".DS_Store"), "w+") as store:
     store["."]["vSrn"] = ("long", 1)
     store["."]["icvl"] = ("type", b"icnv")
     store["."]["vstl"] = ("type", b"icnv")
     store["."]["bwsp"] = {
-        "WindowBounds": "{{200, 160}, {480, 240}}",
+        "WindowBounds": "{{200, 160}, {540, 262}}",
         "ShowToolbar": False,
         "ShowSidebar": False,
         "ContainerShowSidebar": False,
@@ -27,10 +53,16 @@ with DSStore.open(str(Path(__file__).with_name("Finder.DS_Store")), "w+") as sto
     }
     store["."]["icvp"] = {
         "viewOptionsVersion": 1,
-        "backgroundType": 0,
+        "backgroundType": 2,
+        "backgroundImageAlias": background.to_bytes(),
+        # Finder image backgrounds need explicit RGB components. Keep the
+        # approved charcoal canvas in both system appearances.
+        "backgroundColorRed": 41 / 255,
+        "backgroundColorGreen": 42 / 255,
+        "backgroundColorBlue": 43 / 255,
         "arrangeBy": "none",
-        "iconSize": 96.0,
-        "textSize": 14.0,
+        "iconSize": 80.0,
+        "textSize": 13.0,
         "labelOnBottom": True,
         "showItemInfo": False,
         "showIconPreview": False,
@@ -40,5 +72,5 @@ with DSStore.open(str(Path(__file__).with_name("Finder.DS_Store")), "w+") as sto
         "scrollPositionX": 0.0,
         "scrollPositionY": 0.0,
     }
-    store["Twine.app"]["Iloc"] = (130, 100)
-    store["Applications"]["Iloc"] = (350, 100)
+    store["Twine.app"]["Iloc"] = (130, 134)
+    store["Applications"]["Iloc"] = (410, 134)
