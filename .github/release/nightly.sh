@@ -12,7 +12,7 @@ releases() {
 }
 
 expected_assets() {
-    printf '%s\n' "Twine-$1-macos-universal.zip" "libtwinecore-$1-macos-universal.tar.gz" \
+    printf '%s\n' "Twine-$1-macos-universal.dmg" "libtwinecore-$1-macos-universal.tar.gz" \
         "Twine-$1-symbols.tar.gz" "twine-$1-source.tar.gz" SHA256SUMS | sort
 }
 
@@ -116,7 +116,9 @@ case "${1:-}" in
             echo
             echo 'Requires macOS 26+, on Apple Silicon or Intel. The app is ad hoc signed and not notarized.'
             echo 'Quit Twine and replace Twine.app. This nightly uses your existing saved data and settings.'
-            echo 'Installation instructions are included in the ZIP. Download SHA256SUMS to verify the archives.'
+            echo 'Open the DMG and drag Twine.app to Applications, then eject the disk image.'
+            echo 'Installation and first-launch approval: https://aravind-n.github.io/twine/documentation/guide/#install'
+            echo 'Download SHA256SUMS to verify the disk image and archives.'
             echo
             if [[ -n "$previous" ]]; then
                 echo "Changes: $repo_url/compare/$previous...$tag"

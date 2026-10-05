@@ -82,7 +82,14 @@ case "${1:-}" in
         mkdir -p "$output" target
         [[ -z "$(ls -A "$output")" ]] || fail 'output directory must be empty'
         staging="$(mktemp -d "$PWD/target/release-stage.XXXXXX")"
-        trap 'rm -rf "$staging"' EXIT
+        dmg_mount=""
+        cleanup() {
+            if [[ -n "$dmg_mount" ]]; then
+                hdiutil detach -quiet "$dmg_mount" || hdiutil detach -quiet -force "$dmg_mount" || return
+            fi
+            rm -rf "$staging"
+        }
+        trap cleanup EXIT
         folder="$staging/Twine-$version"
         mkdir "$folder"
         ditto -x -k "$bundle/Twine.app.zip" "$folder"
@@ -97,6 +104,9 @@ case "${1:-}" in
         build_number="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
         [[ "$build_number" =~ ^[1-9][0-9]*$ ]] || fail 'expected a positive integer build number'
         /usr/libexec/PlistBuddy -c "Set :TwineBuildVersion $version" "$plist"
+        # Keep the license with the installed app, without adding an installer-window item.
+        mkdir -p "$app/Contents/Resources"
+        cp LICENSE "$app/Contents/Resources/LICENSE"
         # Sign nested executable code inside out, then the app. Verify deeply, never sign deeply.
         while IFS= read -r -d '' path; do
             if [[ "$(file -b "$path")" == *Mach-O* ]]; then codesign --force --sign - "$path"; fi
@@ -106,14 +116,9 @@ case "${1:-}" in
         done < <(find "$app" -depth -type d \( -name '*.framework' -o -name '*.xpc' -o -name '*.appex' -o -name '*.app' \) -print0)
         codesign --verify --deep --strict "$app"
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "$build_number" ]] || fail 'incorrect bundle build number'
-        sed -e "s/@VERSION@/$version/g" -e "s/@RELEASE_TAG@/$release_tag/g" \
-            .github/release/README.txt > "$folder/README.txt"
-        if [[ "$1" == nightly-package ]]; then
-            printf '\nThis nightly replaces Twine.app and uses the same saved data and settings.\nCommit: %s\n' \
-                "$(git rev-parse HEAD)" >> "$folder/README.txt"
-        fi
-        cp LICENSE "$folder/LICENSE"
-        ditto -c -k --sequesterRsrc --keepParent "$folder" "$output/Twine-$version-macos-universal.zip"
+        ln -s /Applications "$folder/Applications"
+        # Finder artwork stays hidden, leaving only the app and Applications visible.
+        cp .github/release/installer-background.tiff "$folder/.background.tiff"
         library="$staging/libtwinecore-$version-macos-universal"
         mkdir -p "$library/include"
         cp "$bundle/libtwinecore.a" "$library/libtwinecore.a"
@@ -132,7 +137,20 @@ case "${1:-}" in
         [[ -n "$binary_uuids" && "$binary_uuids" == "$symbol_uuids" ]] || fail 'debug symbols differ from executable'
         tar -czf "$output/Twine-$version-symbols.tar.gz" -C "$staging" "$(basename "$symbols")"
         git archive --format=tar --prefix="twine-$version/" HEAD | gzip -n > "$output/twine-$version-source.tar.gz"
-        (cd "$output"; shasum -a 256 ./*.zip ./*.tar.gz > SHA256SUMS; shasum -a 256 -c SHA256SUMS)
+        image="$output/Twine-$version-macos-universal.dmg"
+        dmg_python="${TWINE_DMG_PYTHON:-$PWD/target/dmg-tools/bin/python3}"
+        [[ -x "$dmg_python" ]] || fail 'run make dmg-tools before packaging'
+        writable="$staging/installer.dmg"
+        hdiutil create -quiet -volname 'Twine — Drag to Applications' -srcfolder "$folder" -fs HFS+ -format UDRW "$writable"
+        dmg_mount="$staging/mounted"
+        mkdir "$dmg_mount"
+        hdiutil attach -quiet -nobrowse -owners off -mountpoint "$dmg_mount" "$writable"
+        "$dmg_python" .github/release/dmg-layout.py "$dmg_mount"
+        hdiutil detach -quiet "$dmg_mount"
+        dmg_mount=""
+        hdiutil convert -quiet "$writable" -format UDZO -o "$image"
+        hdiutil verify -quiet "$image"
+        (cd "$output"; shasum -a 256 ./*.dmg ./*.tar.gz > SHA256SUMS; shasum -a 256 -c SHA256SUMS)
         ;;
     *) fail 'usage: release.sh guard TAG NOTES | notes VERSION NOTES | bundle BUILD BUNDLE | package VERSION BUNDLE OUTPUT | nightly-package NIGHTLY_ID BUNDLE OUTPUT' ;;
 esac

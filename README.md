@@ -145,11 +145,17 @@ see the [integration notes](https://aravind-n.github.io/twine/documentation/guid
 
 Twine currently targets **macOS 26 or later**, on **Apple Silicon and Intel**.
 
-Download `Twine-0.1.0-macos-universal.zip` from the
-[v0.1.0 release](https://github.com/aravind-n/twine/releases/tag/v0.1.0), extract it,
-and move `Twine.app` to Applications. The app is ad hoc signed and not notarized;
-follow the included `README.txt` or the [install notes](https://aravind-n.github.io/twine/documentation/guide/#install)
-for first-launch approval.
+Download `Twine-VERSION-macos-universal.dmg` from the
+[latest release](https://github.com/aravind-n/twine/releases/latest). Open the DMG
+and drag **Twine** onto the **Applications** folder. Wait for the copy to finish,
+eject the Twine disk image, and open Twine from Applications. The app is ad hoc
+signed and not notarized; follow the
+[install notes](https://aravind-n.github.io/twine/documentation/guide/#install) for
+first-launch approval.
+
+Older releases, including v0.1.0, provide a ZIP. Until a stable DMG is published,
+download that ZIP from the release page, extract it, and move `Twine.app` to
+Applications.
 
 Open a folder, create a session, and choose a workflow in a new tab. For an agent
 workflow, choose the harness for each role, then enter your task in the first

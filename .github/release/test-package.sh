@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Exercise the real macOS archiving, signing, plist, and symbol checks with a tiny app.
+# Exercise real macOS disk images, installation, signing, plists, and symbols with a tiny app.
 repo="$PWD"
 mkdir -p target
 fixture="$(mktemp -d "$repo/target/release-package-test.XXXXXX")"
-trap 'rm -rf "$fixture"' EXIT
+mountpoint="$fixture/mounted image"
+mounted=false
+cleanup() {
+    if [[ "$mounted" == true ]]; then
+        hdiutil detach -quiet "$mountpoint" || hdiutil detach -quiet -force "$mountpoint" || return
+    fi
+    rm -rf "$fixture"
+}
+trap cleanup EXIT
 bundle="$fixture/bundle"
 app="$fixture/Twine.app"
 mkdir -p "$app/Contents/MacOS" "$bundle"
@@ -70,17 +78,36 @@ for mode in package nightly-package; do
     package "$mode" "$version"
     (cd "$fixture/output" && shasum -a 256 -c SHA256SUMS)
     [[ "$(find "$fixture/output" -type f | wc -l | tr -d ' ')" == 5 ]]
-    ditto -x -k "$fixture/output/Twine-$version-macos-universal.zip" "$fixture/extracted"
-    packaged="$fixture/extracted/Twine-$version"
+    image="$fixture/output/Twine-$version-macos-universal.dmg"
+    hdiutil verify -quiet "$image"
+    hdiutil imageinfo -plist "$image" > "$fixture/image.plist"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :Format' "$fixture/image.plist")" == UDZO ]]
+    mkdir -p "$mountpoint" "$fixture/extracted"
+    mounted=true
+    hdiutil attach -quiet -readonly -nobrowse -mountpoint "$mountpoint" "$image"
+    packaged="$mountpoint"
+    visible_items="$(find "$packaged" -mindepth 1 -maxdepth 1 ! -name '.*' -exec basename {} \; | sort)"
+    [[ "$visible_items" == $'Applications\nTwine.app' ]]
+    [[ -L "$packaged/Applications" && "$(readlink "$packaged/Applications")" == /Applications ]]
+    "${TWINE_DMG_PYTHON:-$PWD/target/dmg-tools/bin/python3}" .github/release/dmg-layout.py --verify "$packaged"
+    cmp .github/release/installer-background.tiff "$packaged/.background.tiff"
+    cmp LICENSE "$packaged/Twine.app/Contents/Resources/LICENSE"
     plist="$packaged/Twine.app/Contents/Info.plist"
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == 1.2.3 ]]
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == 42 ]]
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :TwineBuildVersion' "$plist")" == "$version" ]]
     codesign --verify --deep --strict "$packaged/Twine.app"
-    grep -q "releases/tag/$release_tag" "$packaged/README.txt"
-    if grep -q '@[A-Z_]*@' "$packaged/README.txt"; then echo 'unexpanded README placeholder' >&2; exit 1; fi
     tar -xzf "$fixture/output/libtwinecore-$version-macos-universal.tar.gz" -C "$fixture/extracted"
     grep -q "releases/tag/$release_tag" "$fixture/extracted/libtwinecore-$version-macos-universal/README.txt"
+    # Exercise the Finder copy operation in an isolated Applications directory.
+    installed="$fixture/Applications folder/Twine.app"
+    ditto "$packaged/Twine.app" "$installed"
+    hdiutil detach -quiet "$mountpoint"
+    mounted=false
+    codesign --verify --deep --strict "$installed"
+    cmp LICENSE "$installed/Contents/Resources/LICENSE"
+    "$installed/Contents/MacOS/Twine"
+    rm -rf "$fixture/Applications folder"
 done
 
 # A thin library and mismatched symbols must never reach publication.
