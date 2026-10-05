@@ -1,6 +1,6 @@
 # TwineSyntax
 
-Native Tree-sitter syntax highlighting for Twine's AppKit editor. `SyntaxParser` owns its mutable C parser and incremental tree in an actor; only immutable UTF16 token ranges leave it. Supported grammars are Swift, Rust, Python, JSON/JSONC, JavaScript/JSX, TypeScript/TSX, TOML, YAML, and shell. Unknown files remain plain text.
+Native Tree-sitter syntax highlighting for Twine's AppKit editor. `SyntaxParser` owns its mutable C parser and incremental tree in an actor; only immutable UTF16 token ranges leave it. Supported grammars are Swift, Rust, Python, JSON/JSONC, JavaScript/JSX, TypeScript/TSX, TOML, YAML, shell, HTML, CSS, C, C++, C#, Go, Java, and Ruby. Unknown files remain plain text.
 
 Each snapshot is compared with the previous UTF16 snapshot to form one Tree-sitter edit. Byte offsets and line columns are derived from UTF16 code units, including CRLF and surrogate pairs. Query predicates are evaluated against the current snapshot. A sweep over capture boundaries produces sorted, non-overlapping runs; narrower captures win, followed by more specific capture names and later query patterns. Rendering does not mutate the document.
 
@@ -23,7 +23,17 @@ The grammar queries and licenses are bundled under `Sources/TwineSyntax/Resource
 | TOML | 0.7.0 | https://github.com/tree-sitter-grammars/tree-sitter-toml |
 | YAML | 0.7.0 | https://github.com/tree-sitter-grammars/tree-sitter-yaml |
 | Bash | 0.23.3 | https://github.com/tree-sitter/tree-sitter-bash |
+| HTML | 0.23.2 | https://github.com/tree-sitter/tree-sitter-html |
+| CSS | 0.23.2 | https://github.com/tree-sitter/tree-sitter-css |
+| C | 0.23.4 | https://github.com/tree-sitter/tree-sitter-c |
+| C++ | 0.23.4 | https://github.com/tree-sitter/tree-sitter-cpp |
+| C# | 0.23.1 | https://github.com/tree-sitter/tree-sitter-c-sharp |
+| Go | 0.23.4 | https://github.com/tree-sitter/tree-sitter-go |
+| Java | 0.23.5 | https://github.com/tree-sitter/tree-sitter-java |
+| Ruby | 0.23.1 | https://github.com/tree-sitter/tree-sitter-ruby |
 
-Local query adaptations: Rust integer and float captures use `number`, and the all-caps constant predicate fixes an upstream stray apostrophe and runs after the broader constructor rule; TOML's property capture covers only the key instead of the entire pair. TypeScript adds its query to the JavaScript query, and TSX also adds JSX. Shell highlighting is best effort for zsh, using the Bash grammar. Embedded languages inside strings or Markdown fences are not injected.
+Local query adaptations: Rust integer and float captures use `number`, and the all-caps constant predicate fixes an upstream stray apostrophe and runs after the broader constructor rule; TOML's property capture covers only the key instead of the entire pair. Go's generic identifier capture precedes specialized function captures. Ruby omits the bare-identifier method heuristic because there is no local-variable analysis; explicit method definitions and calls still receive function styling. C++ combines the C and C++ queries. TypeScript adds its query to the JavaScript query, and TSX also adds JSX. Shell highlighting is best effort for zsh, using the Bash grammar. HTML highlights tags, attributes, values, comments, and delimiters. JavaScript/CSS inside HTML `script`/`style` blocks or attributes, and embedded languages inside strings or Markdown fences, are not injected. Standalone JavaScript and CSS files use their own grammars.
+
+File detection recognizes common extensions and Ruby filenames (`Gemfile`, `Rakefile`, `Podfile`, `Brewfile`, `Guardfile`, `Fastfile`) plus Ruby interpreter shebangs. Ambiguous lowercase `.h` headers default to C; `.hpp`, `.hh`, `.hxx`, uppercase `.H`, and uppercase `.C` use C++. The editor's language menu can override detection for an individual document. Objective-C, SCSS/Less, PHP, Vue, and XML grammars are not included.
 
 Parser tests live in `macOS/Twine/TwineTests/FileSyntaxParserTests.swift` and run through the repository's `make test-macos` / `make check-macos` targets. Follow `macOS/AGENTS.md` for changes to this package.

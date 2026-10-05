@@ -106,6 +106,69 @@ extension TwineUITests {
     }
 
     @MainActor
+    func testHTMLSyntaxHighlightingPreservesSourceEditingAndCSSDetection() throws {
+        let folder = try makeTestFolder(prefix: "TwineSyntaxUITests")
+        let html = folder.appending(path: "index.html")
+        let css = folder.appending(path: "styles.css")
+        let source = htmlSyntaxFixture
+        let cssSource = "/* Native CSS highlighting */\n.greeting { color: #2563eb; font-size: 24px; }\n"
+        try source.write(to: html, atomically: true, encoding: .utf8)
+        try cssSource.write(to: css, atomically: true, encoding: .utf8)
+        let app = try launchSyntaxEditor(folder: folder, appearance: "Light")
+        defer { app.terminate() }
+        XCTAssertTrue(fileRow(html, in: app).waitForExistence(timeout: 3))
+        fileRow(html, in: app).click()
+        XCTAssertTrue(app.staticTexts["Hello Twine"].waitForExistence(timeout: 5))
+        app.radioButtons["Source"].click()
+        let text = app.textViews["fileText"]
+        XCTAssertTrue(text.waitForExistence(timeout: 3))
+        waitForSyntaxText(source, in: text)
+        assertSyntaxLanguage("HTML", in: app)
+        XCTAssertFalse(app.staticTexts["fileEdited"].exists)
+        attachScreenshot(of: app, named: "Light native HTML tags attributes strings and comments")
+
+        try editHTMLSourceAndVerifyPreview(source, file: html, in: app)
+        openSyntaxFile(css, in: app)
+        waitForSyntaxText(cssSource, in: text)
+        assertSyntaxLanguage("CSS", in: app)
+        attachScreenshot(of: app, named: "Light native CSS selectors properties and values")
+        selectSyntaxLanguage("Plain Text", in: app)
+        assertSyntaxLanguage("Plain Text", in: app)
+        selectSyntaxLanguage("Automatic", in: app)
+        assertSyntaxLanguage("CSS", in: app)
+        waitForSyntaxText(cssSource, in: text)
+        XCTAssertFalse(app.staticTexts["fileEdited"].exists)
+        XCTAssertEqual(try String(contentsOf: css, encoding: .utf8), cssSource)
+    }
+
+    @MainActor
+    private func editHTMLSourceAndVerifyPreview(_ source: String, file: URL, in app: XCUIApplication) throws {
+        let text = app.textViews["fileText"]
+        let originalLine = "  <h1 class=\"greeting\" data-count=\"42\">Hello Twine</h1>"
+        let editedLine = "  <h1 class=\"greeting edited\" data-count=\"7\">Hello HTML</h1>"
+        let edited = source.replacingOccurrences(of: originalLine, with: editedLine)
+        selectSyntaxLine(9, in: app)
+        text.typeText(editedLine)
+        waitForSyntaxText(edited, in: text)
+        XCTAssertTrue(app.staticTexts["fileEdited"].waitForExistence(timeout: 3))
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), source)
+        text.typeKey("z", modifierFlags: .command)
+        waitForSyntaxText(source, in: text)
+        XCTAssertFalse(app.staticTexts["fileEdited"].exists)
+        text.typeKey("z", modifierFlags: [.command, .shift])
+        waitForSyntaxText(edited, in: text)
+        app.typeKey("s", modifierFlags: .command)
+        waitForSyntaxSave(in: app)
+        XCTAssertEqual(try Data(contentsOf: file), Data(edited.utf8))
+        attachScreenshot(of: app, named: "HTML highlighting after editing attributes and saving")
+        app.radioButtons["Preview"].click()
+        XCTAssertTrue(app.staticTexts["Hello HTML"].waitForExistence(timeout: 5))
+        app.radioButtons["Source"].click()
+        waitForSyntaxText(edited, in: text)
+        assertSyntaxLanguage("HTML", in: app)
+    }
+
+    @MainActor
     private func launchSyntaxEditor(folder: URL, appearance: String) throws -> XCUIApplication {
         let app = try makeApp(lastOpenFolder: folder)
         app.launchEnvironment["TWINE_TEST_APPEARANCE"] = appearance
@@ -127,6 +190,24 @@ extension TwineUITests {
             "}",
             "",
         ].joined(separator: "\r\n")
+    }
+
+    private var htmlSyntaxFixture: String {
+        """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <title>Twine syntax</title>
+          <link rel="stylesheet" href="styles.css">
+        </head>
+        <body>
+          <!-- Unicode remains untouched: 🌲 café -->
+          <h1 class="greeting" data-count="42">Hello Twine</h1>
+          <p>Native source editing &amp; preview.</p>
+        </body>
+        </html>
+
+        """
     }
 
     @MainActor

@@ -143,7 +143,7 @@ struct FileSyntaxRenderingTests {
         #expect(!fixture.undo.canUndo)
     }
 
-    @Test func editsInvalidateOldTokensAndRepaintTheNewSyntax() async throws {
+    @Test func editsKeepExistingColorsUntilTheNewSyntaxIsReady() async throws {
         let fixture = try SyntaxTextFixture(source: "let value = 42\n")
         defer { fixture.window.close() }
         let highlighter = FileSyntaxHighlighter()
@@ -154,8 +154,10 @@ struct FileSyntaxRenderingTests {
         #expect(try fixture.color(at: 12) == .systemBlue)
         fixture.replace(NSRange(location: 12, length: 2), with: "\"🌲\"")
         highlighter.textDidChange()
-        #expect(try fixture.renderedSpans().isEmpty)
         fixture.layoutViewport()
+        // Check the frame before yielding to the debounced parser, not just its final result.
+        #expect(try fixture.color(at: 0) == .systemPurple)
+        #expect(try fixture.color(at: 12) == .systemBlue)
         await highlighter.pendingTask?.value
         #expect(try fixture.color(at: 12) == .systemRed)
         #expect(fixture.view.string == "let value = \"🌲\"\n")
@@ -230,6 +232,86 @@ struct FileSyntaxRenderingTests {
     }
 }
 
+extension FileSyntaxRenderingTests {
+    @Test func rapidUnicodeEditsKeepUnchangedTokensAlignedDuringTheDebounce() async throws {
+        let source = "let count = 42\r\nlet name = \"café 🌲\"\r\n"
+        let fixture = try SyntaxTextFixture(source: source)
+        defer { fixture.window.close() }
+        let highlighter = FileSyntaxHighlighter()
+        highlighter.attach(to: fixture.view)
+        fixture.view.syntax = highlighter
+        defer { highlighter.detach() }
+        highlighter.update(language: .swift, loadID: UUID(), isVisible: true)
+        await highlighter.pendingTask?.value
+
+        // Each edit uses native storage notifications and the production text-change callback.
+        // Do not yield between edits: the previous parse must carry all of these frames.
+        fixture.replace(NSRange(location: 0, length: 0), with: "// 🪴\r\n")
+        fixture.layoutViewport()
+        var text = fixture.view.string as NSString
+        #expect(try fixture.color(at: text.range(of: "let count").location) == .systemPurple)
+        #expect(try fixture.color(at: text.range(of: "42").location) == .systemBlue)
+        #expect(try fixture.color(at: text.range(of: "café").location) == .systemRed)
+
+        fixture.replace(text.range(of: "42"), with: "12345")
+        fixture.layoutViewport()
+        text = fixture.view.string as NSString
+        #expect(try fixture.color(at: text.range(of: "12345").location + 4) == .systemBlue)
+        #expect(try fixture.color(at: text.range(of: "let name").location) == .systemPurple)
+        #expect(try fixture.color(at: text.range(of: "🌲").location) == .systemRed)
+
+        fixture.replace(text.range(of: "café"), with: "é🌻")
+        fixture.layoutViewport()
+        text = fixture.view.string as NSString
+        #expect(try fixture.color(at: text.range(of: "é🌻").location) == .systemRed)
+        #expect(try fixture.color(at: text.range(of: "🌲").location) == .systemRed)
+
+        let prefix = text.range(of: "let count")
+        fixture.replace(NSRange(location: 0, length: prefix.location), with: "")
+        fixture.layoutViewport()
+        #expect(try fixture.color(at: 0) == .systemPurple)
+        #expect(try fixture.color(at: 12) == .systemBlue)
+        let pending = try #require(highlighter.pendingTask)
+        await pending.value
+        #expect(fixture.view.string == "let count = 12345\r\nlet name = \"é🌻 🌲\"\r\n")
+
+        // Undo also adjusts ranges synchronously, including a deleted Unicode/CRLF prefix.
+        fixture.undo.undo()
+        fixture.layoutViewport()
+        text = fixture.view.string as NSString
+        #expect(try fixture.color(at: text.range(of: "let count").location) == .systemPurple)
+        #expect(try fixture.color(at: text.range(of: "12345").location) == .systemBlue)
+        await highlighter.pendingTask?.value
+    }
+
+    @Test func deletingAcrossTokensPreservesColorsAfterTheDeletedRange() async throws {
+        let source = "let first = 42\r\nlet second = \"🌲\"\r\nlet third = true\r\n"
+        let fixture = try SyntaxTextFixture(source: source)
+        defer { fixture.window.close() }
+        let highlighter = FileSyntaxHighlighter()
+        highlighter.attach(to: fixture.view)
+        fixture.view.syntax = highlighter
+        defer { highlighter.detach() }
+        highlighter.update(language: .swift, loadID: UUID(), isVisible: true)
+        await highlighter.pendingTask?.value
+
+        let oldText = source as NSString
+        let start = oldText.range(of: "42").location + 1
+        let end = NSMaxRange(oldText.range(of: "let sec"))
+        fixture.replace(NSRange(location: start, length: end - start), with: "")
+        fixture.layoutViewport()
+        let newText = fixture.view.string as NSString
+        #expect(try fixture.color(at: 0) == .systemPurple)
+        #expect(try fixture.color(at: start - 1) == .systemBlue)
+        #expect(try fixture.color(at: newText.range(of: "🌲").location) == .systemRed)
+        #expect(try fixture.color(at: newText.range(of: "let third").location) == .systemPurple)
+        #expect(try fixture.color(at: newText.range(of: "true").location) == .systemPurple)
+        await highlighter.pendingTask?.value
+        #expect(try fixture.color(at: newText.range(of: "🌲").location) == .systemRed)
+        #expect(try fixture.color(at: newText.range(of: "let third").location) == .systemPurple)
+    }
+}
+
 @MainActor
 private final class SyntaxTextFixture: NSObject, NSTextViewDelegate {
     let window: NSWindow
@@ -261,6 +343,10 @@ private final class SyntaxTextFixture: NSObject, NSTextViewDelegate {
     }
 
     func undoManager(for view: NSTextView) -> UndoManager? { undo }
+
+    func textDidChange(_ notification: Notification) {
+        view.syntax?.textDidChange()
+    }
 
     func replace(_ range: NSRange, with replacement: String) {
         undo.beginUndoGrouping()

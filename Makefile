@@ -42,6 +42,7 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testFileEditingUndoSaveAndConflictChoices \
 	testSwiftSyntaxHighlightingPreservesUnicodeCRLFEditingAndUndo \
 	testSyntaxLanguageOverridesStayWithTheirFileTabs \
+	testHTMLSyntaxHighlightingPreservesSourceEditingAndCSSDetection \
 	testMarkdownPreviewSourceSaveReloadAndLocalLinks \
 	testClearedTraceOpensSavedInputAndOutputWithoutAScrollbackWarning
 UI_VISUAL_TESTS := testFolderWindowInDarkAppearance \

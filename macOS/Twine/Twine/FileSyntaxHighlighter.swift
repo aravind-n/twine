@@ -39,7 +39,9 @@ final class FileSyntaxHighlighter {
     }
 
     func textDidChange() {
-        invalidate()
+        // The renderer tracks UTF16 storage edits synchronously. Keep those adjusted colors
+        // visible until the next parse is ready, instead of flashing the whole file plain.
+        invalidate(clearTokens: false)
         schedule()
     }
 
@@ -55,12 +57,12 @@ final class FileSyntaxHighlighter {
         textView = nil
     }
 
-    private func invalidate() {
+    private func invalidate(clearTokens: Bool = true) {
         revision &+= 1
         pendingTask?.cancel()
         pendingTask = nil
         needsHighlight = true
-        renderer.replaceTokens([])
+        if clearTokens { renderer.replaceTokens([]) } else { renderer.invalidate() }
     }
 
     private func schedule() {
@@ -86,6 +88,8 @@ final class FileSyntaxHighlighter {
                 return
             } catch {
                 // Unknown or expensive syntax must never prevent plain-text editing.
+                guard let self, revision == requestRevision, self.language == language else { return }
+                renderer.replaceTokens([])
                 syntaxLogger.debug("Syntax coloring unavailable for this revision; using plain text.")
             }
         }

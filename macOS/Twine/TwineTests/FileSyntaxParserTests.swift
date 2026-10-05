@@ -16,19 +16,40 @@ struct FileSyntaxParserTests {
         #expect(SyntaxLanguage.detect(path: "sample.tsx", source: "") == .tsx)
     }
 
-    @Test func everyBundledGrammarAndQueryProducesNativeTokens() async throws {
-        let examples: [Example] = [
-            .init(.swift, "let greeting = \"hello\" // comment\n", "let", .keyword),
-            .init(.rust, "fn main() { let count = 42; }", "42", .number),
-            .init(.python, "def greet():\n    return \"hello\"\n", "def", .keyword),
-            .init(.json, "{\"greeting\": \"hello\", \"count\": 42}", "\"greeting\"", .property),
-            .init(.javascript, "const greeting = \"hello\";", "const", .keyword),
-            .init(.typescript, "const greeting: string = \"hello\";", "string", .type),
-            .init(.tsx, "const view = <div title=\"hello\" />;", "div", .type),
-            .init(.toml, "greeting = \"hello\"\n", "greeting", .property),
-            .init(.yaml, "greeting: hello\n", "greeting", .property),
-            .init(.bash, "if true; then echo \"hello\"; fi\n", "if", .keyword),
+    @Test func webAndAdditionalLanguageDetectionUsesConventionalPaths() {
+        let paths: [(String, SyntaxLanguage)] = [
+            ("index.html", .html), ("about.HTM", .html), ("page.xhtml", .html),
+            ("site.css", .css), ("main.c", .c), ("shared.h", .c),
+            ("main.cpp", .cpp), ("main.C", .cpp), ("shared.H", .cpp), ("shared.hpp", .cpp),
+            ("main.cc", .cpp), ("main.cxx", .cpp), ("shared.hh", .cpp),
+            ("Program.cs", .csharp), ("script.csx", .csharp), ("main.go", .go),
+            ("Application.java", .java), ("script.rb", .ruby), ("project.gemspec", .ruby),
+            ("Gemfile", .ruby), ("Rakefile", .ruby), ("Podfile", .ruby),
         ]
+        for (path, language) in paths {
+            #expect(SyntaxLanguage.detect(path: path, source: "") == language)
+        }
+        #expect(SyntaxLanguage.detect(path: "script", source: "#!/usr/bin/env ruby\n") == .ruby)
+        #expect(SyntaxLanguage.detect(path: "script", source: "#!/usr/bin/jruby\n") == .ruby)
+        #expect(SyntaxLanguage.detect(path: "main.php", source: "<?php") == nil)
+        #expect(SyntaxLanguage.detect(path: "component.vue", source: "<template>") == nil)
+    }
+
+    @Test func everyBundledGrammarAndQueryProducesNativeTokens() async throws {
+        let examples: [Example] =
+            [
+                .init(.swift, "let greeting = \"hello\" // comment\n", "let", .keyword),
+                .init(.rust, "fn main() { let count = 42; }", "42", .number),
+                .init(.python, "def greet():\n    return \"hello\"\n", "def", .keyword),
+                .init(.json, "{\"greeting\": \"hello\", \"count\": 42}", "\"greeting\"", .property),
+                .init(.javascript, "const greeting = \"hello\";", "const", .keyword),
+                .init(.typescript, "const greeting: string = \"hello\";", "string", .type),
+                .init(.tsx, "const view = <div title=\"hello\" />;", "div", .type),
+                .init(.toml, "greeting = \"hello\"\n", "greeting", .property),
+                .init(.yaml, "greeting: hello\n", "greeting", .property),
+                .init(.bash, "if true; then echo \"hello\"; fi\n", "if", .keyword),
+            ] + Self.additionalExamples
+        #expect(Set(examples.map(\.language)) == Set(SyntaxLanguage.allCases))
         let parser = SyntaxParser()
         for example in examples {
             let tokens = try await parser.highlight(example.source, language: example.language)
@@ -36,6 +57,50 @@ struct FileSyntaxParserTests {
             #expect(tokens.contains { $0.kind == example.kind && NSIntersectionRange($0.range, range) == range })
             expectValidRanges(tokens, source: example.source)
         }
+    }
+
+    @Test func htmlHighlightsTagsAttributesValuesAndCommentsAfterEditing() async throws {
+        let parser = SyntaxParser()
+        let source = "<!-- 🦊 -->\n<main class=\"welcome\" data-count=\"42\">Hello</main>"
+        let expected: [(String, SyntaxTokenKind)] = [
+            ("<!-- 🦊 -->", .comment), ("main", .type), ("class", .property),
+            ("welcome", .string), ("data-count", .property), ("42", .string),
+        ]
+        let tokens = try await parser.highlight(source, language: .html)
+        for (sample, kind) in expected {
+            let range = (source as NSString).range(of: sample)
+            #expect(tokens.contains { $0.kind == kind && NSIntersectionRange($0.range, range) == range })
+        }
+        let edited = source.replacingOccurrences(of: "welcome", with: "updated-👨‍👩‍👧‍👦")
+        let incremental = try await parser.highlight(edited, language: .html)
+        #expect(incremental == (try await SyntaxParser().highlight(edited, language: .html)))
+        expectValidRanges(incremental, source: edited)
+    }
+
+    @Test func additionalGrammarsRecoverFromIncompleteSource() async throws {
+        for example in Self.additionalExamples {
+            let parser = SyntaxParser()
+            let incomplete = String(example.source.prefix(example.source.count / 2))
+            let partial = try await parser.highlight(incomplete, language: example.language)
+            #expect(!partial.isEmpty)
+            expectValidRanges(partial, source: incomplete)
+            let recovered = try await parser.highlight(example.source, language: example.language)
+            let fresh = try await SyntaxParser().highlight(example.source, language: example.language)
+            #expect(recovered == fresh)
+            expectValidRanges(recovered, source: example.source)
+        }
+    }
+
+    @Test func cppInheritsCKeywordsAndRubyLocalsKeepTheirVariableColor() async throws {
+        let cpp = "class Greeter { public: int answer() { return 42; } };"
+        let cppTokens = try await SyntaxParser().highlight(cpp, language: .cpp)
+        let returnRange = (cpp as NSString).range(of: "return")
+        #expect(cppTokens.contains { $0.range == returnRange && $0.kind == .keyword })
+        #expect(cppTokens.contains { $0.kind == .number })
+        let ruby = "message = \"hello\"\nmessage\n"
+        let rubyTokens = try await SyntaxParser().highlight(ruby, language: .ruby)
+        let declaration = (ruby as NSString).range(of: "message")
+        #expect(rubyTokens.contains { $0.range == declaration && $0.kind == .variable })
     }
 
     @Test func predicatesDoNotTurnEveryJavaScriptVariableIntoAType() async throws {
@@ -132,7 +197,18 @@ struct FileSyntaxParserTests {
         #expect(!(try await parser.highlight("let count = 2", language: .swift)).isEmpty)
     }
 
-    private struct Example {
+    private static let additionalExamples: [Example] = [
+        .init(.html, "<main class=\"welcome\">Hello</main>", "main", .type),
+        .init(.css, ".welcome { color: #ff0000; margin: 12px; }", "color", .property),
+        .init(.c, "int main(void) { return 42; }", "return", .keyword),
+        .init(.cpp, "class Greeter { public: int answer() { return 42; } };", "class", .keyword),
+        .init(.csharp, "class Greeter { public int Answer() { return 42; } }", "class", .keyword),
+        .init(.go, "package main\nfunc greet() string { return \"hello\" }\n", "greet", .function),
+        .init(.java, "public class Greeter { String greet() { return \"hello\"; } }", "class", .keyword),
+        .init(.ruby, "def greet(name)\n  message = \"hello\"\n  message\nend\n", "def", .keyword),
+    ]
+
+    private struct Example: Sendable {
         let language: SyntaxLanguage
         let source: String
         let sample: String

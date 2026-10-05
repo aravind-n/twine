@@ -69,6 +69,8 @@ The macOS front end uses SwiftUI and AppKit, with the `twine-core` application l
 - **Make small file edits.** Browse the open folder and edit UTF-8 text files up
   to 2 MiB, with native syntax highlighting, undo, and checks for changes made on
   disk before saving. Choose a language or Plain Text from the editor's language menu.
+  Highlighting supports HTML/CSS, Swift, Rust, Python, JavaScript/TypeScript,
+  C/C++/C#, Go, Java, Ruby, JSON, TOML, YAML, and shell files.
 
 See the [user guide](https://aravind-n.github.io/twine/documentation/guide/) for detailed behavior and limits.
 

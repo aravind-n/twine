@@ -1,9 +1,17 @@
 import Foundation
 import SwiftTreeSitter
 import TreeSitterBash
+import TreeSitterC
+import TreeSitterCPP
+import TreeSitterCSS
+import TreeSitterCSharp
+import TreeSitterGo
+import TreeSitterHTML
 import TreeSitterJSON
+import TreeSitterJava
 import TreeSitterJavaScript
 import TreeSitterPython
+import TreeSitterRuby
 import TreeSitterRust
 import TreeSitterSwift
 import TreeSitterTOML
@@ -14,6 +22,7 @@ import TreeSitterYAML
 /// The native grammars shipped with Twine. Unknown file types remain plain text.
 public enum SyntaxLanguage: String, CaseIterable, Sendable {
     case swift, rust, python, json, javascript, typescript, tsx, toml, yaml, bash
+    case html, css, c, cpp, csharp, go, java, ruby
 
     public var displayName: String {
         switch self {
@@ -27,11 +36,21 @@ public enum SyntaxLanguage: String, CaseIterable, Sendable {
         case .toml: "TOML"
         case .yaml: "YAML"
         case .bash: "Shell"
+        case .html: "HTML"
+        case .css: "CSS"
+        case .c: "C"
+        case .cpp: "C++"
+        case .csharp: "C#"
+        case .go: "Go"
+        case .java: "Java"
+        case .ruby: "Ruby"
         }
     }
 
     public static func detect(path: String, source: String) -> SyntaxLanguage? {
         let url = URL(fileURLWithPath: path)
+        // Uppercase .C and .H conventionally identify C++; lowercase .h defaults to C.
+        if url.pathExtension == "C" || url.pathExtension == "H" { return .cpp }
         switch url.pathExtension.lowercased() {
         case "swift": return .swift
         case "rs": return .rust
@@ -43,11 +62,20 @@ public enum SyntaxLanguage: String, CaseIterable, Sendable {
         case "toml": return .toml
         case "yaml", "yml": return .yaml
         case "sh", "bash", "zsh": return .bash
+        case "html", "htm", "xhtml": return .html
+        case "css": return .css
+        case "c", "h": return .c
+        case "cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "ipp", "tpp": return .cpp
+        case "cs", "csx": return .csharp
+        case "go": return .go
+        case "java": return .java
+        case "rb", "rake", "gemspec": return .ruby
         default: break
         }
         switch url.lastPathComponent.lowercased() {
         case ".bashrc", ".bash_profile", ".zshrc", ".zprofile", ".profile": return .bash
         case ".prettierrc", ".eslintrc", ".babelrc": return .json
+        case "gemfile", "rakefile", "guardfile", "podfile", "fastfile", "brewfile": return .ruby
         default: break
         }
         // Only inspect a bounded shebang, never arbitrary source text or comments.
@@ -72,6 +100,7 @@ public enum SyntaxLanguage: String, CaseIterable, Sendable {
         case "bash", "sh", "zsh": return .bash
         case "node", "nodejs": return .javascript
         case "swift": return .swift
+        case "ruby", "jruby", "truffleruby": return .ruby
         default: return nil
         }
     }
@@ -88,11 +117,20 @@ public enum SyntaxLanguage: String, CaseIterable, Sendable {
         case .toml: Language(language: tree_sitter_toml())
         case .yaml: Language(language: tree_sitter_yaml())
         case .bash: Language(language: tree_sitter_bash())
+        case .html: Language(language: tree_sitter_html())
+        case .css: Language(language: tree_sitter_css())
+        case .c: Language(language: tree_sitter_c())
+        case .cpp: Language(language: tree_sitter_cpp())
+        case .csharp: Language(language: tree_sitter_c_sharp())
+        case .go: Language(language: tree_sitter_go())
+        case .java: Language(language: tree_sitter_java())
+        case .ruby: Language(language: tree_sitter_ruby())
         }
     }
 
     var queryNames: [String] {
         switch self {
+        case .cpp: ["c", "cpp"]
         case .typescript: ["javascript", "typescript"]
         case .tsx: ["javascript", "typescript", "jsx"]
         case .javascript: ["javascript", "jsx"]

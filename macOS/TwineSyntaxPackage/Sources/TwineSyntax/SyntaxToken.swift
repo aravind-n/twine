@@ -11,11 +11,11 @@ public enum SyntaxTokenKind: String, CaseIterable, Sendable {
         case "string", "character", "escape": self = .string
         case "comment": self = .comment
         case "number", "float": self = .number
-        case "type", "constructor", "tag": self = .type
+        case "type", "constructor", "tag", "module": self = .type
         case "function": self = .function
         case "property", "attribute": self = .property
         case "operator": self = .operator
-        case "punctuation": self = .punctuation
+        case "punctuation", "delimiter": self = .punctuation
         case "variable" where capture.contains("member"): self = .property
         case "variable", "label": self = .variable
         default: return nil

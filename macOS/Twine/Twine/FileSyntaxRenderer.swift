@@ -13,6 +13,11 @@ final class FileSyntaxRenderer: NSObject {
 
     func attach(to view: NSTextView) {
         textView = view
+        if let storage = view.textStorage {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(storageWillProcessEditing),
+                name: NSTextStorage.willProcessEditingNotification, object: storage)
+        }
         if let clip = view.enclosingScrollView?.contentView {
             clip.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(
@@ -24,6 +29,8 @@ final class FileSyntaxRenderer: NSObject {
     }
 
     func detach() {
+        NotificationCenter.default.removeObserver(
+            self, name: NSTextStorage.willProcessEditingNotification, object: textView?.textStorage)
         NotificationCenter.default.removeObserver(
             self, name: NSView.boundsDidChangeNotification, object: textView?.enclosingScrollView?.contentView)
         viewportTask?.cancel()
@@ -77,6 +84,34 @@ final class FileSyntaxRenderer: NSObject {
             guard !Task.isCancelled else { return }
             self?.refreshViewport()
         }
+    }
+
+    @objc private func storageWillProcessEditing(_ notification: Notification) {
+        guard let storage = notification.object as? NSTextStorage,
+            storage.editedMask.contains(.editedCharacters)
+        else { return }
+        // Read the character edit before attribute fixing can broaden its range. Only update
+        // token coordinates here: layout must wait until the storage transaction has finished.
+        let range = storage.editedRange
+        let delta = storage.changeInLength
+        let oldEnd = NSMaxRange(range) - delta
+        let newEnd = NSMaxRange(range)
+        tokens = tokens.compactMap { token in
+            let start = token.range.location
+            let end = NSMaxRange(token.range)
+            if end <= range.location { return token }
+            if start >= oldEnd {
+                return SyntaxToken(
+                    range: NSRange(location: start + delta, length: token.range.length), kind: token.kind)
+            }
+            // Preserve unchanged portions and let a replacement inherit the color at its start.
+            // The asynchronous parse will correct changed syntax without an uncolored frame.
+            let lower = start <= range.location ? start : newEnd
+            let upper = max(end > oldEnd ? end + delta : range.location, start <= range.location ? newEnd : 0)
+            guard upper > lower else { return nil }
+            return SyntaxToken(range: NSRange(location: lower, length: upper - lower), kind: token.kind)
+        }
+        paintedFragments.removeAll()
     }
 
     private func paint(_ fragment: NSTextLayoutFragment, in layout: NSTextLayoutManager) {
