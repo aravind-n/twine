@@ -1,0 +1,26 @@
+# Tokyo Night Day terminal colors. Edit this file, then restart Twine.
+# Adapted for Twine from https://github.com/folke/tokyonight.nvim/blob/main/extras/alacritty/tokyonight_day.toml
+# Cursor and selection: https://github.com/folke/tokyonight.nvim/blob/main/extras/kitty/tokyonight_day.conf
+# License and attribution: licenses/tokyo_night.txt
+[terminal.colors]
+background = "#e1e2e7"
+foreground = "#3760bf"
+cursor = "#3760bf"
+selection = "#b7c1e3"
+
+black = "#b4b5b9"
+red = "#f52a65"
+green = "#587539"
+yellow = "#8c6c3e"
+blue = "#2e7de9"
+magenta = "#9854f1"
+cyan = "#007197"
+white = "#6172b0"
+brblack = "#a1a6c5"
+brred = "#ff4774"
+brgreen = "#5c8524"
+bryellow = "#a27629"
+brblue = "#358aff"
+brmagenta = "#a463ff"
+brcyan = "#007ea8"
+brwhite = "#3760bf"

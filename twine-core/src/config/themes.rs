@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{ConfigDiagnostic, file_diagnostic, imports, write_default};
 
+mod bundled;
+
 const SILICA_LIGHT: &str = include_str!("themes/silica_light.toml");
 const SILICA_DARK: &str = include_str!("themes/silica_dark.toml");
 pub(super) const ANSI_COLOR_NAMES: [&str; 16] = [
@@ -220,6 +222,7 @@ pub(super) fn default_color_settings() -> &'static str {
 
 pub(super) fn load(config_path: &Path) -> (TerminalPalettes, Vec<ConfigDiagnostic>) {
     let directory = config_path.parent().unwrap_or(Path::new("."));
+    bundled::publish(directory);
     let mut palettes = TerminalPalettes::default();
     let mut diagnostics = Vec::new();
     let mut files = Vec::new();
