@@ -1,6 +1,7 @@
 The stable and nightly DMGs use `installer-background.tiff`, generated from the
-approved braided arrow in `installer-background.svg`. The tip uses two green
-facets and a defined edge. The TIFF contains 540 × 232 at 72 DPI and 1080 × 464
+approved braided arrow in `installer-background.svg`. Blue and pink strands
+form six alternating crossings with wider loops, ending in a purple arrowhead.
+The TIFF contains 540 × 232 at 72 DPI and 1080 × 464
 at 144 DPI, with the same logical size, for standard and Retina displays.
 
 Finder treats windows with background artwork as having a fixed appearance and
