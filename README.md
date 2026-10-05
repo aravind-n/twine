@@ -148,7 +148,8 @@ Twine currently targets **macOS 26 or later**, on **Apple Silicon and Intel**.
 Download `Twine-VERSION-macos-universal.dmg` from the
 [latest release](https://github.com/aravind-n/twine/releases/latest). Open the DMG
 and drag **Twine** onto the **Applications** folder. Wait for the copy to finish,
-eject the Twine disk image, and open Twine from Applications. The app is ad hoc
+eject the Twine disk image, and open Twine from Applications. New stable and nightly
+release packages are Developer ID signed and notarized. Older packages were ad hoc
 signed and not notarized; follow the
 [install notes](https://aravind-n.github.io/twine/documentation/guide/#install) for
 first-launch approval.

@@ -114,7 +114,7 @@ case "${1:-}" in
             echo "Build number: $build_number"
             echo "CI: $repo_url/actions/runs/$ci_run"
             echo
-            echo 'Requires macOS 26+, on Apple Silicon or Intel. The app is ad hoc signed and not notarized.'
+            echo 'Requires macOS 26+, on Apple Silicon or Intel. The app is Developer ID signed and notarized.'
             echo 'Quit Twine and replace Twine.app. This nightly uses your existing saved data and settings.'
             echo 'Open the DMG and drag Twine.app to Applications, then eject the disk image.'
             echo 'Installation and first-launch approval: https://aravind-n.github.io/twine/documentation/guide/#install'

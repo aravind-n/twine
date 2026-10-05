@@ -4,6 +4,13 @@ import XCTest
 /// Helpers for tests that drive shells in a folder. UI tests run only in CI, so their waits explain
 /// what they found when they time out.
 extension TwineUITests {
+    @MainActor
+    func makeTestApplication() -> XCUIApplication {
+        ProcessInfo.processInfo.environment["TWINE_UI_TEST_APP_PATH"].map {
+            XCUIApplication(url: URL(filePath: $0))
+        } ?? XCUIApplication()
+    }
+
     /// Disk persistence precedes live reload; wait until the editor finishes both before interacting.
     @MainActor
     func waitForSave(in app: XCUIApplication) {

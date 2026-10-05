@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Sign and notarize stable and nightly macOS release packages with Developer ID,
+  including stapled app and DMG tickets and CI diagnostics.
 - Distribute the macOS app in a DMG with an Applications shortcut for drag-and-drop
   installation, and select that installer from the website's download buttons.
   The installer uses braided stems and a fuller green arrowhead to guide the copy.
