@@ -40,8 +40,14 @@ extension TwineUITests {
             app.staticTexts.matching(NSPredicate(format: "value CONTAINS 'fixture test failure'")).firstMatch.exists)
         attachWindow(in: app, name: "Timeline inspector with parallel subagents and failed nested tool")
 
+        let callID = call.identifier
+        let stepID = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH 'traceSpan-' AND label CONTAINS 'Inspect parallel coding work'"
+            )
+        ).firstMatch.identifier
         checkInspectorFiltersAndScrolling(in: app, call: call)
-        checkInspectorRelaunch(in: app, call: call)
+        checkInspectorRelaunch(in: app, callID: callID, stepID: stepID)
     }
 
     @MainActor
@@ -75,7 +81,7 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func checkInspectorRelaunch(in app: XCUIApplication, call: XCUIElement) {
+    private func checkInspectorRelaunch(in app: XCUIApplication, callID: String, stepID: String) {
         selectInspectorMode("Standard", in: app)
         XCTAssertFalse(inspectorElement("traceActivityInspector", in: app).exists)
         app.menuBars.menuBarItems["Twine"].click()
@@ -85,11 +91,20 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["workflowTab-2"].waitForExistence(timeout: 10))
         app.buttons["workflowTab-2"].click()
         app.buttons["tracesHeader"].click()
+        let originalStep = app.buttons[stepID]
+        XCTAssertTrue(originalStep.waitForExistence(timeout: 10), app.debugDescription)
+        originalStep.click()
         selectInspectorMode("In depth", in: app)
+        // Restored windows may be shorter; reveal the deep panel through the outer viewport.
+        app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5))
+            .scroll(byDeltaX: 0, deltaY: -800)
+        let call = app.buttons[callID]
         XCTAssertTrue(call.waitForExistence(timeout: 10), app.debugDescription)
         call.click()
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "value CONTAINS 'fixture test failure'")).firstMatch.exists)
+        app.buttons["traceActivityJump"].click()
+        XCTAssertTrue(app.textViews["terminalHistoryText"].waitForExistence(timeout: 10), app.debugDescription)
         attachWindow(in: app, name: "Recorded tool details survive relaunch")
     }
 
@@ -182,6 +197,7 @@ extension TwineUITests {
         try lines.write(to: folder.appending(path: "inspector-events.jsonl"), atomically: true, encoding: .utf8)
         try #"""
         case "$1" in --help) exit 0 ;; esac
+        if [ -f inspector-ready ]; then while :; do sleep 1; done; fi
         while [ "$#" -gt 0 ]; do
             if [ "$1" = --settings ]; then settings="$2"; break; fi
             shift

@@ -402,12 +402,9 @@ mod tests {
         assert_eq!(rest.activities[0].input, "preview");
         assert_eq!(rest.activities[0].output, "test failed");
         assert_eq!(rest.activities[0].anchor.as_ref().unwrap().byte_offset, 130);
-        assert!(
-            store
-                .trace_activities(second, None, 10)
-                .unwrap()
-                .activities
-                .is_empty()
+        assert_eq!(
+            store.trace_activities(second, None, 10).unwrap().activities,
+            []
         );
         let traces = store.workflow_trace(workflow, None, 10).unwrap();
         assert_eq!(traces.spans[0].status, TraceSpanStatus::Running);
