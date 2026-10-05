@@ -36,6 +36,13 @@ typedef struct TwineTerminalChunk {
     TwineBuffer bytes;
 } TwineTerminalChunk;
 
+// User settings access requires no client or open folder. Reads return a FilePreview JSON;
+// saves accept the file-save request and return saved/conflict/failed JSON. Only the configured
+// user config file can be saved. Output ownership follows twine_buffer_release.
+// Save input is bounded to 12 MiB + 16 KiB; pointer/length rules match twine_client_save_file.
+TwineStatus twine_config_file(TwineBuffer *out_file);
+TwineStatus twine_config_save_file(const uint8_t *request_bytes, size_t request_length, TwineBuffer *out_result);
+
 // A null out parameter is rejected with TWINE_STATUS_NULL_POINTER. Otherwise it must point to
 // aligned, writable storage and must not contain an unreleased bridge allocation. Bridge functions
 // initialize valid out parameters to an empty value before work. Every non-null client must be a

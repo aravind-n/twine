@@ -284,7 +284,8 @@ fn status_for_error(error: &BridgeError) -> TwineStatus {
         BridgeError::InvalidUtf8 => TwineStatus::InvalidUtf8,
         BridgeError::MalformedCommand => TwineStatus::MalformedCommand,
         BridgeError::NullPointer => TwineStatus::NullPointer,
-        BridgeError::Application(_)
+        BridgeError::Config(_)
+        | BridgeError::Application(_)
         | BridgeError::Serialization(_)
         | BridgeError::Subscriber(_) => TwineStatus::InternalError,
     }

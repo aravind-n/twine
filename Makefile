@@ -18,6 +18,8 @@ UI_TEST_DERIVED_DATA ?= /tmp/twine-uitests
 # Tests outside this list are retired from default runs, but remain available with ONLY or ALL=1.
 # Add a test here to re-enable it in local and CI default runs.
 UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
+	testSettingsPopupLoadsSavesAndProtectsUnsavedChanges \
+	testSavingSettingsReflowsExistingTerminalsInAllFolderWindows \
 	testSidebarToolbarInFullScreenInDarkAppearance \
 	testZoomIsSharedByNewWindowsAndRememberedAfterRelaunch \
 	testZoomReflowsTerminalAndScalesEditorPopoverAndSheet \

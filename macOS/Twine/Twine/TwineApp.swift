@@ -16,6 +16,7 @@ struct TwineApp: App {
     @State private var windows = FolderWindows(dataDirectory: Self.dataDirectory)
     @State private var harnessModels = HarnessModelCatalog()
     @State private var zoom = AppZoom()
+    @State private var settings = SettingsPopup(dataDirectory: Self.dataDirectory)
     @State private var workflowLayouts = WorkflowLayouts(
         fileURL: Self.dataDirectory.appending(path: "workflow-layouts.json"))
 
@@ -38,19 +39,20 @@ struct TwineApp: App {
     var body: some Scene {
         WindowGroup(id: "folder", for: UUID.self) { id in
             FolderWindowRoot(id: id.wrappedValue ?? initialWindowID, windows: windows)
+                .environment(settings)
                 .defaultAppStorage(WorkflowLaunchPreferences.defaultStore())
                 .environment(workflowLayouts)
                 .environment(harnessModels)
                 .environment(\.appZoom, zoom)
                 .task {
                     zoom.installKeyboardShortcuts()
-                    terminationDelegate.attach(windows: windows, layouts: workflowLayouts)
+                    terminationDelegate.attach(windows: windows, layouts: workflowLayouts, settings: settings)
                 }
         }
         .restorationBehavior(.disabled)
         .commands {
             SidebarCommands()
-            FolderCommands()
+            FolderCommands(settings: settings)
             AppZoomCommands(zoom: zoom)
         }
     }
@@ -73,6 +75,7 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
     private var tabs: FileTabsModel?
     private var layouts: WorkflowLayouts?
     private var windows: FolderWindows?
+    private var settings: SettingsPopup?
 
     func attach(to coreClient: CoreClient, tabs: FileTabsModel? = nil, layouts: WorkflowLayouts? = nil) {
         self.coreClient = coreClient
@@ -80,9 +83,10 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
         self.layouts = layouts
     }
 
-    func attach(windows: FolderWindows, layouts: WorkflowLayouts) {
+    func attach(windows: FolderWindows, layouts: WorkflowLayouts, settings: SettingsPopup? = nil) {
         self.windows = windows
         self.layouts = layouts
+        self.settings = settings
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -92,10 +96,11 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
     /// The reply closure also lets tests verify that AppKit is released only after shutdown.
     func beginTermination(reply: @escaping @MainActor (Bool) -> Void) -> NSApplication.TerminateReply {
         guard !isTerminating else { return .terminateLater }
+        guard windows != nil || coreClient != nil || settings != nil else { return .terminateNow }
         let sessions = Array(windows?.sessions.values ?? [:].values)
         let clients = sessions.map(\.coreClient) + (coreClient.map { [$0] } ?? [])
         let fileTabs = sessions.map(\.tabs) + (tabs.map { [$0] } ?? [])
-        guard !clients.isEmpty else { return .terminateNow }
+        guard settings?.confirmDiscard() != false else { return .terminateCancel }
         guard fileTabs.allSatisfy({ $0.closeAll() }) else { return .terminateCancel }
         isTerminating = true
         windows?.isTerminating = true

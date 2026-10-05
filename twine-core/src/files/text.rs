@@ -6,7 +6,7 @@ use std::path::Path;
 
 use super::{FileContent, FilePreview, FileVersion, TEXT_LIMIT, access};
 
-pub(super) fn read_preview(folder: &Path, path: &Path) -> FilePreview {
+pub(crate) fn read_preview(folder: &Path, path: &Path) -> FilePreview {
     preview_from_file(path, access::open_file(folder, path, false))
 }
 

@@ -25,6 +25,56 @@ const MAX_PATH_BYTES: usize = 1024;
 const MAX_TERMINAL_INPUT_BYTES: usize = 64 * 1024;
 
 #[unsafe(no_mangle)]
+/// Opens the user config file without an application runtime or open folder.
+///
+/// # Safety
+/// Output must be aligned writable storage without an unreleased allocation. Null is rejected.
+pub unsafe extern "C" fn twine_config_file(out_file: *mut TwineBuffer) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: The caller supplies writable output storage; the helper checks null.
+        unsafe { ffi::initialize_buffer(out_file) }?;
+        let file = twine_core::config::read_user_file()?;
+        let response = serde_json::to_vec(&protocol::files::encode_preview(&file))?;
+        // SAFETY: Output was validated before allocating the response.
+        unsafe { ffi::write_buffer(out_file, TwineBuffer::from_vec(response)) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Saves only the user config file, returning saved, conflict, or failed JSON.
+///
+/// # Safety
+/// Uses the input and output contracts of `twine_client_save_file`, without a client pointer.
+pub unsafe extern "C" fn twine_config_save_file(
+    request_bytes: *const u8,
+    request_length: usize,
+    out_result: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: The caller supplies writable output storage; the helper checks null.
+        unsafe { ffi::initialize_buffer(out_result) }?;
+        // SAFETY: Input meets the bounded readable-byte contract, checked by the helper.
+        let response = unsafe {
+            ffi::with_input_bytes(
+                request_bytes,
+                request_length,
+                MAX_FILE_SAVE_BYTES,
+                |bytes| {
+                    let text = std::str::from_utf8(bytes).map_err(|_| BridgeError::InvalidUtf8)?;
+                    let request: protocol::files::SaveRequest =
+                        serde_json::from_str(text).map_err(|_| BridgeError::MalformedCommand)?;
+                    Ok(protocol::files::encode_save(
+                        twine_core::config::save_user_file(&request.into()),
+                    )?)
+                },
+            )
+        }?;
+        // SAFETY: Output was validated before allocating the response.
+        unsafe { ffi::write_buffer(out_result, TwineBuffer::from_vec(response)) }
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Polls lazy file listings and versioned text previews.
 ///
 /// # Safety
@@ -669,6 +719,84 @@ mod tests {
 
     use super::*;
     use crate::test_support::TEST_LOCK;
+
+    #[test]
+    fn config_editor_reads_saves_and_conflicts_without_a_client() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let directory = TempDir::new().unwrap();
+        let _environment =
+            EnvironmentOverride::set("XDG_CONFIG_HOME", directory.path().as_os_str());
+        let mut output = TwineBuffer::empty();
+        // SAFETY: Output is aligned writable storage with no live allocation.
+        assert_eq!(
+            unsafe { twine_config_file(&raw mut output) },
+            TwineStatus::Ok
+        );
+        let file: serde_json::Value = serde_json::from_slice(&take_buffer(output)).unwrap();
+        assert_eq!(file["status"], "text");
+        assert!(file["text"].as_str().unwrap().contains("# brblue ="));
+        let mut request = serde_json::json!({
+            "path": file["path"], "folder": Path::new(file["path"].as_str().unwrap()).parent().unwrap(),
+            "text": "terminal.font_size = 18\n", "expectedVersion": file["version"], "overwrite": false,
+        });
+        let save = |request: &serde_json::Value| {
+            let bytes = serde_json::to_vec(request).unwrap();
+            let mut output = TwineBuffer::empty();
+            // SAFETY: Request bytes and empty output live throughout the call.
+            assert_eq!(
+                unsafe { twine_config_save_file(bytes.as_ptr(), bytes.len(), &raw mut output) },
+                TwineStatus::Ok
+            );
+            serde_json::from_slice::<serde_json::Value>(&take_buffer(output)).unwrap()
+        };
+        let saved = save(&request);
+        assert_eq!(saved["status"], "saved");
+        request["expectedVersion"] = saved["file"]["version"].clone();
+        std::fs::write(file["path"].as_str().unwrap(), "# external\n").unwrap();
+        let conflict = save(&request);
+        assert_eq!(conflict["status"], "conflict");
+        assert_eq!(conflict["file"]["text"], "# external\n");
+        request["overwrite"] = true.into();
+        assert_eq!(save(&request)["status"], "saved");
+        request["path"] = directory
+            .path()
+            .join("other.toml")
+            .to_string_lossy()
+            .to_string()
+            .into();
+        assert_eq!(save(&request)["status"], "failed");
+        assert!(!directory.path().join("other.toml").exists());
+    }
+
+    #[test]
+    fn config_editor_rejects_null_pointers_invalid_json_and_oversized_input() {
+        let mut output = TwineBuffer::empty();
+        // SAFETY: Null or excessive input is rejected before dereferencing it; output is valid.
+        unsafe {
+            assert_eq!(
+                twine_config_file(std::ptr::null_mut()),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_config_save_file(std::ptr::null(), 1, &raw mut output),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_config_save_file(std::ptr::null(), MAX_FILE_SAVE_BYTES + 1, &raw mut output),
+                TwineStatus::InvalidArgument
+            );
+            assert_eq!(
+                twine_config_save_file(b"{".as_ptr(), 1, &raw mut output),
+                TwineStatus::MalformedCommand
+            );
+            assert_eq!(
+                twine_config_save_file([0xff].as_ptr(), 1, &raw mut output),
+                TwineStatus::InvalidUtf8
+            );
+        }
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
+    }
 
     struct EnvironmentOverride {
         key: &'static str,

@@ -2,6 +2,7 @@ import Foundation
 
 nonisolated enum CoreCommand: Sendable {
     case ping
+    case reloadConfig
     case validateWorkflowType(definition: CoreWorkflowType.Definition)
     case saveWorkflowType(source: CoreWorkflowType.Reference?, definition: CoreWorkflowType.Definition)
     case openFolder(path: String)
@@ -70,7 +71,7 @@ nonisolated struct CoreCommandReceipt: Decodable, Equatable, Sendable {
 nonisolated struct CoreSnapshot: Decodable, Equatable, Sendable {
     var sequence: UInt64
     var state: CoreApplicationState
-    let config: CoreConfig
+    var config: CoreConfig
     var folders: CoreFolderState
     var terminals: [CoreTerminalState] = []
     var workflows = CoreWorkflowState()
@@ -128,6 +129,7 @@ nonisolated struct CoreEvent: Decodable, Equatable, Sendable {
 
     enum Kind: Equatable, Sendable {
         case applicationReady
+        case configChanged(CoreConfig)
         case workflowTypesChanged([CoreWorkflowType])
         case traceChanged(CoreTraceSummary)
         case workflowsChanged(CoreWorkflowState)
@@ -178,70 +180,12 @@ nonisolated struct CoreCommandCompletion: Equatable, Sendable {
     let result: CoreCommandResult
 }
 
-nonisolated struct CoreTerminalChunk: Equatable, Sendable {
-    let terminalID: UInt64
-    let offset: UInt64
-    let bytes: Data
-}
-
-nonisolated struct CoreTerminalExit: Decodable, Equatable, Sendable {
-    let exitCode: UInt32
-    let signal: String?
-}
-
-nonisolated struct CoreTerminalState: Decodable, Equatable, Sendable {
-    let terminalID: UInt64
-    let status: Status
-
-    enum Status: Equatable, Sendable {
-        case running
-        case exited(CoreTerminalExit)
-        case failed(message: String)
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case exitCode
-        case message
-        case signal
-        case status
-        case terminalID = "terminalId"
-    }
-
-    private enum WireStatus: String, Decodable {
-        case exited
-        case failed
-        case running
-    }
-
-    init(terminalID: UInt64, status: Status) {
-        self.terminalID = terminalID
-        self.status = status
-    }
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        terminalID = try container.decode(UInt64.self, forKey: .terminalID)
-        switch try container.decode(WireStatus.self, forKey: .status) {
-        case .running:
-            status = .running
-        case .exited:
-            status = .exited(
-                CoreTerminalExit(
-                    exitCode: try container.decode(UInt32.self, forKey: .exitCode),
-                    signal: try container.decodeIfPresent(String.self, forKey: .signal)
-                )
-            )
-        case .failed:
-            status = .failed(message: try container.decode(String.self, forKey: .message))
-        }
-    }
-}
-
 nonisolated private struct EventPayload: Decodable {
     let kind: CoreEvent.Kind
 
     private enum CodingKeys: String, CodingKey {
         case folders
+        case config
         case workflowTypes
         case summary
         case workflows
@@ -257,6 +201,7 @@ nonisolated private struct EventPayload: Decodable {
 
     private enum EventType: String, Decodable {
         case applicationReady
+        case configChanged
         case workflowTypesChanged
         case traceChanged
         case commandCompleted
@@ -270,13 +215,16 @@ nonisolated private struct EventPayload: Decodable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(EventType.self, forKey: .type) {
+        let type = try container.decode(EventType.self, forKey: .type)
+        switch type {
         case .traceChanged:
             kind = .traceChanged(try container.decode(CoreTraceSummary.self, forKey: .summary))
         case .workflowTypesChanged:
             kind = .workflowTypesChanged(try container.decode([CoreWorkflowType].self, forKey: .workflowTypes))
         case .applicationReady:
             kind = .applicationReady
+        case .configChanged:
+            kind = .configChanged(try container.decode(CoreConfig.self, forKey: .config))
         case .commandCompleted:
             kind = .commandCompleted(
                 requestID: try container.decode(UInt64.self, forKey: .requestID),
@@ -288,21 +236,34 @@ nonisolated private struct EventPayload: Decodable {
             kind = .workflowChanged(try container.decode(CoreWorkflow.self, forKey: .workflow))
         case .foldersChanged:
             kind = .foldersChanged(try container.decode(CoreFolderState.self, forKey: .folders))
+        case .terminalClosed, .terminalExited, .terminalFailed:
+            kind = try Self.terminalEvent(type, container: container)
+        }
+    }
+
+    private static func terminalEvent(
+        _ type: EventType, container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> CoreEvent.Kind {
+        let terminalID = try container.decode(UInt64.self, forKey: .terminalID)
+        switch type {
         case .terminalClosed:
-            kind = .terminalClosed(terminalID: try container.decode(UInt64.self, forKey: .terminalID))
+            return .terminalClosed(terminalID: terminalID)
         case .terminalExited:
-            kind = .terminalExited(
-                terminalID: try container.decode(UInt64.self, forKey: .terminalID),
+            return .terminalExited(
+                terminalID: terminalID,
                 exit: CoreTerminalExit(
                     exitCode: try container.decode(UInt32.self, forKey: .exitCode),
                     signal: try container.decodeIfPresent(String.self, forKey: .signal)
                 )
             )
         case .terminalFailed:
-            kind = .terminalFailed(
-                terminalID: try container.decode(UInt64.self, forKey: .terminalID),
+            return .terminalFailed(
+                terminalID: terminalID,
                 message: try container.decode(String.self, forKey: .message)
             )
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .type, in: container, debugDescription: "\(type) is not a terminal event")
         }
     }
 }

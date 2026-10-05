@@ -39,8 +39,8 @@ impl From<SaveRequest> for FileSaveRequest {
     }
 }
 
-pub(crate) fn encode_save(
-    result: Result<FileSaveOutcome, twine_core::ApplicationError>,
+pub(crate) fn encode_save<E: std::fmt::Display>(
+    result: Result<FileSaveOutcome, E>,
 ) -> Result<Vec<u8>, serde_json::Error> {
     let value = match result {
         Ok(FileSaveOutcome::Saved(file)) => {
@@ -54,7 +54,7 @@ pub(crate) fn encode_save(
     serde_json::to_vec(&value)
 }
 
-fn encode_preview(file: &FilePreview) -> Value {
+pub(crate) fn encode_preview(file: &FilePreview) -> Value {
     let (status, text, message) = match &file.content {
         FileContent::Text(text) => ("text", Some(text.as_str()), None),
         FileContent::Binary => ("binary", None, None),

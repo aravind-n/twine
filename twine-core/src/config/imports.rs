@@ -13,7 +13,19 @@ const MAX_DOCUMENTS: usize = 256;
 
 pub(super) fn load(path: &Path, source: &str) -> LoadedConfig {
     let mut loader = Loader::default();
-    let canonical = match fs::canonicalize(path) {
+    // A settings draft may replace a root file deleted since the editor opened it. Keep
+    // existing roots canonical (including symlinks), but allow a missing root to be validated.
+    let canonical = match fs::canonicalize(path).or_else(|error| {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(error);
+        }
+        let name = path.file_name().ok_or(error)?;
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        fs::canonicalize(parent).map(|parent| parent.join(name))
+    }) {
         Ok(path) => path,
         Err(error) => {
             return LoadedConfig {
@@ -86,6 +98,7 @@ impl Loader {
                 return None;
             }
         };
+        normalize_ansi(&mut table);
         let imports = match table.remove("import") {
             None => Vec::new(),
             Some(toml::Value::String(path)) => vec![(path, None)],
@@ -181,6 +194,23 @@ impl Loader {
         let key = index.map_or_else(|| "import".to_owned(), |index| format!("import.{index}"));
         self.diagnostics
             .push(ConfigDiagnostic::at(path, source, offset, key, problem));
+    }
+}
+
+/// Normalize each validated document before merging so legacy arrays obey source precedence.
+fn normalize_ansi(table: &mut toml::Table) {
+    let Some(colors) = table
+        .get_mut("terminal")
+        .and_then(toml::Value::as_table_mut)
+        .and_then(|terminal| terminal.get_mut("colors"))
+        .and_then(toml::Value::as_table_mut)
+    else {
+        return;
+    };
+    if let Some(toml::Value::Array(ansi)) = colors.remove("ansi") {
+        for (name, color) in super::themes::ANSI_COLOR_NAMES.into_iter().zip(ansi) {
+            colors.entry(name).or_insert(color);
+        }
     }
 }
 

@@ -10,6 +10,7 @@ use crate::workflow::{SessionId, Workflow, WorkflowId, WorkflowState};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateEvent {
     ApplicationReady,
+    ConfigChanged(Box<crate::config::Config>),
     WorkflowTypesChanged(Vec<crate::WorkflowType>),
     TraceChanged(crate::TraceSummary),
     WorkflowsChanged(WorkflowState),

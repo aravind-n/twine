@@ -9,6 +9,7 @@ struct FileViewer: View {
     let failure: String?
     let isVisible: Bool
     let openFile: (URL) -> Void
+    var didSave: (() async throws -> Void)?
     @State private var showsGoToLine = false
     @State private var line = "1"
     @State private var lineRequest: FileLineRequest?
@@ -86,7 +87,7 @@ struct FileViewer: View {
         .background(Color(nsColor: .textBackgroundColor))
         .clipShape(.rect(cornerRadius: CornerRadius.panel))
         .onChange(of: editor.navigationID) { mode = .preview }
-        .task(id: editor.saveID) { await editor.savePending(client: coreClient) }
+        .task(id: editor.saveID) { await editor.savePending(client: coreClient, didSave: didSave) }
         .alert(
             "File Changed on Disk",
             isPresented: Binding(

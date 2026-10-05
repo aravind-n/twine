@@ -10,10 +10,12 @@ use thiserror::Error;
 use toml::de::DeTable;
 
 mod diagnostics;
+mod editing;
 mod imports;
 mod themes;
 
 pub use diagnostics::{ConfigDiagnostic, ConfigProblem};
+pub use editing::{ConfigEditError, read_user_file, save_user_file};
 pub use themes::{HexColor, TerminalColors, TerminalPalette, TerminalPalettes};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -90,12 +92,19 @@ pub struct LoadedConfig {
 }
 
 impl Config {
+    /// The same user config path used by loading and the settings editor.
+    #[must_use]
+    pub fn user_path() -> Option<PathBuf> {
+        user_config_path(
+            std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+            std::env::home_dir().as_deref(),
+        )
+    }
+
     /// Loads `$XDG_CONFIG_HOME/twine/config.toml`, falling back to `~/.config/twine`.
     #[must_use]
     pub fn load_user() -> Self {
-        let home = std::env::home_dir();
-        let xdg = std::env::var_os("XDG_CONFIG_HOME");
-        let Some(path) = user_config_path(xdg.as_deref(), home.as_deref()) else {
+        let Some(path) = Self::user_path() else {
             tracing::error!("cannot find user config directory; using defaults");
             return Self::default();
         };
@@ -123,8 +132,13 @@ impl Config {
                 };
             }
         };
+        Self::load_source(path, &source)
+    }
+
+    /// Resolves a draft using the same imports, themes, and validation as a saved config.
+    pub(crate) fn load_source(path: &Path, source: &str) -> LoadedConfig {
         let (mut palettes, diagnostics) = themes::load(path);
-        let mut loaded = imports::load(path, &source);
+        let mut loaded = imports::load(path, source);
         loaded.diagnostics.extend(diagnostics);
         if loaded
             .diagnostics
@@ -232,11 +246,10 @@ fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
         Err(error) => return Err(ConfigFileError::Read(error)),
     }
 
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    fs::create_dir_all(parent).map_err(ConfigFileError::Create)?;
+    write_default(path, &default_source()?)
+}
+
+fn default_source() -> Result<String, ConfigFileError> {
     let mut defaults = toml::Value::try_from(Config::default())?;
     defaults["terminal"]
         .as_table_mut()
@@ -245,8 +258,8 @@ fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
     let defaults = toml::to_string_pretty(&defaults)?;
     let mut source = String::from(
         "# Twine configuration. Uncomment settings to override their defaults.\n\
-         # Restart Twine after editing settings.\n\
-         # appearance.color_scheme accepts \"system\", \"light\", or \"dark\"; it is not applied yet.\n\
+         # Settings saved in Twine apply immediately.\n\
+         # appearance.color_scheme accepts \"system\", \"light\", or \"dark\".\n\
          # terminal.font_family selects an installed monospace family (for example, \"JetBrains Mono\").\n\
          # An empty, unavailable, or proportional family uses system monospace.\n\
          # terminal.font_size accepts 6 through 72 points, including fractional sizes.\n\
@@ -266,13 +279,26 @@ fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
         source.push('\n');
         if line == "[terminal.colors]" {
             source.push_str("# background = \"#0c1013\"\n# foreground = \"#e5e1cf\"\n");
+            for line in themes::default_color_settings().lines() {
+                source.push_str("# ");
+                source.push_str(line);
+                source.push('\n');
+            }
         }
     }
 
-    write_default(path, &source)
+    Ok(source)
 }
 
 fn write_default(path: &Path, source: &str) -> Result<String, ConfigFileError> {
+    if publish_default(path, source)? {
+        Ok(source.to_owned())
+    } else {
+        fs::read_to_string(path).map_err(ConfigFileError::Read)
+    }
+}
+
+fn publish_default(path: &Path, source: &str) -> Result<bool, ConfigFileError> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -288,10 +314,8 @@ fn write_default(path: &Path, source: &str) -> Result<String, ConfigFileError> {
         .sync_all()
         .map_err(ConfigFileError::Create)?;
     match temporary.persist_noclobber(path) {
-        Ok(_) => Ok(source.to_owned()),
-        Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
-            fs::read_to_string(path).map_err(ConfigFileError::Read)
-        }
+        Ok(_) => Ok(true),
+        Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => Ok(false),
         Err(error) => Err(ConfigFileError::Create(error.error)),
     }
 }

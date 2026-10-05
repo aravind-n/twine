@@ -67,6 +67,8 @@ nonisolated protocol CoreTransport: Sendable {
     func snapshot() async throws -> CoreSnapshot
     func pollFiles(_ request: FileBrowserRequest) async throws -> FileBrowserSnapshot?
     func saveFile(_ request: FileSaveRequest) async throws -> FileSaveResult
+    func configFile() async throws -> FilePreview
+    func saveConfigFile(_ request: FileSaveRequest) async throws -> FileSaveResult
     func harnessModels(_ request: HarnessModelsRequest) async throws -> CoreHarnessModelsResult
     func events(after sequence: UInt64, limit: UInt32) async throws -> [CoreEvent]
     func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async throws -> CoreWorkflowTracePage
@@ -80,6 +82,12 @@ nonisolated protocol CoreTransport: Sendable {
 }
 
 extension CoreTransport {
+    func configFile() async throws -> FilePreview { throw CoreFailure.unexpectedCommandResult }
+
+    func saveConfigFile(_ request: FileSaveRequest) async throws -> FileSaveResult {
+        throw CoreFailure.unexpectedCommandResult
+    }
+
     func writeTerminalResponse(terminalID: UInt64, bytes: Data) async throws {
         try await writeTerminalInput(terminalID: terminalID, bytes: bytes)
     }

@@ -66,6 +66,8 @@ nonisolated private struct CommandPayload: Encodable {
             self.definition = definition
         case .ping:
             type = "ping"
+        case .reloadConfig:
+            type = "reloadConfig"
         case .openFolder, .restoreFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder, .refreshGitBranch:
             type = ""
             configureFolder(command)

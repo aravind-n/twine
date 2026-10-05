@@ -26,6 +26,7 @@ struct WorkflowActions {
 
 /// File menu commands that open a folder and close it, returning the window to the start page.
 struct FolderCommands: Commands {
+    var settings: SettingsPopup?
     #if DEBUG
         private static let testRoles = ["Implementer", "Reviewer", "Coordinator", "Worker"]
     #endif
@@ -38,7 +39,16 @@ struct FolderCommands: Commands {
     @FocusedValue(\.openFilePath) private var openFilePath
 
     var body: some Commands {
-        let isRunning = session?.coreClient.runState == .running
+        let showsSettings = settings?.isPresented == true && settings?.presentedWindowID == session?.id
+        let isRunning = !showsSettings && session?.coreClient.runState == .running
+        let editor = showsSettings ? settings?.editor : session?.tabs.selected
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                if let session { settings?.show(in: session) }
+            }
+            .keyboardShortcut(",")
+            .disabled(session == nil)
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Window") { openWindow(id: "folder", value: UUID()) }
                 .keyboardShortcut("n")
@@ -98,11 +108,13 @@ struct FolderCommands: Commands {
                 .disabled(workflowActions?.moveFocus == nil)
         }
         CommandGroup(replacing: .saveItem) {
-            Button("Save") { session?.tabs.selected?.requestSave() }
+            Button("Save") { editor?.requestSave() }
                 .keyboardShortcut("s")
-                .disabled(session?.tabs.selected?.canSave != true || !isRunning)
+                .disabled(editor?.canSave != true || (!showsSettings && !isRunning))
             Button(closeTitle) {
-                if openFilePath != nil {
+                if showsSettings {
+                    settings?.close()
+                } else if openFilePath != nil {
                     if let tabs = session?.tabs, let selected = tabs.selected { tabs.close(selected.id) }
                 } else if let close = workflowActions?.close {
                     close()
@@ -111,11 +123,12 @@ struct FolderCommands: Commands {
                 }
             }
             .keyboardShortcut("w")
-            .disabled(isChoosingFolder == nil)
+            .disabled(isChoosingFolder == nil && !showsSettings)
         }
     }
 
     private var closeTitle: String {
+        if settings?.isPresented == true && settings?.presentedWindowID == session?.id { return "Close Settings" }
         if openFilePath != nil { return "Close File" }
         return workflowActions?.close == nil ? "Close Window" : "Close Workflow"
     }
