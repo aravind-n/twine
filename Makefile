@@ -32,6 +32,7 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testQuitStopsShellAndDescendant \
 	testSingleAgentStartsInteractivelyTakesInputAndCancels \
 	testClaudeMinimapDotsSelectTheirTraceAndScrollToThePrompt \
+	testTimelineInspectorShowsNestedCallsFiltersAndSurvivesRelaunch \
 	testAgentReceivesTerminalColorsBeforeItsStartupProbeTimesOut \
 	testForceQuitPreservesAgentOutputAndCanResumeItsSession \
 	testAdversarialHarnessSelectionUserCompletionReviewLoopAndTraces \

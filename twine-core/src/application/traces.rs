@@ -32,6 +32,25 @@ impl PendingTraceEnding {
 }
 
 impl Application {
+    /// Reads native tool and subagent activity in stable ID order. Refresh from the beginning when
+    /// the workflow revision changes, because a finish updates an existing activity.
+    ///
+    /// # Errors
+    /// Returns an error if the span is missing, the page limit is invalid, or storage fails.
+    pub fn trace_activities(
+        &self,
+        span_id: TraceSpanId,
+        after: Option<crate::TraceActivityId>,
+        limit: usize,
+    ) -> Result<crate::TraceActivitiesPage, ApplicationError> {
+        self.poll_harness_steps()?;
+        Ok(self
+            .lock_inner()?
+            .folders
+            .read_store()
+            .trace_activities(span_id, after, limit)?)
+    }
+
     pub(super) fn poll_shell_observations(&self) -> Result<(), ApplicationError> {
         let mut inner = self.lock_inner()?;
         inner.record_shell_observations(Vec::new());

@@ -5,6 +5,7 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use thiserror::Error;
 use tracing::info;
 
+mod activities;
 mod harness_sessions;
 mod harness_steps;
 mod recovery;
@@ -212,7 +213,24 @@ const MIGRATIONS: &[&str] = &[
         path TEXT PRIMARY KEY NOT NULL,
         last_opened_at INTEGER NOT NULL
     ) STRICT;
-    INSERT INTO open_folders SELECT path, last_opened_at FROM recent_folders WHERE is_open = 1"
+    INSERT INTO open_folders SELECT path, last_opened_at FROM recent_folders WHERE is_open = 1",
+    // 17: Native call identities and optional endpoints survive restart and pagination.
+    "CREATE TABLE trace_activities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        span_id INTEGER NOT NULL REFERENCES trace_spans(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL,
+        parent_source_id TEXT,
+        kind TEXT NOT NULL CHECK (kind IN ('tool', 'subagent')),
+        title TEXT NOT NULL,
+        started_at INTEGER,
+        ended_at INTEGER,
+        status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'interrupted')),
+        input TEXT NOT NULL,
+        output TEXT NOT NULL,
+        anchor TEXT,
+        UNIQUE(span_id, source_id)
+    ) STRICT;
+    CREATE INDEX trace_activities_parent ON trace_activities(span_id, parent_source_id)"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the

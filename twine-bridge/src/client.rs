@@ -104,6 +104,20 @@ impl TwineClient {
         Ok(protocol::encode_workflow_trace(&page)?)
     }
 
+    pub(crate) fn trace_activities(
+        &self,
+        span_id: u64,
+        after: u64,
+        limit: usize,
+    ) -> Result<Vec<u8>, BridgeError> {
+        let page = self.application.trace_activities(
+            twine_core::TraceSpanId(span_id),
+            (after != 0).then_some(twine_core::TraceActivityId(after)),
+            limit,
+        )?;
+        Ok(protocol::encode_trace_activities(&page)?)
+    }
+
     pub(crate) fn trace_events(
         &self,
         span_id: u64,

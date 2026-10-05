@@ -57,6 +57,7 @@ impl Store {
         if activate {
             activate_harness_trace(&transaction, anchor.terminal_id)?;
         }
+        let correlated = super::activities::activity_span(&transaction, anchor.terminal_id, step)?;
         let current: Option<TraceSpanId> = transaction
             .query_row(
                 "SELECT s.id FROM trace_spans s JOIN trace_lanes l ON l.id = s.lane_id
@@ -72,7 +73,10 @@ impl Store {
                     } else {
                         None
                     },
-                    assigned_span.map(|span| sql_integer(span.0)).transpose()?,
+                    correlated
+                        .or(assigned_span)
+                        .map(|span| sql_integer(span.0))
+                        .transpose()?,
                     single_agent || assigned_span.is_some(),
                     sql_integer(observed_at)?,
                 ],
@@ -120,6 +124,7 @@ impl Store {
                 params![sql_integer(span.0)?, sql_integer(anchor.terminal_id.value())?],
             )?;
         }
+        super::activities::record_activity(&transaction, span, step, observed_at, anchor)?;
         insert_event(
             &transaction,
             workflow_id,
@@ -226,6 +231,11 @@ pub(super) fn insert_process_ending(
     terminal_id: TerminalId,
     ending: &TraceEnding<'_>,
 ) -> Result<(), StoreError> {
+    transaction.execute(
+        "UPDATE trace_activities SET status = 'interrupted' WHERE status = 'running'
+         AND span_id IN (SELECT id FROM trace_spans WHERE terminal_id = ?1)",
+        [sql_integer(terminal_id.value())?],
+    )?;
     transaction.execute(
             "INSERT INTO trace_events (workflow_id, span_id, timestamp, kind, message, terminal_id, byte_offset, boundary_sizes)
              VALUES (?1, (SELECT s.id FROM trace_spans s JOIN trace_lanes l ON l.id = s.lane_id

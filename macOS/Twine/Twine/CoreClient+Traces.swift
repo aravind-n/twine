@@ -10,4 +10,9 @@ extension CoreClient {
         guard runState == .running, !isStopping, !isTerminating else { throw CoreFailure.notRunning }
         return try await transport.traceEvents(spanID: spanID, after: after, limit: 200)
     }
+
+    func traceActivities(spanID: UInt64, after: UInt64? = nil) async throws -> CoreTraceActivitiesPage {
+        guard runState == .running, !isStopping, !isTerminating else { throw CoreFailure.notRunning }
+        return try await transport.traceActivities(spanID: spanID, after: after, limit: 200)
+    }
 }

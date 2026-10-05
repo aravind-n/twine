@@ -3,11 +3,17 @@
 import { randomUUID } from "node:crypto";
 import { request } from "node:http";
 
+// OMP rebinds this module's factory to child sessions in the same process. Remember only
+// observed relationships, keeping child turns tied to the root prompt that spawned them.
+const agentTurns = new Map();
+
 export default function (pi) {
   const socketPath = __TWINE_SOCKET__;
   const isOmp = __TWINE_OMP__;
   const queue = [];
   const calls = new Map();
+  const children = new Map();
+  let ownAgentId;
   let active;
   let sessionFile;
   let response = "";
@@ -24,6 +30,8 @@ export default function (pi) {
     if (last >= 0xd800 && last <= 0xdbff) end--;
     return value.slice(0, end) + "… [truncated]";
   };
+  const identifier = value => typeof value === "string" && value.length > 0
+    && Buffer.byteLength(value) <= 160 ? value : undefined;
   function textContent(content) {
     if (typeof content === "string") return clip(content);
     let text = "";
@@ -91,13 +99,70 @@ export default function (pi) {
     queue.push(JSON.stringify({ ...event, session_id: sessionFile }));
     pump();
   }
+  function observeChild(name, event, agent) {
+    const id = identifier(agent.id);
+    if (!id) return;
+    let child = children.get(id);
+    if ((!child || child.finished) && name === "message_start" && event.message?.role === "user") {
+      if (children.size >= 256 || agentTurns.size >= 256) return;
+      const parent = agentTurns.get(agent.parentId);
+      child = { agent_id: id, agent_name: clip(agent.name || "Subagent", 160),
+        parent_agent_id: parent?.kind === "sub" ? identifier(agent.parentId) : undefined,
+        turn_id: parent?.turn_id, calls: new Map(), finished: false, response: "", failed: false };
+      children.set(id, child);
+      agentTurns.set(id, { kind: "sub", turn_id: child.turn_id });
+      send({ type: "agent_start", agent_id: id, agent_name: child.agent_name,
+        parent_agent_id: child.parent_agent_id, turn_id: child.turn_id,
+        detail: textContent(event.message.content) });
+    }
+    if (!child) return;
+    const identity = { agent_id: id, agent_name: child.agent_name,
+      parent_agent_id: child.parent_agent_id, turn_id: child.turn_id };
+    if (name === "tool_execution_start" && child.calls.size < 256 && identifier(event.toolCallId)) {
+      const call = { ...identity, tool_call_id: identifier(event.toolCallId),
+        parent_tool_call_id: identifier(event.parentToolCallId),
+        tool_name: clip(event.toolName, 160),
+        target: clip(event.toolName === "bash" ? event.args?.command : event.args?.path, 160) };
+      child.calls.set(event.toolCallId, call);
+      send({ ...call, type: "tool_start", detail: clip(JSON.stringify(preview(event.args))) });
+    } else if (name === "tool_execution_end") {
+      const call = child.calls.get(event.toolCallId);
+      if (call) {
+        child.calls.delete(event.toolCallId);
+        send({ ...call, type: "tool_end", is_error: event.isError === true,
+          detail: textContent(event.result?.content) || clip(JSON.stringify(preview(event.result))) });
+      }
+    } else if (name === "message_end" && event.message?.role === "assistant") {
+      child.response = textContent(event.message.content);
+      child.failed = ["error", "aborted"].includes(event.message.stopReason);
+    } else if (name === "agent_end" && !event.willContinue && !child.finished) {
+      child.finished = true;
+      send({ ...identity, type: "agent_end", detail: child.response, is_error: child.failed });
+      // Completed sessions may remain resumable in OMP without shutting down. New
+      // child factories must not exhaust the relationship cache over a long run.
+      agentTurns.delete(id);
+    } else if (name === "session_shutdown") {
+      children.delete(id);
+      agentTurns.delete(id);
+      // The final event may still be queued, so let the bounded transport drain.
+    }
+  }
   // Handlers never await I/O or return a result that could alter Pi's behavior.
   const observe = (name, handler) => pi.on(name, (event, ctx) => {
-    // OMP binds this factory to child agents too; only the root owns this terminal's trace.
-    if (isOmp && ctx?.agent?.kind === "sub") return;
     try {
+      if (isOmp && ctx?.agent?.kind === "sub") {
+        observeChild(name, event, ctx.agent);
+        return;
+      }
       sessionFile = ctx?.sessionManager?.getSessionFile();
+      ownAgentId = identifier(ctx?.agent?.id);
       handler(event);
+      if (isOmp && ownAgentId) {
+        if (name === "session_shutdown") agentTurns.delete(ownAgentId);
+        else if (agentTurns.size < 256 || agentTurns.has(ownAgentId)) {
+          agentTurns.set(ownAgentId, { kind: "main", turn_id: active });
+        }
+      }
     } catch { /* Recording is best effort. */ }
   });
   observe("session_start", () => send({ type: "session" }));
@@ -117,10 +182,11 @@ export default function (pi) {
       detail: textContent(event.message.content) || "[Image prompt]" });
   });
   observe("tool_execution_start", event => {
-    if (!active || calls.size >= 256) return;
+    if (!active || calls.size >= 256 || !identifier(event.toolCallId)) return;
     responseSucceeded = false;
-    const call = { turn_id: active, tool_call_id: clip(event.toolCallId, 160),
-      tool_name: clip(event.toolName, 160),
+    const call = { turn_id: active, tool_call_id: identifier(event.toolCallId),
+      parent_tool_call_id: identifier(event.parentToolCallId),
+        tool_name: clip(event.toolName, 160),
       target: clip(event.toolName === "bash" ? event.args?.command : event.args?.path, 160) };
     calls.set(event.toolCallId, call);
     send({ ...call, type: "tool_start", detail: clip(JSON.stringify(preview(event.args))) });

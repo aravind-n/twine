@@ -47,7 +47,8 @@ impl HarnessRecording {
             .pending
             .iter()
             .filter(|item| {
-                item.step.session_id.is_some()
+                item.step.kind != StepKind::Activity
+                    && item.step.session_id.is_some()
                     && (!has_start || item.step.kind == StepKind::SessionStarted)
             })
             .max_by_key(|item| item.received_at);
@@ -1273,6 +1274,7 @@ mod tests {
                     observation: observation.clone(),
                     received_at: Instant::now().checked_sub(HOOK_GRACE).unwrap(),
                     step: crate::harness::steps::HarnessStep {
+                        activity: None,
                         session_id: None,
                         kind: StepKind::ToolStarted,
                         turn_id: Some("missing".into()),
@@ -1597,6 +1599,11 @@ mod tests {
         send_hook(
             &app,
             terminal,
+            &json!({"hook_event_name":"SubagentStart", "agent_id":"child", "agent_type":"Reviewer", "turn_id":"child-turn"}),
+        );
+        send_hook(
+            &app,
+            terminal,
             &json!({"hook_event_name":"UserPromptSubmit", "agent_id":"child", "turn_id":"child-turn", "prompt":"Child task"}),
         );
         send_hook(
@@ -1608,6 +1615,11 @@ mod tests {
             &app,
             terminal,
             &json!({"hook_event_name":"PostToolUse", "agent_id":"child", "turn_id":"child-turn", "tool_use_id":"child-tool", "tool_name":"Bash", "tool_input":{"command":"child command"}, "tool_response":"done"}),
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"SubagentStop", "agent_id":"child", "agent_type":"Reviewer", "turn_id":"child-turn"}),
         );
         let page = trace_for_terminal(&app, id, terminal);
         assert_eq!(page.spans.len(), 1);
@@ -1625,8 +1637,19 @@ mod tests {
             .trace_events(page.spans[0].span_id, None, 20)
             .unwrap()
             .events;
-        assert_eq!(events.len(), 3); // Process start, root prompt, root response.
-        assert!(!events.iter().any(|event| event.message.contains("child")));
+        assert_eq!(events.len(), 7); // Process, root prompt/response, child and tool endpoints.
+        let activity = app
+            .trace_activities(page.spans[0].span_id, None, 20)
+            .unwrap()
+            .activities;
+        assert_eq!(activity.len(), 2);
+        assert_eq!(
+            activity[1].parent_activity_id,
+            Some(activity[0].activity_id)
+        );
+        assert_eq!(activity[1].status, crate::TraceActivityStatus::Completed);
+        assert!(activity[1].title.contains("child command"));
+        assert_eq!(activity[1].anchor.as_ref().unwrap().terminal_id, terminal);
     }
 
     #[test]

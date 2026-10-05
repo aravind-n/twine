@@ -51,7 +51,8 @@ pub use workflow_type::{
 };
 
 pub use trace::{
-    MAX_TRACE_PAGE_SIZE, TraceAnchor, TraceError, TraceEvent, TraceEventId, TraceEventKind,
+    MAX_TRACE_PAGE_SIZE, TraceActivitiesPage, TraceActivity, TraceActivityId, TraceActivityKind,
+    TraceActivityStatus, TraceAnchor, TraceError, TraceEvent, TraceEventId, TraceEventKind,
     TraceEventsPage, TraceLane, TraceLaneId, TraceSpan, TraceSpanId, TraceSpanStatus, TraceSummary,
     WorkflowTracePage,
 };

@@ -113,6 +113,10 @@ TwineStatus twine_client_trace_events(
     TwineClient *client, uint64_t span_id, uint64_t after_event_id,
     uint32_t limit, TwineBuffer *out_page
 );
+TwineStatus twine_client_trace_activities(
+    TwineClient *client, uint64_t span_id, uint64_t after_activity_id,
+    uint32_t limit, TwineBuffer *out_page
+);
 
 TwineStatus twine_client_next_terminal_chunk(
     TwineClient *client,

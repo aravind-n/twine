@@ -5,6 +5,9 @@ extension CoreTransport {
     func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async throws -> CoreWorkflowTracePage {
         throw CoreFailure.unexpectedCommandResult
     }
+    func traceActivities(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> CoreTraceActivitiesPage {
+        throw CoreFailure.unexpectedCommandResult
+    }
     func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> CoreTraceEventsPage {
         throw CoreFailure.unexpectedCommandResult
     }

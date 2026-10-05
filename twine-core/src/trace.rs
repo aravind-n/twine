@@ -106,6 +106,49 @@ pub struct TraceEventsPage {
     pub next_after: Option<TraceEventId>,
 }
 
+/// Durable native tool or subagent identity within a prompt or assignment.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct TraceActivityId(pub u64);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TraceActivityKind {
+    Tool,
+    Subagent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TraceActivityStatus {
+    Running,
+    Completed,
+    Failed,
+    Interrupted,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraceActivity {
+    pub activity_id: TraceActivityId,
+    pub span_id: TraceSpanId,
+    pub parent_activity_id: Option<TraceActivityId>,
+    pub kind: TraceActivityKind,
+    pub title: String,
+    /// Missing endpoints remain missing; observers do not invent elapsed time.
+    pub started_at: Option<u64>,
+    pub ended_at: Option<u64>,
+    pub status: TraceActivityStatus,
+    pub input: String,
+    pub output: String,
+    pub anchor: Option<TraceAnchor>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraceActivitiesPage {
+    pub workflow_id: WorkflowId,
+    pub span_id: TraceSpanId,
+    pub revision: u64,
+    pub activities: Vec<TraceActivity>,
+    pub next_after: Option<TraceActivityId>,
+}
+
 #[derive(Debug, Error)]
 pub enum TraceError {
     #[error("trace page size must be between 1 and {MAX_TRACE_PAGE_SIZE}")]

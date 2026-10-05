@@ -19,7 +19,9 @@ struct FolderView: View {
     private var scale: CGFloat { zoom?.scale ?? 1 }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $sidebarVisibility) {
+        // Read the selected trace mode here so its height also updates the native scroll document.
+        let chromeHeight = workspaceChromeHeight
+        return NavigationSplitView(columnVisibility: $sidebarVisibility) {
             FolderSidebar(path: path, files: files)
                 .appZoom()
                 .frame(
@@ -35,11 +37,14 @@ struct FolderView: View {
         } detail: {
             GeometryReader { geometry in
                 WorkspaceViewport(
-                    contentHeight: (workspaceHeight(in: geometry.size.height / scale) + workspaceChromeHeight) * scale
+                    contentHeight: (workspaceHeight(in: geometry.size.height / scale, chromeHeight: chromeHeight)
+                        + chromeHeight)
+                        * scale
                 ) {
                     VStack(spacing: Spacing.windowSections) {
                         WorkflowWorkspace(folder: path, selection: $selection, files: files)
-                            .frame(height: workspaceHeight(in: geometry.size.height / scale))
+                            .frame(
+                                height: workspaceHeight(in: geometry.size.height / scale, chromeHeight: chromeHeight))
                         if tabs.selected == nil {
                             TracesPanel(workflows: traceWorkflows, isExpanded: $isTracesExpanded)
                         }
@@ -78,7 +83,7 @@ struct FolderView: View {
 
     /// Keep two terminal rows usable when zoom leaves less room than the surrounding panels need.
     /// The workspace scrolls in that case, retaining the window's physical size.
-    private func workspaceHeight(in height: CGFloat) -> CGFloat {
+    private func workspaceHeight(in height: CGFloat, chromeHeight: CGFloat) -> CGFloat {
         let font = coreClient.terminalFont
         var minimum = WorkflowTabLayout.height + WorkflowSurfaceLayout.minimumHeight(for: selectedWorkflow, font: font)
         if let selectedWorkflow {
@@ -92,12 +97,13 @@ struct FolderView: View {
                     WorkflowTabLayout.height + 2 * BentoLayout.gutter + split.minimumHeight(paneHeight: paneHeight)
             }
         }
-        return max(minimum, height - workspaceChromeHeight)
+        return max(minimum, height - chromeHeight)
     }
 
     private var workspaceChromeHeight: CGFloat {
         let traces: CGFloat =
-            tabs.selected == nil ? (isTracesExpanded ? TracesLayout.expandedHeight : TracesLayout.collapsedHeight) : 0
+            tabs.selected == nil
+            ? (isTracesExpanded ? traceNavigation.activity.viewMode.expandedHeight : TracesLayout.collapsedHeight) : 0
         let gaps = Spacing.windowSections * (tabs.selected == nil ? 2 : 1)
         return Spacing.windowMargins.top + Spacing.windowMargins.bottom + gaps + FooterLayout.height + traces
     }

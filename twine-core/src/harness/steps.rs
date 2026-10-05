@@ -22,10 +22,34 @@ pub(crate) enum StepKind {
     ToolStarted,
     ToolFinished,
     Responded,
+    /// Native child activity never drives the parent turn or workflow.
+    Activity,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ActivityKind {
+    Tool,
+    Subagent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ActivityPhase {
+    Started,
+    Finished,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct HarnessActivity {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub kind: ActivityKind,
+    pub phase: ActivityPhase,
+    pub failed: bool,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct HarnessStep {
+    pub activity: Option<HarnessActivity>,
     pub session_id: Option<String>,
     pub kind: StepKind,
     pub turn_id: Option<String>,
@@ -37,6 +61,7 @@ pub(crate) struct HarnessStep {
 impl HarnessStep {
     pub(crate) fn session_started(value: &serde_json::Value) -> Option<Self> {
         Some(Self {
+            activity: None,
             session_id: Some(super::resume::session_handle(value)?),
             kind: StepKind::SessionStarted,
             turn_id: None,

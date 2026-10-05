@@ -44,15 +44,20 @@ struct TracesPanel: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            TracesHeader(isExpanded: isExpanded, summary: summary) {
+        @Bindable var state = state
+        return VStack(spacing: 0) {
+            TracesHeader(isExpanded: isExpanded, summary: summary, viewMode: $state.viewMode) {
                 withAnimation(reduceMotion ? nil : Motion.tracesToggle) { isExpanded.toggle() }
             }
             if isExpanded {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    expandedContent(now: TraceFormatting.milliseconds(context.date))
+                    if state.viewMode == .inDepth {
+                        inDepthContent(now: TraceFormatting.milliseconds(context.date))
+                    } else {
+                        expandedContent(now: TraceFormatting.milliseconds(context.date))
+                    }
                 }
-                .frame(height: TracesLayout.expandedHeight - TracesLayout.collapsedHeight)
+                .frame(height: state.viewMode.expandedHeight - TracesLayout.collapsedHeight)
                 .clipped()
             }
         }
@@ -73,6 +78,12 @@ struct TracesPanel: View {
                 if !Task.isCancelled { await navigation.jumpToSelectedSpan(client: coreClient) }
             }
         }
+        .task(id: "\(logKey):\(state.viewMode.rawValue)") {
+            if isExpanded && state.viewMode == .inDepth {
+                await state.activityDetails.refresh(
+                    spanID: state.selectedSpanID, workflowID: state.selectedLane?.workflowID, client: coreClient)
+            }
+        }
         .task(id: loadOlderRequested) {
             if loadOlderRequested {
                 await state.loadOlder(client: coreClient)
@@ -80,12 +91,52 @@ struct TracesPanel: View {
                 loadOlderRequested = false
             }
         }
+        .onChange(of: state.viewMode) { selectLatestForDepth() }
+        .onChange(of: state.spans.last?.id) { selectLatestForDepth() }
         .onChange(of: workflowIDs) {
             navigation.requestedSpanID = nil
         }
         .onChange(of: navigation.selectionRevision) {
             withAnimation(reduceMotion ? nil : Motion.tracesToggle) { isExpanded = true }
         }
+    }
+
+    private func selectLatestForDepth() {
+        if state.viewMode == .inDepth && state.selectedSpanID == nil, let span = state.spans.last {
+            navigation.selectSpan(span.id)
+        }
+    }
+
+    private func inDepthContent(now: UInt64) -> some View {
+        VStack(spacing: 0) {
+            let sequence = TraceSequenceLayout(spans: state.spans)
+            TraceOverview(
+                tracks: displayLanes.sorted { $0.id < $1.id }, steps: sequence.steps,
+                focusRange: 0..<0, selectedSpanID: state.selectedSpanID,
+                labelWidth: TracesLayout.detailLabelWidth, select: navigation.selectSpan
+            )
+            .frame(height: min(72, max(36, CGFloat(displayLanes.count) * 18 + 14)))
+            Divider()
+            if let span = state.selectedSpan, let lane = state.selectedLane {
+                TraceInspector(span: span, lane: lane, state: state.activityDetails, now: now)
+            } else {
+                ContentUnavailableView(
+                    "Select a step", systemImage: "timeline.selection",
+                    description: Text("Choose a step above to inspect its tools and subagents."))
+            }
+            HStack {
+                Text("Overview: start order · Detail: elapsed time")
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if state.nextBefore != nil {
+                    Button("Older traces") { loadOlderRequested = true }
+                        .buttonStyle(.borderless).disabled(state.isLoading)
+                }
+            }
+            .font(.caption2).foregroundStyle(.secondary)
+            .padding(.horizontal, 14).frame(height: TracesLayout.hintHeight)
+        }
+        .accessibilityIdentifier("traceInDepthView")
     }
 
     private func expandedContent(now: UInt64) -> some View {

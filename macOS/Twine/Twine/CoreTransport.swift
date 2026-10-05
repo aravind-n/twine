@@ -71,6 +71,7 @@ nonisolated protocol CoreTransport: Sendable {
     func events(after sequence: UInt64, limit: UInt32) async throws -> [CoreEvent]
     func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) async throws -> CoreWorkflowTracePage
     func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> CoreTraceEventsPage
+    func traceActivities(spanID: UInt64, after: UInt64?, limit: UInt32) async throws -> CoreTraceActivitiesPage
     func nextTerminalChunk() async throws -> CoreTerminalChunk?
     func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async throws -> CoreTranscriptPage?
     func writeTerminalInput(terminalID: UInt64, bytes: Data) async throws

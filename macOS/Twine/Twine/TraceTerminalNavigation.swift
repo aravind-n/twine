@@ -82,6 +82,14 @@ final class TraceTerminalNavigation {
             timestamp: event.timestamp, message: event.message)
     }
 
+    func jump(to activity: CoreTraceActivity, lane: CoreTraceLane, fallbackTime: UInt64) {
+        guard let anchor = activity.anchor else { return }
+        target = nil
+        scrollTarget = TraceTerminalTarget(
+            workflowID: lane.workflowID, agentID: lane.agentID, anchor: anchor,
+            timestamp: activity.endedAt ?? activity.startedAt ?? fallbackTime, message: activity.title)
+    }
+
     func jump(toCommand span: CoreTraceSpan, events: [CoreTraceEvent], lane: CoreTraceLane) {
         guard let start = events.first(where: { $0.spanID == span.id && $0.message == "Command started." }),
             let startAnchor = start.anchor
