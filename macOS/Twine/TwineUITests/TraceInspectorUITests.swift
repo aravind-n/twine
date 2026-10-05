@@ -98,11 +98,17 @@ extension TwineUITests {
         // Restored windows may be shorter; reveal the deep panel through the outer viewport.
         app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5))
             .scroll(byDeltaX: 0, deltaY: -800)
+        let search = app.textFields["traceActivitySearch"]
+        search.click()
+        search.typeText("cargo test")
         let call = app.buttons[callID]
         XCTAssertTrue(call.waitForExistence(timeout: 10), app.debugDescription)
         call.click()
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "value CONTAINS 'fixture test failure'")).firstMatch.exists)
+        let inspector = app.scrollViews["traceActivityInspector"]
+        inspector.scroll(byDeltaX: 0, deltaY: -600)
+        XCTAssertTrue(app.buttons["traceActivityJump"].isHittable, app.debugDescription)
         app.buttons["traceActivityJump"].click()
         XCTAssertTrue(app.textViews["terminalHistoryText"].waitForExistence(timeout: 10), app.debugDescription)
         attachWindow(in: app, name: "Recorded tool details survive relaunch")

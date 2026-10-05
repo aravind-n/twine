@@ -169,6 +169,59 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Keep the fixture alive until the Rust receiver observes its full sequence. A
+    /// fixed delay followed by `session_shutdown` drops queued events on busy CI hosts.
+    fn run_extension_fixture(
+        node: &str,
+        inbox: &StepInbox,
+        extension: &std::ffi::OsStr,
+        script: &str,
+        extra_arguments: &[&str],
+        expected: usize,
+    ) -> Vec<super::super::steps::ObservedStep> {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        use std::time::{Duration, Instant};
+
+        let mut child = Command::new(node)
+            .args(["--input-type=module", "-e", script])
+            .arg(extension)
+            .args(extra_arguments)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut events = Vec::new();
+        while events.len() < expected && Instant::now() < deadline {
+            events.extend(inbox.take(256));
+            if child.try_wait().unwrap().is_some() {
+                break;
+            }
+            if events.len() < expected {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        if let Some(mut input) = child.stdin.take() {
+            // A failed script can close stdin early; report its stderr below.
+            let _ = input.write_all(b"shutdown\n");
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        events.extend(inbox.take(256));
+        assert_eq!(
+            events.len(),
+            expected,
+            "fixture event delivery did not finish before shutdown"
+        );
+        events
+    }
+
     #[test]
     fn captures_session_identity_before_any_prompt() {
         let step = parse(br#"{"type":"session","session_id":"/tmp/pi session.jsonl"}"#).unwrap();
@@ -253,7 +306,6 @@ mod tests {
         let script = r"
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
-import { setTimeout as delay } from 'node:timers/promises';
 const { default: extension } = await import(pathToFileURL(process.argv[1]));
 const bind = agent => {
   const handlers = new Map();
@@ -281,23 +333,17 @@ first('agent_end', {willContinue:true});
 first('agent_end', {willContinue:false});
 second('message_end', {message:{role:'assistant',stopReason:'error',content:[]}});
 second('agent_end', {willContinue:false});
-await delay(500);
+await new Promise(resolve => {
+  process.stdin.once('data', resolve);
+  process.stdin.resume();
+});
+process.stdin.destroy();
 first('session_shutdown', {});
 second('session_shutdown', {});
 nested('session_shutdown', {});
 root('session_shutdown', {});
 ";
-        let output = std::process::Command::new(node)
-            .args(["--input-type=module", "-e", script])
-            .arg(&arguments[1])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let events = inbox.take(32);
+        let events = run_extension_fixture(&node, &inbox, &arguments[1], script, &[], 11);
         assert_eq!(events.len(), 11);
         let steps: Vec<_> = events.iter().map(|event| &event.step).collect();
         let first_turn = steps[0].turn_id.as_ref().unwrap();
@@ -352,7 +398,6 @@ root('session_shutdown', {});
         let script = r"
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
-import { setTimeout as delay } from 'node:timers/promises';
 const sdk = part => import(pathToFileURL(process.argv[2] + '/dist/core/' + part + '.js'));
 const { loadExtensions } = await sdk('extensions/loader');
 const { ExtensionRunner } = await sdk('extensions/runner');
@@ -368,21 +413,14 @@ await emit({type:'tool_execution_end',toolCallId:'inner',parentToolCallId:'outer
 await emit({type:'tool_execution_end',toolCallId:'outer',toolName:'custom',result:{content:[{type:'text',text:'Done'}]},isError:false});
 await emit({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'Finished'}]}});
 await emit({type:'agent_settled'});
-await delay(500);
+await new Promise(resolve => {
+  process.stdin.once('data', resolve);
+  process.stdin.resume();
+});
+process.stdin.destroy();
 await emit({type:'session_shutdown'});
 ";
-        let output = std::process::Command::new(node)
-            .args(["--input-type=module", "-e", script])
-            .arg(&arguments[1])
-            .arg(package)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let events = inbox.take(16);
+        let events = run_extension_fixture(&node, &inbox, &arguments[1], script, &[&package], 6);
         assert_eq!(events.len(), 6);
         let nested = events[2].step.activity.as_ref().unwrap();
         assert_eq!(nested.id, "tool:root:inner");
@@ -435,7 +473,6 @@ await emit({type:'session_shutdown'});
         let script = r"
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
-import { setTimeout as delay } from 'node:timers/promises';
 const { default: extension } = await import(pathToFileURL(process.argv[1]));
 const handlers = new Map();
 extension({ on: (name, handler) => handlers.set(name, handler) });
@@ -468,20 +505,14 @@ response('A');
 prompt('queued');
 response('B');
 emit('agent_end', {});
-await delay(500);
+await new Promise(resolve => {
+  process.stdin.once('data', resolve);
+  process.stdin.resume();
+});
+process.stdin.destroy();
 emit('session_shutdown', {});
 ";
-        let output = std::process::Command::new(node)
-            .args(["--input-type=module", "-e", script])
-            .arg(&arguments[1])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let events = inbox.take(20);
+        let events = run_extension_fixture(&node, &inbox, &arguments[1], script, &[], 9);
         let steps: Vec<_> = events.iter().map(|event| &event.step).collect();
         assert_eq!(steps.len(), 9);
         assert_eq!(steps[0].title, "first");
@@ -509,7 +540,6 @@ emit('session_shutdown', {});
         let script = r"
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
-import { setTimeout as delay } from 'node:timers/promises';
 const { default: extension } = await import(pathToFileURL(process.argv[1]));
 const handlers = new Map();
 extension({ on: (name, handler) => handlers.set(name, handler) });
@@ -545,21 +575,15 @@ emit('tool_execution_start', {toolCallId:'emoji', toolName:'bash', args:{command
 result('emoji', 'x'.repeat(2033) + '😀' + 'x'.repeat(100));
 emit('message_end', {message:{role:'assistant', stopReason:'length', content:[{type:'text', text:'Partial response'}]}});
 emit('agent_settled', {});
-// Delivery is asynchronous; allow the bounded queue to drain before shutdown.
-await delay(500);
+// The Rust fixture signals shutdown after receiving the full asynchronous sequence.
+await new Promise(resolve => {
+  process.stdin.once('data', resolve);
+  process.stdin.resume();
+});
+process.stdin.destroy();
 emit('session_shutdown', {});
 ";
-        let output = std::process::Command::new(&node)
-            .args(["--input-type=module", "-e", script])
-            .arg(&arguments[1])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let events = inbox.take(20);
+        let events = run_extension_fixture(&node, &inbox, &arguments[1], script, &[], 16);
         assert_eq!(events.len(), 16);
         let steps: Vec<_> = events.iter().map(|event| &event.step).collect();
         assert_eq!(steps[0].title, "first");
@@ -590,16 +614,6 @@ emit('session_shutdown', {});
         );
         // An unavailable endpoint must not delay, reject, or mutate any handler.
         std::fs::remove_file(&inbox.socket_path).unwrap();
-        let output = std::process::Command::new(node)
-            .args(["--input-type=module", "-e", script])
-            .arg(&arguments[1])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(inbox.take(20).is_empty());
+        assert!(run_extension_fixture(&node, &inbox, &arguments[1], script, &[], 0).is_empty());
     }
 }
