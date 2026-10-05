@@ -17,7 +17,7 @@ for (const button of downloadButtons) {
     const message = feedback.querySelector("span");
     const fallback = feedback.querySelector("a");
     feedback.hidden = false;
-    message.textContent = "Finding the latest macOS download…";
+    message.textContent = "Finding the latest macOS DMG…";
     fallback.hidden = true;
 
     const controller = new AbortController();
@@ -31,12 +31,16 @@ for (const button of downloadButtons) {
       if (!response.ok) throw new Error("Release lookup failed");
       const release = await response.json();
       const asset = release.assets?.find((asset) =>
-        asset.state === "uploaded" && /^Twine-.+-macos-universal\.zip$/.test(asset.name)
+        asset.state === "uploaded" && /^Twine-.+-macos-universal\.dmg$/.test(asset.name)
       );
-      if (!asset?.browser_download_url) throw new Error("Universal ZIP is unavailable");
+      if (!asset?.browser_download_url) {
+        message.textContent = "A DMG installer isn’t available for the latest release yet.";
+        fallback.hidden = false;
+        return;
+      }
 
       for (const link of downloadButtons) link.href = asset.browser_download_url;
-      message.textContent = "Your download is starting.";
+      message.textContent = "Your DMG download is starting. Open it and drag Twine to Applications.";
       window.location.assign(asset.browser_download_url);
     } catch {
       message.textContent = "Couldn’t find the latest download. Please try again.";

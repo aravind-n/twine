@@ -113,7 +113,9 @@ case "${1:-}" in
                 "$(git rev-parse HEAD)" >> "$folder/README.txt"
         fi
         cp LICENSE "$folder/LICENSE"
-        ditto -c -k --sequesterRsrc --keepParent "$folder" "$output/Twine-$version-macos-universal.zip"
+        ln -s /Applications "$folder/Applications"
+        # A fixed Finder layout works in headless CI without AppleScript or dependencies.
+        cp .github/release/Finder.DS_Store "$folder/.DS_Store"
         library="$staging/libtwinecore-$version-macos-universal"
         mkdir -p "$library/include"
         cp "$bundle/libtwinecore.a" "$library/libtwinecore.a"
@@ -132,7 +134,10 @@ case "${1:-}" in
         [[ -n "$binary_uuids" && "$binary_uuids" == "$symbol_uuids" ]] || fail 'debug symbols differ from executable'
         tar -czf "$output/Twine-$version-symbols.tar.gz" -C "$staging" "$(basename "$symbols")"
         git archive --format=tar --prefix="twine-$version/" HEAD | gzip -n > "$output/twine-$version-source.tar.gz"
-        (cd "$output"; shasum -a 256 ./*.zip ./*.tar.gz > SHA256SUMS; shasum -a 256 -c SHA256SUMS)
+        image="$output/Twine-$version-macos-universal.dmg"
+        hdiutil create -quiet -volname "Twine $version" -srcfolder "$folder" -fs HFS+ -format UDZO "$image"
+        hdiutil verify -quiet "$image"
+        (cd "$output"; shasum -a 256 ./*.dmg ./*.tar.gz > SHA256SUMS; shasum -a 256 -c SHA256SUMS)
         ;;
     *) fail 'usage: release.sh guard TAG NOTES | notes VERSION NOTES | bundle BUILD BUNDLE | package VERSION BUNDLE OUTPUT | nightly-package NIGHTLY_ID BUNDLE OUTPUT' ;;
 esac

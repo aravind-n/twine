@@ -83,11 +83,11 @@ reset() {
     python3 - "$1" <<'PY'
 import json, os, pathlib, sys
 tag, sha = os.environ["MOCK_TAG"], os.environ["MOCK_SHA"]
-names = [f"Twine-{tag}-macos-universal.zip", f"libtwinecore-{tag}-macos-universal.tar.gz", f"Twine-{tag}-symbols.tar.gz", f"twine-{tag}-source.tar.gz", "SHA256SUMS"]
+names = [f"Twine-{tag}-macos-universal.dmg", f"libtwinecore-{tag}-macos-universal.tar.gz", f"Twine-{tag}-symbols.tar.gz", f"twine-{tag}-source.tar.gz", "SHA256SUMS"]
 release = {"tag_name": tag, "target_commitish": sha, "draft": False, "prerelease": True, "created_at": "2026-10-05T10:17:00Z", "assets": [{"name": name, "size": 1} for name in names]}
 state = {"releases": []}
 case = sys.argv[1]
-if case in ("published", "draft", "old_draft", "incomplete", "conflict", "empty", "stable_channel"):
+if case in ("published", "draft", "old_draft", "incomplete", "conflict", "empty", "stable_channel", "legacy_zip"):
     state["releases"] = [release]
     state["ref"] = sha
     if case in ("draft", "old_draft"):
@@ -98,6 +98,7 @@ if case in ("published", "draft", "old_draft", "incomplete", "conflict", "empty"
     if case == "conflict": release["target_commitish"] = "0" * 40
     if case == "empty": release["assets"][0]["size"] = 0
     if case == "stable_channel": release["prerelease"] = False
+    if case == "legacy_zip": release["assets"][0]["name"] = names[0].replace(".dmg", ".zip")
 elif case == "tag_conflict": state["ref"] = "0" * 40
 elif case == "ci_failure": state["conclusion"] = "failure"
 elif case != "new": state[case] = True
@@ -120,6 +121,7 @@ grep -qx 'build_run=456' "$GITHUB_OUTPUT"
 grep -qx 'build_number=42' "$GITHUB_OUTPUT"
 grep -qx 'publish=true' "$GITHUB_OUTPUT"
 grep -q "$MOCK_SHA" "$fixture/notes.md"
+grep -q 'Open the DMG and drag Twine.app to Applications' "$fixture/notes.md"
 reset expired
 run guard "$fixture/notes.md"
 grep -qx 'build_run=' "$GITHUB_OUTPUT"
@@ -136,7 +138,7 @@ reset old_draft
 run guard "$fixture/notes.md"
 grep -qx "tag=nightly-20261004-${MOCK_SHA:0:12}" "$GITHUB_OUTPUT"
 grep -q 'Twine Nightly — 20261004' "$fixture/notes.md"
-for case in ci_failure pending missing_ci incomplete conflict empty stable_channel tag_conflict api_failure; do
+for case in ci_failure pending missing_ci incomplete conflict empty stable_channel legacy_zip tag_conflict api_failure; do
     reset "$case"
     reject guard "$fixture/notes.md"
     if grep -q 'publish=true' "$GITHUB_OUTPUT"; then echo 'rejected commit allowed publication' >&2; exit 1; fi
@@ -146,11 +148,11 @@ NIGHTLY_WAIT_SECONDS=30 run guard "$fixture/notes.md"
 grep -qx 'publish=true' "$GITHUB_OUTPUT"
 
 mkdir "$fixture/assets"
-for name in "Twine-$tag-macos-universal.zip" "libtwinecore-$tag-macos-universal.tar.gz" \
+for name in "Twine-$tag-macos-universal.dmg" "libtwinecore-$tag-macos-universal.tar.gz" \
     "Twine-$tag-symbols.tar.gz" "twine-$tag-source.tar.gz"; do
     printf 'fixture asset\n' > "$fixture/assets/$name"
 done
-(cd "$fixture/assets" && shasum -a 256 ./*.zip ./*.tar.gz > SHA256SUMS)
+(cd "$fixture/assets" && shasum -a 256 ./*.dmg ./*.tar.gz > SHA256SUMS)
 for case in new draft; do
     reset "$case"
     run publish "$tag" "$fixture/assets" "$fixture/notes.md"
@@ -167,12 +169,12 @@ done
 reset published
 run publish "$tag" "$fixture/assets" "$fixture/notes.md"
 if grep -q '"release",' "$MOCK_LOG"; then echo 'published nightly was mutated' >&2; exit 1; fi
-for case in tag_conflict conflict incomplete upload_failure bad_upload edit_failure api_failure; do
+for case in tag_conflict conflict incomplete legacy_zip upload_failure bad_upload edit_failure api_failure; do
     reset "$case"
     reject publish "$tag" "$fixture/assets" "$fixture/notes.md"
 done
 reset new
-printf 'damaged\n' >> "$fixture/assets/Twine-$tag-macos-universal.zip"
+printf 'damaged\n' >> "$fixture/assets/Twine-$tag-macos-universal.dmg"
 reject publish "$tag" "$fixture/assets" "$fixture/notes.md"
 if grep -q '"release",' "$MOCK_LOG"; then echo 'damaged local asset was uploaded' >&2; exit 1; fi
 echo 'Nightly guard and publication checks passed'

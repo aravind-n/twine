@@ -13,6 +13,7 @@ RUST_DOC_DIR := $(CURDIR)/target/api-docs-rust
 SWIFT_DOC_DIR := $(CURDIR)/target/api-docs-swift
 XCODE_BUILD_ARGS ?=
 RELEASE_SCRIPT := bash .github/release/release.sh
+PLAYWRIGHT_INSTALL_ARGS ?=
 
 UI_TEST_DERIVED_DATA ?= /tmp/twine-uitests
 # Tests outside this list are retired from default runs, but remain available with ONLY or ALL=1.
@@ -61,7 +62,7 @@ UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 	test-macos ui-test-macos ui-test-macos-built ui-test-macos-all ui-test-macos-visual check-macos clean-macos \
 	fmt lint test check clean release-build-app release-bundle release-package nightly-package \
 	check-release check-release-scripts check-release-package \
-	build-site docs-rust docs-swift
+	build-site check-site docs-rust docs-swift
 
 help:
 	@echo 'usage: make <target> [ONLY="testA testB"]'
@@ -75,6 +76,7 @@ help:
 	@echo ''
 	@echo 'GitHub Pages website:'
 	@echo '  build-site            Copy static pages and generate API docs in dist/twine'
+	@echo '  check-site            Test macOS downloads in Chromium (requires Node.js)'
 	@echo '  docs-rust             Generate Rust workspace API docs with cargo doc'
 	@echo '  docs-swift            Generate Swift app API docs with Xcode DocC'
 	@echo ''
@@ -103,8 +105,8 @@ help:
 	@echo 'Release packaging:'
 	@echo '  release-build-app     Build Release app using an existing Release framework'
 	@echo '  release-bundle        Save app, static C ABI library, header, symbols, commit'
-	@echo '  release-package       Package and verify archives for VERSION (BUNDLE_DIR, OUTPUT_DIR)'
-	@echo '  nightly-package       Package and verify archives for NIGHTLY_ID (BUNDLE_DIR, OUTPUT_DIR)'
+	@echo '  release-package       Package and verify DMG and archives for VERSION (BUNDLE_DIR, OUTPUT_DIR)'
+	@echo '  nightly-package       Package and verify DMG and archives for NIGHTLY_ID (BUNDLE_DIR, OUTPUT_DIR)'
 	@echo '  check-release         Test release scripts and macOS packaging, and lint workflows'
 	@echo ''
 	@echo '  help                  Show this message (default)'
@@ -177,6 +179,11 @@ docs-swift: framework
 		--transform-for-static-hosting --warnings-as-errors \
 		--source-service github --source-service-base-url https://github.com/aravind-n/twine/blob/main \
 		--checkout-path "$(CURDIR)"
+
+check-site:
+	npm --prefix .github/site ci
+	npm --prefix .github/site exec -- playwright install $(PLAYWRIGHT_INSTALL_ARGS) chromium
+	npm --prefix .github/site test
 
 build-site: docs-rust docs-swift
 	rm -rf "$(SITE_DIR)"

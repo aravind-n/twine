@@ -75,7 +75,7 @@ jobs:
           path: ${{ runner.temp }}/bundle
           run-id: ${{ needs.guard.outputs.build_run || github.run_id }}
           github-token: ${{ github.token }}
-      - name: Package and verify nightly archives
+      - name: Package and verify nightly DMG and archives
         env:
           NIGHTLY_ID: ${{ needs.guard.outputs.tag }}
         run: >-

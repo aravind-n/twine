@@ -67,6 +67,13 @@ make ui-test-macos-visual # optional appearance and screenshot checks
 make ui-test-macos ONLY='testFolderWindowInLightAppearance testFolderWindowInDarkAppearance'
 make ui-test-macos ONLY=testLaunchPerformance
 make clean                # remove Cargo, framework, and Xcode build output</code></pre>
+<p><code>make check-site</code> installs the pinned browser test tools and Chromium, then
+tests both website download buttons, saved DMG bytes, errors, retries, and release-page
+fallbacks. It requires Node.js; on Linux, use <code>PLAYWRIGHT_INSTALL_ARGS=--with-deps</code>
+to install browser system dependencies. GitHub release responses are stubbed.</p>
+<p>To test downloads with a real packaged installer and retain the files for a mount/install
+check, run <code>TWINE_TEST_DMG=dist/Twine-0.1.0-macos-universal.dmg TWINE_TEST_DOWNLOAD_DIR=target/downloads make check-site</code>.
+The two downloads are saved under <code>hero/</code> and <code>start/</code> in that directory.</p>
 <p>The generated framework includes its C header and module map and is ignored by Git. If the framework is missing, package resolution reports the command needed to create it.</p>
 <p><code>make build-macos-release</code> builds the universal Release app. Each build replaces the local framework with the Debug or Release profile it needs.</p>
 <p>Linting prepares the framework before resolving the app's packages. The default UI suite runs the tests listed in <code>UI_DEFAULT_TESTS</code> in the Makefile. Other tests are retired from default runs; their source stays in place and they still build. Add a test to <code>UI_DEFAULT_TESTS</code> to re-enable it by default.</p>
@@ -190,23 +197,23 @@ secrets are required.</p>
 <pre class="highlight"><code class="language-sh">git tag -a v0.1.0 &lt;reviewed-main-commit&gt; -m 'Twine 0.1.0'
 git push origin v0.1.0</code></pre>
 <ol start="5">
-<li>Wait for Release to finish. Download the draft ZIP, check its checksum, and test first
-   launch on a Mac with quarantine enabled using the included instructions. Check a shell
+<li>Wait for Release to finish. Download the draft DMG, check its checksum, and test dragging
+   Twine into Applications and first launch on a Mac with quarantine enabled using the included instructions. Check a shell
    and the harnesses you intend to support, then publish the draft in GitHub Releases.</li>
 </ol>
 <p>The release contains:</p>
 <ul>
-<li><code>Twine-VERSION-macos-universal.zip</code>: ad hoc signed app, install README, and license.</li>
+<li><code>Twine-VERSION-macos-universal.dmg</code>: ad hoc signed app, Applications folder shortcut, install README, and license. Open the disk image, drag Twine to Applications, eject the image, and launch the installed app.</li>
 <li><code>libtwinecore-VERSION-macos-universal.tar.gz</code>: the existing universal static C ABI library
   as <code>libtwinecore.a</code>, matching C header, usage README, and license.
   The protocol is experimental; pin matching header/library versions.</li>
 <li><code>twine-VERSION-source.tar.gz</code>: the tagged Git source tree.</li>
 <li><code>Twine-VERSION-symbols.tar.gz</code>: app debug symbols, checked against both executable UUIDs.</li>
-<li><code>SHA256SUMS</code>: SHA-256 checksums for all four archives.</li>
+<li><code>SHA256SUMS</code>: SHA-256 checksums for the disk image and three archives.</li>
 </ul>
 <p>The packaged app's short version matches the tag; its build number comes from main CI. Its ad hoc signature
-provides integrity; users still approve the first launch themselves. No DMG or notarization
-is involved. This release matrix is macOS only.</p>
+provides integrity; users still approve the first launch themselves. The disk image is not
+notarized. This release matrix is macOS only.</p>
 <p>Re-run failed jobs to retry a draft release. Published releases are never overwritten; use
 a new patch version for a correction after publication. Do not move an existing release tag.</p>
 <p>For local packaging, run from the root (the output directory must be empty):</p>
@@ -229,7 +236,8 @@ Failed or missing CI prevents publication. Manual runs are available from the
 Nightly workflow's <strong>Run workflow</strong> button; select <code>main</code>.</p>
 <p>Each nightly has a fixed tag such as <code>nightly-20261005-a1b2c3d4e5f6</code> pointing to its
 source commit. The five downloads match the stable release asset set, including
-symbols and checksums. Publication uploads and verifies all assets in a draft
+<code>Twine-nightly-YYYYMMDD-COMMIT-macos-universal.dmg</code>, symbols, and checksums.
+Publication uploads and verifies all assets in a draft
 before making the prerelease public. Retries may repair an unfinished draft but
 never replace a published nightly or move its tag. Stable releases remain Latest.</p>
 <p>The app keeps its numeric marketing version and CI build number; <code>TwineBuildVersion</code>
