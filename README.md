@@ -149,7 +149,7 @@ Download `Twine-VERSION-macos-universal.dmg` from the
 [latest release](https://github.com/aravind-n/twine/releases/latest). Open the DMG
 and drag **Twine** onto the **Applications** folder. Wait for the copy to finish,
 eject the Twine disk image, and open Twine from Applications. The app is ad hoc
-signed and not notarized; follow the included `README.txt` or the
+signed and not notarized; follow the
 [install notes](https://aravind-n.github.io/twine/documentation/guide/#install) for
 first-launch approval.
 

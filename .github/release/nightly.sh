@@ -116,7 +116,8 @@ case "${1:-}" in
             echo
             echo 'Requires macOS 26+, on Apple Silicon or Intel. The app is ad hoc signed and not notarized.'
             echo 'Quit Twine and replace Twine.app. This nightly uses your existing saved data and settings.'
-            echo 'Open the DMG and drag Twine.app to Applications. Installation instructions are included in the disk image.'
+            echo 'Open the DMG and drag Twine.app to Applications, then eject the disk image.'
+            echo 'Installation and first-launch approval: https://aravind-n.github.io/twine/documentation/guide/#install'
             echo 'Download SHA256SUMS to verify the disk image and archives.'
             echo
             if [[ -n "$previous" ]]; then

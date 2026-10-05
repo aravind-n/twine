@@ -97,6 +97,9 @@ case "${1:-}" in
         build_number="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
         [[ "$build_number" =~ ^[1-9][0-9]*$ ]] || fail 'expected a positive integer build number'
         /usr/libexec/PlistBuddy -c "Set :TwineBuildVersion $version" "$plist"
+        # Keep the license with the installed app, without adding an installer-window item.
+        mkdir -p "$app/Contents/Resources"
+        cp LICENSE "$app/Contents/Resources/LICENSE"
         # Sign nested executable code inside out, then the app. Verify deeply, never sign deeply.
         while IFS= read -r -d '' path; do
             if [[ "$(file -b "$path")" == *Mach-O* ]]; then codesign --force --sign - "$path"; fi
@@ -106,13 +109,6 @@ case "${1:-}" in
         done < <(find "$app" -depth -type d \( -name '*.framework' -o -name '*.xpc' -o -name '*.appex' -o -name '*.app' \) -print0)
         codesign --verify --deep --strict "$app"
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "$build_number" ]] || fail 'incorrect bundle build number'
-        sed -e "s/@VERSION@/$version/g" -e "s/@RELEASE_TAG@/$release_tag/g" \
-            .github/release/README.txt > "$folder/README.txt"
-        if [[ "$1" == nightly-package ]]; then
-            printf '\nThis nightly replaces Twine.app and uses the same saved data and settings.\nCommit: %s\n' \
-                "$(git rev-parse HEAD)" >> "$folder/README.txt"
-        fi
-        cp LICENSE "$folder/LICENSE"
         ln -s /Applications "$folder/Applications"
         # A fixed Finder layout works in headless CI without AppleScript or dependencies.
         cp .github/release/Finder.DS_Store "$folder/.DS_Store"
@@ -135,7 +131,7 @@ case "${1:-}" in
         tar -czf "$output/Twine-$version-symbols.tar.gz" -C "$staging" "$(basename "$symbols")"
         git archive --format=tar --prefix="twine-$version/" HEAD | gzip -n > "$output/twine-$version-source.tar.gz"
         image="$output/Twine-$version-macos-universal.dmg"
-        hdiutil create -quiet -volname "Twine $version" -srcfolder "$folder" -fs HFS+ -format UDZO "$image"
+        hdiutil create -quiet -volname 'Twine — Drag to Applications' -srcfolder "$folder" -fs HFS+ -format UDZO "$image"
         hdiutil verify -quiet "$image"
         (cd "$output"; shasum -a 256 ./*.dmg ./*.tar.gz > SHA256SUMS; shasum -a 256 -c SHA256SUMS)
         ;;

@@ -198,12 +198,12 @@ secrets are required.</p>
 git push origin v0.1.0</code></pre>
 <ol start="5">
 <li>Wait for Release to finish. Download the draft DMG, check its checksum, and test dragging
-   Twine into Applications and first launch on a Mac with quarantine enabled using the included instructions. Check a shell
+   Twine into Applications and first launch on a Mac with quarantine enabled using the <a href="../guide/#install">install notes</a>. Check a shell
    and the harnesses you intend to support, then publish the draft in GitHub Releases.</li>
 </ol>
 <p>The release contains:</p>
 <ul>
-<li><code>Twine-VERSION-macos-universal.dmg</code>: ad hoc signed app, Applications folder shortcut, install README, and license. Open the disk image, drag Twine to Applications, eject the image, and launch the installed app.</li>
+<li><code>Twine-VERSION-macos-universal.dmg</code>: ad hoc signed app and Applications folder shortcut in a compact installer window. The license is bundled at <code>Twine.app/Contents/Resources/LICENSE</code>. Open the disk image, drag Twine to Applications, eject the image, and launch the installed app.</li>
 <li><code>libtwinecore-VERSION-macos-universal.tar.gz</code>: the existing universal static C ABI library
   as <code>libtwinecore.a</code>, matching C header, usage README, and license.
   The protocol is experimental; pin matching header/library versions.</li>

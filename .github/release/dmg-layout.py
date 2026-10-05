@@ -17,7 +17,7 @@ with DSStore.open(str(Path(__file__).with_name("Finder.DS_Store")), "w+") as sto
     store["."]["icvl"] = ("type", b"icnv")
     store["."]["vstl"] = ("type", b"icnv")
     store["."]["bwsp"] = {
-        "WindowBounds": "{{200, 160}, {640, 400}}",
+        "WindowBounds": "{{200, 160}, {480, 240}}",
         "ShowToolbar": False,
         "ShowSidebar": False,
         "ContainerShowSidebar": False,
@@ -40,7 +40,5 @@ with DSStore.open(str(Path(__file__).with_name("Finder.DS_Store")), "w+") as sto
         "scrollPositionX": 0.0,
         "scrollPositionY": 0.0,
     }
-    store["Twine.app"]["Iloc"] = (180, 110)
-    store["Applications"]["Iloc"] = (460, 110)
-    store["README.txt"]["Iloc"] = (180, 290)
-    store["LICENSE"]["Iloc"] = (460, 290)
+    store["Twine.app"]["Iloc"] = (130, 100)
+    store["Applications"]["Iloc"] = (350, 100)

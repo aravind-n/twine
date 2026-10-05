@@ -86,18 +86,16 @@ for mode in package nightly-package; do
     mounted=true
     hdiutil attach -quiet -readonly -nobrowse -mountpoint "$mountpoint" "$image"
     packaged="$mountpoint"
+    visible_items="$(find "$packaged" -mindepth 1 -maxdepth 1 ! -name '.*' -exec basename {} \; | sort)"
+    [[ "$visible_items" == $'Applications\nTwine.app' ]]
     [[ -L "$packaged/Applications" && "$(readlink "$packaged/Applications")" == /Applications ]]
     cmp .github/release/Finder.DS_Store "$packaged/.DS_Store"
-    cmp LICENSE "$packaged/LICENSE"
+    cmp LICENSE "$packaged/Twine.app/Contents/Resources/LICENSE"
     plist="$packaged/Twine.app/Contents/Info.plist"
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == 1.2.3 ]]
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == 42 ]]
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :TwineBuildVersion' "$plist")" == "$version" ]]
     codesign --verify --deep --strict "$packaged/Twine.app"
-    grep -q 'Drag Twine.app onto the Applications folder' "$packaged/README.txt"
-    grep -q "Twine-$version-macos-universal.dmg" "$packaged/README.txt"
-    grep -q "releases/tag/$release_tag" "$packaged/README.txt"
-    if grep -q '@[A-Z_]*@' "$packaged/README.txt"; then echo 'unexpanded README placeholder' >&2; exit 1; fi
     tar -xzf "$fixture/output/libtwinecore-$version-macos-universal.tar.gz" -C "$fixture/extracted"
     grep -q "releases/tag/$release_tag" "$fixture/extracted/libtwinecore-$version-macos-universal/README.txt"
     # Exercise the Finder copy operation in an isolated Applications directory.
@@ -106,6 +104,7 @@ for mode in package nightly-package; do
     hdiutil detach -quiet "$mountpoint"
     mounted=false
     codesign --verify --deep --strict "$installed"
+    cmp LICENSE "$installed/Contents/Resources/LICENSE"
     "$installed/Contents/MacOS/Twine"
     rm -rf "$fixture/Applications folder"
 done
