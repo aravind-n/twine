@@ -40,6 +40,9 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testBentoPanesKeepEachShellAndMoveTheKeyboardBetweenThem \
 	testTerminalSplitsResizeKeepTheirNeighborAndRestoreOutput \
 	testFileEditingUndoSaveAndConflictChoices \
+	testSwiftSyntaxHighlightingPreservesUnicodeCRLFEditingAndUndo \
+	testSyntaxLanguageOverridesStayWithTheirFileTabs \
+	testHTMLSyntaxHighlightingPreservesSourceEditingAndCSSDetection \
 	testMarkdownPreviewSourceSaveReloadAndLocalLinks \
 	testClearedTraceOpensSavedInputAndOutputWithoutAScrollbackWarning
 UI_VISUAL_TESTS := testFolderWindowInDarkAppearance \
