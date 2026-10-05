@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import TwineSyntax
 
 struct FileLineRequest: Equatable {
     let id = UUID()
@@ -12,6 +13,7 @@ struct FileTextView: NSViewRepresentable {
     let isEditable: Bool
     let isVisible: Bool
     let lineRequest: FileLineRequest?
+    var language: SyntaxLanguage?
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
@@ -29,6 +31,8 @@ struct FileTextView: NSViewRepresentable {
         view.isAutomaticTextReplacementEnabled = false
         view.isAutomaticSpellingCorrectionEnabled = false
         view.delegate = context.coordinator
+        context.coordinator.syntax.attach(to: view)
+        (view as? FileEditingTextView)?.syntax = context.coordinator.syntax
         view.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         view.textColor = .textColor
         view.backgroundColor = .textBackgroundColor
@@ -61,7 +65,9 @@ struct FileTextView: NSViewRepresentable {
             view.setSelectedRange(NSRange(location: location, length: min(selected.length, length - location)))
             scroll.contentView.scroll(to: origin)
             scroll.reflectScrolledClipView(scroll.contentView)
+            context.coordinator.syntax.textDidChange()
         }
+        context.coordinator.syntax.update(language: language, loadID: loadID, isVisible: isVisible)
         if let request = lineRequest, context.coordinator.lastRequest != request.id {
             context.coordinator.lastRequest = request.id
             if let range = Self.lineRange(in: text, line: request.line) {
@@ -76,6 +82,8 @@ struct FileTextView: NSViewRepresentable {
         guard let view = host.content.documentView as? NSTextView else { return }
         view.undoManager?.removeAllActions()
         view.delegate = nil
+        coordinator.syntax.detach()
+        (view as? FileEditingTextView)?.syntax = nil
     }
 
     func sizeThatFits(
@@ -105,6 +113,7 @@ struct FileTextView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let fileUndoManager = UndoManager()
+        let syntax = FileSyntaxHighlighter()
         var text: Binding<String>
         var loadID: UUID?
         var lastRequest: UUID?
@@ -115,6 +124,7 @@ struct FileTextView: NSViewRepresentable {
             guard let view = notification.object as? NSTextView else { return }
             text.wrappedValue = view.string
             (view.enclosingScrollView?.verticalRulerView as? FileLineNumberRuler)?.refresh()
+            syntax.textDidChange()
         }
 
         func undoManager(for view: NSTextView) -> UndoManager? { fileUndoManager }
@@ -122,9 +132,22 @@ struct FileTextView: NSViewRepresentable {
 }
 
 /// Native text layout can finish after the scroll view's ruler has drawn.
-private final class FileEditingTextView: NSTextView {
+final class FileEditingTextView: NSTextView {
+    var syntax: FileSyntaxHighlighter?
+
     override func layout() {
         super.layout()
         enclosingScrollView?.verticalRulerView?.needsDisplay = true
+        syntax?.refreshViewport()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        syntax?.appearanceDidChange()
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        syntax?.textDidChange()
     }
 }

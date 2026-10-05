@@ -82,6 +82,14 @@ your edits or <strong>Overwrite</strong> to save them; <strong>Cancel</strong> k
 Disk updates refresh clean files and never replace unsaved edits. <strong>⌘W</strong> closes the file and returns to the
 workflow. Binary files, larger files, deleted paths, symbolic links, and special files show
 an explanatory state. Up to 256 directories can be expanded at once.</p>
+<p>The native editor automatically highlights Swift, Rust, Python, JSON, JavaScript/JSX,
+TypeScript/TSX, TOML, YAML, and shell files. It detects languages from filenames and script
+shebangs. Use the language menu in the file header to choose a language, restore
+<strong>Automatic</strong> detection, or select <strong>Plain Text</strong>. The choice stays with
+that open file tab and never changes the saved text. Colors follow the system appearance.
+Unknown languages and files that exceed the highlighting work budget remain editable as plain
+text. Shell highlighting uses the Bash grammar; embedded languages in strings or Markdown code
+fences are not highlighted separately.</p>
 <h2 id="agent-workflows">Agent workflows<a class="headerlink" href="#agent-workflows" title="Permanent link">#</a></h2>
 <p>Choose <strong>Adversarial</strong>, <strong>Coordinator</strong>, or a stored custom workflow type from a new tab.
 Pick a harness for each role instance, and optionally its model and effort level, then start it.

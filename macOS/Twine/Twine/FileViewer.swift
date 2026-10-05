@@ -1,4 +1,5 @@
 import SwiftUI
+import TwineSyntax
 
 struct FileViewer: View {
     @Environment(CoreClient.self) private var coreClient
@@ -12,11 +13,13 @@ struct FileViewer: View {
     @State private var line = "1"
     @State private var lineRequest: FileLineRequest?
     @State private var mode = Mode.preview
+    @State private var syntaxMode = FileSyntaxMode.automatic
 
     private var current: FilePreview? { editor.baseline }
     private var previewFormat: FilePreviewFormat? { FilePreviewFormat(path: path) }
     private var showsPreview: Bool { previewFormat != nil && mode == .preview }
     private enum Mode { case preview, source }
+    private var syntaxLanguage: SyntaxLanguage? { syntaxMode.language(path: path, source: editor.text) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +28,9 @@ struct FileViewer: View {
                 Text(path.hasPrefix(folder + "/") ? String(path.dropFirst(folder.count + 1)) : path)
                     .font(.caption).lineLimit(1).truncationMode(.middle).help(path)
                 Spacer(minLength: 0)
+                if current?.status == .text, !showsPreview {
+                    syntaxMenu
+                }
                 if let format = previewFormat {
                     Picker("\(format.name) display", selection: $mode) {
                         Text("Preview").tag(Mode.preview)
@@ -113,7 +119,7 @@ struct FileViewer: View {
             FileTextView(
                 text: Binding(get: { editor.text }, set: { editor.text = $0 }),
                 loadID: editor.loadID, isEditable: !editor.isSaving && !showsPreview,
-                isVisible: isVisible && !showsPreview, lineRequest: lineRequest)
+                isVisible: isVisible && !showsPreview, lineRequest: lineRequest, language: syntaxLanguage)
         case .binary:
             unavailable("Binary File", "Only UTF-8 text files can be displayed.")
         case .tooLarge:
@@ -129,6 +135,27 @@ struct FileViewer: View {
 
     private func unavailable(_ title: String, _ message: String) -> some View {
         ContentUnavailableView(title, systemImage: "doc.questionmark", description: Text(message))
+    }
+
+    private var syntaxMenu: some View {
+        Menu {
+            Picker("Syntax language", selection: $syntaxMode) {
+                Text("Automatic").tag(FileSyntaxMode.automatic)
+                Text("Plain Text").tag(FileSyntaxMode.plainText)
+                Divider()
+                ForEach(SyntaxLanguage.allCases, id: \.self) { language in
+                    Text(language.displayName).tag(FileSyntaxMode.language(language))
+                }
+            }
+        } label: {
+            Text(syntaxLanguage?.displayName ?? "Plain Text")
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("Choose the language used for syntax highlighting.")
+        .accessibilityIdentifier("fileSyntaxLanguage")
+        .accessibilityLabel("Syntax language")
+        .accessibilityValue(syntaxLanguage?.displayName ?? "Plain Text")
     }
 
     private var requestedRange: NSRange? {

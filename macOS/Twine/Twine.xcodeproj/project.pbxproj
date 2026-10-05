@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F3B000013070000100000001 /* TwineSyntax in Frameworks */ = {isa = PBXBuildFile; productRef = F3B000023070000100000001 /* TwineSyntax */; };
 		F3A000013070000100000001 /* cmark-gfm-extensions in Frameworks */ = {isa = PBXBuildFile; productRef = F3A000023070000100000001 /* cmark-gfm-extensions */; };
 		F2DDC765306A85810066E501 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F2DDC767306A85810066E501 /* SwiftTerm */; };
 		F2DDC768306B00010066E501 /* TwineCore in Frameworks */ = {isa = PBXBuildFile; productRef = F2DDC76A306B00010066E501 /* TwineCore */; };
@@ -57,6 +58,7 @@
 		F266A3E43068BD6000C1232B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				F3B000013070000100000001 /* TwineSyntax in Frameworks */,
 				F3A000013070000100000001 /* cmark-gfm-extensions in Frameworks */,
 				F2DDC768306B00010066E501 /* TwineCore in Frameworks */,
 				F2DDC765306A85810066E501 /* SwiftTerm in Frameworks */,
@@ -113,6 +115,7 @@
 			);
 			name = Twine;
 			packageProductDependencies = (
+				F3B000023070000100000001 /* TwineSyntax */,
 				F3A000023070000100000001 /* cmark-gfm-extensions */,
 				F2DDC76A306B00010066E501 /* TwineCore */,
 				F2DDC767306A85810066E501 /* SwiftTerm */,
@@ -196,6 +199,7 @@
 			mainGroup = F266A3DE3068BD6000C1232B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				F3B000033070000100000001 /* XCLocalSwiftPackageReference "../TwineSyntaxPackage" */,
 				F3A000033070000100000001 /* XCRemoteSwiftPackageReference "swift-cmark" */,
 				F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../TwineCorePackage" */,
 				F2DDC75D306A855C0066E501 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */,
@@ -557,6 +561,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		F3B000033070000100000001 /* XCLocalSwiftPackageReference "../TwineSyntaxPackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../TwineSyntaxPackage;
+		};
 		F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../TwineCorePackage" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../TwineCorePackage;
@@ -591,6 +599,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		F3B000023070000100000001 /* TwineSyntax */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F3B000033070000100000001 /* XCLocalSwiftPackageReference "../TwineSyntaxPackage" */;
+			productName = TwineSyntax;
+		};
 		F3A000023070000100000001 /* cmark-gfm-extensions */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F3A000033070000100000001 /* XCRemoteSwiftPackageReference "swift-cmark" */;
