@@ -5,6 +5,7 @@
 //! Only our session-flag handlers are trusted; user hooks and policy remain unchanged.
 
 use std::ffi::OsString;
+use std::fmt::Write;
 use std::io;
 use std::sync::Arc;
 
@@ -42,10 +43,14 @@ fn hook_arguments(command: &str) -> Vec<OsString> {
         // Codex fingerprints normalized TOML as JSON with recursively sorted object keys.
         // serde_json's default Map is sorted. Absent optional TOML fields are omitted.
         let identity = json!({"event_name": key, "hooks": [handler.clone()]});
-        let hash = format!(
-            "sha256:{:x}",
-            Sha256::digest(identity.to_string().as_bytes())
+        let hex_digest = Sha256::digest(identity.to_string().as_bytes()).iter().fold(
+            String::new(),
+            |mut acc, b| {
+                let _ = write!(acc, "{b:02x}");
+                acc
+            },
         );
+        let hash = format!("sha256:{hex_digest}");
         let state_key = format!("/<session-flags>/config.toml:{key}:0:0");
         hooks.insert(event.into(), json!([group.clone()]));
         states.insert(state_key, json!({"trusted_hash": hash}));
