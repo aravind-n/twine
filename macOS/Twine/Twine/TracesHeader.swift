@@ -3,9 +3,25 @@ import SwiftUI
 struct TracesHeader: View {
     let isExpanded: Bool
     let summary: CoreTraceSummary?
+    @Binding var viewMode: TraceViewMode
     let toggle: () -> Void
 
     var body: some View {
+        HStack(spacing: 10) {
+            toggleButton
+            if isExpanded {
+                Picker("Trace view", selection: $viewMode) {
+                    ForEach(TraceViewMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 155)
+                .accessibilityIdentifier("traceViewMode")
+                .padding(.trailing, TracesLayout.headerHorizontalPadding)
+            }
+        }
+    }
+
+    private var toggleButton: some View {
         Button(action: toggle) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -44,4 +60,4 @@ struct TracesHeader: View {
 
 }
 
-#Preview { TracesHeader(isExpanded: false, summary: nil) {} }
+#Preview { TracesHeader(isExpanded: false, summary: nil, viewMode: .constant(.standard)) {} }

@@ -448,6 +448,17 @@ pub(super) fn finish_span(
     if !work_span && status != "running" {
         return Ok(None);
     }
+    if matches!(
+        ending.kind,
+        TraceEventKind::ProcessStopped
+            | TraceEventKind::ProcessExited
+            | TraceEventKind::ProcessFailed
+    ) {
+        transaction.execute(
+            "UPDATE trace_activities SET status = 'interrupted' WHERE span_id = ?1 AND status = 'running'",
+            [sql_integer(span_id.0)?],
+        )?;
+    }
     let ended_at = sql_integer(ending.observed_at)?.max(started_at);
     // An exit or process failure leaves assigned work awaiting an explicit completion. A stop
     // may end unfinished work, but cannot overwrite an accepted completion.
@@ -501,7 +512,7 @@ pub(super) fn insert_event(
     Ok(())
 }
 
-fn summary(connection: &Connection, id: WorkflowId) -> Result<TraceSummary, StoreError> {
+pub(super) fn summary(connection: &Connection, id: WorkflowId) -> Result<TraceSummary, StoreError> {
     Ok(connection.query_row(
         "SELECT
           (SELECT COALESCE(MAX(id), 0) FROM trace_events WHERE workflow_id = ?1),

@@ -17,7 +17,7 @@ mod traces;
 mod workflow_types;
 mod workflows;
 use traces::WireTraceSummary;
-pub(crate) use traces::{encode_trace_events, encode_workflow_trace};
+pub(crate) use traces::{encode_trace_activities, encode_trace_events, encode_workflow_trace};
 use workflows::{WireWorkflow, WireWorkflowState};
 
 #[derive(Debug)]

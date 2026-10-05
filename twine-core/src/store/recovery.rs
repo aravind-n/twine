@@ -58,6 +58,10 @@ impl Store {
         for id in spans {
             finish_span(&transaction, TraceSpanId(id), &ending)?;
         }
+        transaction.execute(
+            "UPDATE trace_activities SET status = 'interrupted' WHERE status = 'running'",
+            [],
+        )?;
         transaction.commit()?;
         Ok(())
     }

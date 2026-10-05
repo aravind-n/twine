@@ -185,13 +185,17 @@ The logo SVG's SHA-256 is `b89864b3c12346122aa04cd2002aabef6e3e3161ffbb630f9ca4b
 
 - A separate rounded panel below the terminal: 48pt collapsed, about 272pt expanded.
 - The panel shows the window background through its border; it has no terminal-colored fill.
-- Header, 21pt horizontal padding: "Traces" (16pt semibold) with the subtitle "Steps in start order" when expanded, then a caption2 secondary count of steps and agents, then a plain chevron in a 26×26 area (11pt semibold). Clicking anywhere on the header toggles the panel.
+- Header, 21pt horizontal padding: "Traces" (16pt semibold) with the subtitle "Steps in start order" when expanded, then a caption2 secondary count of steps and agents, then a plain chevron in a 26×26 area (11pt semibold). Clicking the title/count/chevron area toggles the panel. A separate segmented control selects Standard (default) or In depth.
 - Overview: 18pt tracks, one per agent or shell, labeled with the role's colored symbol and name in a 126pt column (104pt with details, symbol only in narrow windows). Tracks scroll vertically when needed.
 - All steps share one X axis ordered by start timestamp. Exact ties use stable track ID priority, then span ID. Every step occupies its own column; gaps and durations never affect spacing. A 14pt axis shows sequence numbers for the loaded history.
 - Overview points: 7pt role-colored dots, with a selected ring, a running ring, and an orange failure symbol. Columns are 22–32pt wide and scroll horizontally. A subtle accent band marks the focused range.
 - Focus: seven consecutive steps, centered on the selection when possible, or the latest seven before a selection. A 24pt header shows the range and previous/next buttons. The single rail below is 102pt tall, with numbered 10pt points, two-line titles, agent names, and duration/status metadata. Cells fit the available width from 84–116pt and scroll horizontally in narrow panels. Both views reveal the selected step after selection, refresh, or resize.
 - A 28pt hint row at the bottom, in caption2 secondary text, with Older traces when history is paginated.
 - Detail panel: 40% of the panel width, clamped between 280 and 440pt, on the same `windowBackgroundColor` as the Traces panel, separated by a divider. It has a 48pt header (role symbol, span title as subheadline semibold, role and duration as caption2), glass copy and close buttons, a status line with the state's symbol and a one-line summary, then a scrolling log. Each log row has a monospaced timestamp and kind (the kind in the role color), the message as caption text, 8pt vertical padding, and faint dividers.
+
+- In depth expands the panel to 432pt, retaining a compact start-order overview above the selected step's Timeline inspector. The workspace scrolls when the terminal and panel cannot fit at the current window size or interface zoom.
+- Activity rows use an elapsed-time axis, indented native parent relationships, role colors, explicit failure status, and disclosure controls. Tool input/output previews and recorded-output navigation appear in a separate scrolling inspector, stacked below the chart in narrow windows. The chart scrolls both vertically and horizontally; missing timing is shown as incomplete.
+- Search, failures-only filtering, collapse/expand, and paginated loading keep long activity histories navigable. Unsupported harnesses and older history show an explanatory empty state.
 
 ### Sidebar
 

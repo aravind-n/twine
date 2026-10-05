@@ -224,7 +224,7 @@ fn import_path(directory: &Path, import: &Path, home: Option<&Path>) -> Option<P
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ColorScheme;
+    use crate::config::{ColorScheme, FontSize};
 
     #[test]
     fn imports_full_config_and_preserves_omitted_fields_during_deep_merge() {
@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(loaded.diagnostics, []);
         assert_eq!(loaded.config.appearance.color_scheme, ColorScheme::Dark);
         assert_eq!(loaded.config.terminal.font_family, "Menlo");
-        assert_eq!(loaded.config.terminal.font_size.points(), 14.0);
+        assert_eq!(loaded.config.terminal.font_size, FontSize(14.0));
         assert_eq!(
             loaded.config.terminal.colors.background.unwrap().as_str(),
             "#123456"
@@ -276,7 +276,7 @@ mod tests {
         let loaded = Config::load(&path);
         assert_eq!(loaded.diagnostics, []);
         assert_eq!(loaded.config.terminal.font_family, "Menlo");
-        assert_eq!(loaded.config.terminal.font_size.points(), 22.0);
+        assert_eq!(loaded.config.terminal.font_size, FontSize(22.0));
         assert_eq!(loaded.config.appearance.color_scheme, ColorScheme::Dark);
     }
 
@@ -321,7 +321,7 @@ mod tests {
         .unwrap();
         let warning = Config::load(&path);
         assert_eq!(warning.config.terminal.font_family, "Menlo");
-        assert_eq!(warning.config.terminal.font_size.points(), 20.0);
+        assert_eq!(warning.config.terminal.font_size, FontSize(20.0));
         assert_eq!(warning.diagnostics.len(), 1);
         assert_eq!(warning.diagnostics[0].file, imported);
         assert_eq!(warning.diagnostics[0].line, 2);
@@ -352,7 +352,7 @@ mod tests {
         fs::write(&path, "import = []\nterminal.font_size = 18\n").unwrap();
         let empty = Config::load(&path);
         assert_eq!(empty.diagnostics, []);
-        assert_eq!(empty.config.terminal.font_size.points(), 18.0);
+        assert_eq!(empty.config.terminal.font_size, FontSize(18.0));
     }
 
     #[test]
@@ -390,7 +390,7 @@ mod tests {
         fs::write(&imported, source).unwrap();
         fs::write(&path, "import = 'shared.toml'\n").unwrap();
         let loaded = Config::load(&path);
-        assert_eq!(loaded.config.terminal.font_size.points(), 18.0);
+        assert_eq!(loaded.config.terminal.font_size, FontSize(18.0));
         assert_eq!(loaded.diagnostics.len(), 2);
         assert!(
             loaded

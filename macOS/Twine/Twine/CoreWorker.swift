@@ -135,6 +135,15 @@ actor CoreWorker: CoreTransport {
         return try decoder.decode(CoreTraceEventsPage.self, from: consume(&response))
     }
 
+    func traceActivities(spanID: UInt64, after: UInt64?, limit: UInt32) throws -> CoreTraceActivitiesPage {
+        var response = TwineBuffer()
+        let status = try withClient { client in
+            twine_client_trace_activities(client, spanID, after ?? 0, limit, &response)
+        }
+        try check(status)
+        return try decoder.decode(CoreTraceActivitiesPage.self, from: consume(&response))
+    }
+
     func nextTerminalChunk() throws -> CoreTerminalChunk? {
         var chunk = TwineTerminalChunk()
         let status = try withClient { client in

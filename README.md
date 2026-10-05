@@ -111,10 +111,32 @@ discovers model choices from their CLIs; model and effort options depend on the
 harness. Provider access and usage charges follow your harness configuration.
 You can use Terminal workflows without installing an agent harness.
 
-Prompt and tool tracing is currently available through launch-only observers for
-Codex, Claude Code, pi, and OMP. Antigravity and OpenCode retain lifecycle and
-workflow traces. Compatibility depends on CLI versions; see the
-[integration notes](https://aravind-n.github.io/twine/documentation/guide/#agent-workflows).
+Traces opens in **Standard**, with steps in start order. **In depth** opens a
+Timeline inspector for the selected step: tool intervals, parallel subagents,
+search and failure filters, input/output previews, and jumps to recorded output.
+Activity is saved with the session. The chart and inspector scroll independently.
+
+| Harness | Tool detail | Native child activity |
+| --- | --- | --- |
+| Codex | Yes; failures only when explicitly reported | Subagents and their tools |
+| Claude Code | Yes, including tool failures | Subagents and their tools |
+| pi | Yes, including native nested tools | Depends on the custom subagent extension |
+| OMP | Yes, including tool failures | Parallel/nested subagents and their tools |
+| Antigravity | Lifecycle and workflow traces | Observer integration unavailable |
+| OpenCode v2 | Lifecycle and workflow traces | Observer integration unavailable |
+
+Observers are attached for one launch and do not change harness configuration.
+OpenCode v2 and Antigravity currently require global/project/plugin configuration
+for observers, so In depth explains the coverage limit. Older history keeps its
+original events; Twine does not infer missing calls from terminal text.
+
+Intervals use observed hook times. Missing or inverted endpoints remain incomplete;
+previews are bounded to 2 KiB, with up to 10,000 activities per step. Resumed
+subagents extend their native identity's lifetime rather than inventing invocation
+boundaries. Codex does not provide parent-turn correlation for resumed children,
+so their activity stays with the original observed step. Background children can
+remain running after the parent responds. Compatibility depends on CLI versions;
+see the [integration notes](https://aravind-n.github.io/twine/documentation/guide/#agent-workflows).
 
 ## Try Twine
 

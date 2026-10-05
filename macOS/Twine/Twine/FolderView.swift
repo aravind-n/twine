@@ -97,7 +97,8 @@ struct FolderView: View {
 
     private var workspaceChromeHeight: CGFloat {
         let traces: CGFloat =
-            tabs.selected == nil ? (isTracesExpanded ? TracesLayout.expandedHeight : TracesLayout.collapsedHeight) : 0
+            tabs.selected == nil
+            ? (isTracesExpanded ? traceNavigation.activity.viewMode.expandedHeight : TracesLayout.collapsedHeight) : 0
         let gaps = Spacing.windowSections * (tabs.selected == nil ? 2 : 1)
         return Spacing.windowMargins.top + Spacing.windowMargins.bottom + gaps + FooterLayout.height + traces
     }

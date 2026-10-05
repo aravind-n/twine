@@ -82,6 +82,13 @@ jobs:
         env:
           TWINE_REQUIRE_FISH_TESTS: '1'
         run: cargo test --workspace --locked
+      - name: Test native extension observers
+        run: |
+          command -v node >/dev/null || brew install node
+          TWINE_NODE="$(command -v node)"
+          export TWINE_NODE
+          make test-rust RUST_TEST_ARGS='harness::pi::tests::omp_extension -- --include-ignored'
+          make test-rust RUST_TEST_ARGS='harness::pi::tests::pi_extension_preserves -- --include-ignored'
 
   library-build:
     needs: changes

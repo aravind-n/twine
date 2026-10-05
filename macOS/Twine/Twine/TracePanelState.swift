@@ -4,6 +4,8 @@ import Observation
 @MainActor
 @Observable
 final class TracePanelState {
+    var viewMode: TraceViewMode = .standard
+    let activityDetails = TraceActivityState()
     var workflowID: UInt64? { workflowIDs.first }
     private(set) var workflowIDs: [UInt64] = []
     private var cursors: [UInt64: UInt64] = [:]
@@ -16,7 +18,9 @@ final class TracePanelState {
     private(set) var isLoadingEvents = false
     private(set) var failureMessage: String?
     private(set) var logFailureMessage: String?
-    var selectedSpanID: UInt64?
+    var selectedSpanID: UInt64? {
+        didSet { if selectedSpanID != oldValue { activityDetails.reset() } }
+    }
     private var readGeneration: UInt64 = 0
     private var logGeneration: UInt64 = 0
 
@@ -24,6 +28,7 @@ final class TracePanelState {
     var selectedLane: CoreTraceLane? { lanes.first { $0.id == selectedSpan?.laneID } }
 
     func reset(workflowID: UInt64?) {
+        activityDetails.reset()
         readGeneration &+= 1
         logGeneration &+= 1
         workflowIDs = workflowID.map { [$0] } ?? []

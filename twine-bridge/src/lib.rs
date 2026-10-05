@@ -407,6 +407,36 @@ pub unsafe extern "C" fn twine_client_trace_events(
 }
 
 #[unsafe(no_mangle)]
+/// Returns a page of native activities; a zero `after_activity_id` reads from the beginning.
+///
+/// # Safety
+/// The client must be live and exclusively owned during this call. The output must identify aligned,
+/// writable storage without a live bridge allocation. Null pointers are rejected before use.
+pub unsafe extern "C" fn twine_client_trace_activities(
+    client: *mut TwineClient,
+    span_id: u64,
+    after_activity_id: u64,
+    limit: u32,
+    out_page: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: Guaranteed by this function's output contract.
+        unsafe { ffi::initialize_buffer(out_page) }?;
+        if limit == 0 || limit as usize > twine_core::MAX_TRACE_PAGE_SIZE {
+            return Err(BridgeError::InvalidArgument);
+        }
+        // SAFETY: Guaranteed by this function's client contract.
+        let page = unsafe {
+            ffi::with_client(client, |client| {
+                client.trace_activities(span_id, after_activity_id, limit as usize)
+            })
+        }?;
+        // SAFETY: Guaranteed by this function's output contract.
+        unsafe { ffi::write_buffer(out_page, TwineBuffer::from_vec(page)) }
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Removes and returns the next binary terminal-output chunk.
 ///
 /// # Safety
@@ -884,6 +914,40 @@ mod tests {
         let page: serde_json::Value = serde_json::from_slice(&take_buffer(buffer)).unwrap();
         assert_eq!(page["events"][0]["kind"], "processStarted");
         assert_eq!(page["events"][0]["anchor"]["byteOffset"], 0);
+        let mut activities = TwineBuffer::empty();
+        // SAFETY: Live client and writable output, with intentional null/invalid arguments below.
+        unsafe {
+            assert_eq!(
+                twine_client_trace_activities(client, span_id, 0, 200, &raw mut activities),
+                TwineStatus::Ok
+            );
+        }
+        let activities: serde_json::Value =
+            serde_json::from_slice(&take_buffer(activities)).unwrap();
+        assert_eq!(activities["spanId"], span_id);
+        assert_eq!(activities["activities"], serde_json::json!([]));
+        let mut output = TwineBuffer::empty();
+        // SAFETY: Invalid arguments must return initialized empty outputs without dereferencing null.
+        unsafe {
+            assert_eq!(
+                twine_client_trace_activities(client, span_id, 0, 201, &raw mut output),
+                TwineStatus::InvalidArgument
+            );
+            assert_eq!(
+                twine_client_trace_activities(std::ptr::null_mut(), span_id, 0, 1, &raw mut output),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_trace_activities(client, span_id, 0, 1, std::ptr::null_mut()),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_client_trace_activities(client, 99999, 0, 1, &raw mut output),
+                TwineStatus::InvalidArgument
+            );
+        }
+        assert!(output.data.is_null());
+
         let mut buffer = TwineBuffer::empty();
         // SAFETY: Invalid limits/IDs must return initialized empty outputs.
         unsafe {

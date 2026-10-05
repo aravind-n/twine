@@ -43,6 +43,9 @@ _Avoid_: Agent session
 **Trace span**:
 A bounded unit of work shown as a step in the Traces panel. Steps share one start-order sequence across agent tracks; spacing does not represent elapsed time. In multi-agent workflows, a span covers an agent's assignment in a stage or review round, from its incoming handoff (or initial stage entry) to its explicit completion or stop. In a single-agent workflow with harness hooks, each prompt starts a span that ends when the agent finishes responding. In Terminal workflows, Twine's shell integration records one span per command, from its output start to its exit status; shells without integration retain a process-lifetime span. Process lifecycle changes remain trace events.
 
+**Trace activity**:
+A native tool call or subagent lifetime within a trace span, recorded from harness observer events. Stable native identities pair optional start/end observations and retain verified parent relationships. The In depth timeline uses observed elapsed time; Standard keeps the span's start-order position. Child activity never completes or advances the parent workflow. Resumed subagents extend the same observed lifetime when a harness does not expose separate invocation identities.
+
 **Trace event**:
 A timestamped record of activity that Twine observes or performs during a workflow. Trace events can be associated with a span.
 

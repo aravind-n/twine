@@ -182,6 +182,81 @@ pub(crate) fn encode_trace_events(page: &TraceEventsPage) -> Result<Vec<u8>, ser
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WireActivity<'a> {
+    activity_id: u64,
+    span_id: u64,
+    parent_activity_id: Option<u64>,
+    kind: &'static str,
+    title: &'a str,
+    started_at: Option<u64>,
+    ended_at: Option<u64>,
+    status: &'static str,
+    input: &'a str,
+    output: &'a str,
+    anchor: Option<WireAnchor>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WireActivitiesPage<'a> {
+    workflow_id: u64,
+    span_id: u64,
+    revision: u64,
+    activities: Vec<WireActivity<'a>>,
+    next_after: Option<u64>,
+}
+
+pub(crate) fn encode_trace_activities(
+    page: &twine_core::TraceActivitiesPage,
+) -> Result<Vec<u8>, serde_json::Error> {
+    use twine_core::{TraceActivityKind, TraceActivityStatus};
+    serde_json::to_vec(&WireActivitiesPage {
+        workflow_id: page.workflow_id.0,
+        span_id: page.span_id.0,
+        revision: page.revision,
+        next_after: page.next_after.map(|id| id.0),
+        activities: page
+            .activities
+            .iter()
+            .map(|a| WireActivity {
+                activity_id: a.activity_id.0,
+                span_id: a.span_id.0,
+                parent_activity_id: a.parent_activity_id.map(|id| id.0),
+                kind: match a.kind {
+                    TraceActivityKind::Tool => "tool",
+                    TraceActivityKind::Subagent => "subagent",
+                },
+                title: &a.title,
+                started_at: a.started_at,
+                ended_at: a.ended_at,
+                status: match a.status {
+                    TraceActivityStatus::Running => "running",
+                    TraceActivityStatus::Completed => "completed",
+                    TraceActivityStatus::Failed => "failed",
+                    TraceActivityStatus::Interrupted => "interrupted",
+                },
+                input: &a.input,
+                output: &a.output,
+                anchor: a.anchor.as_ref().map(|anchor| WireAnchor {
+                    terminal_id: anchor.terminal_id.value(),
+                    byte_offset: anchor.byte_offset,
+                    boundary_sizes: anchor.boundary_sizes.as_ref().map(|sizes| {
+                        sizes
+                            .iter()
+                            .map(|size| WireSize {
+                                rows: size.rows,
+                                columns: size.columns,
+                            })
+                            .collect()
+                    }),
+                }),
+            })
+            .collect(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
