@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftTerm
 import Testing
@@ -243,6 +244,35 @@ struct TerminalHistoryTests {
 }
 
 extension TerminalHistoryTests {
+    @Test func processLifetimeTraceScrollsTheFirstLiveRowWithoutRequiringEchoedInput() async throws {
+        let bytes = Data(("$ command\r\n" + String(repeating: "output\r\n", count: 100)).utf8)
+        let lane = CoreTraceLane(laneID: 1, workflowID: 1, name: "Terminal", isAgent: false, role: nil, harness: nil)
+        let span = CoreTraceSpan(
+            spanID: 1, laneID: 1, title: "Terminal", startedAt: 1, endedAt: nil, status: .running,
+            terminalID: 41, isLive: true)
+        let event = CoreTraceEvent(
+            eventID: 1, workflowID: 1, spanID: 1, timestamp: 1, kind: .processStarted, message: "Shell started",
+            anchor: .init(terminalID: 41, byteOffset: 0))
+        let navigation = TraceTerminalNavigation()
+        navigation.jump(toSpan: span, events: [event], lane: lane)
+        let target = try #require(navigation.scrollTarget)
+        let client = CoreClient(transport: TranscriptFixtureTransport(bytes: bytes))
+        let view = MetalTerminalView(frame: .zero)
+        view.resize(cols: 80, rows: 24)
+        let state = TerminalMinimapState()
+        state.view = view
+        state.beginFeed()
+        view.feed(byteArray: Array(bytes)[...])
+        state.received(through: UInt64(bytes.count))
+        state.refresh()
+        let found = try await state.scroll(
+            to: target.scrollAnchor, includingInput: target.includesInput, client: client)
+        navigation.finishScroll(target, found: found)
+        #expect(found)
+        #expect(state.geometry.topRow == 0)
+        #expect(navigation.target == nil)
+    }
+
     @Test(arguments: [false, true])
     func resumedPromptDoesNotFreezeAtItsEarlierResponseEnding(staleCompleted: Bool) throws {
         let lane = CoreTraceLane(

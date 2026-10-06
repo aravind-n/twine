@@ -2,7 +2,7 @@
     import AppKit
     import SwiftUI
 
-    /// The shared design values in light and dark mode, side by side, for checking against DESIGN.md.
+    /// The shared presentation values in light and dark mode, side by side.
     struct DesignPreview: View {
         var body: some View {
             HStack(spacing: 0) {

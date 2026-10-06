@@ -12,6 +12,7 @@ nonisolated struct TraceTerminalTarget: Equatable, Identifiable, Sendable {
     var outputStartAnchor: CoreTraceAnchor?
     var readToCurrentEnd = false
     var inputText: String?
+    var includesInput = true
     var scrollAnchor: CoreTraceAnchor { outputStartAnchor ?? anchor }
 }
 
@@ -127,6 +128,6 @@ final class TraceTerminalNavigation {
             anchor: ending?.anchor ?? latest?.anchor ?? startAnchor,
             timestamp: start.timestamp, message: span.title, outputStartAnchor: startAnchor,
             readToCurrentEnd: (span.isLive || resumed) && ending == nil,
-            inputText: lane.isAgent ? span.title : nil)
+            inputText: lane.isAgent ? span.title : nil, includesInput: start.kind == .workflowEvent)
     }
 }

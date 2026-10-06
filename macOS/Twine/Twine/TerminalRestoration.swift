@@ -12,7 +12,9 @@ enum TerminalRestoration {
             let replay = TerminalReplay()
             do {
                 try await pages(id, client: client) { try replay.append($0) }
-                feedHistory(replay.text.replacingOccurrences(of: "\n", with: "\r\n") + "\r\n", view: view)
+                feedHistory(
+                    replay.text.replacingOccurrences(of: "\n", with: "\r\n") + "\r\n", view: view,
+                    source: .init(terminalID: id, byteOffset: replay.offset))
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -41,8 +43,8 @@ enum TerminalRestoration {
         return offset
     }
 
-    private static func feedHistory(_ text: String, view: MetalTerminalView) {
-        view.minimapState?.recordHistory(text, terminal: view.getTerminal())
+    private static func feedHistory(_ text: String, view: MetalTerminalView, source: CoreTraceAnchor? = nil) {
+        view.minimapState?.recordHistory(text, terminal: view.getTerminal(), source: source)
         view.feed(text: text)
     }
 

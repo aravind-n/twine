@@ -4,8 +4,9 @@ import Foundation
 
 actor TranscriptFixtureTransport {
     private let bytes: Data?
+    private let transcripts: [UInt64: Data]
     private let replayAvailable: Bool
-    private let delayed: Bool
+    private var delayed: Bool
     private var trace: CoreWorkflowTracePage?
     private var recordedEvents: [CoreTraceEvent]
     private var pending: CheckedContinuation<Void, Never>?
@@ -14,9 +15,11 @@ actor TranscriptFixtureTransport {
 
     init(
         bytes: Data?, replayAvailable: Bool = true, delayed: Bool = false,
-        trace: CoreWorkflowTracePage? = nil, recordedEvents: [CoreTraceEvent] = []
+        trace: CoreWorkflowTracePage? = nil, recordedEvents: [CoreTraceEvent] = [],
+        transcripts: [UInt64: Data] = [:]
     ) {
         self.bytes = bytes
+        self.transcripts = transcripts
         self.replayAvailable = replayAvailable
         self.delayed = delayed
         self.trace = trace
@@ -28,13 +31,15 @@ actor TranscriptFixtureTransport {
         pending = nil
     }
 
+    func setDelayed(_ value: Bool) { delayed = value }
+
     func replaceEvents(_ events: [CoreTraceEvent]) { recordedEvents = events }
     func replaceTrace(_ trace: CoreWorkflowTracePage) { self.trace = trace }
 
     func terminalTranscript(terminalID: UInt64, offset: UInt64, limit: UInt32) async -> CoreTranscriptPage? {
         readLimits.append(limit)
         if delayed { await withCheckedContinuation { pending = $0 } }
-        guard let bytes else { return nil }
+        guard let bytes = transcripts[terminalID] ?? bytes else { return nil }
         let start = min(Int(offset), bytes.count)
         let end = min(start + Int(limit), bytes.count)
         return .init(

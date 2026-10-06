@@ -91,19 +91,11 @@ struct TracesPanel: View {
                 loadOlderRequested = false
             }
         }
-        .onChange(of: state.viewMode) { selectLatestForDepth() }
-        .onChange(of: state.spans.last?.id) { selectLatestForDepth() }
         .onChange(of: workflowIDs) {
             navigation.requestedSpanID = nil
         }
         .onChange(of: navigation.selectionRevision) {
             withAnimation(reduceMotion ? nil : Motion.tracesToggle) { isExpanded = true }
-        }
-    }
-
-    private func selectLatestForDepth() {
-        if state.viewMode == .inDepth && state.selectedSpanID == nil, let span = state.spans.last {
-            navigation.selectSpan(span.id)
         }
     }
 
@@ -122,7 +114,9 @@ struct TracesPanel: View {
             } else {
                 ContentUnavailableView(
                     "Select a step", systemImage: "timeline.selection",
-                    description: Text("Choose a step above to inspect its tools and subagents."))
+                    description: Text("Choose a step above to inspect its tools and subagents.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             HStack {
                 Text("Overview: start order · Detail: elapsed time")
@@ -181,19 +175,22 @@ struct TracesPanel: View {
                 ) { id in
                     withAnimation(reduceMotion ? nil : Motion.traceDetailPanel) { navigation.selectSpan(id) }
                 }
-                HStack {
-                    Text(navigation.failureMessage ?? state.failureMessage ?? "Steps are spaced by start order.")
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    if state.nextBefore != nil {
-                        Button("Older traces") { loadOlderRequested = true }
-                            .buttonStyle(.borderless)
-                            .disabled(state.isLoading)
+                if navigation.failureMessage != nil || state.failureMessage != nil || state.nextBefore != nil {
+                    HStack {
+                        if let message = navigation.failureMessage ?? state.failureMessage {
+                            Text(message).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        if state.nextBefore != nil {
+                            Button("Older traces") { loadOlderRequested = true }
+                                .buttonStyle(.borderless)
+                                .disabled(state.isLoading)
+                        }
                     }
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .frame(height: TracesLayout.hintHeight)
                 }
-                .font(.caption2).foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
-                .frame(height: TracesLayout.hintHeight)
             }
         }
     }

@@ -2,10 +2,10 @@ import Foundation
 import Observation
 
 nonisolated enum TraceViewMode: String, CaseIterable, Identifiable {
-    case standard = "Standard"
-    case inDepth = "In depth"
+    case overview = "Overview"
+    case inDepth = "In Depth"
     var id: Self { self }
-    var expandedHeight: CGFloat { self == .standard ? TracesLayout.expandedHeight : 432 }
+    var expandedHeight: CGFloat { self == .overview ? TracesLayout.expandedHeight : 432 }
 }
 
 @MainActor

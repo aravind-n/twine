@@ -50,7 +50,14 @@ pub(crate) fn launch_arguments(harness: HarnessId, options: LaunchOptions<'_>) -
         yolo,
     } = options;
     match harness {
-        HarnessId::Codex => arguments.push(OsString::from("--no-alt-screen")),
+        HarnessId::Codex => {
+            // Invocation-only hooks and effort overrides require embedded mode.
+            // Choose it explicitly instead of emitting the shared-server fallback warning.
+            arguments.extend([
+                OsString::from("--no-daemon"),
+                OsString::from("--no-alt-screen"),
+            ]);
+        }
         HarnessId::Pi => {
             arguments.extend([OsString::from("--tui-mode"), OsString::from("regular")]);
         }
@@ -175,6 +182,7 @@ mod tests {
         assert_eq!(
             arguments(HarnessId::Codex),
             [
+                "--no-daemon",
                 "--no-alt-screen",
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--model",

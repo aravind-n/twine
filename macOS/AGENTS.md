@@ -8,8 +8,6 @@ Get `twine-core` state and send commands only through `CoreClient`; build the `t
 
 The app links `twine-core` as the `TwineCore` XCFramework from the local `TwineCorePackage` binary Swift package. `make build-macos` and `make test-macos` build the Debug framework first, and `make build-macos-release` builds the Release framework first. Link only the package: keep build tooling, header paths, and direct static-library linkage out of the Xcode project.
 
-Follow the visual direction in [DESIGN.md](DESIGN.md) for all UI work.
-
 ## Swift conventions
 
 - **Language:** Swift 6 language mode with complete data-race checking and `MainActor` as the default isolation. Fix concurrency diagnostics with correct isolation or `Sendable` types, not with `@unchecked Sendable`, `nonisolated(unsafe)`, or `@preconcurrency`.

@@ -33,11 +33,10 @@ struct TerminalTraceNavigation: ViewModifier {
                     // Each geometry change restarts this task; reveal the point only
                     // after layout settles so a later resize cannot undo the scroll.
                     try await Task.sleep(for: .milliseconds(100))
-                    let found =
-                        anchor.terminalID == terminalID
-                        ? try await minimap.scroll(
-                            to: anchor, includingInput: request.outputStartAnchor != nil,
-                            inputText: request.inputText, client: client) : false
+                    let found = try await minimap.scroll(
+                        to: anchor, in: terminalID,
+                        includingInput: request.outputStartAnchor != nil && request.includesInput,
+                        inputText: request.inputText, client: client)
                     try Task.checkCancellation()
                     navigation.finishScroll(request, found: found)
                     handledID = request.id
