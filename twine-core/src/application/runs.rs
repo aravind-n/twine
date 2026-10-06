@@ -2127,9 +2127,13 @@ mod tests {
         finish_active_stage(&app, &initial, Decision::Done, "");
         let review = app.snapshot().unwrap().workflows.workflows[0].clone();
         finish_active_stage(&app, &review, Decision::RequestChanges, "");
+        // The fixture appends one input line at a time. Wait for the final instruction
+        // before inspecting the complete continuation, rather than its command header.
         let reused = wait_for(&app, id, |_| {
-            std::fs::read_to_string(folder.path().join("implement-input"))
-                .is_ok_and(|text| text.contains("Use this completion command"))
+            std::fs::read_to_string(folder.path().join("implement-input")).is_ok_and(|text| {
+                text.contains("Use this completion command")
+                    && text.contains("with their actual sub-tasks and owned files.")
+            })
         });
         assert_eq!(reused.agents[0].terminal_id, initial.agents[0].terminal_id);
         assert!(std::process::Command::new(old.trim()).output().is_err());

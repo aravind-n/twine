@@ -816,6 +816,36 @@ mod tests {
     }
 
     #[test]
+    fn bash_started_from_apple_terminal_keeps_command_traces() {
+        const CHILD: &str = "TWINE_TEST_APPLE_TERMINAL_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            check_command_shell("/bin/bash");
+            return;
+        }
+        // Set the host environment only in an isolated process. Other parallel tests
+        // must never observe mutable process-wide environment variables.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "application::traces::tests::bash_started_from_apple_terminal_keeps_command_traces",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("TERM_PROGRAM", "Apple_Terminal")
+            .env("TERM_PROGRAM_VERSION", "fixture")
+            .env("TERM_SESSION_ID", "twine-test-host-session")
+            .env_remove("SHELL_SESSION_DID_INIT")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "Bash command tracing failed with inherited Apple Terminal metadata:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
     fn bash_disabled_history_uses_one_lifetime_span() {
         let folder = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();

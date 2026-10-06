@@ -41,8 +41,7 @@ pub(super) fn default_shell_command(
     if integration.is_none() {
         command.arg("-l");
     }
-    command.env("TERM", "xterm-256color");
-    command.env("COLORTERM", "truecolor");
+    set_terminal_environment(&mut command);
     Ok((command, integration))
 }
 
@@ -69,12 +68,22 @@ pub(super) fn program_launcher_command(
     command.arg(program.as_os_str());
     command.args(arguments);
     command.env("PATH", path);
-    command.env("TERM", "xterm-256color");
-    command.env("COLORTERM", "truecolor");
+    set_terminal_environment(&mut command);
     for (name, value) in environment {
         command.env(name, value);
     }
     command
+}
+
+/// Each PTY belongs to Twine, even when the app was started from another terminal.
+/// Inherited Apple Terminal session metadata otherwise installs its Bash EXIT trap,
+/// preventing our command hooks and saving state under the parent's session identity.
+fn set_terminal_environment(command: &mut CommandBuilder) {
+    command.env("TERM", "xterm-256color");
+    command.env("COLORTERM", "truecolor");
+    command.env("TERM_PROGRAM", "Twine");
+    command.env_remove("TERM_PROGRAM_VERSION");
+    command.env_remove("TERM_SESSION_ID");
 }
 
 #[cfg(test)]
