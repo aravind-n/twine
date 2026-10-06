@@ -7,13 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-06
+
+### Added
+
+- Open multiple folders in separate windows, each with its own terminals and
+  tabs. Your open folders are restored when you relaunch Twine.
+- Use Individual mode to follow up with an agent after workflow completion or the
+  review limit without starting another workflow cycle.
+- Zoom the interface across all windows. Your zoom level is remembered between
+  launches and applies to terminals, editors, previews, and dialogs.
+- Preview Markdown files, follow local links, and switch to source editing to make
+  changes.
+- Syntax highlighting for common programming languages and configuration files,
+  with automatic language detection and a language menu for each file tab.
+- Edit settings in a popup and apply changes immediately across open folders and
+  terminals. Invalid settings are explained before saving, and unsaved changes
+  are protected when closing the popup.
+- Choose from bundled terminal color themes, customize colors, and reuse settings
+  through configuration file imports.
+- Inspect tool calls and subagent activity in the In depth trace timeline. Search
+  activity, filter failures, preview inputs and outputs, and jump to the related
+  terminal output. Activity remains available after relaunch.
+- A [user guide](https://aravind-n.github.io/twine/documentation/guide/) covering
+  installation, agent workflows, and settings.
+
 ### Changed
 
-- Sign and notarize stable and nightly macOS release packages with Developer ID,
-  including stapled app and DMG tickets and CI diagnostics.
-- Distribute the macOS app in a DMG with an Applications shortcut for drag-and-drop
-  installation, and select that installer from the website's download buttons.
-  The installer uses braided stems and a fuller green arrowhead to guide the copy.
+- Install Twine from a DMG by dragging the app into Applications. The app is now
+  signed and notarized for easier installation and first launch.
+- Switch between Standard traces for an overview of workflow steps and In depth
+  for a closer look at an agent's activity.
+- Terminals resize more smoothly when toggling the sidebar or changing layouts.
+
+### Fixed
+
+- Claude Code conversation history remains available in terminal scrollback.
+- Minimap dots and trace navigation more reliably take you to the corresponding
+  prompt, including after resizing a terminal.
+- Agents receive the correct terminal colors when they start.
+- Closing a restored window whose folder is unavailable keeps it closed after
+  relaunch.
+
+### Known limitations
+
+- Antigravity and OpenCode v2 do not show tool calls or subagent activity in
+  In depth.
 
 ## [0.1.0] - 2026-10-01
 
@@ -23,8 +62,7 @@ Initial release of Twine, a native macOS workspace for coordinating coding agent
 
 - The app is ad hoc signed and not notarized. Follow the included install instructions
   to approve the first launch in macOS Privacy & Security settings.
-- Agent harnesses must be installed and authenticated separately. Tracing and
-  conversation resumption depend on the harness and its version.
 
-[unreleased]: https://github.com/aravind-n/twine/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/aravind-n/twine/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/aravind-n/twine/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aravind-n/twine/releases/tag/v0.1.0
