@@ -7,6 +7,35 @@ import Testing
 
 @MainActor
 struct TerminalDeliveryTests {
+    @Test func startupQueriesReturnColorsTogetherWithoutActivatingTheWorkflow() async throws {
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.terminals = [.init(terminalID: 41, status: .running)]
+        let transport = DelayedStartTransport(snapshot: snapshot)
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await client.waitUntilRunning()
+        defer { Task { await client.stop() } }
+        let controller = TerminalController(coreClient: client, terminalID: 41, failureMessage: .constant(nil))
+        var activations = 0
+        controller.beforeUserInput = { activations += 1 }
+        let view = MetalTerminalView(frame: .zero)
+        view.terminalDelegate = controller
+        view.applyTwinePalette()
+        controller.start(view: view)
+        defer { controller.stop() }
+        let queries = Data("\u{1B}[6n\u{1B}]10;?\u{1B}\\\u{1B}]11;?\u{1B}\\\u{1B}[?u\u{1B}[c".utf8)
+        await transport.enqueueOutput(.init(terminalID: 41, offset: 0, bytes: queries))
+        try await waitUntil {
+            String(data: await transport.terminalResponses, encoding: .utf8)?.contains("11;rgb:") == true
+        }
+        let reply = try #require(String(data: await transport.terminalResponses, encoding: .utf8))
+        #expect(reply.contains("10;rgb:"))
+        #expect(reply.contains("[1;1R"))
+        #expect(await transport.inputAttempts == 1)
+        #expect(await transport.userInput.isEmpty)
+        #expect(activations == 0)
+    }
+
     @Test func resizesConvergeOnTheLatestPaneWhileOneResizeIsPending() async throws {
         var snapshot = CoreSnapshot.testReady()
         snapshot.terminals = [.init(terminalID: 41, status: .running)]
