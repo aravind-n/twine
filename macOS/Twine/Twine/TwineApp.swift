@@ -117,11 +117,16 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
         let sessions = Array(windows?.sessions.values ?? [:].values)
         let clients = sessions.map(\.coreClient) + (coreClient.map { [$0] } ?? [])
         let fileTabs = sessions.map(\.tabs) + (tabs.map { [$0] } ?? [])
-        guard settings?.confirmDiscard() != false else { return .terminateCancel }
-        guard fileTabs.allSatisfy({ $0.closeAll() }) else { return .terminateCancel }
         isTerminating = true
-        windows?.isTerminating = true
         Task {
+            // Resolve cancellation through the same deferred reply as shutdown. SwiftUI's
+            // delegate adapter can already have returned terminateLater while an alert is open.
+            guard settings?.confirmDiscard() != false, fileTabs.allSatisfy({ $0.closeAll() }) else {
+                isTerminating = false
+                reply(false)
+                return
+            }
+            windows?.isTerminating = true
             await updater?.finishSavingPreferences()
             await windows?.finishClosingWindows()
             for client in clients { await client.stopForQuit() }

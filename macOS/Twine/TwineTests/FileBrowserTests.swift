@@ -73,26 +73,35 @@ struct FileBrowserTests {
         _ = try await worker.open()
         _ = try await worker.send(.openFolder(path: folder.url.path))
         var request = FileBrowserRequest(folder: folder.url.path, directories: [], file: file.path)
-        let initial = try #require(try await pollSnapshot(worker, request: request))
+        let initial = try #require(
+            try await pollSnapshot(worker, request: request, matching: { $0.file?.text == "hello" }))
         #expect(initial.file?.text == "hello")
         #expect(initial.directories.count == 1)
         request.revision = initial.revision
         #expect(try await worker.pollFiles(request) == nil)
         try "changed".write(to: file, atomically: true, encoding: .utf8)
-        let changed = try #require(try await pollSnapshot(worker, request: request))
+        let changed = try #require(
+            try await pollSnapshot(worker, request: request, matching: { $0.file?.text == "changed" }))
         #expect(changed.file?.text == "changed")
         try FileManager.default.removeItem(at: file)
         request.revision = changed.revision
-        let deleted = try #require(try await pollSnapshot(worker, request: request))
+        let deleted = try #require(
+            try await pollSnapshot(
+                worker, request: request,
+                matching: { $0.file?.status == .missing && $0.directories.first?.entries.isEmpty == true }))
         #expect(deleted.file?.status == .missing)
         #expect(deleted.directories[0].entries.isEmpty)
         await worker.close()
     }
     private func pollSnapshot(
-        _ worker: CoreWorker, request: FileBrowserRequest
+        _ worker: CoreWorker, request: FileBrowserRequest, matching matches: (FileBrowserSnapshot) -> Bool
     ) async throws -> FileBrowserSnapshot? {
+        var request = request
         for _ in 0..<200 {
-            if let snapshot = try await worker.pollFiles(request) { return snapshot }
+            if let snapshot = try await worker.pollFiles(request) {
+                if matches(snapshot) { return snapshot }
+                request.revision = snapshot.revision
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
         return nil

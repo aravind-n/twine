@@ -119,6 +119,11 @@ extension TwineUITests {
         clickDialogButton("Cancel", in: app)
         XCTAssertEqual(text.value as? String, "unsaved update edit")
         XCTAssertEqual(try installedBuild(fixture: fixture), "1")
+        app.menuBars.menuBarItems["Twine"].click()
+        let quit = app.menuItems["Quit Twine"].firstMatch
+        let available = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: quit)
+        XCTAssertEqual(XCTWaiter.wait(for: [available], timeout: 5), .completed, app.debugDescription)
+        app.typeKey(.escape, modifierFlags: [])
         text.click()
         text.typeKey("s", modifierFlags: .command)
         waitForFile(file, containing: "unsaved update edit", in: app)
