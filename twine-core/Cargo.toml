@@ -8,7 +8,6 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-libc = "0.2"
 portable-pty = "0.9"
 rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
 rustix = { version = "1.1", features = ["fs"] }
@@ -21,3 +20,4 @@ thiserror = "2.0"
 toml = "1.1"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 sha2 = "0.11.0"
+libc = "0.2.190"
