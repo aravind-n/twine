@@ -83,7 +83,9 @@ jobs:
           path: ${{ runner.temp }}/bundle
           run-id: ${{ needs.guard.outputs.build_run || github.run_id }}
           github-token: ${{ github.token }}
-      - name: Package and verify release DMG and archives
+      - name: Install release packaging tools
+        run: make dmg-tools
+      - name: Sign, notarize, and package release
         env:
           VERSION: ${{ needs.guard.outputs.version }}
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}

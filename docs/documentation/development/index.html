@@ -67,13 +67,6 @@ make ui-test-macos-visual # optional appearance and screenshot checks
 make ui-test-macos ONLY='testFolderWindowInLightAppearance testFolderWindowInDarkAppearance'
 make ui-test-macos ONLY=testLaunchPerformance
 make clean                # remove Cargo, framework, and Xcode build output</code></pre>
-<p><code>make check-site</code> installs the pinned browser test tools and Chromium, then
-tests both website download buttons, saved DMG bytes, errors, retries, and release-page
-fallbacks. It requires Node.js; on Linux, use <code>PLAYWRIGHT_INSTALL_ARGS=--with-deps</code>
-to install browser system dependencies. GitHub release responses are stubbed.</p>
-<p>To test downloads with a real packaged installer and retain the files for a mount/install
-check, run <code>TWINE_TEST_DMG=dist/Twine-0.1.0-macos-universal.dmg TWINE_TEST_DOWNLOAD_DIR=target/downloads make check-site</code>.
-The two downloads are saved under <code>hero/</code> and <code>start/</code> in that directory.</p>
 <p>The generated framework includes its C header and module map and is ignored by Git. If the framework is missing, package resolution reports the command needed to create it.</p>
 <p><code>make build-macos-release</code> builds the universal Release app. Each build replaces the local framework with the Debug or Release profile it needs.</p>
 <p>Linting prepares the framework before resolving the app's packages. The default UI suite runs the tests listed in <code>UI_DEFAULT_TESTS</code> in the Makefile. Other tests are retired from default runs; their source stays in place and they still build. Add a test to <code>UI_DEFAULT_TESTS</code> to re-enable it by default.</p>

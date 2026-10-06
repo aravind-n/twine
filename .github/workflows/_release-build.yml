@@ -20,6 +20,7 @@ permissions:
 
 jobs:
   release-build:
+    name: Build release artifacts
     runs-on: xcode-27
     env:
       BUILD_VERSION: ${{ inputs.version }}
@@ -28,28 +29,22 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.sha }}
-      - name: Restore Release bridge
-        id: bridge-cache
-        uses: actions/cache@v6
+      - name: Set up macOS build tools and caches
+        uses: ./.github/actions/setup-build
+        id: build-tools
         with:
-          path: macOS/TwineCorePackage/TwineCore.xcframework
-          key: >-
-            twine-bridge-v1-release-${{
-            hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
-            'macOS/TwineCorePackage/build.sh') }}
-      - uses: ./.github/actions/setup-macos
-        with:
-          metal: 'true'
-          rust: ${{ steps.bridge-cache.outputs.cache-hit != 'true' && 'true' || 'false' }}
-          rust-targets: aarch64-apple-darwin x86_64-apple-darwin
-      - name: Rebuild Release bridge when uncached
-        if: steps.bridge-cache.outputs.cache-hit != 'true'
+          profile: release
+      - name: 'Build Rust framework: universal Release'
+        if: steps.build-tools.outputs.bridge-cache-hit != 'true'
         run: make framework-release
+      - name: Resolve Swift packages
+        run: make resolve-swift-packages
       - name: Build universal Release app
+        id: build-app
         run: >-
           make release-build-app DERIVED_DATA="$RUNNER_TEMP/DerivedData"
-          XCODE_BUILD_ARGS="CODE_SIGNING_ALLOWED=NO CURRENT_PROJECT_VERSION=$BUILD_NUMBER"
-      - name: Package reusable app, library, header, and symbols
+          XCODE_BUILD_ARGS="CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=$BUILD_NUMBER"
+      - name: Bundle release artifacts
         run: >-
           make release-bundle DERIVED_DATA="$RUNNER_TEMP/DerivedData"
           BUNDLE_DIR="$RUNNER_TEMP/bundle"
@@ -61,3 +56,12 @@ jobs:
           if-no-files-found: error
           overwrite: true
           retention-days: 90
+      - name: Save resolved Swift dependencies on main
+        if: >-
+          always() && !cancelled() && github.ref == 'refs/heads/main' &&
+          steps.build-app.outcome == 'success' &&
+          steps.build-tools.outputs.swift-cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: macOS/Twine/.build/SourcePackages
+          key: ${{ steps.build-tools.outputs.swift-cache-key }}

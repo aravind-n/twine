@@ -1,4 +1,8 @@
-name: Nightly
+name: Nightly (disabled)
+
+# Temporarily disabled during early development while changes are frequent.
+# Re-enable later by restoring the name to Nightly, setting the repository variable
+# NIGHTLY_ENABLED=true, and running gh workflow enable nightly.yml.
 
 on:
   schedule:
@@ -16,7 +20,8 @@ concurrency:
 
 jobs:
   guard:
-    if: github.ref == 'refs/heads/main'
+    # Disabled by default; an unset NIGHTLY_ENABLED variable is also disabled.
+    if: github.ref == 'refs/heads/main' && vars.NIGHTLY_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     outputs:
@@ -75,7 +80,9 @@ jobs:
           path: ${{ runner.temp }}/bundle
           run-id: ${{ needs.guard.outputs.build_run || github.run_id }}
           github-token: ${{ github.token }}
-      - name: Package and verify nightly DMG and archives
+      - name: Install release packaging tools
+        run: make dmg-tools
+      - name: Sign, notarize, and package nightly release
         env:
           NIGHTLY_ID: ${{ needs.guard.outputs.tag }}
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
@@ -135,7 +142,7 @@ jobs:
 
   summary:
     needs: [guard, rebuild, package, publish]
-    if: always()
+    if: always() && needs.guard.result != 'skipped'
     runs-on: ubuntu-latest
     permissions: {}
     env:

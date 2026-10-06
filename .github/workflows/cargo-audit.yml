@@ -11,4 +11,5 @@ permissions:
 
 jobs:
   cargo-audit:
+    name: Rust dependency security
     uses: ./.github/workflows/_cargo-audit.yml
