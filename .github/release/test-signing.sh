@@ -119,12 +119,12 @@ PY
 for status in Invalid 'In Progress'; do
     reset
     MOCK_NOTARY_STATUS="$status" reject notarize "$fixture/App.zip" "$app"
-    if rg -q '"stapler"' "$MOCK_SIGNING_LOG"; then fail 'rejected submission was stapled'; fi
+    if grep -Fq '"stapler"' "$MOCK_SIGNING_LOG"; then fail 'rejected submission was stapled'; fi
 done
 for response in malformed missing-id; do
     reset
     MOCK_NOTARY_RESPONSE="$response" reject notarize "$fixture/App.zip" "$app"
-    if rg -q '"stapler"' "$MOCK_SIGNING_LOG"; then fail 'invalid response was stapled'; fi
+    if grep -Fq '"stapler"' "$MOCK_SIGNING_LOG"; then fail 'invalid response was stapled'; fi
 done
 reset
 MOCK_NOTARY_EXIT=1 reject notarize "$fixture/App.zip" "$app"

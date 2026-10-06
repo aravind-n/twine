@@ -1,9 +1,9 @@
 name: Set up macOS build tools
-description: Select Xcode 27.0 and optionally install Rust and the Metal toolchain.
+description: Select Xcode 27.0 and optionally install pinned Rust and the Metal toolchain.
 
 inputs:
   rust:
-    description: Install the latest stable Rust toolchain.
+    description: Install the repository's pinned Rust toolchain.
     required: false
     default: 'false'
   rust-targets:
@@ -37,20 +37,12 @@ runs:
           echo "::error::Expected Xcode 27.0, found $version"
           exit 1
         fi
-    - name: Install latest stable Rust
+    - name: Install pinned Rust
       if: inputs.rust == 'true'
-      shell: bash
-      env:
-        RUST_TARGETS: ${{ inputs.rust-targets }}
-        RUST_COMPONENTS: ${{ inputs.rust-components }}
-      run: |
-        rustup update stable
-        rustup default stable
-        read -ra targets <<< "$RUST_TARGETS"
-        read -ra components <<< "$RUST_COMPONENTS"
-        if (( ${#targets[@]} )); then rustup target add "${targets[@]}"; fi
-        if (( ${#components[@]} )); then rustup component add "${components[@]}"; fi
-        rustc --version
+      uses: ./.github/actions/setup-rust
+      with:
+        targets: ${{ inputs.rust-targets }}
+        components: ${{ inputs.rust-components }}
     - name: Install Metal toolchain if missing
       if: inputs.metal == 'true'
       shell: bash
