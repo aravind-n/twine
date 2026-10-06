@@ -106,9 +106,9 @@ struct TraceInspector: View {
     private var emptyExplanation: String {
         if lane.harness == "opencode" || lane.harness == "antigravity" {
             return "Detailed activity is not available for this harness yet. "
-                + "Recorded steps and terminal output remain available in Standard."
+                + "Recorded steps and terminal output remain available in Overview."
         }
-        return "This step has no recorded tools or subagents. Its event log is available in Standard."
+        return "This step has no recorded tools or subagents. Its event log is available in Overview."
     }
 
     private var footer: some View {

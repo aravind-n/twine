@@ -32,12 +32,10 @@ final class TerminalMinimapReplay {
 
     func load(
         terminalID: UInt64, endOffset: UInt64, points: [(id: UInt64, anchor: CoreTraceAnchor)], client: CoreClient,
-        liveSizes: [CoreTranscriptSize]? = nil, prefix: [TerminalReplayPrefix] = [], prompts: [UInt64: String] = [:]
+        liveSizes: [CoreTranscriptSize]? = nil, prefix: [TerminalReplayPrefix] = [], prompts: [UInt64: String] = [:],
+        prefixPoint: TerminalReplayPrefix.Point? = nil
     ) async throws {
-        for entry in prefix {
-            replay.terminal.resize(cols: entry.columns, rows: entry.rows)
-            replay.terminal.feed(text: entry.text)
-        }
+        feedPrefix(prefix, point: prefixPoint)
         let ordered = points.filter { $0.anchor.terminalID == terminalID }.sorted {
             $0.anchor.byteOffset < $1.anchor.byteOffset
         }
@@ -82,6 +80,29 @@ final class TerminalMinimapReplay {
             discardExpiredAnchors()
             await Task.yield()
         } while true
+    }
+
+    private func feedPrefix(_ prefix: [TerminalReplayPrefix], point: TerminalReplayPrefix.Point?) {
+        for entry in prefix {
+            replay.terminal.resize(cols: entry.columns, rows: entry.rows)
+            if let point, entry.source?.terminalID == point.terminalID {
+                let lines = entry.text.components(separatedBy: "\n")
+                guard lines.indices.contains(point.row) else {
+                    replay.terminal.feed(text: entry.text)
+                    continue
+                }
+                let before = lines.prefix(point.row).joined(separator: "\n") + (point.row > 0 ? "\n" : "")
+                replay.terminal.feed(text: before)
+                capture(id: point.id)
+                replay.terminal.feed(text: lines.dropFirst(point.row).joined(separator: "\n"))
+                discardExpiredAnchors()
+                if let row = anchors[point.id]?.row {
+                    inputText[point.id] = TerminalMinimapGeometry.logicalLine(at: row, in: replay.terminal)
+                }
+            } else {
+                replay.terminal.feed(text: entry.text)
+            }
+        }
     }
 
     func capture(id: UInt64, prompt: String? = nil) {

@@ -4,7 +4,7 @@ import Observation
 @MainActor
 @Observable
 final class TracePanelState {
-    var viewMode: TraceViewMode = .standard
+    var viewMode: TraceViewMode = .overview
     let activityDetails = TraceActivityState()
     var workflowID: UInt64? { workflowIDs.first }
     private(set) var workflowIDs: [UInt64] = []

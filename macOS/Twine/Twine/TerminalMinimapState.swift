@@ -30,8 +30,8 @@ final class TerminalMinimapState {
     @ObservationIgnored private var isFeeding = false
     @ObservationIgnored private var replayPrefix: [TerminalReplayPrefix] = []
 
-    func recordHistory(_ text: String, terminal: Terminal) {
-        replayPrefix.append(.init(text: text, columns: terminal.cols, rows: terminal.rows))
+    func recordHistory(_ text: String, terminal: Terminal, source: CoreTraceAnchor? = nil) {
+        replayPrefix.append(.init(text: text, columns: terminal.cols, rows: terminal.rows, source: source))
     }
 
     func recordSize(columns: Int, rows: Int) {
@@ -146,17 +146,19 @@ final class TerminalMinimapState {
 
     /// Reuse the minimap's ANSI replay to locate an exact byte boundary in the mounted terminal.
     func scroll(
-        to anchor: CoreTraceAnchor, includingInput: Bool = false, inputText: String? = nil, client: CoreClient
+        to anchor: CoreTraceAnchor, in terminalID: UInt64? = nil,
+        includingInput: Bool = false, inputText: String? = nil, client: CoreClient
     ) async throws -> Bool {
         guard let terminal = view?.getTerminal(), !terminal.isCurrentBufferAlternate,
-            liveSizes.first?.offset == 0, anchor.byteOffset <= receivedOffset
+            liveSizes.first?.offset == 0
         else { return false }
         let revision = geometryRevision
         let checkpoint = TerminalMinimapCheckpoint(terminal: terminal)
-        let index = TerminalMinimapReplay(includingInput: includingInput, inputText: inputText)
-        try await index.load(
-            terminalID: anchor.terminalID, endOffset: receivedOffset, points: [(0, anchor)], client: client,
-            liveSizes: liveSizes, prefix: replayPrefix)
+        guard
+            let index = try await traceIndex(
+                anchor: anchor, terminalID: terminalID ?? anchor.terminalID,
+                includingInput: includingInput, inputText: inputText, client: client)
+        else { return false }
         try Task.checkCancellation()
         guard revision == geometryRevision, terminal.cols == checkpoint.columns, terminal.rows == checkpoint.rows
         else { throw CancellationError() }
@@ -272,5 +274,37 @@ final class TerminalMinimapState {
         unresolved = Set(index.rows.keys).subtracting(anchors.keys)
         failureMessage = nil
         refresh()
+    }
+}
+
+extension TerminalMinimapState {
+    private func traceIndex(
+        anchor: CoreTraceAnchor, terminalID: UInt64, includingInput: Bool, inputText: String?, client: CoreClient
+    ) async throws -> TerminalMinimapReplay? {
+        let end = receivedOffset
+        let sizes = liveSizes
+        let prefix = replayPrefix
+        let original = TerminalMinimapReplay(includingInput: includingInput, inputText: inputText)
+        if anchor.terminalID == terminalID {
+            guard anchor.byteOffset <= end else { return nil }
+            try await original.load(
+                terminalID: terminalID, endOffset: end, points: [(0, anchor)], client: client,
+                liveSizes: sizes, prefix: prefix)
+            return original
+        }
+        guard let source = prefix.first(where: { $0.source?.terminalID == anchor.terminalID })?.source,
+            anchor.byteOffset <= source.byteOffset
+        else { return nil }
+        // Locate the old trace in its original emulator, then carry that row through the
+        // plain output restored before the current process. Match it against live row identities.
+        try await original.load(
+            terminalID: anchor.terminalID, endOffset: source.byteOffset, points: [(0, anchor)], client: client)
+        guard let row = original.rows[0], original.retainsInput(id: 0, row: row, terminal: original.replay.terminal)
+        else { return nil }
+        let restored = TerminalMinimapReplay()
+        try await restored.load(
+            terminalID: terminalID, endOffset: end, points: [], client: client, liveSizes: sizes, prefix: prefix,
+            prefixPoint: .init(id: 0, terminalID: anchor.terminalID, row: row))
+        return restored
     }
 }

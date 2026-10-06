@@ -2,9 +2,16 @@ import Foundation
 import SwiftTerm
 
 nonisolated struct TerminalReplayPrefix {
+    nonisolated struct Point {
+        let id: UInt64
+        let terminalID: UInt64
+        let row: Int
+    }
+
     let text: String
     let columns: Int
     let rows: Int
+    var source: CoreTraceAnchor?
 }
 
 /// A separate emulator consumes the complete prefix. Cursor motion and alternate screens are

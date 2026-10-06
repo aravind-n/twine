@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// Shared design values from macOS/DESIGN.md. Core supplies terminal palettes; role and interface
+// Shared presentation values. Core supplies terminal palettes; role and interface
 // colors use generated asset symbols such as `.roleBlue`.
 // The window background is SwiftUI's `.windowBackground`.
 

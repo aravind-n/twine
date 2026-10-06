@@ -28,7 +28,14 @@ extension TwineUITests {
         XCTAssertTrue(header.waitForExistence(timeout: 10))
         header.click()
         XCTAssertFalse(inspectorElement("traceInDepthView", in: app).exists)
-        selectInspectorMode("In depth", in: app)
+        selectTraceViewMode("In Depth", in: app)
+        let step = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH 'traceSpan-' AND label CONTAINS 'Inspect parallel coding work'"
+            )
+        ).firstMatch
+        XCTAssertTrue(step.waitForExistence(timeout: 10), app.debugDescription)
+        step.click()
         let call = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH 'traceActivity-' AND label CONTAINS 'cargo test'")
         ).firstMatch
@@ -41,11 +48,7 @@ extension TwineUITests {
         attachWindow(in: app, name: "Timeline inspector with parallel subagents and failed nested tool")
 
         let callID = call.identifier
-        let stepID = app.buttons.matching(
-            NSPredicate(
-                format: "identifier BEGINSWITH 'traceSpan-' AND label CONTAINS 'Inspect parallel coding work'"
-            )
-        ).firstMatch.identifier
+        let stepID = step.identifier
         checkInspectorFiltersAndScrolling(in: app, call: call)
         checkInspectorRelaunch(in: app, callID: callID, stepID: stepID)
     }
@@ -82,7 +85,7 @@ extension TwineUITests {
 
     @MainActor
     private func checkInspectorRelaunch(in app: XCUIApplication, callID: String, stepID: String) {
-        selectInspectorMode("Standard", in: app)
+        selectTraceViewMode("Overview", in: app)
         XCTAssertFalse(inspectorElement("traceActivityInspector", in: app).exists)
         app.menuBars.menuBarItems["Twine"].click()
         app.menuItems["Quit Twine"].click()
@@ -94,7 +97,7 @@ extension TwineUITests {
         let originalStep = app.buttons[stepID]
         XCTAssertTrue(originalStep.waitForExistence(timeout: 10), app.debugDescription)
         originalStep.click()
-        selectInspectorMode("In depth", in: app)
+        selectTraceViewMode("In Depth", in: app)
         // Restored windows may be shorter; reveal the deep panel through the outer viewport.
         app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5))
             .scroll(byDeltaX: 0, deltaY: -800)
@@ -112,15 +115,6 @@ extension TwineUITests {
         app.buttons["traceActivityJump"].click()
         XCTAssertTrue(app.textViews["terminalHistoryText"].waitForExistence(timeout: 10), app.debugDescription)
         attachWindow(in: app, name: "Recorded tool details survive relaunch")
-    }
-
-    @MainActor
-    private func selectInspectorMode(_ mode: String, in app: XCUIApplication) {
-        let control = inspectorElement("traceViewMode", in: app)
-        XCTAssertTrue(control.waitForExistence(timeout: 5), app.debugDescription)
-        let choice = control.descendants(matching: .any).matching(NSPredicate(format: "label == %@", mode)).firstMatch
-        XCTAssertTrue(choice.waitForExistence(timeout: 5), app.debugDescription)
-        choice.click()
     }
 
     @MainActor

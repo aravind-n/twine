@@ -99,7 +99,7 @@ final class TerminalHistoryState {
         guard let start = target.outputStartAnchor, replay.offset == start.byteOffset else { return }
         guard let sizes = start.boundarySizes else { throw HistoryFailure.expired }
         try replay.applyBoundarySizes(sizes)
-        replay.markOutputStart(includingInput: true, inputText: target.inputText)
+        replay.markOutputStart(includingInput: target.includesInput, inputText: target.inputText)
     }
 
 }
