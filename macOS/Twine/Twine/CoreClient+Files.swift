@@ -2,6 +2,13 @@ import Foundation
 
 extension CoreClient {
     /// Settings access works independently of the folder runtime.
+    func setAutomaticUpdates(_ enabled: Bool, expectedPrevious: Bool) async throws {
+        let result = try await transport.setAutomaticUpdates(enabled, expectedPrevious: expectedPrevious)
+        guard result.status == .saved else {
+            throw CoreFailure.failed(result.message ?? "Settings changed before the update preference could be saved.")
+        }
+    }
+
     func configFile() async throws -> FilePreview {
         try await transport.configFile()
     }

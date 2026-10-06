@@ -205,6 +205,30 @@ Install the font in macOS, or omit `font_family` to use the system monospace fon
 Restart Twine after editing settings. Appearance settings are parsed but are not
 applied yet.
 
+Packaged Release builds support **Twine → Check for Updates…** once their Sparkle
+signing key and update feed are configured. Debug builds, previews, and builds
+using `TWINE_DATA_DIRECTORY` keep the updater disabled.
+
+Update policy lives in the same settings file:
+
+```toml
+[updates]
+automatically_check = true
+automatically_install = false
+channel = "stable"
+```
+
+These are the defaults. Automatic checks run daily while Twine is open. Enable
+`automatically_install` to download updates automatically and install them when
+you quit Twine; automatic installation also requires automatic checks. The update
+window's automatic-update choice saves back to this file. Set `channel` to
+`"nightly"` to include nightly builds alongside stable releases.
+
+You can choose **Install and Relaunch** in the update window to install immediately.
+Quit and relaunch protect unsaved editor changes and stop running terminals and
+agents before the app closes. Save settings in Twine to apply update policy to
+all open folders immediately.
+
 Application data is stored in `~/Library/Application Support/Twine`. Recorded
 terminal output has retention limits of 64 MiB per terminal and 512 MiB overall,
 with additional metadata limits. Older output can expire. Tracing is best effort,

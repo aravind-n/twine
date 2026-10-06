@@ -75,6 +75,30 @@ pub unsafe extern "C" fn twine_config_save_file(
 }
 
 #[unsafe(no_mangle)]
+/// Saves an automatic-install choice in core's user config, returning saved/conflict/failed JSON.
+///
+/// # Safety
+/// Output follows the contract of `twine_config_file`. Values other than 0 and 1 are rejected.
+pub unsafe extern "C" fn twine_config_set_automatic_updates(
+    enabled: u8,
+    expected_previous: u8,
+    out_result: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: The caller supplies writable output storage; the helper checks null.
+        unsafe { ffi::initialize_buffer(out_result) }?;
+        if enabled > 1 || expected_previous > 1 {
+            return Err(BridgeError::InvalidArgument);
+        }
+        let response = protocol::files::encode_save(
+            twine_core::config::set_user_automatic_updates(enabled == 1, expected_previous == 1),
+        )?;
+        // SAFETY: Output was validated before allocating the response.
+        unsafe { ffi::write_buffer(out_result, TwineBuffer::from_vec(response)) }
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Polls lazy file listings and versioned text previews.
 ///
 /// # Safety
@@ -766,6 +790,74 @@ mod tests {
             .into();
         assert_eq!(save(&request)["status"], "failed");
         assert!(!directory.path().join("other.toml").exists());
+    }
+
+    #[test]
+    fn update_preferences_save_without_a_client_and_reject_stale_choices() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let directory = TempDir::new().unwrap();
+        let _environment =
+            EnvironmentOverride::set("XDG_CONFIG_HOME", directory.path().as_os_str());
+        let save = |enabled, previous| {
+            let mut output = TwineBuffer::empty();
+            // SAFETY: Output is writable storage with no unreleased allocation.
+            assert_eq!(
+                unsafe { twine_config_set_automatic_updates(enabled, previous, &raw mut output) },
+                TwineStatus::Ok
+            );
+            serde_json::from_slice::<serde_json::Value>(&take_buffer(output)).unwrap()
+        };
+        let saved = save(1, 0);
+        assert_eq!(saved["status"], "saved");
+        let path = Path::new(saved["file"]["path"].as_str().unwrap());
+        assert!(
+            twine_core::config::Config::load(path)
+                .config
+                .updates
+                .automatically_install
+        );
+        assert_eq!(save(0, 0)["status"], "conflict");
+        assert!(
+            twine_core::config::Config::load(path)
+                .config
+                .updates
+                .automatically_install
+        );
+        assert_eq!(save(0, 1)["status"], "saved");
+        assert!(
+            !twine_core::config::Config::load(path)
+                .config
+                .updates
+                .automatically_install
+        );
+        std::fs::write(path, "updates.channel = 'invalid'\n").unwrap();
+        assert_eq!(save(1, 0)["status"], "failed");
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "updates.channel = 'invalid'\n"
+        );
+    }
+
+    #[test]
+    fn update_preferences_reject_null_output_and_invalid_booleans() {
+        let mut output = TwineBuffer::empty();
+        // SAFETY: Null output and invalid booleans are rejected before allocating or accessing config.
+        unsafe {
+            assert_eq!(
+                twine_config_set_automatic_updates(1, 0, std::ptr::null_mut()),
+                TwineStatus::NullPointer
+            );
+            assert_eq!(
+                twine_config_set_automatic_updates(2, 0, &raw mut output),
+                TwineStatus::InvalidArgument
+            );
+            assert_eq!(
+                twine_config_set_automatic_updates(1, 2, &raw mut output),
+                TwineStatus::InvalidArgument
+            );
+        }
+        assert!(output.data.is_null());
+        assert_eq!(output.length, 0);
     }
 
     #[test]

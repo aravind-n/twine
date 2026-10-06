@@ -3,6 +3,22 @@ import Foundation
 nonisolated struct CoreConfig: Decodable, Equatable, Sendable {
     let appearance: CoreAppearance
     let terminal: CoreTerminalConfig
+    let updates: CoreUpdateConfig
+
+    init(appearance: CoreAppearance, terminal: CoreTerminalConfig, updates: CoreUpdateConfig = CoreUpdateConfig()) {
+        self.appearance = appearance
+        self.terminal = terminal
+        self.updates = updates
+    }
+
+    private enum CodingKeys: String, CodingKey { case appearance, terminal, updates }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        appearance = try values.decode(CoreAppearance.self, forKey: .appearance)
+        terminal = try values.decode(CoreTerminalConfig.self, forKey: .terminal)
+        updates = try values.decodeIfPresent(CoreUpdateConfig.self, forKey: .updates) ?? CoreUpdateConfig()
+    }
 
     enum ColorScheme: String, Decodable, Sendable {
         case system

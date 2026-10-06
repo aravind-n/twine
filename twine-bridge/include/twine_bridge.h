@@ -40,6 +40,9 @@ typedef struct TwineTerminalChunk {
 // saves accept the file-save request and return saved/conflict/failed JSON. Only the configured
 // user config file can be saved. Output ownership follows twine_buffer_release.
 // Save input is bounded to 12 MiB + 16 KiB; pointer/length rules match twine_client_save_file.
+// Persists an updater UI automatic-install choice without replacing unrelated settings/comments.
+// enabled must be 0 or 1; returns saved/conflict/failed JSON with the same output ownership.
+TwineStatus twine_config_set_automatic_updates(uint8_t enabled, uint8_t expected_previous, TwineBuffer *out_result);
 TwineStatus twine_config_file(TwineBuffer *out_file);
 TwineStatus twine_config_save_file(const uint8_t *request_bytes, size_t request_length, TwineBuffer *out_result);
 

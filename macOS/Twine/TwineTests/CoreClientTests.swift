@@ -18,6 +18,7 @@ struct CoreClientTests {
         #expect(snapshot.config.appearance.colorScheme == colorScheme)
         #expect(snapshot.config.terminal.fontFamily == "Menlo")
         #expect(snapshot.config.terminal.fontSize == 15.5)
+        #expect(snapshot.config.updates == CoreUpdateConfig())
     }
 
     @Test func coreRoundTrip() async throws {

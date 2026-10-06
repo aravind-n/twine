@@ -63,6 +63,7 @@ struct SettingsView: View {
     let settings: SettingsPopup
     let windows: FolderWindows
     @Environment(\.appZoomMaximumPresentationSize) private var maximumSize
+    @Environment(AppUpdater.self) private var updater
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -75,6 +76,13 @@ struct SettingsView: View {
             }
             Text("Saved settings apply immediately to all open folders.")
                 .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "Automatic updates install on quit. Installing and relaunching stops terminals and agents."
+            )
+            .font(.caption).foregroundStyle(.secondary)
+            if let failure = updater.failure {
+                Text(failure).font(.caption).foregroundStyle(.secondary)
+            }
             if let editor = settings.editor {
                 FileViewer(
                     path: editor.path, folder: editor.folder, failure: nil,

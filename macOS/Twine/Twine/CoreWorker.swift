@@ -285,6 +285,12 @@ extension CoreWorker {
         return try decoder.decode(FilePreview.self, from: consume(&response))
     }
 
+    func setAutomaticUpdates(_ enabled: Bool, expectedPrevious: Bool) throws -> FileSaveResult {
+        var response = TwineBuffer()
+        try check(twine_config_set_automatic_updates(enabled ? 1 : 0, expectedPrevious ? 1 : 0, &response))
+        return try decoder.decode(FileSaveResult.self, from: consume(&response))
+    }
+
     func saveConfigFile(_ request: FileSaveRequest) throws -> FileSaveResult {
         let data = try encoder.encode(request)
         var response = TwineBuffer()

@@ -16,6 +16,7 @@ struct TwineApp: App {
     @State private var windows = FolderWindows(dataDirectory: Self.dataDirectory)
     @State private var harnessModels = HarnessModelCatalog()
     @State private var zoom = AppZoom()
+    @State private var updater = AppUpdater()
     @State private var settings = SettingsPopup(dataDirectory: Self.dataDirectory)
     @State private var workflowLayouts = WorkflowLayouts(
         fileURL: Self.dataDirectory.appending(path: "workflow-layouts.json"))
@@ -40,13 +41,16 @@ struct TwineApp: App {
         WindowGroup(id: "folder", for: UUID.self) { id in
             FolderWindowRoot(id: id.wrappedValue ?? initialWindowID, windows: windows)
                 .environment(settings)
+                .environment(updater)
                 .defaultAppStorage(WorkflowLaunchPreferences.defaultStore())
                 .environment(workflowLayouts)
                 .environment(harnessModels)
                 .environment(\.appZoom, zoom)
                 .task {
                     zoom.installKeyboardShortcuts()
-                    terminationDelegate.attach(windows: windows, layouts: workflowLayouts, settings: settings)
+                    updater.attach(coreClient: settings.coreClient, windows: windows)
+                    terminationDelegate.attach(
+                        windows: windows, layouts: workflowLayouts, settings: settings, updater: updater)
                 }
         }
         .defaultWindowPlacement { _, context in
@@ -56,6 +60,10 @@ struct TwineApp: App {
         }
         .restorationBehavior(.disabled)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…", action: updater.checkForUpdates)
+                    .disabled(!updater.canCheckForUpdates)
+            }
             SidebarCommands()
             FolderCommands(settings: settings)
             AppZoomCommands(zoom: zoom)
@@ -81,6 +89,7 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
     private var layouts: WorkflowLayouts?
     private var windows: FolderWindows?
     private var settings: SettingsPopup?
+    private var updater: AppUpdater?
 
     func attach(to coreClient: CoreClient, tabs: FileTabsModel? = nil, layouts: WorkflowLayouts? = nil) {
         self.coreClient = coreClient
@@ -88,10 +97,13 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
         self.layouts = layouts
     }
 
-    func attach(windows: FolderWindows, layouts: WorkflowLayouts, settings: SettingsPopup? = nil) {
+    func attach(
+        windows: FolderWindows, layouts: WorkflowLayouts, settings: SettingsPopup? = nil, updater: AppUpdater? = nil
+    ) {
         self.windows = windows
         self.layouts = layouts
         self.settings = settings
+        self.updater = updater
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -110,6 +122,7 @@ final class AppTerminationDelegate: NSObject, NSApplicationDelegate {
         isTerminating = true
         windows?.isTerminating = true
         Task {
+            await updater?.finishSavingPreferences()
             await windows?.finishClosingWindows()
             for client in clients { await client.stopForQuit() }
             await layouts?.flush()

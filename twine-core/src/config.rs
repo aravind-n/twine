@@ -15,7 +15,7 @@ mod imports;
 mod themes;
 
 pub use diagnostics::{ConfigDiagnostic, ConfigProblem};
-pub use editing::{ConfigEditError, read_user_file, save_user_file};
+pub use editing::{ConfigEditError, read_user_file, save_user_file, set_user_automatic_updates};
 pub use themes::{HexColor, TerminalColors, TerminalPalette, TerminalPalettes};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -23,6 +23,36 @@ pub use themes::{HexColor, TerminalColors, TerminalPalette, TerminalPalettes};
 pub struct Config {
     pub appearance: Appearance,
     pub terminal: TerminalConfig,
+    pub updates: UpdateConfig,
+}
+
+/// Update policy shared by app front ends. Downloading and installation belong to the host.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct UpdateConfig {
+    pub automatically_check: bool,
+    /// Install downloaded updates when the app quits, without restarting active work.
+    pub automatically_install: bool,
+    pub channel: UpdateChannel,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            automatically_check: true,
+            automatically_install: false,
+            channel: UpdateChannel::Stable,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    /// Include nightly builds as well as stable releases.
+    Nightly,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -263,6 +293,9 @@ fn default_source() -> Result<String, ConfigFileError> {
          # terminal.font_family selects an installed monospace family (for example, \"JetBrains Mono\").\n\
          # An empty, unavailable, or proportional family uses system monospace.\n\
          # terminal.font_size accepts 6 through 72 points, including fractional sizes.\n\
+         # updates.automatically_check checks daily while the app is open.\n\
+         # updates.automatically_install downloads updates and installs them on quit.\n\
+         # updates.channel accepts \"stable\" or \"nightly\" (includes stable releases).\n\
          # Top-level import accepts a TOML file path or a list of paths.\n\
          # Later imports override earlier imports; settings in this file override all imports.\n\
          # Imported files use the same tables as this config; colors use #RRGGBB strings.\n\
@@ -362,6 +395,33 @@ mod tests {
             let loaded = Config::parse(Path::new(PATH), source);
             assert_eq!(loaded.config, Config::default());
             assert_eq!(loaded.diagnostics, []);
+        }
+    }
+
+    #[test]
+    fn update_policy_defaults_and_explicit_settings_are_validated() {
+        assert_eq!(Config::default().updates, UpdateConfig::default());
+        let loaded = Config::parse(
+            Path::new(PATH),
+            "[updates]\nautomatically_check = false\nautomatically_install = true\nchannel = 'nightly'\n",
+        );
+        assert_eq!(
+            loaded.config.updates,
+            UpdateConfig {
+                automatically_check: false,
+                automatically_install: true,
+                channel: UpdateChannel::Nightly,
+            }
+        );
+        assert_eq!(loaded.diagnostics, []);
+        for source in [
+            "updates.channel = 'beta'",
+            "updates.automatically_install = 'true'",
+            "updates.automatically_check = 1",
+        ] {
+            let loaded = Config::parse(Path::new(PATH), source);
+            assert_eq!(loaded.config, Config::default());
+            assert_eq!(loaded.diagnostics[0].problem, ConfigProblem::InvalidValue);
         }
     }
 

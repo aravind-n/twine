@@ -4,6 +4,7 @@ struct FolderWindowRoot: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(WorkflowLayouts.self) private var layouts
     @Environment(SettingsPopup.self) private var settings
+    @Environment(AppUpdater.self) private var updater
     @State private var session: FolderWindowSession
     let windows: FolderWindows
 
@@ -18,6 +19,9 @@ struct FolderWindowRoot: View {
             .environment(session.tabs)
             .focusedSceneValue(\.folderWindow, session)
             .preferredColorScheme(preferredColorScheme)
+            .onChange(of: session.coreClient.snapshot?.config.updates, initial: true) { _, config in
+                if let config { updater.apply(config) }
+            }
             .sheet(
                 isPresented: Binding(
                     get: { settings.presentedWindowID == session.id },
@@ -48,5 +52,6 @@ struct FolderWindowRoot: View {
     )
     .environment(WorkflowLayouts(fileURL: .temporaryDirectory.appending(path: "twine-preview-layouts.json")))
     .environment(HarnessModelCatalog())
+    .environment(AppUpdater(driver: nil))
     .environment(SettingsPopup(dataDirectory: .temporaryDirectory.appending(path: "TwinePreview")))
 }

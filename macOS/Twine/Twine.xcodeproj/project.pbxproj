@@ -11,6 +11,7 @@
 		F2DDC768306B00010066E501 /* TwineCore in Frameworks */ = {isa = PBXBuildFile; productRef = F2DDC76A306B00010066E501 /* TwineCore */; };
 		F3A000013070000100000001 /* cmark-gfm-extensions in Frameworks */ = {isa = PBXBuildFile; productRef = F3A000023070000100000001 /* cmark-gfm-extensions */; };
 		F3B000013070000100000001 /* TwineSyntax in Frameworks */ = {isa = PBXBuildFile; productRef = F3B000023070000100000001 /* TwineSyntax */; };
+		F3C000013070000100000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F3C000023070000100000001 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,9 +37,22 @@
 		F266A3FE3068BD6100C1232B /* TwineUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TwineUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F3C000043070000100000001 /* Exceptions for Twine folder in Twine target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = F266A3E63068BD6000C1232B /* Twine */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F266A3E93068BD6000C1232B /* Twine */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F3C000043070000100000001 /* Exceptions for Twine folder in Twine target */,
+			);
 			path = Twine;
 			sourceTree = "<group>";
 		};
@@ -58,6 +72,7 @@
 		F266A3E43068BD6000C1232B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				F3C000013070000100000001 /* Sparkle in Frameworks */,
 				F3B000013070000100000001 /* TwineSyntax in Frameworks */,
 				F3A000013070000100000001 /* cmark-gfm-extensions in Frameworks */,
 				F2DDC768306B00010066E501 /* TwineCore in Frameworks */,
@@ -115,6 +130,7 @@
 			);
 			name = Twine;
 			packageProductDependencies = (
+				F3C000023070000100000001 /* Sparkle */,
 				F3B000023070000100000001 /* TwineSyntax */,
 				F3A000023070000100000001 /* cmark-gfm-extensions */,
 				F2DDC76A306B00010066E501 /* TwineCore */,
@@ -202,6 +218,7 @@
 				F3B000033070000100000001 /* XCLocalSwiftPackageReference "../TwineSyntaxPackage" */,
 				F3A000033070000100000001 /* XCRemoteSwiftPackageReference "swift-cmark" */,
 				F2DDC769306B00010066E501 /* XCLocalSwiftPackageReference "../TwineCorePackage" */,
+				F3C000033070000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				F2DDC75D306A855C0066E501 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */,
 				F2DDC766306A85810066E501 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
@@ -408,6 +425,8 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Twine/Info.plist;
+				TWINE_UPDATE_PUBLIC_KEY = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Commands you run in Twine may need to control other apps with AppleScript.";
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "Commands you run in Twine may need to capture system audio.";
@@ -469,6 +488,8 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Twine/Info.plist;
+				TWINE_UPDATE_PUBLIC_KEY = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Commands you run in Twine may need to control other apps with AppleScript.";
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "Commands you run in Twine may need to capture system audio.";
@@ -657,6 +678,11 @@
 				version = 0.9.0;
 			};
 		};
+		F3C000033070000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = { kind = exactVersion; version = 2.10.0; };
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -679,6 +705,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F3B000033070000100000001 /* XCLocalSwiftPackageReference "../TwineSyntaxPackage" */;
 			productName = TwineSyntax;
+		};
+		F3C000023070000100000001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F3C000033070000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
