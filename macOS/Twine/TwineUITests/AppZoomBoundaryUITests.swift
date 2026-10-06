@@ -22,7 +22,8 @@ extension TwineUITests {
         assertZoomedDividerTracksPointer(in: app)
         app.typeKey("0", modifierFlags: .command)
         app.buttons["closeTerminalPane-2"].click()
-        app.typeKey("d", modifierFlags: [.command, .shift])
+        XCTAssertTrue(app.buttons["closeTerminalPane-2"].waitForNonExistence(timeout: 5), app.debugDescription)
+        app.buttons["splitTerminalDown"].click()
         XCTAssertTrue(app.buttons["closeTerminalPane-3"].waitForExistence(timeout: 5))
         // A tall window's bottom edge can be covered by the Dock. Shrink from the top first.
         let window = app.windows.firstMatch
@@ -75,7 +76,9 @@ extension TwineUITests {
         XCTAssertTrue(divider.waitForExistence(timeout: 5))
         let initial = divider.frame.midX
         let center = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        center.click(forDuration: 0.1, thenDragTo: center.withOffset(CGVector(dx: 60, dy: 0)))
-        XCTAssertEqual(divider.frame.midX - initial, 60, accuracy: 8)
+        // CI displays can clamp the requested window width. Keep the drag within the
+        // panes' minimum widths at 200 percent, while still checking physical pointer tracking.
+        center.click(forDuration: 0.1, thenDragTo: center.withOffset(CGVector(dx: 20, dy: 0)))
+        XCTAssertEqual(divider.frame.midX - initial, 20, accuracy: 3)
     }
 }

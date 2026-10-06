@@ -231,6 +231,10 @@ extension TwineUITests {
     @MainActor
     private func selectSyntaxLanguage(_ language: String, in app: XCUIApplication) {
         app.menuButtons["fileSyntaxLanguage"].click()
+        // The Picker is a submenu. Reveal its items before clicking a choice.
+        let submenu = app.menuItems["Syntax language"].firstMatch
+        XCTAssertTrue(submenu.waitForExistence(timeout: 3), app.debugDescription)
+        submenu.hover()
         let option = app.menuItems[language]
         XCTAssertTrue(option.waitForExistence(timeout: 3), app.debugDescription)
         option.click()
@@ -240,7 +244,8 @@ extension TwineUITests {
     private func assertSyntaxLanguage(_ language: String, in app: XCUIApplication) {
         let menu = app.menuButtons["fileSyntaxLanguage"]
         XCTAssertTrue(menu.waitForExistence(timeout: 3), app.debugDescription)
-        XCTAssertEqual(menu.value as? String, language)
+        let selected = expectation(for: NSPredicate(format: "value == %@", language), evaluatedWith: menu)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed, app.debugDescription)
     }
 
     @MainActor

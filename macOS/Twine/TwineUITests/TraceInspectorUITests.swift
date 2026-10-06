@@ -97,9 +97,13 @@ extension TwineUITests {
         let originalStep = app.buttons[stepID]
         XCTAssertTrue(originalStep.waitForExistence(timeout: 10), app.debugDescription)
         originalStep.click()
+        let returnToLive = app.buttons["minimapReturnToLive"]
+        XCTAssertTrue(returnToLive.waitForExistence(timeout: 10), app.debugDescription)
+        returnToLive.click()
+        XCTAssertTrue(returnToLive.waitForNonExistence(timeout: 5), app.debugDescription)
         selectTraceViewMode("In Depth", in: app)
         // Restored windows may be shorter; reveal the deep panel through the outer viewport.
-        app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5))
+        app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
             .scroll(byDeltaX: 0, deltaY: -800)
         let search = app.textFields["traceActivitySearch"]
         search.click()
@@ -111,9 +115,15 @@ extension TwineUITests {
             app.staticTexts.matching(NSPredicate(format: "value CONTAINS 'fixture test failure'")).firstMatch.exists)
         let inspector = app.scrollViews["traceActivityInspector"]
         inspector.scroll(byDeltaX: 0, deltaY: -600)
+        // The inspector adds height after selection; reveal its bottom in the outer viewport too.
+        app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+            .scroll(byDeltaX: 0, deltaY: -800)
         XCTAssertTrue(app.buttons["traceActivityJump"].isHittable, app.debugDescription)
+        XCTAssertFalse(returnToLive.exists, app.debugDescription)
         app.buttons["traceActivityJump"].click()
-        XCTAssertTrue(app.textViews["terminalHistoryText"].waitForExistence(timeout: 10), app.debugDescription)
+        // Retained output is revealed in the mounted terminal, including after relaunch.
+        XCTAssertTrue(returnToLive.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.textViews["terminalHistoryText"].exists, app.debugDescription)
         attachWindow(in: app, name: "Recorded tool details survive relaunch")
     }
 
