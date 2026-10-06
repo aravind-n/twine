@@ -18,6 +18,7 @@ final class TerminalController: NSObject, TerminalViewDelegate {
     private var lastSize: CoreTerminalSize?
     private var pendingSize: CoreTerminalSize?
     private var pendingInput = Data()
+    private var feedResponses: Data?
     private var task: Task<Void, Never>?
     private var inputTask: Task<Void, Never>?
     private var resizeTask: Task<Void, Never>?
@@ -148,6 +149,10 @@ final class TerminalController: NSObject, TerminalViewDelegate {
             if isUserInput { pendingInput.append(contentsOf: data) }
             return
         }
+        if !isUserInput, feedResponses != nil {
+            feedResponses?.append(contentsOf: data)
+            return
+        }
         guard let terminalID else {
             // The terminal takes focus before its shell starts, so hold typing until it has.
             pendingInput.append(contentsOf: data)
@@ -244,32 +249,6 @@ final class TerminalController: NSObject, TerminalViewDelegate {
         (source as? MetalTerminalView)?.minimapState?.scheduleRefresh()
     }
 
-    private func pumpOutput(for terminalID: UInt64, into view: TerminalView) async throws {
-        while !Task.isCancelled {
-            if let chunk = try await coreClient.nextTerminalChunk(for: terminalID) {
-                let end = chunk.offset + UInt64(chunk.bytes.count)
-                if end <= expectedOffset { continue }
-                guard chunk.offset <= expectedOffset else {
-                    throw TerminalControllerError.offset(
-                        expected: expectedOffset,
-                        received: chunk.offset
-                    )
-                }
-                (view as? MetalTerminalView)?.minimapState?.beginFeed()
-                let bytes = chunk.bytes.dropFirst(Int(expectedOffset - chunk.offset))
-                expectedOffset = end
-                view.feed(byteArray: Array(bytes)[...])
-                (view as? MetalTerminalView)?.minimapState?.received(through: expectedOffset)
-                await Task.yield()
-                continue
-            }
-
-            // The process-exit event and the PTY reader are supervised independently. Keep
-            // polling after exit so bytes already in the PTY cannot be mistaken for EOF.
-            try await Task.sleep(for: .milliseconds(10))
-        }
-    }
-
     private func report(_ error: any Error) {
         guard !isStopping else { return }
         terminalLogger.error("Terminal \(self.terminalID ?? 0) failed: \(error.localizedDescription, privacy: .public)")
@@ -284,6 +263,39 @@ final class TerminalController: NSObject, TerminalViewDelegate {
 }
 
 extension TerminalController {
+    private func pumpOutput(for terminalID: UInt64, into view: TerminalView) async throws {
+        while !Task.isCancelled {
+            if let chunk = try await coreClient.nextTerminalChunk(for: terminalID) {
+                let end = chunk.offset + UInt64(chunk.bytes.count)
+                if end <= expectedOffset { continue }
+                guard chunk.offset <= expectedOffset else {
+                    throw TerminalControllerError.offset(
+                        expected: expectedOffset,
+                        received: chunk.offset
+                    )
+                }
+                (view as? MetalTerminalView)?.minimapState?.beginFeed()
+                let bytes = chunk.bytes.dropFirst(Int(expectedOffset - chunk.offset))
+                expectedOffset = end
+                // Startup probes send several queries together and wait only 250 ms.
+                // Deliver their replies together instead of taking an actor hop for each.
+                feedResponses = Data()
+                view.feed(byteArray: Array(bytes)[...])
+                if let responses = feedResponses, !responses.isEmpty {
+                    enqueueInput(responses, terminalID: terminalID)
+                }
+                feedResponses = nil
+                (view as? MetalTerminalView)?.minimapState?.received(through: expectedOffset)
+                await Task.yield()
+                continue
+            }
+
+            // The process-exit event and the PTY reader are supervised independently. Keep
+            // polling after exit so bytes already in the PTY cannot be mistaken for EOF.
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     fileprivate func terminalSize(
         for view: TerminalView,
         columns: Int? = nil,
