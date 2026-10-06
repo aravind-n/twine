@@ -33,7 +33,7 @@ for version in 1 2; do
     codesign --force --sign - --preserve-metadata=entitlements "$destination"
 done
 ditto "$fixture/old-Twine.app" "$fixture/Applications/Twine.app"
-python3 .github/release/updater-fixture.py "$fixture" > "$fixture/server.log" 2>&1 &
+python3 -u .github/release/updater-fixture.py "$fixture" > "$fixture/server.log" 2>&1 &
 server_pid=$!
 server_deadline=$((SECONDS + 30))
 while [[ ! -s "$fixture/port" ]]; do
