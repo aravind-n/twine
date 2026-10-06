@@ -14,7 +14,7 @@ thiserror = "2.0.21"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-oslog = "0.3.0"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry"] }
-twine-core = { version = "0.1.0", path = "../twine-core" }
+twine-core = { version = "0.2.0", path = "../twine-core" }
 
 [lints]
 workspace = true
