@@ -47,6 +47,6 @@ jobs:
       - name: Assemble website
         run: make assemble-site
       - name: Upload website artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist/twine
