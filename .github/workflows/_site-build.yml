@@ -46,6 +46,10 @@ jobs:
           fail-on-cache-miss: true
       - name: Assemble website
         run: make assemble-site
+      - name: Assemble update feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make update-feed OUTPUT_DIR=dist/twine
       - name: Upload website artifact
         uses: actions/upload-pages-artifact@v4
         with:

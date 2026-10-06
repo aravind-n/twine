@@ -25,6 +25,7 @@ jobs:
     env:
       BUILD_VERSION: ${{ inputs.version }}
       BUILD_NUMBER: ${{ inputs.build_number }}
+      TWINE_UPDATE_PUBLIC_KEY: ${{ vars.TWINE_UPDATE_PUBLIC_KEY }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -43,7 +44,7 @@ jobs:
         id: build-app
         run: >-
           make release-build-app DERIVED_DATA="$RUNNER_TEMP/DerivedData"
-          XCODE_BUILD_ARGS="CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=$BUILD_NUMBER"
+          XCODE_BUILD_ARGS="CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=$BUILD_NUMBER TWINE_UPDATE_PUBLIC_KEY=$TWINE_UPDATE_PUBLIC_KEY"
       - name: Bundle release artifacts
         run: >-
           make release-bundle DERIVED_DATA="$RUNNER_TEMP/DerivedData"

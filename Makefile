@@ -22,6 +22,8 @@ DMG_TOOLS_DIR := $(CURDIR)/target/dmg-tools
 DMG_PYTHON := $(DMG_TOOLS_DIR)/bin/python3
 RELEASE_SCRIPT := TWINE_DMG_PYTHON="$(DMG_PYTHON)" bash .github/release/release.sh
 ACTIONLINT ?= actionlint
+SPARKLE_TOOLS_DIR ?= $(CURDIR)/target/sparkle-tools
+export TWINE_SPARKLE_TOOLS := $(SPARKLE_TOOLS_DIR)
 
 UI_TEST_DERIVED_DATA ?= /tmp/twine-uitests
 # Tests outside this list are retired from default runs, but remain available with ONLY or ALL=1.
@@ -72,7 +74,7 @@ UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 	test-macos ui-test-macos ui-test-macos-built ui-test-macos-all ui-test-macos-visual check-macos clean-macos \
 	fmt lint test check clean release-build-app release-bundle release-package nightly-package \
 	check-release check-release-scripts test-release-scripts lint-release-scripts \
-	check-release-package dmg-tools regenerate-dmg-artwork \
+	check-release-package dmg-tools sparkle-tools update-feed test-updater-macos test-updater-macos-built regenerate-dmg-artwork \
 	build-site assemble-site docs-rust docs-swift docs-swift-built \
 	resolve-swift-packages lint-macos-built build-macos-for-testing test-macos-built \
 	check-ci lint-ci test-ci
@@ -123,6 +125,9 @@ help:
 	@echo '  nightly-package       Sign, notarize, and verify DMG and archives for NIGHTLY_ID'
 	@echo '                        TWINE_SIGNING_MODE=adhoc skips Developer ID signing and notarization locally'
 	@echo '  check-release         Test release scripts and macOS packaging, and lint workflows'
+	@echo '  sparkle-tools         Download checksum-verified Sparkle signing tools'
+	@echo '  update-feed           Assemble appcast from published GitHub releases (OUTPUT_DIR)'
+	@echo '  test-updater-macos    Exercise signed app updates with an isolated fixture; takes over the desktop'
 	@echo '  check-ci              Lint workflows and test CI selection and framework packaging'
 	@echo '  regenerate-dmg-artwork Render the installer SVG into a Retina Finder background'
 	@echo ''
@@ -164,10 +169,10 @@ release-build-app:
 release-bundle:
 	$(RELEASE_SCRIPT) bundle "$(BUILD_DIR)" "$(BUNDLE_DIR)"
 
-release-package: dmg-tools
+release-package: dmg-tools sparkle-tools
 	$(RELEASE_SCRIPT) package "$(VERSION)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
 
-nightly-package: dmg-tools
+nightly-package: dmg-tools sparkle-tools
 	$(RELEASE_SCRIPT) nightly-package "$(NIGHTLY_ID)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
 
 check-release-scripts: test-release-scripts lint-release-scripts
@@ -176,11 +181,12 @@ test-release-scripts:
 	bash .github/release/test-notes.sh
 	bash .github/release/test-nightly.sh
 	bash .github/release/test-signing.sh
+	python3 .github/release/test-appcast.py
 
 lint-release-scripts:
 	shellcheck .github/release/*.sh
 
-check-release-package: dmg-tools
+check-release-package: dmg-tools sparkle-tools
 	TWINE_DMG_PYTHON="$(DMG_PYTHON)" bash .github/release/test-package.sh
 
 $(DMG_TOOLS_DIR)/.installed: .github/release/dmg-requirements.txt
@@ -189,6 +195,18 @@ $(DMG_TOOLS_DIR)/.installed: .github/release/dmg-requirements.txt
 	touch "$@"
 
 dmg-tools: $(DMG_TOOLS_DIR)/.installed
+
+sparkle-tools:
+	bash .github/release/sparkle-tools.sh "$(SPARKLE_TOOLS_DIR)"
+
+test-updater-macos: framework
+	$(MAKE) test-updater-macos-built
+
+test-updater-macos-built: sparkle-tools
+	bash .github/release/test-updater.sh
+
+update-feed:
+	python3 .github/release/appcast.py publish "$(OUTPUT_DIR)/updates/appcast.xml"
 
 regenerate-dmg-artwork:
 	swift format --in-place .github/release/render-background.swift

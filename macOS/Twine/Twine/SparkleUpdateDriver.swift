@@ -10,9 +10,24 @@ final class SparkleUpdateDriver: NSObject, UpdateDriver, SPUUpdaterDelegate {
     private lazy var controller = SPUStandardUpdaterController(
         startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
     private var observation: NSKeyValueObservation?
+    #if DEBUG
+        private let testFeedURL: URL?
+    #endif
 
-    override init() {
-        super.init()
+    #if DEBUG
+        init(testFeedURL: URL? = nil) {
+            self.testFeedURL = testFeedURL
+            super.init()
+            observeAvailability()
+        }
+    #else
+        override init() {
+            super.init()
+            observeAvailability()
+        }
+    #endif
+
+    private func observeAvailability() {
         observation = controller.updater.observe(\.canCheckForUpdates) { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.availabilityChanged?() }
         }
@@ -35,7 +50,15 @@ final class SparkleUpdateDriver: NSObject, UpdateDriver, SPUUpdaterDelegate {
         try controller.updater.start()
     }
 
-    func check() { controller.checkForUpdates(nil) }
+    func check() {
+        #if DEBUG
+            if testFeedURL != nil && ProcessInfo.processInfo.environment["TWINE_TEST_UPDATE_BACKGROUND"] == "1" {
+                controller.updater.checkForUpdatesInBackground()
+                return
+            }
+        #endif
+        controller.checkForUpdates(nil)
+    }
     func resetSchedule() { controller.updater.resetUpdateCycle() }
 
     func updater(
@@ -45,11 +68,28 @@ final class SparkleUpdateDriver: NSObject, UpdateDriver, SPUUpdaterDelegate {
         preferenceChanged?()
     }
 
+    #if DEBUG
+        func updater(
+            _ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
+            immediateInstallationBlock: @escaping () -> Void
+        ) -> Bool {
+            guard testFeedURL != nil,
+                let path = ProcessInfo.processInfo.environment["TWINE_TEST_UPDATE_READY_PATH"]
+            else { return false }
+            try? Data().write(to: URL(filePath: path))
+            return false
+        }
+
+    #endif
+
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {
         channel == .nightly ? ["nightly"] : []
     }
 
     func feedURLString(for updater: SPUUpdater) -> String? {
-        Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        #if DEBUG
+            if let testFeedURL { return testFeedURL.absoluteString }
+        #endif
+        return Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
     }
 }

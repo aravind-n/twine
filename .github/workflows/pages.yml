@@ -1,12 +1,14 @@
 name: GitHub Pages
 
-# Building the site happens inside CI, sharing its macOS allocation.
-# Deployment remains separate so a Pages failure cannot block app releases.
+# Build the website in CI, then refresh the feed when a release becomes public.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,9 +21,10 @@ concurrency:
 jobs:
   deploy:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
       (github.event.workflow_run.event == 'push' ||
-      github.event.workflow_run.event == 'workflow_dispatch')
+      github.event.workflow_run.event == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,23 +40,49 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
           BUILD_RUN: ${{ github.event.workflow_run.id }}
           BUILD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           main_sha="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')"
-          available="$(gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN/artifacts?per_page=100" \
-            --jq '[.artifacts[] | select(.name == "github-pages" and .expired == false)] | length')"
-          if [[ "$BUILD_SHA" == "$main_sha" && "$available" == 1 ]]; then
-            echo 'available=true' >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT" != workflow_run ]]; then
+            BUILD_RUN="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs" --method GET \
+              -f branch=main -f event=push -f head_sha="$main_sha" -f status=success \
+              --jq '.workflow_runs[0].id // empty')"
+            BUILD_SHA="$main_sha"
           fi
+          if [[ -n "$BUILD_RUN" && "$BUILD_SHA" == "$main_sha" ]]; then
+            available="$(gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN/artifacts?per_page=100" \
+              --jq '[.artifacts[] | select(.name == "github-pages" and .expired == false)] | length')"
+            if [[ "$available" == 1 ]]; then
+              {
+                echo 'available=true'
+                echo "run=$BUILD_RUN"
+                echo "sha=$BUILD_SHA"
+              } >> "$GITHUB_OUTPUT"
+            fi
+          fi
+      - uses: actions/checkout@v7
+        if: steps.site.outputs.available == 'true'
+        with:
+          ref: ${{ steps.site.outputs.sha }}
       - name: Download website artifact
         if: steps.site.outputs.available == 'true'
         uses: actions/download-artifact@v8
         with:
           name: github-pages
           path: site-artifact
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.site.outputs.run }}
           github-token: ${{ github.token }}
+      - name: Refresh update feed from published releases
+        if: steps.site.outputs.available == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir site
+          tar -xf site-artifact/artifact.tar -C site
+          make update-feed OUTPUT_DIR=site
+          tar -cf site-artifact/artifact.tar -C site .
       - name: Attach website to this deployment run
         if: steps.site.outputs.available == 'true'
         uses: actions/upload-artifact@v7

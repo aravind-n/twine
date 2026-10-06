@@ -13,7 +13,7 @@ releases() {
 
 expected_assets() {
     printf '%s\n' "Twine-$1-macos-universal.dmg" "libtwinecore-$1-macos-universal.tar.gz" \
-        "Twine-$1-symbols.tar.gz" "twine-$1-source.tar.gz" SHA256SUMS | sort
+        "Twine-$1-symbols.tar.gz" "twine-$1-source.tar.gz" appcast.xml SHA256SUMS | sort
 }
 
 check_tag() {

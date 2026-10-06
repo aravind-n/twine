@@ -205,9 +205,10 @@ Install the font in macOS, or omit `font_family` to use the system monospace fon
 Restart Twine after editing settings. Appearance settings are parsed but are not
 applied yet.
 
-Packaged Release builds support **Twine → Check for Updates…** once their Sparkle
-signing key and update feed are configured. Debug builds, previews, and builds
-using `TWINE_DATA_DIRECTORY` keep the updater disabled.
+Packaged Release builds support **Twine → Check for Updates…**. Debug builds,
+previews, and builds using `TWINE_DATA_DIRECTORY` keep the updater disabled.
+The dedicated `make test-updater-macos` fixture enables Debug updates only for
+an HTTP feed on `127.0.0.1` and isolated app data.
 
 Update policy lives in the same settings file:
 
@@ -228,6 +229,22 @@ You can choose **Install and Relaunch** in the update window to install immediat
 Quit and relaunch protect unsaved editor changes and stop running terminals and
 agents before the app closes. Save settings in Twine to apply update policy to
 all open folders immediately.
+
+Release CI embeds the repository variable `TWINE_UPDATE_PUBLIC_KEY`. Packaging
+requires the matching `TWINE_UPDATE_PRIVATE_KEY` GitHub Actions secret, signs the
+final notarized DMG with Sparkle 2.10.0, and uploads `appcast.xml` with the release
+assets and checksums. Keep a backup of this key; installed apps trust its public
+half. `make sparkle-tools` downloads the pinned tools and verifies their checksum.
+
+GitHub Pages serves `https://aravind-n.github.io/twine/updates/appcast.xml`.
+The feed combines signed entries from published stable releases and nightly
+prereleases, excluding drafts and releases that predate update signing. Publishing
+a stable release refreshes the feed; nightly publication dispatches the same Pages
+workflow. The nightly workflow remains disabled by default. `make update-feed
+OUTPUT_DIR=dist/twine` regenerates the feed from GitHub releases with `gh` access.
+`make test-updater-macos` exercises installation, automatic installation on quit,
+checkbox persistence, protection of unsaved edits, and invalid-signature rejection
+using disposable keys and a temporary app copy. It takes control of the desktop.
 
 Application data is stored in `~/Library/Application Support/Twine`. Recorded
 terminal output has retention limits of 64 MiB per terminal and 512 MiB overall,

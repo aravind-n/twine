@@ -15,6 +15,10 @@ cleanup() {
     rm -rf "$fixture"
 }
 trap cleanup EXIT
+swift .github/release/update-keys.swift "$fixture/keys"
+TWINE_UPDATE_PRIVATE_KEY="$(cat "$fixture/keys/private-key")"
+TWINE_UPDATE_PUBLIC_KEY="$(cat "$fixture/keys/public-key")"
+export TWINE_UPDATE_PRIVATE_KEY TWINE_UPDATE_PUBLIC_KEY
 bundle="$fixture/bundle"
 app="$fixture/Twine.app"
 mkdir -p "$app/Contents/MacOS" "$bundle"
@@ -31,8 +35,10 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleShortVersionString</key><string>1.2.3</string>
 <key>CFBundleVersion</key><string>42</string>
 <key>TwineBuildVersion</key><string>ci-fixture</string>
+<key>LSMinimumSystemVersion</key><string>26.0</string>
 </dict></plist>
 PLIST
+/usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $TWINE_UPDATE_PUBLIC_KEY" "$app/Contents/Info.plist"
 build_app() {
     for arch in arm64 x86_64; do
         xcrun clang -arch "$arch" -mmacosx-version-min=26.0 -g -c \
@@ -84,8 +90,24 @@ for mode in package nightly-package; do
     if [[ "$mode" == nightly-package ]]; then version="$nightly"; release_tag="$nightly"; fi
     package "$mode" "$version"
     (cd "$fixture/output" && shasum -a 256 -c SHA256SUMS)
-    [[ "$(find "$fixture/output" -type f | wc -l | tr -d ' ')" == 5 ]]
+    [[ "$(find "$fixture/output" -type f | wc -l | tr -d ' ')" == 6 ]]
     image="$fixture/output/Twine-$version-macos-universal.dmg"
+    python3 - "$fixture/output/appcast.xml" "$version" "$release_tag" "$image" "$fixture/keys/private-key" <<'VERIFY'
+import subprocess, sys, xml.etree.ElementTree as ET
+sys.path.insert(0, ".github/release")
+import appcast
+root = ET.parse(sys.argv[1]).getroot()
+item = root.find("./channel/item")
+enclosure = item.find("enclosure")
+release = {"tag_name": sys.argv[3], "draft": False, "prerelease": sys.argv[3].startswith("nightly-"),
+           "assets": [{"browser_download_url": enclosure.get("url"), "size": int(enclosure.get("length"))}]}
+build, _ = appcast.validated_item(ET.tostring(root), release)
+assert build == 42
+assert item.findtext(appcast.sparkle("shortVersionString")) == sys.argv[2]
+import os
+subprocess.run([os.environ["TWINE_SPARKLE_TOOLS"] + "/bin/sign_update", "--verify", "--ed-key-file", sys.argv[5],
+                sys.argv[4], enclosure.get(appcast.sparkle("edSignature"))], check=True)
+VERIFY
     hdiutil verify -quiet "$image"
     hdiutil imageinfo -plist "$image" > "$fixture/image.plist"
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :Format' "$fixture/image.plist")" == UDZO ]]
@@ -126,6 +148,12 @@ PY
     "$installed/Contents/MacOS/Twine"
     rm -rf "$fixture/Applications folder"
 done
+
+# A mismatched private key must never produce a publishable update.
+swift .github/release/update-keys.swift "$fixture/other-keys"
+TWINE_UPDATE_PRIVATE_KEY="$(cat "$fixture/other-keys/private-key")"
+reject package 1.2.3
+TWINE_UPDATE_PRIVATE_KEY="$(cat "$fixture/keys/private-key")"
 
 # A thin library and mismatched symbols must never reach publication.
 cp "$fixture/arm64.a" "$bundle/libtwinecore.a"

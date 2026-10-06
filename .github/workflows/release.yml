@@ -84,7 +84,7 @@ jobs:
           run-id: ${{ needs.guard.outputs.build_run || github.run_id }}
           github-token: ${{ github.token }}
       - name: Install release packaging tools
-        run: make dmg-tools
+        run: make dmg-tools sparkle-tools
       - name: Sign, notarize, and package release
         env:
           VERSION: ${{ needs.guard.outputs.version }}
@@ -94,6 +94,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          TWINE_UPDATE_PUBLIC_KEY: ${{ vars.TWINE_UPDATE_PUBLIC_KEY }}
+          TWINE_UPDATE_PRIVATE_KEY: ${{ secrets.TWINE_UPDATE_PRIVATE_KEY }}
         run: >-
           bash .github/release/with-signing.sh
           make release-package VERSION="$VERSION" BUNDLE_DIR="$RUNNER_TEMP/bundle"

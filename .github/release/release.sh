@@ -159,7 +159,19 @@ case "${1:-}" in
             verify_developer_id "$image" container
             spctl --assess --type open --context context:primary-signature --verbose=2 "$image"
         fi
-        (cd "$output"; shasum -a 256 ./*.dmg ./*.tar.gz > SHA256SUMS; shasum -a 256 -c SHA256SUMS)
+        if [[ "${TWINE_SIGNING_MODE:-developer-id}" == developer-id || -n "${TWINE_UPDATE_PRIVATE_KEY:-}" ]]; then
+            python3 - "$plist" "${TWINE_UPDATE_PUBLIC_KEY:-}" <<'KEYCHECK'
+import base64, plistlib, sys
+with open(sys.argv[1], "rb") as source:
+    key = plistlib.load(source).get("SUPublicEDKey", "")
+if len(base64.b64decode(key, validate=True)) != 32 or (sys.argv[2] and key != sys.argv[2]):
+    raise SystemExit("release app has a missing or mismatched Sparkle public key")
+KEYCHECK
+            bash .github/release/sign-update.sh "$image" "$output/appcast.xml" "$version" "$release_tag"
+        fi
+        (cd "$output"; shasum -a 256 ./*.dmg ./*.tar.gz > SHA256SUMS
+            if [[ -f appcast.xml ]]; then shasum -a 256 appcast.xml >> SHA256SUMS; fi
+            shasum -a 256 -c SHA256SUMS)
         ;;
     *) fail 'usage: release.sh guard TAG NOTES | notes VERSION NOTES | bundle BUILD BUNDLE | package VERSION BUNDLE OUTPUT | nightly-package NIGHTLY_ID BUNDLE OUTPUT' ;;
 esac

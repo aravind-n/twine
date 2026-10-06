@@ -43,15 +43,19 @@ final class AppUpdater {
     }
 
     private static func distributionDriver() -> (any UpdateDriver)? {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1",
+            let publicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+            Data(base64Encoded: publicKey)?.count == 32
+        else { return nil }
         #if DEBUG
-            return nil
-        #else
-            let environment = ProcessInfo.processInfo.environment
-            guard environment["TWINE_DATA_DIRECTORY"] == nil,
-                environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1",
-                let publicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
-                Data(base64Encoded: publicKey)?.count == 32
+            guard environment["TWINE_DATA_DIRECTORY"] != nil,
+                let feed = environment["TWINE_TEST_UPDATE_FEED_URL"], let url = URL(string: feed),
+                url.scheme == "http", url.host == "127.0.0.1"
             else { return nil }
+            return SparkleUpdateDriver(testFeedURL: url)
+        #else
+            guard environment["TWINE_DATA_DIRECTORY"] == nil else { return nil }
             return SparkleUpdateDriver()
         #endif
     }

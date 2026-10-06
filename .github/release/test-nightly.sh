@@ -83,7 +83,7 @@ reset() {
     python3 - "$1" <<'PY'
 import json, os, pathlib, sys
 tag, sha = os.environ["MOCK_TAG"], os.environ["MOCK_SHA"]
-names = [f"Twine-{tag}-macos-universal.dmg", f"libtwinecore-{tag}-macos-universal.tar.gz", f"Twine-{tag}-symbols.tar.gz", f"twine-{tag}-source.tar.gz", "SHA256SUMS"]
+names = [f"Twine-{tag}-macos-universal.dmg", f"libtwinecore-{tag}-macos-universal.tar.gz", f"Twine-{tag}-symbols.tar.gz", f"twine-{tag}-source.tar.gz", "appcast.xml", "SHA256SUMS"]
 release = {"tag_name": tag, "target_commitish": sha, "draft": False, "prerelease": True, "created_at": "2026-10-05T10:17:00Z", "assets": [{"name": name, "size": 1} for name in names]}
 state = {"releases": []}
 case = sys.argv[1]
@@ -149,10 +149,10 @@ grep -qx 'publish=true' "$GITHUB_OUTPUT"
 
 mkdir "$fixture/assets"
 for name in "Twine-$tag-macos-universal.dmg" "libtwinecore-$tag-macos-universal.tar.gz" \
-    "Twine-$tag-symbols.tar.gz" "twine-$tag-source.tar.gz"; do
+    "Twine-$tag-symbols.tar.gz" "twine-$tag-source.tar.gz" appcast.xml; do
     printf 'fixture asset\n' > "$fixture/assets/$name"
 done
-(cd "$fixture/assets" && shasum -a 256 ./*.dmg ./*.tar.gz > SHA256SUMS)
+(cd "$fixture/assets" && shasum -a 256 ./*.dmg ./*.tar.gz appcast.xml > SHA256SUMS)
 for case in new draft; do
     reset "$case"
     run publish "$tag" "$fixture/assets" "$fixture/notes.md"

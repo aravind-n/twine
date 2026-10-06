@@ -87,6 +87,7 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/workflows/pages.yml'
               - '.github/workflows/_site-build.yml'
+              - '.github/release/appcast.py'
               - 'Makefile'
       - name: Look up matching Swift documentation
         if: github.event_name != 'pull_request' || steps.filter.outputs.site == 'true'
@@ -159,7 +160,7 @@ jobs:
         run: make lint-macos-built
       - name: Install release packaging tools
         if: github.event_name == 'pull_request' && needs.changes.outputs.workflows == 'true'
-        run: make dmg-tools
+        run: make dmg-tools sparkle-tools
       - name: Test release packaging scripts
         if: github.event_name == 'pull_request' && needs.changes.outputs.workflows == 'true'
         run: make check-release-package
@@ -184,8 +185,14 @@ jobs:
         if: github.event_name != 'pull_request'
         id: ui-tests
         run: make ui-test-macos-built
+      - name: Run updater UI tests
+        if: github.event_name != 'pull_request' || needs.changes.outputs.app == 'true'
+        id: updater-tests
+        run: make test-updater-macos-built
       - name: Upload failed test results
-        if: failure() && (steps.unit-tests.outcome == 'failure' || steps.ui-tests.outcome == 'failure')
+        if: >-
+          failure() && (steps.unit-tests.outcome == 'failure' ||
+          steps.ui-tests.outcome == 'failure' || steps.updater-tests.outcome == 'failure')
         uses: actions/upload-artifact@v7
         with:
           name: macos-test-results-${{ github.run_attempt }}
