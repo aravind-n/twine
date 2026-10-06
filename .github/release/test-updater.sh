@@ -35,9 +35,14 @@ done
 ditto "$fixture/old-Twine.app" "$fixture/Applications/Twine.app"
 python3 .github/release/updater-fixture.py "$fixture" > "$fixture/server.log" 2>&1 &
 server_pid=$!
-for _ in {1..100}; do
-    if [[ -s "$fixture/port" ]]; then break; fi
-    sleep 0.05
+server_deadline=$((SECONDS + 30))
+while [[ ! -s "$fixture/port" ]]; do
+    if ! kill -0 "$server_pid" 2>/dev/null || ((SECONDS >= server_deadline)); then
+        echo 'The local update server failed to start' >&2
+        cat "$fixture/server.log" >&2
+        exit 1
+    fi
+    sleep 0.1
 done
 port="$(cat "$fixture/port")"
 # Copy executable bundles outside the sandboxed runner. Foundation copies made by
