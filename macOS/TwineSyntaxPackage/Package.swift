@@ -10,7 +10,6 @@ let package = Package(
         // Grammar releases use this original URL, which redirects to tree-sitter/swift-tree-sitter.
         // Keep one SwiftPM identity for the wrapper throughout the dependency graph.
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", exact: "0.10.0"),
-        .package(url: "https://github.com/tree-sitter/tree-sitter", exact: "0.25.10"),
         .package(url: "https://github.com/alex-pinkus/tree-sitter-swift", exact: "0.7.1-with-generated-files"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-rust", exact: "0.24.0"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-python", exact: "0.23.6"),
