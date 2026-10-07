@@ -55,3 +55,24 @@ for (const button of downloadButtons) {
     }
   });
 }
+
+for (const button of document.querySelectorAll("[data-copy]")) {
+  const label = button.querySelector("span");
+  let reset;
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(button.dataset.copy);
+      label.textContent = "Copied";
+      button.dataset.copied = "";
+    } catch {
+      // Clipboard access can be refused; select the command so it can be copied by hand.
+      getSelection().selectAllChildren(button.parentElement.querySelector("code"));
+      label.textContent = "Press ⌘C";
+    }
+    clearTimeout(reset);
+    reset = setTimeout(() => {
+      label.textContent = "Copy";
+      delete button.dataset.copied;
+    }, 2000);
+  });
+}

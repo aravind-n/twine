@@ -41,27 +41,24 @@
 in your folders.</p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">#</a></h2>
 <p>Twine requires <strong>macOS 26+</strong> on Apple Silicon.</p>
-<ol>
-<li>Download <code>Twine-VERSION-macos-arm64.dmg</code> from
-<a href="https://github.com/aravind-n/twine/releases/latest">the latest release</a>.</li>
-<li>Open the DMG, then drag <strong>Twine</strong> onto the <strong>Applications</strong> folder in the disk image.</li>
-<li>Wait for the copy to finish, eject the Twine disk image in Finder, and open Twine from Applications.</li>
-</ol>
-<p>The disk image shows Twine and an Applications shortcut. The license is included
-inside the installed app bundle. New releases are Developer ID
-signed and notarized. Older releases were ad hoc signed and not notarized. If macOS blocks
-the first launch of an older release, use <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>
-for Twine, then confirm Open. Managed Macs may restrict approval.</p>
-<p>To update, quit Twine, open the new DMG, and drag Twine into Applications, choosing
-<strong>Replace</strong> when Finder asks. Your saved work and settings are retained.</p>
-<p>Older releases, including v0.1.0, provide a ZIP instead. Until a stable DMG is published,
-download that ZIP from <a href="https://github.com/aravind-n/twine/releases/latest">GitHub Releases</a>,
-extract it, and move <code>Twine.app</code> to Applications before opening it.</p>
+<p>Install it with <a href="https://brew.sh">Homebrew</a>:</p>
+<pre class="highlight"><code class="language-sh">brew install --cask twineproject/tap/twine-app
+</code></pre>
+<p>Then open Twine from Applications.</p>
+<p>To install manually instead, download the <code>.dmg</code> from
+<a href="https://github.com/aravind-n/twine/releases/latest">the latest release</a>, open it,
+and drag <strong>Twine</strong> onto the <strong>Applications</strong> folder in the disk image.
+Wait for the copy to finish, eject the Twine disk image in Finder, and open Twine from Applications.</p>
+<p>Releases are Developer ID signed and notarized. The license is included inside the
+installed app bundle.</p>
+<p>To update a Homebrew install, quit Twine and run <code>brew upgrade --cask twine-app</code>.
+To update a manual install, quit Twine, open the new DMG, and drag Twine into Applications,
+choosing <strong>Replace</strong> when Finder asks. Your saved work and settings are retained.</p>
 <h2 id="run-your-first-workflow">Run your first workflow<a class="headerlink" href="#run-your-first-workflow" title="Permanent link">#</a></h2>
 <ol>
 <li>Open Twine and choose <strong>Open Folder… (⌘O)</strong> to select the folder you want to work in.</li>
 <li>Create a session to keep the workflows for your task together.</li>
-<li>Add a workflow in a new tab. Choose <strong>Terminal</strong> for a shell, or <strong>Single agent</strong>
+<li>Add a workflow in a new tab (⌘T). Choose <strong>Terminal</strong> for a shell, or <strong>Single agent</strong>
    to work with a coding agent. For an agent workflow, install and authenticate its
    harness separately, then select it in Twine's launch form.</li>
 <li>Start the workflow and enter your command or task in its terminal.</li>
@@ -78,6 +75,9 @@ types are shared. Closing a window stops only its folder's processes; <strong>Cl
 Folder</strong> returns that window to the start page. Quitting stops every window's
 processes and restores all open folders on the next launch. Unavailable folders
 show an explanation and can be closed without reopening them next time.</p>
+<p>Use <strong>View → Zoom In</strong> (⌘+), <strong>Zoom Out</strong> (⌘−), and <strong>Actual Size</strong> (⌘0)
+to scale the interface from 50% to 200%. Zoom applies to every window, including terminals,
+editors, previews, and dialogs, and is remembered between launches.</p>
 <h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">#</a></h2>
 <p>The sidebar starts open. Toggle it with the toolbar button or <strong>⌃⌘S</strong> to browse the folder or make more room for terminals. Expanding a directory loads only its children;
 empty directories remain visible. Twine refreshes expanded directories and the selected file
@@ -91,8 +91,8 @@ workflow. Binary files, larger files, deleted paths, symbolic links, and special
 an explanatory state. Up to 256 directories can be expanded at once.</p>
 <p>The native editor automatically highlights HTML, CSS, Swift, Rust, Python, C, C++, C#,
 Go, Java, Ruby, JSON, JavaScript/JSX, TypeScript/TSX, TOML, YAML, and shell files.
-For HTML files, switch from <strong>Preview</strong> to <strong>Source</strong> to edit with
-highlighting. It detects languages from filenames and script
+HTML and Markdown files open in <strong>Preview</strong>; switch to <strong>Source</strong> to edit with
+highlighting. Markdown previews follow local links. It detects languages from filenames and script
 shebangs. Use the language menu in the file header to choose a language, restore
 <strong>Automatic</strong> detection, or select <strong>Plain Text</strong>. The choice stays with
 that open file tab and never changes the saved text. Colors update as you type and follow the system appearance.
@@ -112,8 +112,10 @@ its terminal and reports it when it finishes, so later roles receive it. Harness
 in the open folder; parallel workers receive their own sub-task and advisory file ownership.
 Each role has a terminal subtab. Later stages and review rounds reuse a role's live
 harness conversation when it remains available. After a role completes its assignment,
-its terminal stays interactive for follow-up prompts. A follow-up can start another
-workflow cycle while retaining the agents and trace history. Restored workflows
+its terminal stays interactive for follow-up prompts. A follow-up to a first-stage agent can
+start another workflow cycle while retaining the agents and trace history. After a workflow
+completes or reaches its review limit, turn on <strong>Individual mode</strong> in the terminal toolbar
+to follow up with each agent without starting another cycle. Restored workflows
 resume recorded harness conversations when all unfinished active agents have
 compatible session handles.</p>
 <p>Choose <strong>Create your own</strong> (<strong>⌥⌘N</strong>) in a new tab to design a workflow type. Add roles and
@@ -133,9 +135,14 @@ resume their unfinished active agents when every one has a recorded harness sess
 role's stage invocations on compact agent tracks in shared start order, with equal spacing
 regardless of pauses. Select a step to focus a seven-step window and inspect its stage
 changes, completions, and handoffs; this history survives reopening the app.</p>
+<p>Traces opens in <strong>Overview</strong>, with steps in start order. Switch to <strong>In Depth</strong> to inspect
+the selected step on a timeline of elapsed time: tool calls, parallel subagents, and previews of
+their inputs and outputs. Search the activity, show only failures, and jump from an activity to
+its recorded output.</p>
 <p>Claude Code, Codex, pi, and OMP can show prompts, tool calls, and responses in
 <strong>Traces</strong>. Select a step to jump to its recorded terminal output. Antigravity and
-OpenCode show workflow activity but do not record individual prompts or tool calls.
+OpenCode show workflow activity but do not record individual prompts or tool calls, so
+<strong>In Depth</strong> has no detailed activity for them.
 If detailed tracing is unavailable, you can still use the agent's terminal and
 review its saved output. Twine leaves your harness configuration files unchanged.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
@@ -258,8 +265,8 @@ Older output expires when storage or metadata limits are reached. Expired output
 remains unavailable after reopening Twine.</p>
 <p>Click an anchored event in trace details to select its workflow and agent and scroll the mounted
 terminal to that point. <strong>Return to live</strong> scrolls back to the latest output. If a point belongs
-to an earlier invocation or has left scrollback, choose <strong>Show saved output</strong> in the notice to
-open a read-only snapshot. Saved output replays cursor movement and recorded terminal sizes;
+to an earlier invocation or has left scrollback, Twine opens a read-only snapshot of the saved
+output instead. A restored workflow's <strong>Saved output</strong> menu opens earlier invocations. Saved output replays cursor movement and recorded terminal sizes;
 resizing the window only changes its viewport. It displays text without terminal colors or
 images. Events without an anchor keep their details without a jump action.</p>
 <p>Saved output needs the earlier terminal output and its recorded sizes to display correctly.
