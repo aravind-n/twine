@@ -10,6 +10,12 @@ updates:
       - "/macOS/TwineSyntaxPackage"
     schedule:
       interval: weekly
+    ignore:
+      # SwiftTreeSitter determines the compatible runtime minor version.
+      - dependency-name: "github.com/tree-sitter/tree-sitter"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
     groups:
       # Update each dependency's manifest requirement and app lockfile together.
       swift-dependencies:
