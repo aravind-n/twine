@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Exercise the production signing functions and credential lifecycle without Apple credentials or network requests.
-mkdir -p target
-fixture="$(mktemp -d "$PWD/target/signing-test.XXXXXX")"
+
+fixture="$(mktemp -d "${TMPDIR:-/tmp}/signing-test.XXXXXX")"
 trap 'rm -rf "$fixture"' EXIT
 mkdir -p "$fixture/bin" "$fixture/temp"
 export MOCK_SIGNING_LOG="$fixture/commands.jsonl"
@@ -144,7 +144,7 @@ assert commands == [["codesign", "--force", "--sign", "-", commands[0][-1]], ["c
 PY
 
 reset
-export RUNNER_TEMP="$fixture/temp"
+export TWINE_SIGNING_DIRECTORY="$fixture/temp"
 export APPLE_CERTIFICATE_P12_BASE64=Zml4dHVyZQ== APPLE_CERTIFICATE_PASSWORD=fixture-password
 export APPLE_ID=fixture@example.test APPLE_NOTARIZATION_PASSWORD=fixture-app-password
 bash .github/release/with-signing.sh python3 - <<'PY'
@@ -154,13 +154,13 @@ assert os.environ["TWINE_SIGNING_MODE"] == "developer-id"
 assert os.environ["TWINE_NOTARY_PROFILE"] == "twine-release"
 assert all(key not in os.environ for key in ["APPLE_CERTIFICATE_P12_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_NOTARIZATION_PASSWORD", "APPLE_ID"])
 PY
-[[ -z "$(ls -A "$RUNNER_TEMP")" ]] || fail 'credentials survived successful command'
+[[ -z "$(ls -A "$TWINE_SIGNING_DIRECTORY")" ]] || fail 'credentials survived successful command'
 if bash .github/release/with-signing.sh bash -c 'exit 23'; then fail 'failed command succeeded'; else [[ $? == 23 ]]; fi
-[[ -z "$(ls -A "$RUNNER_TEMP")" ]] || fail 'credentials survived failed command'
+[[ -z "$(ls -A "$TWINE_SIGNING_DIRECTORY")" ]] || fail 'credentials survived failed command'
 if bash .github/release/with-signing.sh bash -c 'kill -TERM "$PPID"'; then fail 'terminated command succeeded'; else [[ $? == 143 ]]; fi
-[[ -z "$(ls -A "$RUNNER_TEMP")" ]] || fail 'credentials survived termination'
+[[ -z "$(ls -A "$TWINE_SIGNING_DIRECTORY")" ]] || fail 'credentials survived termination'
 MOCK_SECURITY_FAILURE=import reject bash .github/release/with-signing.sh true
-[[ -z "$(ls -A "$RUNNER_TEMP")" ]] || fail 'credentials survived failed setup'
+[[ -z "$(ls -A "$TWINE_SIGNING_DIRECTORY")" ]] || fail 'credentials survived failed setup'
 reset
 APPLE_CERTIFICATE_P12_BASE64='' reject bash .github/release/with-signing.sh true
 [[ ! -s "$MOCK_SIGNING_LOG" ]] || fail 'missing secret allowed credential setup'

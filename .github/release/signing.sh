@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sourced by release.sh and the signing tests.
+# Sourced by the release bundler, DMG validator, and signing tests.
 
 signing_check() {
     case "${TWINE_SIGNING_MODE:-developer-id}" in
@@ -75,7 +75,7 @@ notarize() {
     [[ "${TWINE_SIGNING_MODE:-developer-id}" == developer-id ]] || return 0
     local args=(--keychain-profile "$TWINE_NOTARY_PROFILE")
     if [[ -n "${TWINE_SIGNING_KEYCHAIN:-}" ]]; then args+=(--keychain "$TWINE_SIGNING_KEYCHAIN"); fi
-    local log_dir="${TWINE_NOTARY_LOG_DIR:-$PWD/target/notarization}"
+    local log_dir="${TWINE_NOTARY_LOG_DIR:-$PWD/out/packaging/notarization}"
     mkdir -p "$log_dir"
     result="$log_dir/$(basename "$archive").submission.json"
     xcrun notarytool submit "$archive" "${args[@]}" --wait --timeout 45m --output-format json > "$result" || status=$?

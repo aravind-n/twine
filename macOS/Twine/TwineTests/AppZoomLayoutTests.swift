@@ -8,7 +8,7 @@ import Testing
 struct AppZoomLayoutTests {
     @Test(arguments: [13.0, 26.0, 72.0], [CoreWorkflow.Kind.terminal, .agents])
     @MainActor func restoredPaneKeepsTwoRowsAtMaximumZoom(fontSize: CGFloat, kind: CoreWorkflow.Kind) async throws {
-        let suite = "AppZoomLayoutTests-\(UUID())"
+        let suite = "com.twineproject.Twine.tests.AppZoomLayoutTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(200, forKey: "interfaceZoomPercent")
@@ -48,7 +48,7 @@ struct AppZoomLayoutTests {
     }
 
     @Test @MainActor func zoomReflowsRetainedNativeViewsAndPreservesTheKeyboard() async throws {
-        let suite = "AppZoomLayoutTests-\(UUID())"
+        let suite = "com.twineproject.Twine.tests.AppZoomLayoutTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let zoom = AppZoom(defaults: defaults)

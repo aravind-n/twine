@@ -14,7 +14,7 @@
 - **Modules:** Use file-named modules (`foo.rs` next to a `foo/` directory for submodules), never `mod.rs`.
 - **Errors:** Define typed errors with `thiserror`. Map core errors to C ABI error codes here; don't add C error codes to core.
 - **Logging:** Emit diagnostics with `tracing`, never `println!` or `eprintln!`. The bridge installs the `tracing` subscriber once, when the app initializes the core. Never log secrets, file contents, or terminal output.
-- **Formatting and checks:** Run `make fmt-rust` before committing, then `make check-rust`. It runs the rustfmt check, Clippy with warnings denied, and the workspace tests, and must pass.
+- **Formatting and checks:** Run `make fmt-lib` before committing, then `make check-lib`. It runs the rustfmt check, Clippy with warnings denied, and the workspace tests, and must pass.
 
 ## Review
 

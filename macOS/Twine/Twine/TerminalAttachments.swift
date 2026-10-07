@@ -20,7 +20,7 @@ enum TerminalAttachments {
         guard let bitmap = NSBitmapImageRep(data: data),
             let png = bitmap.representation(using: .png, properties: [:])
         else { throw AttachmentError.invalidImage }
-        let directory = directory ?? FileManager.default.temporaryDirectory.appending(path: "Twine Attachments")
+        let directory = directory ?? AppPaths.dataDirectory.appending(path: "attachments")
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let file = directory.appending(path: "image-\(UUID().uuidString).png")

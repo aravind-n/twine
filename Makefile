@@ -1,29 +1,35 @@
 .DEFAULT_GOAL := help
+# Xcode consumes one selected local binary package. Serialize stages that select its profile.
+.NOTPARALLEL:
 
+OUT := $(CURDIR)/out
 PROJECT := macOS/Twine/Twine.xcodeproj
-SWIFT_PACKAGES_DIR ?= $(CURDIR)/macOS/Twine/.build/SourcePackages
-export SWIFT_PACKAGES_DIR
-XCODEBUILD := xcodebuild -project $(PROJECT) -scheme Twine -skipPackagePluginValidation \
-	-clonedSourcePackagesDirPath "$(SWIFT_PACKAGES_DIR)" -onlyUsePackageVersionsFromResolvedFile
-XCODEBUILD_DEBUG := $(XCODEBUILD) -destination 'platform=macOS,arch=$(shell uname -m)'
-FRAMEWORK_BUILD := macOS/TwineCorePackage/build.sh
-FRAMEWORK_ARCHS ?= universal
-TEST_DERIVED_DATA ?= $(CURDIR)/target/test-app
-DERIVED_DATA ?= $(CURDIR)/target/release-app
-BUILD_DIR ?= $(DERIVED_DATA)/Build/Products/Release
-BUNDLE_DIR ?= $(CURDIR)/target/release-bundle
-OUTPUT_DIR ?= $(CURDIR)/dist
-SITE_DIR := $(CURDIR)/dist/twine
-RUST_DOC_DIR := $(CURDIR)/target/api-docs-rust
-SWIFT_DOC_DIR := $(CURDIR)/target/api-docs-swift
-SWIFT_DOC_DERIVED_DATA ?= $(SWIFT_DOC_DIR)
+LIB_TARGET := aarch64-apple-darwin
+export CARGO_TARGET_DIR := $(CURDIR)/target
+export MACOSX_DEPLOYMENT_TARGET := 26.0
+export SWIFT_PACKAGES_DIR := $(OUT)/dependencies/SourcePackages
+XCODEBUILD := TMPDIR="$(OUT)/dependencies/tmp" xcodebuild -project $(PROJECT) -scheme Twine -skipPackagePluginValidation \
+	-clonedSourcePackagesDirPath "$(SWIFT_PACKAGES_DIR)" \
+	-packageCachePath "$(OUT)/dependencies/cache" -onlyUsePackageVersionsFromResolvedFile
+XCODEBUILD_DEBUG := $(XCODEBUILD) -configuration Debug -destination 'platform=macOS,arch=arm64'
+XCODEBUILD_RELEASE := $(XCODEBUILD) -configuration Release -destination 'generic/platform=macOS'
+RELEASE_SETTINGS := ARCHS=arm64 GCC_GENERATE_DEBUGGING_SYMBOLS=NO DEBUG_INFORMATION_FORMAT= \
+	ENABLE_CODE_COVERAGE=NO CLANG_ENABLE_CODE_COVERAGE=NO SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule
 XCODE_BUILD_ARGS ?=
-DMG_TOOLS_DIR := $(CURDIR)/target/dmg-tools
-DMG_PYTHON := $(DMG_TOOLS_DIR)/bin/python3
-RELEASE_SCRIPT := TWINE_DMG_PYTHON="$(DMG_PYTHON)" bash .github/release/release.sh
+FRAMEWORK_BUILD := sh macOS/TwineCorePackage/build.sh
+FRAMEWORK_SELECT := sh macOS/TwineCorePackage/select.sh
+TESTS_DIR := $(OUT)/tests/build
+SITE_DIR := $(OUT)/docs/site
+LIB_DOC_DIR := $(OUT)/docs/rust
+APP_DOC_DIR := $(OUT)/docs/swift
+DMG_TOOLS_DIR := $(OUT)/packaging/tools
 ACTIONLINT ?= actionlint
+# The test host uses fresh temporary data; Xcode products and results stay in out/tests.
+TEST_ENV := TEST_RUNNER_TWINE_PREFERENCES_SUITE=com.twineproject.Twine.tests.unit-host
 
-UI_TEST_DERIVED_DATA ?= /tmp/twine-uitests
+# PREBUILT=1 runs a target without its prerequisites. CI uses it to cache and time each stage.
+needs = $(if $(PREBUILT),,$(1))
+
 # Tests outside this list are retired from default runs, but remain available with ONLY or ALL=1.
 # Add a test here to re-enable it in local and CI default runs.
 UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
@@ -67,238 +73,180 @@ UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 	$(if $(filter 1,$(ALL)),-only-testing:TwineUITests,\
 		$(addprefix -only-testing:TwineUITests/TwineUITests/,$(UI_DEFAULT_TESTS))))
 
-.PHONY: help fmt-rust check-rust-format lint-rust test-rust check-rust clean-rust \
-	framework framework-release build-macos build-macos-release fmt-macos lint-macos \
-	test-macos ui-test-macos ui-test-macos-built ui-test-macos-all ui-test-macos-visual check-macos clean-macos \
-	fmt lint test check clean release-build-app release-bundle release-package nightly-package \
-	check-release check-release-scripts test-release-scripts lint-release-scripts \
-	check-release-package dmg-tools regenerate-dmg-artwork \
-	build-site assemble-site docs-rust docs-swift docs-swift-built \
-	resolve-swift-packages lint-macos-built build-macos-for-testing test-macos-built \
-	check-ci lint-ci test-ci
+.PHONY: help
+help: ## Show this help
+	@echo 'usage: make <target> [VARIABLE=value ...]'
+	@awk -F ':.*## ' '/^##@ /{printf "\n%s\n", substr($$0, 5)} /^[a-z-]+:.*## /{printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-help:
-	@echo 'usage: make <target> [ONLY="testA testB"]'
-	@echo ''
-	@echo 'Whole repository:'
-	@echo '  fmt                   Format Rust and Swift code'
-	@echo '  lint                  Run lint-rust and lint-macos'
-	@echo '  test                  Run test-rust and test-macos'
-	@echo '  check                 Run check-rust and check-macos'
-	@echo '  clean                 Run clean-rust and clean-macos'
-	@echo ''
-	@echo 'GitHub Pages website:'
-	@echo '  build-site            Copy static pages and generate API docs in dist/twine'
-	@echo '  assemble-site         Assemble the website using existing API documentation'
-	@echo '  docs-rust             Generate Rust workspace API docs with cargo doc'
-	@echo '  docs-swift            Generate Swift app API docs with Xcode DocC'
-	@echo ''
-	@echo 'Rust workspace (twine-core, twine-bridge):'
-	@echo '  fmt-rust              Format Rust code'
-	@echo '  lint-rust             Check Rust formatting and run Clippy with warnings denied'
-	@echo '  test-rust             Run the Rust workspace tests (optional RUST_TEST_ARGS)'
-	@echo '  check-rust            Run lint-rust and test-rust'
-	@echo '  clean-rust            Remove Cargo build output'
-	@echo ''
-	@echo 'macOS app:'
-	@echo '  framework             Build the Debug TwineCore XCFramework'
-	@echo '  framework-release     Build the Release TwineCore XCFramework'
-	@echo '  build-macos           Build the Debug app, after the Debug framework'
-	@echo '  build-macos-release   Build the universal Release app, after the Release framework'
-	@echo '  fmt-macos             Format Swift code'
-	@echo '  lint-macos            Prepare the framework and Swift packages, then check formatting and lint'
-	@echo '  resolve-swift-packages Resolve pinned Swift packages using an existing framework'
-	@echo '  test-macos            Run the Swift unit tests, after the Debug framework'
-	@echo '  ui-test-macos         Run the default UI tests, or select with ONLY="testA testB"; takes over the desktop'
-	@echo '  ui-test-macos-built   Run UI tests using existing build-for-testing products (ALL=1 includes retired tests)'
-	@echo '  ui-test-macos-all     Run all UI tests, including retired tests and the launch benchmark; takes over the desktop'
-	@echo '  ui-test-macos-visual  Run optional appearance and screenshot checks; takes over the desktop'
-	@echo '  check-macos           Run lint-macos and test-macos'
-	@echo '  clean-macos           Remove the framework, package caches, and Xcode build output'
-	@echo ''
-	@echo 'Release packaging:'
-	@echo '  release-build-app     Build Release app using an existing Release framework'
-	@echo '  release-bundle        Save app, static C ABI library, header, symbols, commit'
-	@echo '  release-package       Sign, notarize, and verify DMG and archives for VERSION'
-	@echo '  nightly-package       Sign, notarize, and verify DMG and archives for NIGHTLY_ID'
-	@echo '                        TWINE_SIGNING_MODE=adhoc skips Developer ID signing and notarization locally'
-	@echo '  check-release         Test release scripts and macOS packaging, and lint workflows'
-	@echo '  check-ci              Lint workflows and test CI selection and framework packaging'
-	@echo '  regenerate-dmg-artwork Render the installer SVG into a Retina Finder background'
-	@echo ''
-	@echo '  help                  Show this message (default)'
+##@ Build
+.PHONY: debug
+debug: $(call needs,deps-debug) ## Build the debug app
+	$(XCODEBUILD_DEBUG) -derivedDataPath "$(OUT)/debug" build $(XCODE_BUILD_ARGS)
 
-fmt-rust:
+.PHONY: release
+release: $(call needs,deps-release) ## Build the release app
+	$(XCODEBUILD_RELEASE) -derivedDataPath "$(OUT)/release" build $(RELEASE_SETTINGS) $(XCODE_BUILD_ARGS)
+
+.PHONY: clean
+clean: clean-dev-state ## Remove all build output and development data
+	cargo clean
+	rm -rf "$(OUT)"
+
+.PHONY: clean-dev-state
+clean-dev-state: ## Remove development data only
+	sh scripts/clean-dev-state.sh
+
+##@ Format, lint and test
+.PHONY: fmt
+fmt: fmt-lib fmt-app ## Format the library and the app
+
+.PHONY: lint
+lint: lint-lib lint-app ## Lint the library and the app
+
+.PHONY: test
+test: test-lib test-app ## Test the library and the app
+
+.PHONY: check
+check: check-lib check-app ## Lint and test the library and the app
+
+.PHONY: fmt-lib
+fmt-lib: ## Format the library
 	cargo fmt --all
 
-check-rust-format:
+.PHONY: lint-lib
+lint-lib: ## Lint the library
 	cargo fmt --all --check
-
-lint-rust: check-rust-format
 	cargo clippy --workspace --all-targets --locked -- -D warnings
 
-test-rust:
-	cargo test --workspace --locked $(RUST_TEST_ARGS)
+.PHONY: test-lib
+test-lib: ## Test the library (LIB_TEST_ARGS='filter -- flags')
+	cargo test --workspace --locked $(LIB_TEST_ARGS)
 
-check-rust: lint-rust test-rust
+.PHONY: check-lib
+check-lib: lint-lib test-lib ## Lint and test the library
 
-clean-rust:
-	cargo clean
+.PHONY: fmt-app
+fmt-app: ## Format the app
+	swift format --in-place --recursive macOS/
 
-framework:
-	$(FRAMEWORK_BUILD) debug $(FRAMEWORK_ARCHS)
+.PHONY: lint-app
+lint-app: $(call needs,deps-debug) ## Lint the app
+	swift format lint --strict --recursive macOS/
+	macOS/Twine/Scripts/swiftlint.sh
 
-framework-release:
-	$(FRAMEWORK_BUILD) release
+.PHONY: test-app
+test-app: $(call needs,build-tests) ## Run the app's unit tests
+	@set -eu; \
+	twine_test_data=$$(mktemp -d "$${TMPDIR:-/tmp}/twine-unit-tests.XXXXXX"); \
+	trap 'rm -rf "$$twine_test_data"' EXIT; \
+	TEST_RUNNER_TWINE_DATA_DIRECTORY="$$twine_test_data" \
+	TEST_RUNNER_XDG_CONFIG_HOME="$$twine_test_data/config" $(TEST_ENV) \
+		$(XCODEBUILD_DEBUG) test-without-building -derivedDataPath "$(TESTS_DIR)" -only-testing:TwineTests
 
-build-macos: framework
-	$(XCODEBUILD_DEBUG) build
+.PHONY: check-app
+check-app: lint-app test-app ## Lint and unit-test the app
 
-build-macos-release: framework-release
-	$(MAKE) release-build-app
+.PHONY: ui-test
+ui-test: $(call needs,build-tests) ## Run UI tests (ONLY="testA testB" or ALL=1)
+	$(TEST_ENV) $(XCODEBUILD_DEBUG) -derivedDataPath "$(TESTS_DIR)" test-without-building $(UI_TEST_ARGS)
 
-release-build-app:
-	$(XCODEBUILD) -configuration Release -destination 'generic/platform=macOS' \
-		-derivedDataPath "$(DERIVED_DATA)" build $(XCODE_BUILD_ARGS)
+.PHONY: ui-test-visual
+ui-test-visual: ## Run the visual UI tests
+	$(MAKE) ui-test ONLY="$(UI_VISUAL_TESTS)"
 
-release-bundle:
-	$(RELEASE_SCRIPT) bundle "$(BUILD_DIR)" "$(BUNDLE_DIR)"
+.PHONY: lint-ci
+lint-ci: ## Lint CI workflows and build scripts
+	$(ACTIONLINT) -ignore 'label "xcode-27" is unknown'
+	shellcheck scripts/*.sh macOS/TwineCorePackage/*.sh macOS/Twine/Scripts/swiftlint.sh
 
-release-package: dmg-tools
-	$(RELEASE_SCRIPT) package "$(VERSION)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
-
-nightly-package: dmg-tools
-	$(RELEASE_SCRIPT) nightly-package "$(NIGHTLY_ID)" "$(BUNDLE_DIR)" "$(OUTPUT_DIR)"
-
-check-release-scripts: test-release-scripts lint-release-scripts
-
-test-release-scripts:
+.PHONY: check-bundle
+check-bundle: ## Test and lint the release scripts
 	bash .github/release/test-notes.sh
-	bash .github/release/test-nightly.sh
 	bash .github/release/test-signing.sh
-
-lint-release-scripts:
 	shellcheck .github/release/*.sh
 
-check-release-package: dmg-tools
-	TWINE_DMG_PYTHON="$(DMG_PYTHON)" bash .github/release/test-package.sh
+# Build stages. debug, release and the app targets run these first.
+.PHONY: framework-debug
+framework-debug:
+	cargo build --package twine-bridge --profile debug --locked --target $(LIB_TARGET)
+	$(FRAMEWORK_BUILD) debug
+
+.PHONY: framework-release
+framework-release:
+	cargo build --package twine-bridge --profile release --locked --target $(LIB_TARGET)
+	$(FRAMEWORK_BUILD) release
+
+.PHONY: deps-debug
+deps-debug: $(call needs,framework-debug)
+	mkdir -p "$(OUT)/dependencies/tmp"
+	$(FRAMEWORK_SELECT) debug
+	$(XCODEBUILD_DEBUG) -derivedDataPath "$(OUT)/debug" -resolvePackageDependencies -quiet
+
+.PHONY: deps-release
+deps-release: $(call needs,framework-release)
+	mkdir -p "$(OUT)/dependencies/tmp"
+	$(FRAMEWORK_SELECT) release
+	$(XCODEBUILD_RELEASE) -derivedDataPath "$(OUT)/release" -resolvePackageDependencies -quiet
+
+.PHONY: build-tests
+build-tests: $(call needs,deps-debug)
+	$(XCODEBUILD_DEBUG) build-for-testing -derivedDataPath "$(TESTS_DIR)" $(XCODE_BUILD_ARGS)
+
+##@ DMG packaging
+.PHONY: build-dmg
+build-dmg: dmg-tools ## Create a DMG from a signed app (APP=path DMG=path)
+	@test -n "$(APP)" && test -n "$(DMG)" || { echo 'usage: make build-dmg APP=path DMG=path' >&2; exit 2; }
+	bash .github/release/build-dmg.sh "$(APP)" "$(DMG)"
+
+.PHONY: validate-dmg
+validate-dmg: dmg-tools ## Validate an existing DMG (DMG=path [VERSION=x.y.z])
+	@test -n "$(DMG)" || { echo 'usage: make validate-dmg DMG=path [VERSION=x.y.z]' >&2; exit 2; }
+	bash .github/release/validate-dmg.sh "$(DMG)" "$(VERSION)"
+
+.PHONY: dmg-tools
+dmg-tools: $(DMG_TOOLS_DIR)/.installed ## Install the DMG tools
 
 $(DMG_TOOLS_DIR)/.installed: .github/release/dmg-requirements.txt
 	python3 -m venv "$(DMG_TOOLS_DIR)"
-	"$(DMG_PYTHON)" -m pip install --disable-pip-version-check -r $<
+	"$(DMG_TOOLS_DIR)/bin/python3" -m pip install --disable-pip-version-check --cache-dir "$(OUT)/dependencies/pip" -r $<
 	touch "$@"
 
-dmg-tools: $(DMG_TOOLS_DIR)/.installed
-
-regenerate-dmg-artwork:
+.PHONY: regenerate-dmg-artwork
+regenerate-dmg-artwork: ## Regenerate the DMG background
 	swift format --in-place .github/release/render-background.swift
 	swift .github/release/render-background.swift
 
-check-ci: lint-ci test-ci
-
-lint-ci:
-	$(ACTIONLINT) -ignore 'label "xcode-27" is unknown'
-	shellcheck .github/ci/*.sh macOS/TwineCorePackage/build.sh macOS/Twine/Scripts/swiftlint.sh
-
-test-ci:
-	bash .github/ci/test-gate.sh
-	bash .github/ci/test-framework.sh
-
-check-release: check-release-scripts check-release-package check-ci
-
-docs-rust:
-	RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked --target-dir "$(RUST_DOC_DIR)"
-
-docs-swift: framework
-	$(MAKE) docs-swift-built
-
-docs-swift-built:
-	$(XCODEBUILD_DEBUG) docbuild -derivedDataPath "$(SWIFT_DOC_DERIVED_DATA)" \
-		OTHER_SWIFT_FLAGS='-symbol-graph-skip-synthesized-members' \
-		DOCC_HOSTING_BASE_PATH=twine/documentation/swift DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES $(XCODE_BUILD_ARGS)
-	# Validate Twine's catalog strictly without treating dependency documentation warnings as errors.
-	mkdir -p "$(SWIFT_DOC_DIR)/Build/Products/Debug"
-	xcrun docc convert macOS/Twine/Twine/Documentation.docc \
-		--additional-symbol-graph-dir "$(SWIFT_DOC_DERIVED_DATA)/Build/Intermediates.noindex/Twine.build/Debug/Twine.build/symbol-graph" \
-		--output-dir "$(SWIFT_DOC_DIR)/Build/Products/Debug/Twine.doccarchive" \
-		--fallback-display-name Twine --fallback-bundle-identifier com.twineproject.Twine \
-		--fallback-default-module-kind Application --hosting-base-path twine/documentation/swift \
-		--transform-for-static-hosting --warnings-as-errors \
-		--source-service github --source-service-base-url https://github.com/aravind-n/twine/blob/main \
-		--checkout-path "$(CURDIR)"
-
-build-site: docs-rust docs-swift
-	$(MAKE) assemble-site
-
-assemble-site:
+##@ Documentation
+.PHONY: build-site
+build-site: $(call needs,docs-lib docs-app) ## Build the documentation website
 	rm -rf "$(SITE_DIR)"
 	mkdir -p "$(SITE_DIR)"
 	cp docs/index.html "$(SITE_DIR)/"
 	cp -R docs/assets docs/documentation "$(SITE_DIR)/"
 	cp macOS/Twine/Twine/Assets.xcassets/AppIcon.appiconset/twine-256.png "$(SITE_DIR)/assets/icon.png"
 	cp macOS/Twine/Twine/Assets.xcassets/AppIcon.appiconset/twine-32.png "$(SITE_DIR)/assets/favicon.png"
-	cp -R "$(RUST_DOC_DIR)/doc/." "$(SITE_DIR)/documentation/rust/"
-	cp -R "$(SWIFT_DOC_DIR)/Build/Products/Debug/Twine.doccarchive" "$(SITE_DIR)/documentation/swift"
+	cp -R "$(LIB_DOC_DIR)/doc/." "$(SITE_DIR)/documentation/rust/"
+	cp -R "$(APP_DOC_DIR)/Build/Products/Debug/Twine.doccarchive" "$(SITE_DIR)/documentation/swift"
 
-fmt-macos:
-	swift format --in-place --recursive macOS/
+.PHONY: docs-lib
+docs-lib: ## Build the library API reference
+	RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
+	mkdir -p "$(LIB_DOC_DIR)"
+	rm -rf "$(LIB_DOC_DIR)/doc"
+	cp -R "$(CURDIR)/target/doc" "$(LIB_DOC_DIR)/doc"
 
-lint-macos: framework
-	$(MAKE) resolve-swift-packages
-	$(MAKE) lint-macos-built
-
-resolve-swift-packages:
-	$(XCODEBUILD) -resolvePackageDependencies -quiet
-
-# CI prepares the framework and resolves packages in separately timed steps.
-lint-macos-built:
-	swift format lint --strict --recursive macOS/
-	macOS/Twine/Scripts/swiftlint.sh
-
-test-macos: framework
-	@set -eu; \
-	twine_test_data=$$(mktemp -d /tmp/twine-unit-tests.XXXXXX); \
-	trap 'rm -rf "$$twine_test_data"' EXIT; \
-	TEST_RUNNER_TWINE_DATA_DIRECTORY="$$twine_test_data" \
-		$(XCODEBUILD_DEBUG) test -derivedDataPath "$(TEST_DERIVED_DATA)" -only-testing:TwineTests
-
-build-macos-for-testing:
-	$(XCODEBUILD_DEBUG) build-for-testing -derivedDataPath "$(TEST_DERIVED_DATA)" $(XCODE_BUILD_ARGS)
-
-test-macos-built:
-	@set -eu; \
-	twine_test_data=$$(mktemp -d /tmp/twine-unit-tests.XXXXXX); \
-	trap 'rm -rf "$$twine_test_data"' EXIT; \
-	TEST_RUNNER_TWINE_DATA_DIRECTORY="$$twine_test_data" \
-		$(XCODEBUILD_DEBUG) test-without-building -derivedDataPath "$(TEST_DERIVED_DATA)" \
-		-only-testing:TwineTests
-
-ui-test-macos: framework
-	$(XCODEBUILD_DEBUG) -derivedDataPath "$(UI_TEST_DERIVED_DATA)" test $(UI_TEST_ARGS)
-
-ui-test-macos-built:
-	$(XCODEBUILD_DEBUG) -derivedDataPath "$(UI_TEST_DERIVED_DATA)" test-without-building $(UI_TEST_ARGS)
-
-ui-test-macos-all:
-	$(MAKE) ui-test-macos ALL=1
-
-ui-test-macos-visual:
-	$(MAKE) ui-test-macos ONLY="$(UI_VISUAL_TESTS)"
-
-check-macos: lint-macos test-macos
-
-# Package resolution needs the framework, so clean Xcode's output before removing it.
-clean-macos:
-	if [ -d macOS/TwineCorePackage/TwineCore.xcframework ]; then $(XCODEBUILD_DEBUG) clean; fi
-	rm -rf macOS/TwineCorePackage/TwineCore.xcframework macOS/TwineCorePackage/.build \
-		macOS/TwineCorePackage/.swiftpm macOS/TwineCorePackage/.build-core.* /tmp/twine-uitests
-
-fmt: fmt-rust fmt-macos
-
-lint: lint-rust lint-macos
-
-test: test-rust test-macos
-
-check: check-rust check-macos
-
-clean: clean-rust clean-macos
+.PHONY: docs-app
+docs-app: $(call needs,deps-debug) ## Build the app API reference
+	$(XCODEBUILD_DEBUG) docbuild -derivedDataPath "$(APP_DOC_DIR)" \
+		OTHER_SWIFT_FLAGS='-symbol-graph-skip-synthesized-members' \
+		DOCC_HOSTING_BASE_PATH=twine/documentation/swift DOCC_TRANSFORM_FOR_STATIC_HOSTING=YES $(XCODE_BUILD_ARGS)
+	# Validate Twine's catalog strictly without treating dependency documentation warnings as errors.
+	mkdir -p "$(APP_DOC_DIR)/Build/Products/Debug"
+	xcrun docc convert macOS/Twine/Twine/Documentation.docc \
+		--additional-symbol-graph-dir "$(APP_DOC_DIR)/Build/Intermediates.noindex/Twine.build/Debug/Twine.build/symbol-graph" \
+		--output-dir "$(APP_DOC_DIR)/Build/Products/Debug/Twine.doccarchive" \
+		--fallback-display-name Twine --fallback-bundle-identifier com.twineproject.Twine \
+		--fallback-default-module-kind Application --hosting-base-path twine/documentation/swift \
+		--transform-for-static-hosting --warnings-as-errors \
+		--source-service github --source-service-base-url https://github.com/aravind-n/twine/blob/main \
+		--checkout-path "$(CURDIR)"

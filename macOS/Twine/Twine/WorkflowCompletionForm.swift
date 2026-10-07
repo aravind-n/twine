@@ -96,5 +96,5 @@ struct WorkflowCompletionForm: View {
                 .init(role: "worker", instance: 2, label: "Worker 2"),
             ])
     )
-    .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
+    .environment(CoreClient(transport: CoreWorker(dataDirectory: AppPaths.previewDirectory)))
 }

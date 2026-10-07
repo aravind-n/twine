@@ -10,7 +10,9 @@ set -euo pipefail
 : "${APPLE_NOTARIZATION_PASSWORD:?Apple app-specific password is required}"
 [[ $# -gt 0 ]] || { echo 'usage: with-signing.sh COMMAND [ARGUMENTS...]' >&2; exit 1; }
 umask 077
-credentials="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/twine-signing.XXXXXX")"
+credentials_root="${TWINE_SIGNING_DIRECTORY:-$PWD/out/packaging/credentials}"
+mkdir -p "$credentials_root"
+credentials="$(mktemp -d "$credentials_root/twine-signing.XXXXXX")"
 export TWINE_SIGNING_KEYCHAIN="$credentials/signing.keychain-db"
 cleanup() {
     if [[ -f "$TWINE_SIGNING_KEYCHAIN" ]]; then

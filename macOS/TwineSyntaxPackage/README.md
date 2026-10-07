@@ -36,4 +36,4 @@ Local query adaptations: Rust integer and float captures use `number`, and the a
 
 File detection recognizes common extensions and Ruby filenames (`Gemfile`, `Rakefile`, `Podfile`, `Brewfile`, `Guardfile`, `Fastfile`) plus Ruby interpreter shebangs. Ambiguous lowercase `.h` headers default to C; `.hpp`, `.hh`, `.hxx`, uppercase `.H`, and uppercase `.C` use C++. The editor's language menu can override detection for an individual document. Objective-C, SCSS/Less, PHP, Vue, and XML grammars are not included.
 
-Parser tests live in `macOS/Twine/TwineTests/FileSyntaxParserTests.swift` and run through the repository's `make test-macos` / `make check-macos` targets. Follow `macOS/AGENTS.md` for changes to this package.
+Parser tests live in `macOS/Twine/TwineTests/FileSyntaxParserTests.swift` and run through the repository's `make test-app` / `make check-app` targets. Follow `macOS/AGENTS.md` for changes to this package.

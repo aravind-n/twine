@@ -44,9 +44,9 @@ struct FolderWindowRoot: View {
 
 #Preview {
     FolderWindowRoot(
-        id: UUID(), windows: FolderWindows(dataDirectory: .temporaryDirectory.appending(path: "TwinePreview"))
+        id: UUID(), windows: FolderWindows(dataDirectory: AppPaths.previewDirectory)
     )
-    .environment(WorkflowLayouts(fileURL: .temporaryDirectory.appending(path: "twine-preview-layouts.json")))
+    .environment(WorkflowLayouts(fileURL: AppPaths.previewDirectory.appending(path: "workflow-layouts.json")))
     .environment(HarnessModelCatalog())
-    .environment(SettingsPopup(dataDirectory: .temporaryDirectory.appending(path: "TwinePreview")))
+    .environment(SettingsPopup(dataDirectory: AppPaths.previewDirectory))
 }

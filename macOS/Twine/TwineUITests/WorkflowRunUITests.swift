@@ -185,7 +185,7 @@ extension TwineUITests {
             at: bin.appending(path: "pi"),
             withDestinationURL: URL(filePath: "/usr/bin/true"))
         let app = try makeApp(lastOpenFolder: folder)
-        app.launchEnvironment["TWINE_TEST_PREFERENCES_SUITE"] = "TwineRunUITests-\(UUID())"
+        app.launchEnvironment["TWINE_TEST_PREFERENCES_SUITE"] = "com.twineproject.Twine.tests.TwineRunUITests-\(UUID())"
         app.launchEnvironment["TWINE_TEST_APPEARANCE"] = appearance
         app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(folder.path)/bin:/bin:/usr/bin"
         app.launch()

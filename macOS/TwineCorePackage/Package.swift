@@ -11,8 +11,8 @@ guard FileManager.default.fileExists(atPath: artifactURL.path) else {
     fatalError(
         """
         TwineCore.xcframework is missing. From the repository root, run \
-        'make framework' for Debug builds or \
-        'make framework-release' for Release builds.
+        'make debug' for Debug builds or \
+        'make release' for Release builds.
         """
     )
 }

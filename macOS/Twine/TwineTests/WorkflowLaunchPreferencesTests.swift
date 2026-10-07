@@ -6,8 +6,8 @@ import Testing
 @MainActor
 struct WorkflowLaunchPreferencesTests {
     @Test func explicitLaunchSuiteIsIsolatedFromOtherLaunches() throws {
-        let first = "TwineLaunchTests-\(UUID())"
-        let second = "TwineLaunchTests-\(UUID())"
+        let first = "com.twineproject.Twine.tests.TwineLaunchTests-\(UUID())"
+        let second = "com.twineproject.Twine.tests.TwineLaunchTests-\(UUID())"
         let firstStore = WorkflowLaunchPreferences.defaultStore(environment: ["TWINE_PREFERENCES_SUITE": first])
         let secondStore = WorkflowLaunchPreferences.defaultStore(environment: ["TWINE_PREFERENCES_SUITE": second])
         defer {
@@ -28,7 +28,7 @@ struct WorkflowLaunchPreferencesTests {
     }
 
     @Test func lastHarnessesPersistByTypeAndAcrossNewCustomVersions() throws {
-        let suite = "TwineLaunchTests-\(UUID())"
+        let suite = "com.twineproject.Twine.tests.TwineLaunchTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = WorkflowLaunchPreferences(defaults: defaults)
@@ -58,7 +58,7 @@ struct WorkflowLaunchPreferencesTests {
     }
 
     @Test func updatedRoleBoundsTrimAndFillSavedChoices() throws {
-        let suite = "TwineLaunchTests-\(UUID())"
+        let suite = "com.twineproject.Twine.tests.TwineLaunchTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = WorkflowLaunchPreferences(defaults: defaults)
@@ -77,7 +77,7 @@ struct WorkflowLaunchPreferencesTests {
     }
 
     @Test func opencodeModelVariantsPersistAcrossRelaunch() throws {
-        let suite = "TwineLaunchTests-\(UUID())"
+        let suite = "com.twineproject.Twine.tests.TwineLaunchTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let choice = HarnessChoice(harness: .opencode, model: "opencode/space-bunny-free", effort: "high", yolo: false)
@@ -88,7 +88,7 @@ struct WorkflowLaunchPreferencesTests {
     }
 
     @Test func harnessesSavedBeforeModelsExistedStillLoad() throws {
-        let suite = "TwineLaunchTests-\(UUID())"
+        let suite = "com.twineproject.Twine.tests.TwineLaunchTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(["custom-1": ["worker": ["pi", "claudeCode"]]], forKey: "workflowRoleHarnesses")

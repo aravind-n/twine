@@ -143,13 +143,13 @@ see the [integration notes](https://aravind-n.github.io/twine/documentation/guid
 
 ## Try Twine
 
-Twine currently targets **macOS 26 or later**, on **Apple Silicon and Intel**.
+Twine currently targets **macOS 26 or later**, on **Apple Silicon**.
 
-Download `Twine-VERSION-macos-universal.dmg` from the
+Download `Twine-VERSION-macos-arm64.dmg` from the
 [latest release](https://github.com/aravind-n/twine/releases/latest). Open the DMG
 and drag **Twine** onto the **Applications** folder. Wait for the copy to finish,
-eject the Twine disk image, and open Twine from Applications. New stable and nightly
-release packages are Developer ID signed and notarized. Older packages were ad hoc
+eject the Twine disk image, and open Twine from Applications. New releases
+are Developer ID signed and notarized. Older releases were ad hoc
 signed and not notarized; follow the
 [install notes](https://aravind-n.github.io/twine/documentation/guide/#install) for
 first-launch approval.
@@ -170,20 +170,33 @@ To build from source, you will need:
   alone are insufficient for the app's build plugins.
 - The **Xcode Metal Toolchain**. If missing, install it with
   `xcodebuild -downloadComponent MetalToolchain`.
-- **Stable Rust**, installed through `rustup`, with both macOS targets.
+- **Stable Rust**, installed through `rustup`.
 
 ```sh
 git clone https://github.com/aravind-n/twine.git
 cd twine
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-make framework
-open macOS/Twine/Twine.xcodeproj
+make debug
+open out/debug/Build/Products/Debug/Twine.app
 ```
 
-In Xcode, select the **Twine** scheme, trust the SwiftTerm build plugin when
-prompted, and run the app. Xcode uses the prebuilt Rust framework; rebuild it with
-`make framework` after Rust changes. For a command-line build, use
-`make build-macos`.
+`make debug` builds the native app with debugging and incremental Swift compilation.
+`make release` builds an optimized candidate at
+`out/release/Build/Products/Release/Twine.app`, with no debug information or dSYM.
+Rust output stays in Cargo's `target/`; macOS products, dependencies, tests,
+packaging tools, and generated documentation live under `out/`.
+
+Debug builds use `com.twineproject.Twine.development` and keep their database,
+transcripts, layouts, attachments, and default configuration in `out/runtime/debug/`.
+Test builds and results use `out/tests/` and separate preferences; temporary fixtures stay in the system temporary directory. `make clean` removes all generated
+outputs and development/test state, including local Release candidates. It preserves
+installed apps in `/Applications`, production data and configuration, and separate POC projects.
+An explicit `TWINE_DATA_DIRECTORY`, `TWINE_CONFIG_PATH`, or `XDG_CONFIG_HOME` overrides the default location;
+cleanup does not follow those overrides.
+
+For editing in Xcode, first run `make debug`, then open
+`macOS/Twine/Twine.xcodeproj` and select the **Twine** scheme. Run it again
+after Rust changes. Use the Makefile for builds and tests to keep all outputs in `out/`.
+Debug and Release select one generated local Swift package; run them sequentially.
 
 Debug builds show the version and build number in the status bar, for example
 `0.1.0 (42)`. CI assigns the build number from its workflow run number; release
@@ -223,9 +236,9 @@ used throughout the codebase.
 From the repository root:
 
 ```sh
-make check          # Rust and Swift formatting checks, lint, and unit tests
-make fmt            # Format Rust and Swift
-make ui-test-macos  # Default UI suite; takes over the desktop
+make check          # Library and app formatting checks, lint, and unit tests
+make fmt            # Format the library and the app
+make ui-test        # Default UI suite; takes over the desktop
 ```
 
 Bug reports, reproducible examples, and feedback on real workflows are welcome
@@ -246,16 +259,16 @@ The `twine-core` reference is generated with
 The macOS app reference is generated with Xcode DocC and includes internal app symbols.
 
 `make build-site` generates the API references and copies them, the static pages,
-and the existing app icon and screenshot into `dist/twine` for GitHub Pages.
+and the existing app icon and screenshot into `out/docs/site` for GitHub Pages.
 Check in the static source files in `docs/`; the pipeline generates the API
 references and publishing output, which are ignored by Git. The HTML is copied
 unchanged. There is no website generator or Python dependency for the site.
-Local assembly needs the macOS toolchain described above. `make docs-rust` and
-`make docs-swift` generate the API references separately. `make check-release`
-lints all workflows, including Pages.
+Local assembly needs the macOS toolchain described above. `make docs-lib` and
+`make docs-app` generate the API references separately. `make lint-ci`
+lints the workflows and build scripts.
 
 To enable hosting, select **GitHub Actions** under **Settings → Pages → Build and
-deployment → Source**. After the Pages workflow is merged, changes to the site on
+deployment → Source**. Changes to the site on
 `main` deploy to `https://aravind-n.github.io/twine/`. Rust and Swift source changes
 also regenerate their API references. Pull requests build the site without
 deploying it. Builds use the existing `xcode-27` runner; deployment runs on a

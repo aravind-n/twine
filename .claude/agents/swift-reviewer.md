@@ -70,9 +70,9 @@ Review against the project's actual isolation and concurrency settings. Look for
 Check whether tests cover the changed behavior, its important failure paths and edge values, and existing behavior the change could break. Models and logic should be testable without the UI; UI tests are for critical flows only. A test-gap finding must name the defect the missing test would let through. Don't ask for tests just to raise coverage.
 
 Run, and report the outcome of each:
-- `make lint-macos` (strict swift-format lint and SwiftLint)
-- `make build-macos`
-- `make test-macos`
+- `make lint-app` (strict swift-format lint and SwiftLint)
+- `make debug`
+- `make test-app`
 
 If `xcodebuild` says the active developer directory is the Command Line Tools, prefix the commands with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`, and note in the review that SwiftLint needs `xcode-select` pointed at Xcode. Report compiler warnings in changed files, especially concurrency warnings. Don't run UI tests unless the caller asks, because they take over the screen. Say which checks you couldn't run and why.
 

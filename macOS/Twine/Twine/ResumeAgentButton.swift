@@ -57,6 +57,6 @@ struct ResumeAgentButton: View {
             workflowID: 1, sessionID: 1, name: "Codex", kind: .singleAgent, harness: .codex,
             terminalID: 1, status: .interrupted, startedAt: 0, endedAt: 1, restored: true)
     )
-    .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
+    .environment(CoreClient(transport: CoreWorker(dataDirectory: AppPaths.previewDirectory)))
     .padding()
 }

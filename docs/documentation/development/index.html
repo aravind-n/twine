@@ -29,10 +29,7 @@
 </li>
 <li><a href="#extending-configuration">Extending configuration</a></li>
 <li><a href="#transcript-implementation">Transcript implementation</a></li>
-<li><a href="#releases">Releases</a><ul>
-<li><a href="#nightly-releases">Nightly releases</a></li>
-</ul>
-</li>
+<li><a href="#releases">Releases</a></li>
 </ul>
 </div>
 </nav>
@@ -50,28 +47,31 @@ a C interface for the front end.</p>
 <ul>
 <li>Install Xcode 27.0 and point the developer tools at it: <code>sudo xcode-select -s /Applications/Xcode.app/Contents/Developer</code>. The SwiftTerm build plugin and SwiftLint both require Xcode rather than the Command Line Tools.</li>
 <li>Install Xcode's Metal Toolchain if it is missing: <code>xcodebuild -downloadComponent MetalToolchain</code>.</li>
-<li>To build the library, install the latest stable Rust with <code>rustup</code>, then install both macOS targets: <code>rustup target add aarch64-apple-darwin x86_64-apple-darwin</code>.</li>
-<li>Build the framework once from the repository root: <code>make framework</code>.</li>
+<li>To build the library, install the latest stable Rust with <code>rustup</code>, which reads the version from <code>rust-toolchain.toml</code>.</li>
+<li>Build once from the repository root: <code>make debug</code>.</li>
 <li>Open <code>macOS/Twine/Twine.xcodeproj</code>, select the <code>Twine</code> scheme, and build. Trust the SwiftTerm build plugin when Xcode prompts. Xcode consumes the prebuilt <code>TwineCore.xcframework</code> and does not invoke Cargo.</li>
 </ul>
-<p>From the repository root, the root <code>Makefile</code> runs the same builds and checks from the command line. <code>make</code> lists every target:</p>
-<pre class="highlight"><code class="language-sh">make build-macos          # build the Debug framework, then the Debug app
-make build-macos-release  # build the Release framework, then the universal Release app
-make check                # Rust and Swift lint plus unit tests
-make check-rust           # Rust only: rustfmt check, Clippy, workspace tests
-make check-macos          # Swift only: swift-format lint, SwiftLint, unit tests
-make fmt                  # format Rust and Swift
-make ui-test-macos        # default UI suite; takes over the desktop
-make ui-test-macos-all    # all UI tests, including retired tests and the launch benchmark
-make ui-test-macos-visual # optional appearance and screenshot checks
-make ui-test-macos ONLY='testFolderWindowInLightAppearance testFolderWindowInDarkAppearance'
-make ui-test-macos ONLY=testLaunchPerformance
-make clean                # remove Cargo, framework, and Xcode build output</code></pre>
+<p>From the repository root, the root <code>Makefile</code> runs the same builds and checks from the command line. <code>make</code> lists the main commands:</p>
+<pre class="highlight"><code class="language-sh">make debug                # native Debug app with incremental Swift compilation
+make release              # optimized candidate without debug symbols
+make check                # library and app lint plus unit tests
+make check-lib            # library only: rustfmt check, Clippy, workspace tests
+make check-app            # app only: swift-format lint, SwiftLint, unit tests
+make fmt                  # format the library and the app
+make ui-test              # default UI suite; takes over the desktop
+make ui-test ALL=1        # all UI tests, including retired tests and the launch benchmark
+make ui-test-visual       # optional appearance and screenshot checks
+make ui-test ONLY='testFolderWindowInLightAppearance testFolderWindowInDarkAppearance'
+make ui-test ONLY=testLaunchPerformance
+make clean                # remove all generated output and isolated dev/test state</code></pre>
 <p>The generated framework includes its C header and module map and is ignored by Git. If the framework is missing, package resolution reports the command needed to create it.</p>
-<p><code>make build-macos-release</code> builds the universal Release app. Each build replaces the local framework with the Debug or Release profile it needs.</p>
+<p>Both builds target Apple Silicon. <code>make debug</code> uses Cargo’s <code>debug</code> profile and incremental Swift compilation. <code>make release</code> builds with Rust LTO and Swift whole-module optimization, without debug information or dSYM. The apps are at <code>out/debug/Build/Products/Debug/Twine.app</code> and <code>out/release/Build/Products/Release/Twine.app</code>.</p>
+<p>Cargo owns <code>target/</code>. Frameworks, Xcode products and DerivedData, Swift dependencies, tests, packaging, and generated documentation live in <code>out/</code>. Debug builds have a separate bundle identity and keep their database, transcripts, layouts, attachments, and default configuration in <code>out/runtime/debug/</code>. Unit and UI test builds and results live in <code>out/tests/</code>; fixtures use the system temporary directory and are excluded from <code>make clean</code>. Explicit data/configuration directory overrides are honored and are not followed by cleanup.</p>
+<p><code>make clean</code> runs <code>cargo clean</code> and removes the <code>out/</code> directory plus known development/test preferences, caches, and saved window state in <code>~/Library</code>. It also removes local Release candidates and packaging outputs. Installed apps in <code>/Applications</code>, production saved data and configuration, and separate POC projects are preserved. Cleanup does not build or resolve dependencies. <code>make clean-dev-state</code> removes only the development/test data and keeps build outputs.</p>
+<p>Debug and Release frameworks are stored separately. A generated local Swift package selects the current profile; run profile builds sequentially. Unchanged framework contents retain their timestamps so incremental Swift builds remain useful. Use Makefile builds and tests to keep Xcode outputs in the checkout.</p>
 <p>Linting prepares the framework before resolving the app's packages. The default UI suite runs the tests listed in <code>UI_DEFAULT_TESTS</code> in the Makefile. Other tests are retired from default runs; their source stays in place and they still build. Add a test to <code>UI_DEFAULT_TESTS</code> to re-enable it by default.</p>
-<p><code>ONLY</code> accepts one UI test name or a quoted, space-separated list, including retired tests, and overrides the default selection. <code>make ui-test-macos-all</code> runs all UI tests, including the appearance checks and launch benchmark. <code>make ui-test-macos-visual</code> runs the optional visual checks.</p>
-<p>CI uses the same default selection through <code>make ui-test-macos-built</code>, which reuses its existing build-for-testing products; set <code>UI_TEST_DERIVED_DATA</code> to their DerivedData directory. Add <code>ALL=1</code> to that command to run the full suite using those products. An explicit <code>ONLY</code> selection takes precedence over <code>ALL=1</code>. All UI test runs take over the desktop.</p>
+<p><code>ONLY</code> accepts one UI test name or a quoted, space-separated list, including retired tests, and overrides the default selection. <code>ALL=1</code> runs all UI tests, including the appearance checks and launch benchmark. <code>make ui-test-visual</code> runs the optional visual checks.</p>
+<p>Each target builds what it needs first. <code>PREBUILT=1</code> runs a target without its prerequisites; CI uses it to cache and time each stage, for example <code>make ui-test PREBUILT=1</code> after <code>make build-tests</code>. An explicit <code>ONLY</code> selection takes precedence over <code>ALL=1</code>. All UI test runs take over the desktop.</p>
 <p>SwiftLint runs the version pinned in <code>Package.resolved</code>, through <code>macOS/Twine/Scripts/swiftlint.sh</code>.</p>
 <h2 id="harness-integration">Harness integration<a class="headerlink" href="#harness-integration" title="Permanent link">#</a></h2>
 <p>Agents advance stages by invoking the private completion command included in their instructions.
@@ -120,22 +120,22 @@ without an inline launch option retain their own display setting.</p>
 <h3 id="harness-integration-tests">Harness integration tests<a class="headerlink" href="#harness-integration-tests" title="Permanent link">#</a></h3>
 <p>The automated Rust suite uses fake harnesses for complete runs. To repeat the optional real
 Adversarial smoke test with an authenticated Codex installation:</p>
-<pre class="highlight"><code class="language-sh">TWINE_REAL_CODEX="$(command -v codex)" make test-rust \
-  RUST_TEST_ARGS='real_adversarial_workflow_completes -- --ignored'</code></pre>
+<pre class="highlight"><code class="language-sh">TWINE_REAL_CODEX="$(command -v codex)" make test-lib \
+  LIB_TEST_ARGS='real_adversarial_workflow_completes -- --ignored'</code></pre>
 <p>This test uses Codex's noninteractive mode in a disposable folder and verifies both agents'
 explicit completion signals.</p>
 <p>To verify the installed Codex's actual prompt/tool/response hooks and terminal anchors:</p>
-<pre class="highlight"><code class="language-sh">TWINE_REAL_CODEX="$(command -v codex)" make test-rust \
-  RUST_TEST_ARGS='real_codex_records_tool_steps -- --ignored'</code></pre>
+<pre class="highlight"><code class="language-sh">TWINE_REAL_CODEX="$(command -v codex)" make test-lib \
+  LIB_TEST_ARGS='real_codex_records_tool_steps -- --ignored'</code></pre>
 <p>This opt-in test uses interactive, authenticated Codex in a disposable folder with a read-only sandbox.</p>
 <p>To verify pi's interactive trace events using both DeepSeek Flash and DeepSeek V4 Pro:</p>
-<pre class="highlight"><code class="language-sh">TWINE_REAL_PI="$(command -v pi)" make test-rust \
-  RUST_TEST_ARGS='real_pi_deepseek_models_record_tool_steps -- --ignored'</code></pre>
+<pre class="highlight"><code class="language-sh">TWINE_REAL_PI="$(command -v pi)" make test-lib \
+  LIB_TEST_ARGS='real_pi_deepseek_models_record_tool_steps -- --ignored'</code></pre>
 <p>This opt-in test uses your existing DeepSeek authentication, disposable folders, and the bash tool
 to print a marker. It does not edit pi settings or save sessions.</p>
 <p>The extension's queued-prompt, tool-correlation, Unicode, and unavailable-endpoint checks need only Node:</p>
-<pre class="highlight"><code class="language-sh">TWINE_NODE="$(command -v node)" make test-rust \
-  RUST_TEST_ARGS='pi_extension_preserves_queued_prompts_and_tool_identity -- --ignored'</code></pre>
+<pre class="highlight"><code class="language-sh">TWINE_NODE="$(command -v node)" make test-lib \
+  LIB_TEST_ARGS='pi_extension_preserves_queued_prompts_and_tool_identity -- --ignored'</code></pre>
 <h2 id="extending-configuration">Extending configuration<a class="headerlink" href="#extending-configuration" title="Permanent link">#</a></h2>
 <p>Add settings as fields with defaults in <code>twine-core/src/config.rs</code>. The Serde schema drives
 parsing, unknown-key warnings, the generated default file, and snapshot serialization. Global
@@ -172,8 +172,8 @@ so terminal input and live output polling can continue while disk reads are pend
 error. The ownership lock is released after the recording worker has flushed and stopped.</p>
 <h2 id="releases">Releases<a class="headerlink" href="#releases" title="Permanent link">#</a></h2>
 <p>Pushing a <code>vMAJOR.MINOR.PATCH</code> tag runs <code>.github/workflows/release.yml</code> and creates a
-<strong>draft</strong> GitHub Release. It reuses the unsigned universal build from successful main CI
-for that commit, or rebuilds it using the same build workflow if the artifact has expired.</p>
+<strong>draft</strong> GitHub Release. It reuses the unsigned build from successful main CI
+for that commit. CI keeps that build for 90 days; after that, re-run CI on main for the commit first.</p>
 <p>To cut a release:</p>
 <ol>
 <li>Set the version in <code>Cargo.toml</code> and update <code>Cargo.lock</code>. Set the Twine app's
@@ -194,56 +194,37 @@ git push origin v0.1.0</code></pre>
 </ol>
 <p>The release contains:</p>
 <ul>
-<li><code>Twine-VERSION-macos-universal.dmg</code>: Developer ID signed, notarized app and Applications folder shortcut in a compact installer window. The license is bundled at <code>Twine.app/Contents/Resources/LICENSE</code>. Open the disk image, drag Twine to Applications, eject the image, and launch the installed app.</li>
-<li><code>libtwinecore-VERSION-macos-universal.tar.gz</code>: the existing universal static C ABI library
+<li><code>Twine-VERSION-macos-arm64.dmg</code>: Developer ID signed, notarized app and Applications folder shortcut in a compact installer window. The license is bundled at <code>Twine.app/Contents/Resources/LICENSE</code>. Open the disk image, drag Twine to Applications, eject the image, and launch the installed app.</li>
+<li><code>libtwinecore-VERSION-macos-arm64.tar.gz</code>: the static C ABI library
   as <code>libtwinecore.a</code>, matching C header, usage README, and license.
   The protocol is experimental; pin matching header/library versions.</li>
 <li><code>twine-VERSION-source.tar.gz</code>: the tagged Git source tree.</li>
-<li><code>Twine-VERSION-symbols.tar.gz</code>: app debug symbols, checked against both executable UUIDs.</li>
-<li><code>SHA256SUMS</code>: SHA-256 checksums for the disk image and three archives.</li>
+<li><code>SHA256SUMS</code>: SHA-256 checksums for the disk image and two archives.</li>
 </ul>
-<p>The packaged app's short version matches the tag; its build number comes from main CI.
-Packaging signs the app with Developer ID and Hardened Runtime, notarizes and staples
+<p>The released app's short version matches the tag; its build number comes from main CI.
+The release workflow signs the app with Developer ID and Hardened Runtime, notarizes and staples
 it, then signs, notarizes, and staples the DMG before generating checksums. Failed
-signing or notarization prevents publication. This release matrix is macOS only.</p>
+signing or notarization prevents publication. Releases are for macOS on Apple Silicon only.</p>
 <p>Re-run failed jobs to retry a draft release. Published releases are never overwritten; use
 a new patch version for a correction after publication. Do not move an existing release tag.</p>
-<p>For local packaging, run from the root (the output directory must be empty):</p>
-<pre class="highlight"><code class="language-sh">make check-release  # needs shellcheck and actionlint
-make build-macos-release XCODE_BUILD_ARGS=CODE_SIGNING_ALLOWED=NO
-make release-bundle
-TWINE_SIGNING_MODE=adhoc make release-package VERSION=0.1.0
-(cd dist &amp;&amp; shasum -a 256 -c SHA256SUMS)</code></pre>
-<p><code>DERIVED_DATA</code>, <code>BUILD_DIR</code>, <code>BUNDLE_DIR</code>, and <code>OUTPUT_DIR</code> can override the default paths.
-These commands create an ad hoc signed local package without publishing a GitHub Release.
-The source archive always uses committed HEAD.</p>
-<h3 id="nightly-releases">Nightly releases<a class="headerlink" href="#nightly-releases" title="Permanent link">#</a></h3>
-<p><code>.github/workflows/nightly.yml</code> runs every day at 03:17 America/Los_Angeles.
-It publishes a universal <strong>Release</strong> build as a GitHub prerelease when the selected
-<code>main</code> commit does not already have a complete published nightly. Days without new
-commits skip publication; failed attempts are retried on the next run.</p>
-<p>The workflow pins the triggering commit, waits up to 30 minutes for its latest
-push-to-main CI run to pass, and reuses that run's Release bundle. If the artifact
-has expired, it rebuilds the same commit and preserves the CI build number.
-Failed or missing CI prevents publication. Manual runs are available from the
-Nightly workflow's <strong>Run workflow</strong> button; select <code>main</code>.</p>
-<p>Each nightly has a fixed tag such as <code>nightly-20261005-a1b2c3d4e5f6</code> pointing to its
-source commit. The five downloads match the stable release asset set, including
-<code>Twine-nightly-YYYYMMDD-COMMIT-macos-universal.dmg</code>, symbols, and checksums.
-Publication uploads and verifies all assets in a draft
-before making the prerelease public. Retries may repair an unfinished draft but
-never replace a published nightly or move its tag. Stable releases remain Latest.</p>
-<p>The app keeps its numeric marketing version and CI build number; <code>TwineBuildVersion</code>
-records the nightly identifier. Nightlies use the same Developer ID signing, notarization, and
-installation flow as stable releases. Quit Twine before replacing <code>Twine.app</code>;
-nightlies use the same saved data and configuration as stable builds.</p>
-<p>To package an existing CI-style bundle locally:</p>
-<pre class="highlight"><code class="language-sh">TWINE_SIGNING_MODE=adhoc make nightly-package NIGHTLY_ID="nightly-20261005-$(git rev-parse --short=12 HEAD)"</code></pre>
-<p><code>make check-release</code> validates the workflows and runs the release notes, nightly
-guard/publication, and macOS packaging checks. Tests mock GitHub and do not publish.
-GitHub schedules are best effort and can be delayed; public-repository schedules
-can be disabled after 60 days without repository activity. Use manual dispatch to
-recover a missed run. Published nightlies are retained; no automatic pruning runs.</p>
+<p><code>make release</code> builds <code>out/release/Build/Products/Release/Twine.app</code>
+for local testing. CI calls <code>.github/release/bundle-artifact.sh</code> directly to collect
+the build files and create the signed release artifacts. The source archive always
+uses committed HEAD.</p>
+<p><code>make check-bundle</code> tests changelog extraction, signing,
+notarization, and credential cleanup, and lints the release bundler scripts.
+The signing tests use mocked Apple tools.</p>
+<p><code>make build-dmg APP=path DMG=path</code> creates a DMG from an already signed
+release app. <code>make validate-dmg DMG=path</code> mounts an existing DMG read-only
+and validates its format, contents, Finder layout, artwork, app versions,
+architectures, signature, and entitlements. It requires <code>APPLE_TEAM_ID</code>
+and checks Developer ID signing, stapled notarization tickets, and Gatekeeper
+acceptance. Use <code>TWINE_SIGNING_MODE=adhoc</code> for local images without
+Developer ID signing or notarization. Add <code>VERSION=MAJOR.MINOR.PATCH</code>
+to require a specific app version.</p>
+<p>Main CI builds and validates a DMG from the actual release app.
+The release workflow validates the signed DMG before uploading it.
+<code>make lint-ci</code> lints the workflows and build scripts.</p>
         <p class="docs-end"><a href="#top">Back to top ↑</a><a href="https://github.com/aravind-n/twine/issues">Questions or feedback? ↗</a></p>
       </main>
     </div>

@@ -125,7 +125,7 @@ struct WorkflowLaunchForm: View {
                         .init(id: "reviewer", name: "Reviewer", instances: .init(min: 1, max: 1)),
                     ]))
         ) { visible = false }
-        .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
+        .environment(CoreClient(transport: CoreWorker(dataDirectory: AppPaths.previewDirectory)))
         .environment(HarnessModelCatalog())
         .padding().frame(width: 550)
     } else {

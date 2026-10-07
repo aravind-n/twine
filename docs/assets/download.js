@@ -31,7 +31,7 @@ for (const button of downloadButtons) {
       if (!response.ok) throw new Error("Release lookup failed");
       const release = await response.json();
       const asset = release.assets?.find((asset) =>
-        asset.state === "uploaded" && /^Twine-.+-macos-universal\.dmg$/.test(asset.name)
+        asset.state === "uploaded" && /^Twine-.+-macos-(arm64|universal)\.dmg$/.test(asset.name)
       );
       if (!asset?.browser_download_url) {
         message.textContent = "A DMG installer isn’t available for the latest release yet.";
