@@ -52,7 +52,7 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testClaudeMinimapDotsSelectTheirTraceAndScrollToThePrompt \
 	testTimelineInspectorShowsNestedCallsFiltersAndSurvivesRelaunch \
 	testTraceViewModesPreserveSelectionAndCollapsedState \
-	testAgentReceivesTerminalColorsBeforeItsStartupProbeTimesOut \
+	testAgentReceivesTerminalColors \
 	testForceQuitPreservesAgentOutputAndCanResumeItsSession \
 	testAdversarialHarnessSelectionUserCompletionReviewLoopAndTraces \
 	testWorkflowDesignerKeyboardEntryValidationAndBuiltinCopy \
