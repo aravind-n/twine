@@ -235,9 +235,12 @@ extension TwineUITests {
         let submenu = app.menuItems["Syntax language"].firstMatch
         XCTAssertTrue(submenu.waitForExistence(timeout: 3), app.debugDescription)
         submenu.hover()
-        let option = app.menuItems[language]
+        let option = submenu.menuItems[language]
         XCTAssertTrue(option.waitForExistence(timeout: 3), app.debugDescription)
-        option.click()
+        // The submenu can open to the left. Click its visible row directly so XCTest's
+        // automatic menu traversal cannot move back through the parent and leave it open.
+        option.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        XCTAssertTrue(submenu.waitForNonExistence(timeout: 3), app.debugDescription)
     }
 
     @MainActor
