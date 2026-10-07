@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Install Twine with `brew install --cask twineproject/tap/twine-app` and update
+  it with `brew upgrade --cask twine-app`. Copy the install command from the website.
+- Use **Twine → Check for Updates…** to check for a newer stable release and open
+  its release page.
+- Load a configuration file from a custom location by setting `TWINE_CONFIG_PATH`
+  to its absolute path before launching Twine.
+
+### Changed
+
+- Pasted images are kept with Twine's saved data so their file paths remain
+  available after temporary storage is cleared.
+
 ### Removed
 
 - Intel Macs are no longer supported. Twine now requires Apple Silicon.

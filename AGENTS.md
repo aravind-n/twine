@@ -23,6 +23,14 @@ Use the terms defined in [CONTEXT.md](CONTEXT.md) when naming folder, session, w
 - For Swift app work in `macOS/`, read [macOS/AGENTS.md](macOS/AGENTS.md).
 - For changes spanning components, follow each component's file, and run `make fmt` and `make check` in place of the per-component targets. Give any new component its own `AGENTS.md` when it needs distinct instructions.
 
+## Changelog
+
+- Before finishing repository changes, review the final diff for user-visible effects. Update [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]` so every such effect is covered.
+- Include changes to what users can do or experience: features, behavior, bug fixes, performance, installation, compatibility, and support requirements. Internal-only work, such as build pipelines, refactoring, tests, or agent instructions, needs no entry; leave the changelog unchanged when there is no user-visible effect.
+- Write concise entries in user-facing language that explain the resulting behavior or benefit. Group related changes into one entry and update an existing entry when it already covers the work.
+- Follow the changelog's existing format and use the appropriate category (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`). Preserve released entries; add versions and release dates only when explicitly preparing a release.
+- In the final response, state what was documented or why no changelog update was needed.
+
 ## Code style guidelines
 
 - **Rust unit tests:** Unit tests must be inline in a `#[cfg(test)] mod tests` block in the same source file as the code they test.
