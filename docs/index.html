@@ -37,15 +37,22 @@
         <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Native macOS. Open source. Early days.</p>
         <h1 id="hero-title">Coding agents,<br><span>working together.</span></h1>
         <p class="hero-description">Your terminals, coding agents, files, and workflow history.<br class="desktop-break"> One Mac app. Room for the way you work.</p>
-        <div class="hero-actions">
-          <a class="button button-primary" href="https://github.com/aravind-n/twine/releases/latest" data-macos-download="hero-download-status">
-            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></svg>
-            Download for macOS
-          </a>
-          <a class="button button-secondary" href="https://github.com/aravind-n/twine">Explore the source <span aria-hidden="true">↗</span></a>
+        <div class="install-command">
+          <span class="install-prompt" aria-hidden="true">$</span>
+          <code>brew install --cask twineproject/tap/twine-app</code>
+          <button class="copy-command" type="button" data-copy="brew install --cask twineproject/tap/twine-app" aria-label="Copy the Homebrew install command">
+            <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+            <span aria-live="polite">Copy</span>
+          </button>
         </div>
+        <p class="install-alternatives">
+          <span>No Homebrew?</span>
+          <a href="https://github.com/aravind-n/twine/releases/latest" data-macos-download="hero-download-status">Download the app <span aria-hidden="true">↓</span></a>
+          <span aria-hidden="true">·</span>
+          <a href="https://github.com/aravind-n/twine">Explore the source <span aria-hidden="true">↗</span></a>
+        </p>
         <p class="download-feedback" id="hero-download-status" role="status" hidden><span></span> <a href="https://github.com/aravind-n/twine/releases/latest" hidden>View releases ↗</a></p>
-        <p class="download-detail">macOS 26+ <span aria-hidden="true">·</span> Apple Silicon <span aria-hidden="true">·</span> DMG installer</p>
+        <p class="download-detail">macOS 26+ <span aria-hidden="true">·</span> Apple Silicon</p>
         <figure class="app-preview">
           <div class="preview-label"><span class="preview-tag">A look inside</span><span>Two agents. One shared task.</span></div>
           <a href="assets/workspace.png" aria-label="View full-size Twine screenshot">
@@ -114,16 +121,27 @@
           <p class="eyebrow">Ready when you are</p>
           <h2 id="start-title">Give it a spin.</h2>
           <p>Twine is in early development.<br>Try it on a real task and tell us what you think.</p>
-          <a class="button button-primary" href="https://github.com/aravind-n/twine/releases/latest" data-macos-download="start-download-status">Download for macOS <span aria-hidden="true">↓</span></a>
+          <div class="install-command">
+            <span class="install-prompt" aria-hidden="true">$</span>
+            <code>brew install --cask twineproject/tap/twine-app</code>
+            <button class="copy-command" type="button" data-copy="brew install --cask twineproject/tap/twine-app" aria-label="Copy the Homebrew install command">
+              <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+              <span aria-live="polite">Copy</span>
+            </button>
+          </div>
+          <p class="install-alternatives">
+            <span>No Homebrew?</span>
+            <a href="https://github.com/aravind-n/twine/releases/latest" data-macos-download="start-download-status">Download the app <span aria-hidden="true">↓</span></a>
+          </p>
           <p class="download-feedback" id="start-download-status" role="status" hidden><span></span> <a href="https://github.com/aravind-n/twine/releases/latest" hidden>View releases ↗</a></p>
         </div>
         <div class="start-steps">
           <ol>
-            <li><span class="step-number" aria-hidden="true">1</span><div><h3>Download &amp; install.</h3><p>Open the downloaded DMG and drag Twine to the Applications folder. Eject the disk image, then open Twine from Applications.</p></div></li>
+            <li><span class="step-number" aria-hidden="true">1</span><div><h3>Install.</h3><p>Run the Homebrew command, or download the app and drag Twine to the Applications folder. Then open Twine from Applications.</p></div></li>
             <li><span class="step-number" aria-hidden="true">2</span><div><h3>Open your folder.</h3><p>Create a session, choose a workflow, and select the agent tools you’ve installed.</p></div></li>
             <li><span class="step-number" aria-hidden="true">3</span><div><h3>Start with a task.</h3><p>Enter your task in the first agent’s terminal. Follow the work as the agents hand it off.</p></div></li>
           </ol>
-          <p class="install-note">New release packages are Developer ID signed and notarized. Read the <a href="documentation/guide/#install">install notes</a> for older releases.</p>
+          <p class="install-note">Releases are Developer ID signed and notarized. To update Twine later, read the <a href="documentation/guide/#install">install notes</a>.</p>
           <p class="source-note">Prefer to build it yourself? <a href="documentation/development/#development-setup">Build from source <span aria-hidden="true">↗</span></a></p>
         </div>
       </section>
@@ -132,7 +150,7 @@
     <footer class="footer wrap">
       <div><a class="brand footer-brand" href="./"><span>twine<span class="brand-period">.</span></span></a><p>A native macOS workspace for coordinating coding agents.</p></div>
       <nav aria-label="Footer navigation"><a href="documentation/">Documentation</a><a href="https://github.com/aravind-n/twine/issues">Feedback</a><a href="https://github.com/aravind-n/twine/blob/main/LICENSE">MIT License</a></nav>
-      <p class="footer-credit">Premiered at <a href="https://seattle.aitinkerers.org/">AI Tinkerers Seattle</a>. Built with SwiftUI, Rust, and <a href="https://github.com/migueldeicaza/SwiftTerm">SwiftTerm</a>.</p>
+      <p class="footer-credit">Built with SwiftUI, Rust, and <a href="https://github.com/migueldeicaza/SwiftTerm">SwiftTerm</a>.</p>
     </footer>
   </body>
 </html>

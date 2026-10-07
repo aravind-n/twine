@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are protected when closing the popup.
 - Choose from bundled terminal color themes, customize colors, and reuse settings
   through configuration file imports.
-- Inspect tool calls and subagent activity in the In depth trace timeline. Search
+- Inspect tool calls and subagent activity in the In Depth trace timeline. Search
   activity, filter failures, preview inputs and outputs, and jump to the related
   terminal output. Activity remains available after relaunch.
 - A [user guide](https://aravind-n.github.io/twine/documentation/guide/) covering
@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Install Twine from a DMG by dragging the app into Applications. The app is now
   signed and notarized for easier installation and first launch.
-- Switch between Standard traces for an overview of workflow steps and In depth
+- Switch between Overview traces for a summary of workflow steps and In Depth
   for a closer look at an agent's activity.
 - Terminals resize more smoothly when toggling the sidebar or changing layouts.
 
@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Known limitations
 
 - Antigravity and OpenCode v2 do not show tool calls or subagent activity in
-  In depth.
+  In Depth.
 
 ## [0.1.0] - 2026-10-01
 
