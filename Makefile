@@ -180,13 +180,13 @@ framework-release:
 deps-debug: $(call needs,framework-debug)
 	mkdir -p "$(OUT)/dependencies/tmp"
 	$(FRAMEWORK_SELECT) debug
-	$(XCODEBUILD_DEBUG) -derivedDataPath "$(OUT)/debug" -resolvePackageDependencies -quiet
+	$(XCODEBUILD_DEBUG) -derivedDataPath "$(OUT)/debug" -resolvePackageDependencies
 
 .PHONY: deps-release
 deps-release: $(call needs,framework-release)
 	mkdir -p "$(OUT)/dependencies/tmp"
 	$(FRAMEWORK_SELECT) release
-	$(XCODEBUILD_RELEASE) -derivedDataPath "$(OUT)/release" -resolvePackageDependencies -quiet
+	$(XCODEBUILD_RELEASE) -derivedDataPath "$(OUT)/release" -resolvePackageDependencies
 
 .PHONY: build-tests
 build-tests: $(call needs,deps-debug)
