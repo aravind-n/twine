@@ -227,9 +227,8 @@ final class TwineUITests: XCTestCase {
     /// as if that folder was open when Twine last quit.
     @MainActor
     func makeApp(lastOpenFolder: URL? = nil) throws -> XCUIApplication {
-        let dataDirectory = FileManager.default.temporaryDirectory.appending(path: "TwineUITests-\(UUID().uuidString)")
+        let dataDirectory = try makeTestFolder(prefix: "com.twineproject.Twine.tests.ui")
         addTeardownBlock {
-            try? FileManager.default.removeItem(at: dataDirectory)
             UserDefaults.standard.removePersistentDomain(forName: dataDirectory.lastPathComponent)
         }
         if let lastOpenFolder {
@@ -240,6 +239,7 @@ final class TwineUITests: XCTestCase {
         // including an empty window list left by a unit-test host or a previous UI test.
         app.launchArguments = ["-ApplePersistenceIgnoreState", "YES"]
         app.launchEnvironment["TWINE_DATA_DIRECTORY"] = dataDirectory.path(percentEncoded: false)
+        app.launchEnvironment["XDG_CONFIG_HOME"] = dataDirectory.appending(path: "config").path
         // Remember preferences across this app's relaunches without inheriting the user's saved zoom.
         app.launchEnvironment["TWINE_PREFERENCES_SUITE"] = dataDirectory.lastPathComponent
         return app

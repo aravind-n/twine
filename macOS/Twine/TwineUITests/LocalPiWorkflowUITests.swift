@@ -63,7 +63,7 @@ extension TwineUITests {
         app.launchEnvironment["PI_OFFLINE"] = "1"
         app.launchEnvironment["TWINE_BENCH_RUN_ID"] = fixture.runID
         app.launchEnvironment["TWINE_BENCH_COMPLETION_WITNESS"] = fixture.completionWitness
-        let preferencesSuite = "TwineLocalPi-\(UUID())"
+        let preferencesSuite = "com.twineproject.Twine.tests.TwineLocalPi-\(UUID())"
         app.launchEnvironment["TWINE_PREFERENCES_SUITE"] = preferencesSuite
         // XCTest can stop on an assertion without unwinding Swift defer blocks.
         addTeardownBlock {

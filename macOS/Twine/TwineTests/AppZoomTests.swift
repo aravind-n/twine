@@ -5,7 +5,7 @@ import Testing
 
 struct AppZoomTests {
     @Test @MainActor func remembersZoomAndResetAndBoundsRepeatedShortcuts() throws {
-        let suite = "AppZoomTests-\(UUID())"
+        let suite = "com.twineproject.Twine.tests.AppZoomTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let zoom = AppZoom(defaults: defaults)
@@ -24,7 +24,7 @@ struct AppZoomTests {
     }
 
     @Test @MainActor func ignoresInvalidSavedZoom() throws {
-        let suite = "AppZoomTests-\(UUID())"
+        let suite = "com.twineproject.Twine.tests.AppZoomTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         for value in [-100, 0, 101, 900] {
@@ -34,7 +34,7 @@ struct AppZoomTests {
     }
 
     @Test @MainActor func shortcutsAcceptPlusAndEqualsWithoutCapturingOrdinaryTyping() throws {
-        let suite = "AppZoomTests-\(UUID())"
+        let suite = "com.twineproject.Twine.tests.AppZoomTests-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let zoom = AppZoom(defaults: defaults)

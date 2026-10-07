@@ -1,9 +1,9 @@
 name: Set up macOS build tools and caches
-description: Install build tools and restore dependency and framework caches.
+description: Select Xcode 27.0, install Rust and the Metal toolchain, and restore dependency caches.
 
 inputs:
   profile:
-    description: Framework profile, debug or release.
+    description: Build profile for the Cargo cache, debug or release.
     default: debug
 
 outputs:
@@ -13,52 +13,52 @@ outputs:
   swift-cache-hit:
     description: Whether the resolved dependency cache matched exactly.
     value: ${{ steps.packages.outputs.cache-hit }}
-  bridge-cache-hit:
-    description: Whether framework compilation was avoided.
-    value: ${{ steps.bridge.outputs.cache-hit }}
 
 runs:
   using: composite
   steps:
-    - uses: ./.github/actions/setup-macos
-      with:
-        rust: 'true'
-        rust-targets: ${{ inputs.profile == 'release' && 'aarch64-apple-darwin x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
-        metal: 'true'
-    - name: Configure native Rust builds
+    - name: Require Xcode 27.0
       shell: bash
       run: |
-        echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target/core-xcframework" >> "$GITHUB_ENV"
-        echo 'CARGO_BUILD_TARGET=aarch64-apple-darwin' >> "$GITHUB_ENV"
-        echo 'MACOSX_DEPLOYMENT_TARGET=26.0' >> "$GITHUB_ENV"
-        echo "TEST_DERIVED_DATA=$RUNNER_TEMP/DerivedData" >> "$GITHUB_ENV"
-        echo "UI_TEST_DERIVED_DATA=$RUNNER_TEMP/DerivedData" >> "$GITHUB_ENV"
+        developer_dir=/Applications/Xcode_27.0.app/Contents/Developer
+        if [[ ! -d "$developer_dir" ]]; then
+          echo "::error::Xcode 27.0 is missing at $developer_dir"
+          exit 1
+        fi
+        echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+        # sed reads all of the output. head exits early, and xcodebuild then crashes on the broken pipe.
+        version="$(DEVELOPER_DIR="$developer_dir" xcodebuild -version | sed -n 1p)"
+        if [[ "$version" != 'Xcode 27.0' ]]; then
+          echo "::error::Expected Xcode 27.0, found $version"
+          exit 1
+        fi
+    - name: Install pinned Rust
+      shell: bash
+      run: |
+        # rust-toolchain.toml selects the version and installs its default components.
+        rustup show active-toolchain
+        rustup target add aarch64-apple-darwin
+        rustc --version
+    - name: Install Metal toolchain if missing
+      shell: bash
+      run: |
+        if ! xcrun metal -v >/dev/null 2>&1; then
+          xcodebuild -downloadComponent MetalToolchain
+        fi
     - uses: Swatinem/rust-cache@v2
       with:
-        workspaces: . -> target/core-xcframework
+        workspaces: . -> target
         shared-key: macos-xcode27-macos26-arm64-${{ inputs.profile }}
         add-job-id-key: false
         # Keep large dependency caches on main, where all PRs can reuse them.
         save-if: ${{ github.ref == 'refs/heads/main' }}
-    - name: Restore bridge framework
-      id: bridge
-      uses: actions/cache@v6
-      with:
-        path: macOS/TwineCorePackage/TwineCore.xcframework
-        key: >-
-          twine-bridge-v2-xcode27-macos26-${{ inputs.profile }}-${{
-          inputs.profile == 'release' && 'universal' || 'arm64' }}-${{
-          hashFiles('twine-core/**', 'twine-bridge/**', 'Cargo.toml', 'Cargo.lock',
-          'rust-toolchain.toml', 'macOS/TwineCorePackage/build.sh',
-          '.github/actions/setup-build/**', '.github/actions/setup-macos/**',
-          '.github/actions/setup-rust/**') }}
     - name: Restore Swift packages
       id: packages
       uses: actions/cache/restore@v6
       with:
-        path: macOS/Twine/.build/SourcePackages
+        path: out/dependencies/SourcePackages
         key: >-
-          swift-packages-v1-xcode27-${{ runner.arch }}-${{
+          swift-packages-v2-xcode27-${{ runner.arch }}-${{
           hashFiles('macOS/**/Package.resolved', 'macOS/**/Package.swift',
           'macOS/Twine/Twine.xcodeproj/project.pbxproj') }}
-        restore-keys: swift-packages-v1-xcode27-${{ runner.arch }}-
+        restore-keys: swift-packages-v2-xcode27-${{ runner.arch }}-

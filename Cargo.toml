@@ -2,6 +2,13 @@
 members = ["twine-core", "twine-bridge"]
 resolver = "3"
 
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = "debuginfo"
+
 [workspace.package]
 version = "0.2.0"
 edition = "2024"

@@ -226,7 +226,7 @@ private struct PulseRing: View {
     .frame(width: 700, height: 500)
     .background(.workflowChoicesBackground)
     .task {
-        let worker = CoreWorker(dataDirectory: .temporaryDirectory.appending(path: "TwineGraphPreview"))
+        let worker = CoreWorker(dataDirectory: AppPaths.previewDirectory.appending(path: "graph"))
         do {
             types = try await worker.open().workflowTypes ?? []
             await worker.close()

@@ -1,7 +1,7 @@
 import Darwin
 import XCTest
 
-/// Helpers for tests that drive shells in a folder. UI tests run only in CI, so their waits explain
+/// Helpers for tests that drive shells in a folder. Their waits explain
 /// what they found when they time out.
 extension TwineUITests {
     @MainActor

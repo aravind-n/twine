@@ -96,6 +96,6 @@ struct WorkflowPaneCanvas: View {
         folder: "/", workflows: [], sessionID: nil, selection: $selection,
         isVisible: true, reportFailure: { _ in NSSound.beep() }, closePane: { _ in NSSound.beep() }
     )
-    .environment(WorkflowLayouts(fileURL: URL(filePath: "/tmp/twine-preview-layouts.json")))
-    .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
+    .environment(WorkflowLayouts(fileURL: AppPaths.previewDirectory.appending(path: "workflow-layouts.json")))
+    .environment(CoreClient(transport: CoreWorker(dataDirectory: AppPaths.previewDirectory)))
 }

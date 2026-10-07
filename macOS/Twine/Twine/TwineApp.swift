@@ -24,6 +24,11 @@ struct TwineApp: App {
         // Each folder has its own window and runtime.
         NSWindow.allowsAutomaticWindowTabbing = false
         #if DEBUG
+            // Configure the core before starting any runtimes. Explicit environment overrides still apply.
+            let environment = ProcessInfo.processInfo.environment
+            if environment["TWINE_CONFIG_PATH"] == nil && environment["XDG_CONFIG_HOME"] == nil {
+                setenv("TWINE_CONFIG_PATH", Self.dataDirectory.appending(path: "config/config.toml").path, 1)
+            }
             // UI tests exercise both appearances without changing the desktop's appearance.
             switch ProcessInfo.processInfo.environment["TWINE_TEST_APPEARANCE"] {
             case "Light":
@@ -62,15 +67,8 @@ struct TwineApp: App {
         }
     }
 
-    /// Where the core keeps its database: `~/Library/Application Support/Twine`, unless the
-    /// `TWINE_DATA_DIRECTORY` environment variable names another directory, as UI tests do to start
-    /// from a clean state.
-    private static var dataDirectory: URL {
-        if let path = ProcessInfo.processInfo.environment["TWINE_DATA_DIRECTORY"] {
-            return URL(filePath: path, directoryHint: .isDirectory)
-        }
-        return .applicationSupportDirectory.appending(path: "Twine", directoryHint: .isDirectory)
-    }
+    private static var dataDirectory: URL { AppPaths.dataDirectory }
+
 }
 
 @MainActor

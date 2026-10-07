@@ -186,5 +186,5 @@ struct WorkflowDesigner: View {
 }
 
 #Preview {
-    WorkflowDesigner { _ in }.environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
+    WorkflowDesigner { _ in }.environment(CoreClient(transport: CoreWorker(dataDirectory: AppPaths.previewDirectory)))
 }

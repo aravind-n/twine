@@ -1,4 +1,4 @@
-libtwinecore @VERSION@ (macOS 26+, Apple Silicon and Intel)
+libtwinecore @VERSION@ (macOS 26+, Apple Silicon)
 
 Include include/twine_bridge.h and link libtwinecore.a.
 The exported API uses the twine_ prefix.

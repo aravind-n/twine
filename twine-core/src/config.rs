@@ -96,12 +96,14 @@ impl Config {
     #[must_use]
     pub fn user_path() -> Option<PathBuf> {
         user_config_path(
+            std::env::var_os("TWINE_CONFIG_PATH").as_deref(),
             std::env::var_os("XDG_CONFIG_HOME").as_deref(),
             std::env::home_dir().as_deref(),
         )
     }
 
-    /// Loads `$XDG_CONFIG_HOME/twine/config.toml`, falling back to `~/.config/twine`.
+    /// Loads `TWINE_CONFIG_PATH`, otherwise `$XDG_CONFIG_HOME/twine/config.toml` or
+    /// `~/.config/twine/config.toml`. The override must be an absolute file path.
     #[must_use]
     pub fn load_user() -> Self {
         let Some(path) = Self::user_path() else {
@@ -166,7 +168,16 @@ impl Config {
     }
 }
 
-fn user_config_path(xdg: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
+fn user_config_path(
+    twine: Option<&OsStr>,
+    xdg: Option<&OsStr>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(path) = twine {
+        return Some(Path::new(path))
+            .filter(|path| path.is_absolute())
+            .map(Path::to_owned);
+    }
     xdg.map(Path::new)
         .filter(|path| path.is_absolute())
         .map(|path| path.join("twine/config.toml"))
@@ -340,20 +351,33 @@ mod tests {
     fn xdg_config_path_uses_absolute_xdg_or_home_fallback() {
         let home = Some(Path::new("/home/user"));
         assert_eq!(
-            user_config_path(Some(OsStr::new("/xdg")), home),
+            user_config_path(None, Some(OsStr::new("/xdg")), home),
             Some(PathBuf::from("/xdg/twine/config.toml"))
         );
         for xdg in [None, Some(OsStr::new("")), Some(OsStr::new("relative"))] {
             assert_eq!(
-                user_config_path(xdg, home),
+                user_config_path(None, xdg, home),
                 Some(PathBuf::from("/home/user/.config/twine/config.toml"))
             );
         }
         assert_eq!(
-            user_config_path(Some(OsStr::new("/xdg")), None),
+            user_config_path(None, Some(OsStr::new("/xdg")), None),
             Some(PathBuf::from("/xdg/twine/config.toml"))
         );
-        assert_eq!(user_config_path(None, None), None);
+        assert_eq!(user_config_path(None, None, None), None);
+    }
+
+    #[test]
+    fn twine_config_override_is_independent_of_other_tools_config() {
+        let xdg = Some(OsStr::new("/user/config"));
+        let home = Some(Path::new("/home/user"));
+        assert_eq!(
+            user_config_path(Some(OsStr::new("/checkout/out/config.toml")), xdg, home),
+            Some(PathBuf::from("/checkout/out/config.toml"))
+        );
+        for twine in [Some(OsStr::new("")), Some(OsStr::new("relative"))] {
+            assert_eq!(user_config_path(twine, xdg, home), None);
+        }
     }
 
     #[test]

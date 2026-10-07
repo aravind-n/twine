@@ -112,6 +112,6 @@ struct WorkflowRunControls: View {
             agents: [.init(agentId: 1, active: true, done: false, reviewer: true, harness: .codex, targets: [])]),
         selectedAgentID: 1, reportFailure: { _ in }
     )
-    .environment(CoreClient(transport: CoreWorker(dataDirectory: .temporaryDirectory)))
+    .environment(CoreClient(transport: CoreWorker(dataDirectory: AppPaths.previewDirectory)))
     .frame(width: 650)
 }

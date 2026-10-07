@@ -20,7 +20,6 @@ jobs:
       version: ${{ steps.guard.outputs.version }}
       sha: ${{ steps.guard.outputs.sha }}
       build_run: ${{ steps.guard.outputs.build_run }}
-      build_number: ${{ steps.guard.outputs.build_number }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,61 +30,51 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          bash .github/release/release.sh guard "$GITHUB_REF_NAME" "$RUNNER_TEMP/notes.md"
+          bash .github/release/bundle-artifact.sh guard "$GITHUB_REF_NAME" "out/packaging/notes/notes.md"
           sha="$(git rev-parse HEAD)"
-          build_run="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs" --method GET \
+          run_id="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs" --method GET \
             -f branch=main -f event=push -f head_sha="$sha" -f status=success -f per_page=100 \
-            --jq '.workflow_runs[0] // empty')"
-          run_id="$(jq -r '.id' <<< "$build_run")"
+            --jq '.workflow_runs[0].id // empty')"
           if [[ -z "$run_id" ]]; then
             echo '::error::Wait for a successful push-to-main CI run on this commit before releasing'
             exit 1
           fi
-          build_number="$(jq -r '.run_number' <<< "$build_run")"
           available="$(gh api "repos/$GH_REPO/actions/runs/$run_id/artifacts?per_page=100" \
             | jq --arg name "Twine-ci-$sha" '[.artifacts[] | select(.name == $name and .expired == false)] | length')"
-          if [[ "$available" == 0 ]]; then run_id=''; fi
+          if [[ "$available" == 0 ]]; then
+            echo '::error::The CI build for this commit has expired; re-run CI on main for this commit, then re-run this job'
+            exit 1
+          fi
           {
             echo "version=${GITHUB_REF_NAME#v}"
             echo "sha=$sha"
             echo "build_run=$run_id"
-            echo "build_number=$build_number"
           } >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: release-notes
-          path: ${{ runner.temp }}/notes.md
+          path: out/packaging/notes/notes.md
           if-no-files-found: error
           overwrite: true
 
-  rebuild:
-    needs: guard
-    if: needs.guard.outputs.build_run == ''
-    uses: ./.github/workflows/_release-build.yml
-    with:
-      version: ci-${{ needs.guard.outputs.sha }}
-      build_number: ${{ needs.guard.outputs.build_number }}
-
   package:
-    needs: [guard, rebuild]
-    if: >-
-      always() && !cancelled() && needs.guard.result == 'success' &&
-      (needs.rebuild.result == 'success' || needs.rebuild.result == 'skipped')
+    needs: guard
     runs-on: xcode-27
     timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-macos
-      - name: Download main CI build or rebuilt tagged build
+      - name: Download main CI build
         uses: actions/download-artifact@v8
         with:
           name: Twine-ci-${{ needs.guard.outputs.sha }}
-          path: ${{ runner.temp }}/bundle
-          run-id: ${{ needs.guard.outputs.build_run || github.run_id }}
+          path: out/packaging/bundle
+          run-id: ${{ needs.guard.outputs.build_run }}
           github-token: ${{ github.token }}
-      - name: Install release packaging tools
+      - name: Install DMG tools
         run: make dmg-tools
-      - name: Sign, notarize, and package release
+      - name: Create signed release artifacts
         env:
           VERSION: ${{ needs.guard.outputs.version }}
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
@@ -96,30 +85,33 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
         run: >-
           bash .github/release/with-signing.sh
-          make release-package VERSION="$VERSION" BUNDLE_DIR="$RUNNER_TEMP/bundle"
-          OUTPUT_DIR="$RUNNER_TEMP/release"
+          bash .github/release/bundle-artifact.sh package "$VERSION"
+          "$GITHUB_WORKSPACE/out/packaging/bundle"
+          "$GITHUB_WORKSPACE/out/packaging/release"
+      - name: Validate signed release DMG
+        env:
+          TWINE_SIGNING_MODE: developer-id
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: make validate-dmg DMG="$GITHUB_WORKSPACE/out/packaging/release/Twine-$VERSION-macos-arm64.dmg" VERSION="$VERSION"
       - name: Upload notarization diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: release-notarization
-          path: target/notarization/
+          path: out/packaging/notarization/
           if-no-files-found: ignore
           overwrite: true
           retention-days: 7
       - uses: actions/upload-artifact@v7
         with:
           name: release-assets
-          path: ${{ runner.temp }}/release/
+          path: out/packaging/release/
           if-no-files-found: error
           overwrite: true
 
   publish:
     needs: [guard, package]
-    # Reusing a CI artifact skips rebuild; override the skip propagated through package.
-    if: >-
-      !cancelled() && needs.guard.result == 'success' &&
-      needs.package.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -127,28 +119,28 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: release-assets
-          path: dist
+          path: out/packaging/assets
       - uses: actions/download-artifact@v8
         with:
           name: release-notes
-          path: notes
+          path: out/packaging/notes
       - name: Create or update a draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_SHA: ${{ needs.guard.outputs.sha }}
         run: |
-          (cd dist && sha256sum -c SHA256SUMS)
+          (cd out/packaging/assets && sha256sum -c SHA256SUMS)
           # Retries may replace assets only on this commit's draft, never a published release.
-          if gh release view "$GITHUB_REF_NAME" --json isDraft,targetCommitish > release.json; then
-            jq -e --arg sha "$RELEASE_SHA" '.isDraft and .targetCommitish == $sha' release.json >/dev/null
-            gh release edit "$GITHUB_REF_NAME" --draft --notes-file notes/notes.md
-            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          if gh release view "$GITHUB_REF_NAME" --json isDraft,targetCommitish > out/packaging/release.json; then
+            jq -e --arg sha "$RELEASE_SHA" '.isDraft and .targetCommitish == $sha' out/packaging/release.json >/dev/null
+            gh release edit "$GITHUB_REF_NAME" --draft --notes-file out/packaging/notes/notes.md
+            gh release upload "$GITHUB_REF_NAME" out/packaging/assets/* --clobber
           else
             # Do not leave a newly created partial draft after an upload failure.
             gh release create "$GITHUB_REF_NAME" --verify-tag --draft --target "$RELEASE_SHA" \
-              --title "$GITHUB_REF_NAME" --notes-file notes/notes.md
+              --title "$GITHUB_REF_NAME" --notes-file out/packaging/notes/notes.md
             trap 'gh release delete "$GITHUB_REF_NAME" --yes' ERR
-            gh release upload "$GITHUB_REF_NAME" dist/*
+            gh release upload "$GITHUB_REF_NAME" out/packaging/assets/*
             trap - ERR
           fi
