@@ -207,8 +207,9 @@ impl Application {
                         HarnessId::Pi | HarnessId::Omp => {
                             crate::harness::pi::prepare(position, harness)
                         }
-                        // These CLIs have no launch-only plugin flag; preserve user/folder config.
-                        HarnessId::Antigravity | HarnessId::Opencode => return None,
+                        HarnessId::Antigravity => crate::harness::antigravity::prepare(position),
+                        // This CLI has no launch-only plugin flag; preserve user/folder config.
+                        HarnessId::Opencode => return None,
                     } {
                         Ok((inbox, flags)) => {
                             arguments.extend(flags);
@@ -515,6 +516,7 @@ mod tests {
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::copy(&binary, bin.join("codex")).unwrap();
         std::fs::copy(&binary, bin.join("pi")).unwrap();
+        std::fs::copy(&binary, bin.join("agy")).unwrap();
         app.harness_path = Some(OsString::from(format!("{}:/usr/bin:/bin", bin.display())));
         accepted(
             app,
@@ -639,6 +641,24 @@ mod tests {
                 yolo: false,
                 workflow_id: id,
                 harness: HarnessId::Pi,
+                prompt: "Initial prompt".into(),
+                size: SIZE,
+            },
+        );
+        let terminal = workflow(app, id).terminal_id;
+        wait_for_output(app, terminal, b"READY");
+        terminal
+    }
+
+    fn start_antigravity(app: &Application, id: WorkflowId) -> TerminalId {
+        accepted(
+            app,
+            Command::StartAgent {
+                model: None,
+                effort: None,
+                yolo: false,
+                workflow_id: id,
+                harness: HarnessId::Antigravity,
                 prompt: "Initial prompt".into(),
                 size: SIZE,
             },
@@ -854,6 +874,98 @@ mod tests {
         assert_eq!(page.spans.len(), 1);
         assert_eq!(page.spans[0].span_id, original);
         assert_eq!(page.spans[0].status, TraceSpanStatus::Stopped);
+    }
+
+    #[test]
+    fn antigravity_launches_with_add_dir_hooks_and_records_steps() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let mut app = Application::with_config(data.path(), Config::default()).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        let terminal = start_antigravity(&app, id);
+
+        let arguments = std::fs::read_to_string(bin.path().join("arguments")).unwrap();
+        let arguments: Vec<_> = arguments.lines().collect();
+        assert_eq!(arguments[0], "--add-dir");
+        let added_dir = Path::new(arguments[1]);
+        assert!(added_dir.is_dir());
+        assert!(!added_dir.starts_with(folder.path()));
+        assert!(added_dir.join(".agents/hooks.json").is_file());
+        assert!(added_dir.join("hook.sh").is_file());
+        assert_eq!(arguments[2], "--prompt-interactive=Initial prompt");
+
+        let hook_script = added_dir.join("hook.sh");
+        let run_hook = |event: &str, payload: &Value| {
+            let mut child = ProcessCommand::new(&hook_script)
+                .arg(event)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(&serde_json::to_vec(payload).unwrap())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(output.status.success());
+            output.stdout
+        };
+
+        run_hook("SessionStart", &json!({"conversationId": "conv-1"}));
+        app.poll_harness_steps().unwrap();
+
+        run_hook(
+            "PreInvocation",
+            &json!({"conversationId": "conv-1", "invocationNum": 0, "prompt": "Initial prompt"}),
+        );
+        app.poll_harness_steps().unwrap();
+
+        let stdout = run_hook(
+            "PreToolUse",
+            &json!({
+                "conversationId": "conv-1",
+                "stepIdx": 1,
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "ls -la", "toolAction": "List files"}
+                }
+            }),
+        );
+        assert_eq!(String::from_utf8_lossy(&stdout), r#"{"decision":"allow"}"#);
+        app.poll_harness_steps().unwrap();
+
+        let stdout = run_hook(
+            "PostToolUse",
+            &json!({
+                "conversationId": "conv-1",
+                "stepIdx": 1,
+                "error": "",
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "ls -la", "toolAction": "List files"}
+                }
+            }),
+        );
+        assert_eq!(String::from_utf8_lossy(&stdout), "{}");
+        app.poll_harness_steps().unwrap();
+
+        run_hook(
+            "Stop",
+            &json!({"conversationId": "conv-1", "terminationReason": "NO_TOOL_CALL"}),
+        );
+        thread::sleep(Duration::from_millis(60));
+        app.poll_harness_steps().unwrap();
+
+        let page = trace_for_terminal(&app, id, terminal);
+        assert_eq!(page.spans.len(), 1);
+        let span = page.spans[0].span_id;
+        let activities = app.trace_activities(span, None, 10).unwrap().activities;
+        assert_eq!(activities.len(), 1);
+        assert_eq!(activities[0].title, "List files");
+        assert_eq!(activities[0].status, crate::TraceActivityStatus::Completed);
     }
 
     #[test]
