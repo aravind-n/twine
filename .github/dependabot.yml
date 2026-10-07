@@ -5,9 +5,17 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: swift
-    directory: "/macOS/Twine"
+    directories:
+      - "/macOS/Twine"
+      - "/macOS/TwineSyntaxPackage"
     schedule:
       interval: weekly
+    groups:
+      # Update each dependency's manifest requirement and app lockfile together.
+      swift-dependencies:
+        group-by: dependency-name
+        patterns:
+          - "*"
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
