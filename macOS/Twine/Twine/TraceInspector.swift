@@ -104,7 +104,7 @@ struct TraceInspector: View {
     }
 
     private var emptyExplanation: String {
-        if lane.harness == "opencode" || lane.harness == "antigravity" {
+        if lane.harness == "opencode" {
             return "Detailed activity is not available for this harness yet. "
                 + "Recorded steps and terminal output remain available in Overview."
         }
