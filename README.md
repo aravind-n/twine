@@ -28,11 +28,8 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-Twine is a macOS app that runs coding agents such as Codex and Claude Code side
-by side in real terminals and hands work between them for you. Open a folder,
-pick how the agents should work together (alone, as implementer and reviewer, or
-as a coordinator with parallel workers), and type your task. It is for
-developers who already use agent CLIs and want more than one working on a task.
+Twine is the terminal-first collaboration layer for AI coding agents.
+Bring agents together through controlled workflows, visual traces, and cross-agent memory.
 
 ## Install
 
