@@ -62,6 +62,8 @@ struct WorkflowTests {
         let directory = TemporaryPath()
         try FileManager.default.createDirectory(at: directory.url, withIntermediateDirectories: true)
         let client = CoreClient(transport: CoreWorker(dataDirectory: directory.url.appending(path: ".twine")))
+        // A small router keeps the output needed to exceed its capacity short.
+        client.terminalChunkRouter = TerminalChunkRouter(capacityBytes: 32 * 1024)
         client.start()
         var controllers: [TerminalController] = []
         do {
@@ -80,7 +82,7 @@ struct WorkflowTests {
             // The marker is split in the command so echoed input cannot satisfy the assertion.
             try await client.writeTerminalInput(
                 terminalID: workflows[0].terminalID,
-                bytes: Data("yes background | head -c 2097152; printf '\\n%s\\n' BACKGROUND_\"\"DONE\r".utf8)
+                bytes: Data("yes background | head -c 131072; printf '\\n%s\\n' BACKGROUND_\"\"DONE\r".utf8)
             )
             try await client.writeTerminalInput(
                 terminalID: workflows[1].terminalID,
