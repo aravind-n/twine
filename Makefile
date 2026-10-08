@@ -19,6 +19,11 @@ XCODE_BUILD_ARGS ?=
 FRAMEWORK_BUILD := sh macOS/TwineCorePackage/build.sh
 FRAMEWORK_SELECT := sh macOS/TwineCorePackage/select.sh
 TESTS_DIR := $(OUT)/tests/build
+# Tests run from these build products without the project, so CI can build once and test on other machines.
+TEST_PRODUCTS := $(TESTS_DIR)/Build/Products
+TEST_ARCHIVE := $(OUT)/tests/products.tar.gz
+TEST_RUN = xcodebuild test-without-building -xctestrun "$(TEST_PRODUCTS)"/*.xctestrun \
+	-destination 'platform=macOS,arch=arm64' -derivedDataPath "$(TESTS_DIR)"
 SITE_DIR := $(OUT)/docs/site
 LIB_DOC_DIR := $(OUT)/docs/rust
 APP_DOC_DIR := $(OUT)/docs/swift
@@ -27,7 +32,7 @@ ACTIONLINT ?= actionlint
 # The test host uses fresh temporary data; Xcode products and results stay in out/tests.
 TEST_ENV := TEST_RUNNER_TWINE_PREFERENCES_SUITE=com.twineproject.Twine.tests.unit-host
 
-# PREBUILT=1 runs a target without its prerequisites. CI uses it to cache and time each stage.
+# PREBUILT=1 runs a target without its prerequisites. CI uses it to run tests from unpacked test products.
 needs = $(if $(PREBUILT),,$(1))
 
 # Tests outside this list are retired from default runs, but remain available with ONLY or ALL=1.
@@ -68,10 +73,14 @@ UI_VISUAL_TESTS := testFolderWindowInDarkAppearance \
 	testDraftAndFooterAtMinimumWindowSizeInDarkAppearance \
 	testTracesInDarkAppearance testCoordinatorGraphInDarkAppearance \
 	testShortOutputMinimapInBothAppearances
+# SHARD=n/N runs every Nth default test, starting at the nth, so CI can split the list across machines.
+UI_SHARD_TESTS = $(shell printf '%s\n' $(UI_DEFAULT_TESTS) | \
+	awk -v shard='$(SHARD)' 'BEGIN { split(shard, part, "/") } part[2] > 0 && NR % part[2] == part[1] % part[2]')
 UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 	$(addprefix -only-testing:TwineUITests/TwineUITests/,$(ONLY)),\
 	$(if $(filter 1,$(ALL)),-only-testing:TwineUITests,\
-		$(addprefix -only-testing:TwineUITests/TwineUITests/,$(UI_DEFAULT_TESTS))))
+		$(addprefix -only-testing:TwineUITests/TwineUITests/,\
+			$(if $(strip $(SHARD)),$(UI_SHARD_TESTS),$(UI_DEFAULT_TESTS)))))
 
 .PHONY: help
 help: ## Show this help
@@ -141,14 +150,15 @@ test-app: $(call needs,build-tests) ## Run the app's unit tests
 	trap 'rm -rf "$$twine_test_data"' EXIT; \
 	TEST_RUNNER_TWINE_DATA_DIRECTORY="$$twine_test_data" \
 	TEST_RUNNER_XDG_CONFIG_HOME="$$twine_test_data/config" $(TEST_ENV) \
-		$(XCODEBUILD_DEBUG) test-without-building -derivedDataPath "$(TESTS_DIR)" -only-testing:TwineTests
+		$(TEST_RUN) -only-testing:TwineTests
 
 .PHONY: check-app
 check-app: lint-app test-app ## Lint and unit-test the app
 
 .PHONY: ui-test
-ui-test: $(call needs,build-tests) ## Run UI tests (ONLY="testA testB" or ALL=1)
-	$(TEST_ENV) $(XCODEBUILD_DEBUG) -derivedDataPath "$(TESTS_DIR)" test-without-building $(UI_TEST_ARGS)
+ui-test: $(call needs,build-tests) ## Run UI tests (ONLY="testA testB", ALL=1 or SHARD=n/N)
+	@test -n "$(strip $(UI_TEST_ARGS))" || { echo 'usage: make ui-test [ONLY="testA testB" | ALL=1 | SHARD=n/N]' >&2; exit 2; }
+	$(TEST_ENV) $(TEST_RUN) $(UI_TEST_ARGS)
 
 .PHONY: ui-test-visual
 ui-test-visual: ## Run the visual UI tests
@@ -190,7 +200,18 @@ deps-release: $(call needs,framework-release)
 
 .PHONY: build-tests
 build-tests: $(call needs,deps-debug)
+	rm -f "$(TEST_PRODUCTS)"/*.xctestrun
 	$(XCODEBUILD_DEBUG) build-for-testing -derivedDataPath "$(TESTS_DIR)" $(XCODE_BUILD_ARGS)
+
+# CI archives the test products in the build job and unpacks them in each test job.
+.PHONY: pack-tests
+pack-tests: $(call needs,build-tests)
+	cd "$(TEST_PRODUCTS)" && tar -czf "$(TEST_ARCHIVE)" Debug/Twine.app Debug/TwineUITests-Runner.app *.xctestrun
+
+.PHONY: unpack-tests
+unpack-tests:
+	mkdir -p "$(TEST_PRODUCTS)"
+	tar -xzf "$(TEST_ARCHIVE)" -C "$(TEST_PRODUCTS)"
 
 ##@ DMG packaging
 .PHONY: build-dmg

@@ -1,0 +1,53 @@
+name: Website
+
+# After a merge: build and publish the website and API docs. Pull requests build the site in pr.yml.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Runs deploy in push order: one runs, and only the newest waits.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+
+jobs:
+  build-site:
+    name: Build site
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up macOS build tools and caches
+        uses: ./.github/actions/setup-build
+      - name: Build website and API docs
+        run: make build-site
+      - name: Upload website artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: out/docs/site
+
+  deploy-site:
+    name: Deploy site
+    needs: build-site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+      - name: Deploy website
+        id: deployment
+        uses: actions/deploy-pages@v5
