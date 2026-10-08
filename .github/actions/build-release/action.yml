@@ -1,0 +1,37 @@
+name: Build release app
+description: Build the Release app, bundle it for release.yml, and validate an ad hoc signed DMG made from it.
+
+runs:
+  using: composite
+  steps:
+    - name: Build Release app
+      shell: bash
+      run: >-
+        make release
+        XCODE_BUILD_ARGS="CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=$GITHUB_RUN_NUMBER"
+    - name: Bundle release artifacts
+      shell: bash
+      run: >-
+        bash .github/release/bundle-artifact.sh bundle
+        "$GITHUB_WORKSPACE/out/release/Build/Products/Release"
+        "$GITHUB_WORKSPACE/out/packaging/bundle"
+    - name: Install DMG tools
+      shell: bash
+      run: make dmg-tools
+    - name: Create release artifacts for validation
+      id: create-artifacts
+      shell: bash
+      env:
+        TWINE_SIGNING_MODE: adhoc
+      run: |
+        version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' out/release/Build/Products/Release/Twine.app/Contents/Info.plist)"
+        bash .github/release/bundle-artifact.sh package "$version" \
+          "$GITHUB_WORKSPACE/out/packaging/bundle" \
+          "$GITHUB_WORKSPACE/out/packaging/validation"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+    - name: Validate DMG
+      shell: bash
+      env:
+        TWINE_SIGNING_MODE: adhoc
+        VERSION: ${{ steps.create-artifacts.outputs.version }}
+      run: make validate-dmg DMG="$GITHUB_WORKSPACE/out/packaging/validation/Twine-$VERSION-macos-arm64.dmg" VERSION="$VERSION"

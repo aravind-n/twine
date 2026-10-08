@@ -1,0 +1,246 @@
+name: PR checks
+
+# Everything that must pass before a pull request can merge. Each job runs one Makefile target,
+# selected by the paths the pull request changes. Required PR checks is the one required check.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+
+jobs:
+  select:
+    name: Select checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ci: ${{ steps.filter.outputs.ci }}
+      lockfile: ${{ steps.filter.outputs.lockfile }}
+      lib: ${{ steps.filter.outputs.lib }}
+      app-source: ${{ steps.filter.outputs.app-source }}
+      app: ${{ steps.filter.outputs.app }}
+      site: ${{ steps.filter.outputs.site }}
+      packaging: ${{ steps.filter.outputs.packaging }}
+    steps:
+      - name: Detect changed areas
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          # A pipeline change selects every job. The app links the library, and the site documents both.
+          filters: |
+            pipeline: &pipeline
+              - '.github/workflows/**'
+              - '.github/actions/**'
+              - 'Makefile'
+              - 'scripts/**'
+            ci:
+              - *pipeline
+              - '.github/release/**'
+              - 'macOS/**/*.sh'
+            lockfile:
+              - 'Cargo.lock'
+              - '.github/workflows/_cargo-audit.yml'
+            lib: &lib
+              - *pipeline
+              - 'twine-core/**'
+              - 'twine-bridge/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'clippy.toml'
+            app-source: &app-source
+              - *pipeline
+              - 'macOS/**/!(*.md)'
+            app: &app
+              - *lib
+              - *app-source
+            site:
+              - *app
+              - 'macOS/**'
+              - 'docs/**'
+            packaging:
+              - *pipeline
+              - '.github/release/**'
+              - 'Cargo.toml'
+              - 'macOS/Twine/Twine.xcodeproj/**'
+
+  lint-ci:
+    name: Lint CI
+    needs: select
+    if: needs.select.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint CI workflows and scripts
+        run: >-
+          make lint-ci
+          ACTIONLINT="docker run --rm -v \"$PWD:/repo\" --workdir /repo rhysd/actionlint:1.7.12 -color"
+      - name: Test and lint release scripts
+        run: make check-bundle
+
+  audit-lib:
+    name: Audit lib dependencies
+    needs: select
+    if: needs.select.outputs.lockfile == 'true'
+    uses: ./.github/workflows/_cargo-audit.yml
+
+  lint-lib:
+    name: Lint lib
+    needs: select
+    if: needs.select.outputs.lib == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Check library formatting and Clippy
+        run: make lint-lib
+
+  test-lib:
+    name: Test lib
+    needs: select
+    if: needs.select.outputs.lib == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Install shell test dependencies
+        run: command -v fish >/dev/null || brew install fish
+      - name: Run library tests
+        env:
+          TWINE_REQUIRE_FISH_TESTS: '1'
+        run: make test-lib
+      - name: Install agent test dependencies
+        run: command -v node >/dev/null || brew install node
+      - name: Test agent extensions
+        run: |
+          TWINE_NODE="$(command -v node)"
+          export TWINE_NODE
+          make test-lib LIB_TEST_ARGS='harness::pi::tests::omp_extension -- --include-ignored'
+          make test-lib LIB_TEST_ARGS='harness::pi::tests::pi_extension_preserves -- --include-ignored'
+
+  lint-app:
+    name: Lint app
+    needs: select
+    if: needs.select.outputs.app-source == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up macOS build tools and caches
+        uses: ./.github/actions/setup-build
+      - name: Check app formatting and lint
+        run: make lint-app
+
+  # The test jobs run from this job's test products, so one failed test job reruns without a rebuild.
+  build-app:
+    name: Build app
+    needs: select
+    if: needs.select.outputs.app == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up macOS build tools and caches
+        uses: ./.github/actions/setup-build
+      - name: Build Debug app for testing
+        env:
+          XCODE_BUILD_ARGS: COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=${{ github.run_number }}
+        run: make pack-tests
+      - name: Upload test products
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-products
+          path: out/tests/products.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  test-app:
+    name: Test app
+    needs: build-app
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download test products
+        uses: actions/download-artifact@v8
+        with:
+          name: test-products
+          path: out/tests
+      - name: Run unit tests
+        run: |
+          make unpack-tests
+          make test-app PREBUILT=1
+      - name: Upload failed test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-test-results-${{ github.run_attempt }}
+          path: out/tests/build/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build-site:
+    name: Build site
+    needs: select
+    if: needs.select.outputs.site == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up macOS build tools and caches
+        uses: ./.github/actions/setup-build
+      - name: Build website and API docs
+        run: make build-site
+
+  build-release:
+    name: Build release
+    needs: select
+    if: needs.select.outputs.packaging == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up macOS build tools and caches
+        uses: ./.github/actions/setup-build
+        with:
+          profile: release
+      - name: Build and validate release app
+        uses: ./.github/actions/build-release
+
+  required:
+    name: Required PR checks
+    # List every job above here. A job left out does not gate the pull request.
+    needs:
+      - select
+      - lint-ci
+      - audit-lib
+      - lint-lib
+      - test-lib
+      - lint-app
+      - build-app
+      - test-app
+      - build-site
+      - build-release
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Jobs skipped by selection count as passing.
+      - name: Require every selected check to pass
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

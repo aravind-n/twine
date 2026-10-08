@@ -1,317 +1,91 @@
 name: CI
 
-# Required PR checks is the required check. Native validation uses one Mac per PR;
-# main starts UI tests and the Release build independently.
+# After a merge: UI-test the app and build the release candidate. Pull requests run pr.yml.
+# release.yml signs the Build release artifact from this workflow's successful run on the tagged
+# commit, and the app's build number is this workflow's run number.
+# Run it manually on a branch to UI-test that branch before merging.
 on:
-  pull_request:
-  workflow_dispatch:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
 
 jobs:
-  changes:
-    name: Select checks
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      lib: ${{ steps.filter.outputs.lib }}
-      app: ${{ steps.filter.outputs.app }}
-      lockfile: ${{ steps.filter.outputs.lockfile }}
-      # Every main run assembles a deployable site, so a newer unrelated
-      # commit cannot strand an older run's pending site update.
-      site: ${{ github.event_name != 'pull_request' || steps.filter.outputs.site == 'true' }}
-      swift_docs_key: ${{ steps.swift-docs.outputs.cache-primary-key }}
-      swift_docs_cached: ${{ steps.swift-docs.outputs.cache-hit == 'true' }}
-      native: >-
-        ${{ github.event_name != 'pull_request' || steps.filter.outputs.app == 'true' ||
-        (steps.filter.outputs.site == 'true' && steps.swift-docs.outputs.cache-hit != 'true') }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - name: Detect changed areas
-        id: filter
-        uses: dorny/paths-filter@v4
-        with:
-          # The app links the library, so every lib path is also an app path.
-          filters: |
-            lib:
-              - 'twine-core/**'
-              - 'twine-bridge/**'
-              - 'macOS/TwineCorePackage/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - '.github/actions/**'
-              - '.github/workflows/**'
-              - 'Makefile'
-              - 'scripts/**'
-            app:
-              - 'macOS/**/!(*.md)'
-              - 'twine-core/**'
-              - 'twine-bridge/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - '.github/actions/**'
-              - '.github/workflows/**'
-              - '.github/release/**'
-              - 'Makefile'
-              - 'scripts/**'
-            lockfile:
-              - 'Cargo.lock'
-              - '.github/workflows/_cargo-audit.yml'
-            site:
-              - 'docs/**'
-              - 'twine-core/**'
-              - 'twine-bridge/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - 'macOS/**'
-              - '.github/actions/**'
-              - '.github/workflows/ci.yml'
-              - 'Makefile'
-              - 'scripts/**'
-      - name: Look up matching Swift documentation
-        if: github.event_name != 'pull_request' || steps.filter.outputs.site == 'true'
-        id: swift-docs
-        uses: actions/cache/restore@v6
-        with:
-          lookup-only: true
-          path: out/docs/swift/Build/Products/Debug/Twine.doccarchive
-          key: >-
-            swift-docs-v1-xcode27-${{
-            hashFiles('macOS/Twine/Twine/**/*.swift', 'macOS/Twine/Twine/Documentation.docc/**',
-            'macOS/TwineSyntaxPackage/**', 'macOS/TwineCorePackage/Package.swift',
-            'macOS/**/Package.resolved', 'macOS/Twine/Twine.xcodeproj/**',
-            'twine-bridge/include/**', 'rust-toolchain.toml',
-            '.github/actions/**', 'Makefile') }}
-
-  native-checks:
-    name: macOS build and tests
-    needs: changes
-    if: needs.changes.outputs.native == 'true'
+  # The UI test jobs run from this job's test products, so one failed job reruns without a rebuild.
+  build-app:
+    name: Build app
     runs-on: xcode-27
-    env:
-      XCODE_BUILD_ARGS: COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=${{ github.run_number }}
-      # Lint and unit tests run on pull requests; main runs the UI tests.
-      PR_LIB_CHANGED: ${{ github.event_name == 'pull_request' && needs.changes.outputs.lib == 'true' }}
-      PR_APP_CHANGED: ${{ github.event_name == 'pull_request' && needs.changes.outputs.app == 'true' }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: Set up macOS build tools and caches
-        uses: ./.github/actions/setup-build
         id: build-tools
-      - name: Build library framework and resolve app packages
-        run: make deps-debug
-      - name: Check library formatting and Clippy
-        if: env.PR_LIB_CHANGED == 'true'
-        run: make lint-lib
-      - name: Install shell test dependencies
-        if: env.PR_LIB_CHANGED == 'true'
-        run: command -v fish >/dev/null || brew install fish
-      - name: Run library tests
-        if: env.PR_LIB_CHANGED == 'true'
-        env:
-          TWINE_REQUIRE_FISH_TESTS: '1'
-        run: make test-lib
-      - name: Install agent test dependencies
-        if: env.PR_LIB_CHANGED == 'true'
-        run: command -v node >/dev/null || brew install node
-      - name: Test agent extensions
-        if: env.PR_LIB_CHANGED == 'true'
-        run: |
-          TWINE_NODE="$(command -v node)"
-          export TWINE_NODE
-          make test-lib LIB_TEST_ARGS='harness::pi::tests::omp_extension -- --include-ignored'
-          make test-lib LIB_TEST_ARGS='harness::pi::tests::pi_extension_preserves -- --include-ignored'
-      - name: Check app formatting and lint
-        if: env.PR_APP_CHANGED == 'true'
-        run: make lint-app PREBUILT=1
+        uses: ./.github/actions/setup-build
       - name: Build Debug app for testing
-        id: build-app
-        if: github.event_name != 'pull_request' || needs.changes.outputs.app == 'true'
-        run: make build-tests PREBUILT=1
-      - name: Run unit tests
-        if: env.PR_APP_CHANGED == 'true'
-        id: unit-tests
-        run: make test-app PREBUILT=1
-      - name: Build app API docs
-        if: needs.changes.outputs.site == 'true' && needs.changes.outputs.swift_docs_cached != 'true'
-        run: make docs-app PREBUILT=1
-      - name: Save matching app API docs
-        if: needs.changes.outputs.site == 'true' && needs.changes.outputs.swift_docs_cached != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: out/docs/swift/Build/Products/Debug/Twine.doccarchive
-          key: ${{ needs.changes.outputs.swift_docs_key }}
-      - name: Run UI tests
-        if: github.event_name != 'pull_request'
-        id: ui-tests
-        run: make ui-test PREBUILT=1
-      - name: Upload failed test results
-        if: failure() && (steps.unit-tests.outcome == 'failure' || steps.ui-tests.outcome == 'failure')
+        env:
+          XCODE_BUILD_ARGS: COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=${{ github.run_number }}
+        run: make pack-tests
+      - name: Upload test products
         uses: actions/upload-artifact@v7
         with:
-          name: macos-test-results-${{ github.run_attempt }}
-          path: out/tests/build/Logs/Test/*.xcresult
+          name: test-products
+          path: out/tests/products.tar.gz
+          if-no-files-found: error
           retention-days: 7
+      # Pull requests restore this cache; only main saves it.
       - name: Save resolved Swift dependencies on main
-        if: >-
-          always() && !cancelled() && github.ref == 'refs/heads/main' &&
-          steps.build-app.outcome == 'success' &&
-          steps.build-tools.outputs.swift-cache-hit != 'true'
+        if: github.ref == 'refs/heads/main' && steps.build-tools.outputs.swift-cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: out/dependencies/SourcePackages
           key: ${{ steps.build-tools.outputs.swift-cache-key }}
 
-  cargo-audit:
-    name: Rust dependency security
-    needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.lockfile == 'true'
-    uses: ./.github/workflows/_cargo-audit.yml
-
-  actionlint:
-    name: Workflow and script checks
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Lint CI workflows and scripts
-        run: >-
-          make lint-ci
-          ACTIONLINT="docker run --rm -v \"$PWD:/repo\" --workdir /repo rhysd/actionlint:1.7.12 -color"
-      - name: Test and lint release scripts
-        run: make check-bundle
-
-  # The macOS job saves the app API docs before its UI tests, so the site builds even if they fail.
-  site:
-    name: Build website
-    needs: [changes, native-checks]
-    if: ${{ !cancelled() && needs.changes.outputs.site == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install pinned Rust
-        run: rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Build library API docs
-        run: make docs-lib
-      - name: Restore app API docs
-        uses: actions/cache/restore@v6
-        with:
-          path: out/docs/swift/Build/Products/Debug/Twine.doccarchive
-          key: ${{ needs.changes.outputs.swift_docs_key }}
-          fail-on-cache-miss: true
-      - name: Assemble website
-        run: make build-site PREBUILT=1
-      - name: Upload website artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: out/docs/site
-
-  deploy-site:
-    name: Deploy website
-    needs: site
-    if: >-
-      !cancelled() && needs.site.result == 'success' &&
-      github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    # Releases reuse this run's build, so a Pages failure must not fail the run.
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    concurrency:
-      group: pages-main
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Check that main has not moved on
-        id: head
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          main_sha="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')"
-          if [[ "$GITHUB_SHA" == "$main_sha" ]]; then
-            echo 'current=true' >> "$GITHUB_OUTPUT"
-          fi
-      - name: Configure Pages
-        if: steps.head.outputs.current == 'true'
-        uses: actions/configure-pages@v6
-      - name: Deploy website
-        if: steps.head.outputs.current == 'true'
-        id: deployment
-        uses: actions/deploy-pages@v5
-
-  ci-gate:
-    name: Required PR checks
-    needs: [changes, native-checks, cargo-audit, actionlint, site]
-    if: always() && github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      # Jobs skipped by change detection count as passing.
-      - name: Require every selected check to pass
-        if: >-
-          needs.changes.result != 'success' ||
-          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1
-
-  # release.yml signs and publishes this build when the commit is tagged.
-  release-build:
-    name: Build release artifacts
-    if: github.event_name == 'push'
+  ui-test-app:
+    name: UI test app (${{ matrix.shard }}/4)
+    needs: build-app
     runs-on: xcode-27
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download test products
+        uses: actions/download-artifact@v8
+        with:
+          name: test-products
+          path: out/tests
+      - name: Run UI tests
+        run: |
+          make unpack-tests
+          make ui-test PREBUILT=1 SHARD=${{ matrix.shard }}/4
+      - name: Upload failed test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-test-results-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: out/tests/build/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build-release:
+    name: Build release
+    runs-on: xcode-27
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: Set up macOS build tools and caches
         uses: ./.github/actions/setup-build
         with:
           profile: release
-      - name: Build Release app
-        run: >-
-          make release
-          XCODE_BUILD_ARGS="CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=$GITHUB_RUN_NUMBER"
-      - name: Bundle release artifacts
-        run: >-
-          bash .github/release/bundle-artifact.sh bundle
-          "$GITHUB_WORKSPACE/out/release/Build/Products/Release"
-          "$GITHUB_WORKSPACE/out/packaging/bundle"
-      - name: Install DMG tools
-        run: make dmg-tools
-      - name: Create release artifacts for validation
-        id: create-artifacts
-        env:
-          TWINE_SIGNING_MODE: adhoc
-        run: |
-          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' out/release/Build/Products/Release/Twine.app/Contents/Info.plist)"
-          bash .github/release/bundle-artifact.sh package "$version" \
-            "$GITHUB_WORKSPACE/out/packaging/bundle" \
-            "$GITHUB_WORKSPACE/out/packaging/validation"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Validate DMG
-        env:
-          TWINE_SIGNING_MODE: adhoc
-          VERSION: ${{ steps.create-artifacts.outputs.version }}
-        run: make validate-dmg DMG="$GITHUB_WORKSPACE/out/packaging/validation/Twine-$VERSION-macos-arm64.dmg" VERSION="$VERSION"
+      - name: Build and validate release app
+        uses: ./.github/actions/build-release
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
