@@ -231,15 +231,15 @@ extension TwineUITests {
     @MainActor
     private func selectSyntaxLanguage(_ language: String, in app: XCUIApplication) {
         app.menuButtons["fileSyntaxLanguage"].click()
-        // The Picker is a submenu. Reveal its items before clicking a choice.
+        // Open the Picker submenu with the keyboard so its screen position does not matter.
         let submenu = app.menuItems["Syntax language"].firstMatch
         XCTAssertTrue(submenu.waitForExistence(timeout: 3), app.debugDescription)
-        submenu.hover()
+        app.typeKey(.downArrow, modifierFlags: [])
+        app.typeKey(.rightArrow, modifierFlags: [])
         let option = submenu.menuItems[language]
         XCTAssertTrue(option.waitForExistence(timeout: 3), app.debugDescription)
-        // The submenu can open to the left. Click its visible row directly so XCTest's
-        // automatic menu traversal cannot move back through the parent and leave it open.
-        option.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        app.typeText(language)
+        app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(submenu.waitForNonExistence(timeout: 3), app.debugDescription)
     }
 
