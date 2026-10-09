@@ -459,6 +459,28 @@ impl Parser {
                         return vec![a];
                     }
                 }
+                Some("FileChange") => {
+                    if let Some(id) = string(&item["id"]) {
+                        let mut a = self.activity(
+                            format!("tool:{}:{id}", self.agent.as_deref().unwrap_or("root")),
+                            ActivityKind::Tool,
+                            "Change files".into(),
+                            ended,
+                        );
+                        a.started = started;
+                        a.failed = matches!(item["status"].as_str(), Some("failed" | "declined"));
+                        a.input = Some(file_changes(&item["changes"]));
+                        a.output = Some(
+                            [item["stdout"].as_str(), item["stderr"].as_str()]
+                                .into_iter()
+                                .flatten()
+                                .filter(|text| !text.is_empty())
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        );
+                        return vec![a];
+                    }
+                }
                 _ => {}
             }
         } else if v["type"] == "response_item" {
@@ -805,6 +827,30 @@ impl Parser {
 fn string(value: &Value) -> Option<String> {
     value.as_str().filter(|s| !s.is_empty()).map(str::to_owned)
 }
+
+fn file_changes(value: &Value) -> String {
+    let Some(changes) = value.as_object() else {
+        return detail(value);
+    };
+    let mut text = String::new();
+    for (path, change) in changes {
+        let _ = writeln!(
+            text,
+            "{} {path}",
+            change["type"].as_str().unwrap_or("Change")
+        );
+        if let Some(moved) = change["move_path"].as_str() {
+            let _ = writeln!(text, "Move to: {moved}");
+        }
+        if let Some(diff) = change["unified_diff"].as_str() {
+            text.push_str(diff);
+            text.push('\n');
+        } else {
+            let _ = writeln!(text, "{}", detail(change));
+        }
+    }
+    text
+}
 fn detail(value: &Value) -> String {
     value
         .as_str()
@@ -861,6 +907,33 @@ fn timestamp(value: &Value) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_file_change_records_keep_every_diff_move_output_and_failure() {
+        let mut parser = Parser::new(
+            HarnessId::Codex,
+            "session".into(),
+            Path::new("source.jsonl"),
+        );
+        parser.read(&json!({"type":"session_meta","payload":{"id":"session"}}));
+        let diff = "@@ -1 +1 @@\n-old\n+new ☃\n".repeat(1000);
+        let rows=parser.read(&json!({"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn","started_at_ms":1000,"completed_at_ms":2000,
+            "item":{"type":"FileChange","id":"file-change-native-id","changes":{"src/a.rs":{"type":"update","unified_diff":diff,"move_path":"src/moved.rs"},"src/b.rs":{"type":"add","unified_diff":"+second file\n","move_path":null}},"status":"failed","stdout":"First file saved","stderr":"Second file failed"}}}));
+        let row = &rows[0];
+        assert_eq!(row.id, "tool:root:file-change-native-id");
+        assert_eq!(row.turn.as_deref(), Some("turn"));
+        assert_eq!(row.started, Some(1000));
+        assert_eq!(row.ended, Some(2000));
+        assert!(row.failed);
+        let input = row.input.as_ref().unwrap();
+        assert!(input.contains(&diff));
+        assert!(input.contains("Move to: src/moved.rs"));
+        assert!(input.contains("+second file\n"));
+        assert_eq!(
+            row.output.as_deref(),
+            Some("First file saved\nSecond file failed")
+        );
+    }
 
     #[test]
     fn claude_background_launch_acknowledges_assignment_without_inventing_child_completion() {

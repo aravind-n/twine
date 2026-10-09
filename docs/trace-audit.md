@@ -20,6 +20,7 @@ private thinking, missing token counts, or unobserved timestamps.
 | LLM calls and usage were absent | The activity schema supported only tools/subagents | Add model calls and emitted notes, with optional metadata |
 | Old native detail was never used | No linked-conversation reconciliation existed | Recover exact Codex/Claude/Pi/OMP records in a background worker |
 | Claude response text was partial | One response can span several native records | Combine public blocks in source order and merge final usage |
+| Codex file edits were absent from recovered history | Typed FileChange records were skipped; the October 8 sample contained 150 across 10 native rollouts | Recover complete file diffs, move paths, stdout/stderr, timing and status |
 | Full details were irretrievable | The only stored copy was a 2 KiB preview | Retain complete large payloads in deduplicated files and page their contents |
 | Later activity was omitted | Each span stopped recording after 10,000 records | Remove that cutoff and retain paged access |
 | Overview lacked the approved entry point | Counts/action were absent | Show whole-step counts and Inspect activity |
@@ -64,5 +65,5 @@ remain unavailable. It does not guess from terminal prose or a nearby session.
 
 Regression coverage includes large Unicode input/output and relaunch, more than
 10,000 activities, shortened retries, streamed Claude responses, background
-launch acknowledgments, interrupted/failed history, storage protections, observer
-shutdown/cancellation, OpenCode error/abort/recovery, and desktop inspector flows.
+launch acknowledgments, complete Codex file-change diffs, interrupted/failed
+history, storage protections, observer shutdown/cancellation, OpenCode error/abort/recovery, and desktop inspector flows.
