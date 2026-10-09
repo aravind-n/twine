@@ -3,7 +3,9 @@
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{Store, StoreError, sql_integer, unsigned_column};
-use crate::harness::steps::{ActivityKind, ActivityPhase, HarnessStep, MAX_DETAIL_BYTES, truncate};
+use crate::harness::steps::{
+    ActivityKind, ActivityPhase, HarnessActivity, HarnessStep, MAX_DETAIL_BYTES, truncate,
+};
 use crate::trace::validate_limit;
 use crate::{
     TerminalId, TraceActivitiesPage, TraceActivity, TraceActivityId, TraceActivityKind,
@@ -110,6 +112,8 @@ pub(super) fn record_activity(
         )
     };
     let title = truncate(&step.title, 256);
+    let source_id =
+        reconcile_live_model(transaction, span, activity)?.unwrap_or_else(|| activity.id.clone());
     // Start and finish may be delivered in either order. The first endpoint wins on retries;
     // a late start fills the missing input without reopening a completed activity.
     transaction.execute(
@@ -135,9 +139,9 @@ pub(super) fn record_activity(
             input_bytes = MAX(COALESCE(trace_activities.input_bytes, 0), COALESCE(excluded.input_bytes, 0)),
             output_bytes = MAX(COALESCE(trace_activities.output_bytes, 0), COALESCE(excluded.output_bytes, 0)),
             metadata = json_patch(trace_activities.metadata, excluded.metadata),
-            anchor = CASE WHEN trace_activities.ended_at IS NULL AND excluded.ended_at IS NOT NULL
+            anchor = CASE WHEN trace_activities.anchor IS NULL OR (trace_activities.ended_at IS NULL AND excluded.ended_at IS NOT NULL)
                 THEN excluded.anchor ELSE trace_activities.anchor END",
-        params![sql_integer(span.0)?, activity.id, activity.parent_id, kind, title,
+        params![sql_integer(span.0)?, source_id, activity.parent_id, kind, title,
             started.then(|| sql_integer(observed_at)).transpose()?,
             (!started || activity.kind == ActivityKind::Note).then(|| sql_integer(observed_at)).transpose()?, status,
             if started { &detail } else { "" }, if started { "" } else { &detail },
@@ -159,6 +163,59 @@ fn optional_unsigned(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result
     row.get::<_, Option<i64>>(column)?
         .map(|_| unsigned_column(row, column))
         .transpose()
+}
+
+fn reconcile_live_model(
+    transaction: &Transaction<'_>,
+    span: TraceSpanId,
+    activity: &HarnessActivity,
+) -> Result<Option<String>, StoreError> {
+    if activity.kind != ActivityKind::Model
+        || activity.phase != ActivityPhase::Finished
+        || activity.metadata["responseId"].is_string()
+    {
+        return Ok(None);
+    }
+    let Some(timestamp) = activity.metadata["nativeMessageTimestamp"].as_u64() else {
+        return Ok(None);
+    };
+    let mut statement=transaction.prepare(
+        "SELECT source_id FROM trace_activities WHERE span_id=?1 AND kind='model'
+         AND source_id!=?2 AND parent_source_id IS ?3 AND json_extract(metadata,'$.model') IS ?4
+         AND json_extract(metadata,'$.nativeMessageTimestamp')=?5 AND json_extract(metadata,'$.source')='Harness history'
+         AND json_extract(metadata,'$.responseId') IS NULL LIMIT 2")?;
+    let candidates = statement
+        .query_map(
+            params![
+                sql_integer(span.0)?,
+                activity.id,
+                activity.parent_id,
+                activity.metadata["model"].as_str(),
+                sql_integer(timestamp)?
+            ],
+            |row| row.get::<_, String>(0),
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+    if candidates.len() != 1 {
+        return Ok(None);
+    }
+    let source = candidates.into_iter().next().expect("one candidate");
+    let observed: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM trace_activities WHERE span_id=?1 AND source_id=?2)",
+        params![sql_integer(span.0)?, activity.id],
+        |row| row.get(0),
+    )?;
+    if observed {
+        // History may finish before its observer endpoint is delivered. Keep the already
+        // displayed observer ID and its full request, and remove only the proven duplicate.
+        transaction.execute(
+            "DELETE FROM trace_activities WHERE span_id=?1 AND source_id=?2",
+            params![sql_integer(span.0)?, source],
+        )?;
+        Ok(None)
+    } else {
+        Ok(Some(source))
+    }
 }
 
 impl Store {

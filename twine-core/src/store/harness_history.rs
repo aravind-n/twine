@@ -8,6 +8,22 @@ use crate::{TraceSpanId, WorkflowId};
 type ExistingActivity = (u64, u64, Option<u64>, Option<u64>, String, Option<u64>);
 use rusqlite::{OptionalExtension, params};
 
+fn read_existing_activity(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExistingActivity> {
+    let optional = |column| {
+        row.get::<_, Option<i64>>(column)?
+            .map(|_| unsigned_column(row, column))
+            .transpose()
+    };
+    Ok((
+        unsigned_column(row, 0)?,
+        unsigned_column(row, 1)?,
+        optional(2)?,
+        optional(3)?,
+        row.get(4)?,
+        optional(5)?,
+    ))
+}
+
 impl Store {
     pub(crate) fn history_request(
         &self,
@@ -55,7 +71,7 @@ impl Store {
         native: &NativeActivity,
     ) -> Result<bool, StoreError> {
         // Persisted native identities and explicit response IDs identify existing observations.
-        let existing:Option<ExistingActivity> = self.connection.query_row(
+        let mut existing:Option<ExistingActivity> = self.connection.query_row(
             "SELECT a.id,a.span_id,a.input_bytes,a.output_bytes,a.metadata,a.ended_at FROM trace_activities a
              JOIN trace_spans s ON s.id=a.span_id JOIN trace_lanes l ON l.id=s.lane_id
              JOIN workflow_terminals wt ON wt.terminal_id=s.terminal_id
@@ -63,9 +79,38 @@ impl Store {
              (a.source_id=?3 OR (?4 IS NOT NULL AND a.kind='model' AND json_extract(a.metadata,'$.responseId')=?4))
              ORDER BY a.id LIMIT 1",
             params![sql_integer(workflow.0)?,session,native.id,native.metadata["responseId"].as_str()],
-            |r|Ok((unsigned_column(r,0)?,unsigned_column(r,1)?,r.get::<_,Option<i64>>(2)?.map(|_|unsigned_column(r,2)).transpose()?,
-                r.get::<_,Option<i64>>(3)?.map(|_|unsigned_column(r,3)).transpose()?,r.get(4)?,r.get::<_,Option<i64>>(5)?.map(|_|unsigned_column(r,5)).transpose()?))
+            read_existing_activity
         ).optional()?;
+        if existing.is_none()
+            && native.kind == ActivityKind::Model
+            && native.metadata["responseId"]
+                .as_str()
+                .is_none_or(str::is_empty)
+            && let Some(timestamp) = native.metadata["nativeMessageTimestamp"].as_u64()
+        {
+            let mut statement=self.connection.prepare(
+                "SELECT a.id,a.span_id,a.input_bytes,a.output_bytes,a.metadata,a.ended_at FROM trace_activities a
+                 JOIN trace_spans s ON s.id=a.span_id JOIN trace_lanes l ON l.id=s.lane_id
+                 JOIN workflow_terminals wt ON wt.terminal_id=s.terminal_id
+                 WHERE l.workflow_id=?1 AND wt.harness_session=?2 AND a.kind='model'
+                   AND a.parent_source_id IS ?3 AND json_extract(a.metadata,'$.model') IS ?4
+                   AND json_extract(a.metadata,'$.nativeMessageTimestamp')=?5 AND json_extract(a.metadata,'$.responseId') IS NULL LIMIT 2")?;
+            let mut candidates = statement
+                .query_map(
+                    params![
+                        sql_integer(workflow.0)?,
+                        session,
+                        native.parent,
+                        native.metadata["model"].as_str(),
+                        sql_integer(timestamp)?
+                    ],
+                    read_existing_activity,
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
+            if candidates.len() == 1 {
+                existing = candidates.pop();
+            }
+        }
         let span = if let Some((_, span, _, _, _, _)) = existing.as_ref() {
             Some(*span)
         } else {
@@ -114,6 +159,30 @@ impl Store {
         let Some(span) = span else {
             return Ok(false);
         };
+        let mut merged_metadata = existing
+            .as_ref()
+            .and_then(|row| serde_json::from_str::<serde_json::Value>(&row.4).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        if let Some(fields) = native.metadata.as_object() {
+            for (key, value) in fields {
+                if value.is_null()
+                    || (matches!(key.as_str(), "promptTitle" | "promptTime")
+                        && !merged_metadata[key].is_null())
+                    || (key == "model"
+                        && native.kind != ActivityKind::Model
+                        && !merged_metadata[key].is_null())
+                {
+                    continue;
+                }
+                merged_metadata[key] = value.clone();
+            }
+        }
+        // A parent's model is not the child's model. Per-call model records carry that fact.
+        if native.kind == ActivityKind::Subagent
+            && let Some(fields) = merged_metadata.as_object_mut()
+        {
+            fields.remove("model");
+        }
         if let Some((_, _, input, output, metadata, ended)) = existing.as_ref()
             && native
                 .input
@@ -126,7 +195,7 @@ impl Store {
             && serde_json::from_str::<serde_json::Value>(metadata)
                 .ok()
                 .as_ref()
-                == Some(&native.metadata)
+                == Some(&merged_metadata)
             && native
                 .ended
                 .is_none_or(|time| ended.is_some_and(|end| end >= time))
@@ -188,7 +257,7 @@ impl Store {
                 native.started.map(sql_integer).transpose()?,native.ended.map(sql_integer).transpose()?,status,
                 crate::harness::steps::truncate(native.input.as_deref().unwrap_or_default(),crate::harness::steps::MAX_DETAIL_BYTES),
                 crate::harness::steps::truncate(native.output.as_deref().unwrap_or_default(),crate::harness::steps::MAX_DETAIL_BYTES),
-                anchor,input_key,output_key,native.input.as_ref().map(|s|i64::try_from(s.len()).map_err(|_|StoreError::InvalidIdentifier)).transpose()?,native.output.as_ref().map(|s|i64::try_from(s.len()).map_err(|_|StoreError::InvalidIdentifier)).transpose()?,native.metadata.to_string()]
+                anchor,input_key,output_key,native.input.as_ref().map(|s|i64::try_from(s.len()).map_err(|_|StoreError::InvalidIdentifier)).transpose()?,native.output.as_ref().map(|s|i64::try_from(s.len()).map_err(|_|StoreError::InvalidIdentifier)).transpose()?,merged_metadata.to_string()]
         )?;
         transaction.execute(
             "UPDATE trace_activities SET status='interrupted' WHERE span_id=?1 AND status='running'
@@ -257,6 +326,164 @@ mod tests {
         store.execute_test_sql("INSERT INTO workflow_terminals(terminal_id,workflow_id,harness_session) VALUES(7,1,'native-session');
             UPDATE trace_lanes SET harness='Claude Code';");
         (workflow, span)
+    }
+
+    #[test]
+    fn distinct_provider_responses_with_the_same_timestamp_remain_distinct_models() {
+        let mut store = Store::open_in_memory().unwrap();
+        let (workflow, span) = fixture(&mut store);
+        for id in ["response-one", "response-two"] {
+            let row = NativeActivity {
+                id: format!("model:root:{id}"),
+                parent: None,
+                turn: Some("observer-turn".into()),
+                kind: ActivityKind::Model,
+                title: "LLM call".into(),
+                input: None,
+                output: Some(id.into()),
+                started: None,
+                ended: Some(2000),
+                failed: false,
+                metadata: serde_json::json!({"source":"Harness history","model":"native-model","responseId":id,"nativeMessageTimestamp":1600}),
+            };
+            store
+                .reconcile_native_activity(workflow, "native-session", &row)
+                .unwrap();
+        }
+        assert_eq!(
+            store
+                .trace_activities(span, None, 200)
+                .unwrap()
+                .counts
+                .models,
+            2
+        );
+    }
+
+    #[test]
+    fn repeated_parent_and_child_observations_keep_metadata_and_revision_stable() {
+        let mut store = Store::open_in_memory().unwrap();
+        let (workflow, span) = fixture(&mut store);
+        let mut parent = NativeActivity {
+            id: "agent:child".into(),
+            parent: None,
+            turn: Some("observer-turn".into()),
+            kind: ActivityKind::Subagent,
+            title: "Child".into(),
+            input: None,
+            output: None,
+            started: Some(1100),
+            ended: Some(1400),
+            failed: false,
+            metadata: serde_json::json!({"source":"Harness history","model":"parent-model","promptTitle":"Review file","promptTime":1000}),
+        };
+        let mut child = parent.clone();
+        child.turn = Some("child-turn".into());
+        child.input = Some("Actual assignment".into());
+        child.output = Some("Public result".into());
+        child.ended = None;
+        child.metadata = serde_json::json!({"source":"Harness history","model":"child-model","promptTitle":"Actual assignment","promptTime":1200});
+        store
+            .reconcile_native_activity(workflow, "native-session", &parent)
+            .unwrap();
+        store
+            .reconcile_native_activity(workflow, "native-session", &child)
+            .unwrap();
+        let revision = store.trace_summary(workflow).unwrap().revision;
+        parent.ended = None;
+        assert!(
+            !store
+                .reconcile_native_activity(workflow, "native-session", &parent)
+                .unwrap()
+        );
+        assert!(
+            !store
+                .reconcile_native_activity(workflow, "native-session", &child)
+                .unwrap()
+        );
+        assert_eq!(store.trace_summary(workflow).unwrap().revision, revision);
+        let page = store.trace_activities(span, None, 200).unwrap();
+        assert_eq!(page.activities[0].input, "Actual assignment");
+        assert_eq!(page.activities[0].output, "Public result");
+        assert_eq!(
+            page.activities[0].metadata["model"],
+            serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn pi_messages_without_response_ids_remain_one_model_in_both_delivery_orders() {
+        use crate::harness::steps::{ActivityPhase, HarnessActivity};
+        for native_first in [false, true] {
+            let mut store = Store::open_in_memory().unwrap();
+            let (workflow, span) = fixture(&mut store);
+            let mut observed = HarnessStep {
+                activity: Some(HarnessActivity {
+                    id: "model:root:observer-uuid".into(),
+                    parent_id: None,
+                    kind: ActivityKind::Model,
+                    phase: ActivityPhase::Started,
+                    failed: false,
+                    metadata: serde_json::json!({"model":"native-model","source":"Observer"}),
+                    detail_path: None,
+                }),
+                session_id: None,
+                kind: StepKind::Activity,
+                turn_id: Some("observer-turn".into()),
+                tool_call_id: None,
+                title: "LLM call".into(),
+                detail: "Full provider request".into(),
+            };
+            let context = HarnessStepContext {
+                workflow_id: workflow,
+                single_agent: true,
+                activate: false,
+                span: Some(span),
+            };
+            let anchor = TraceAnchor {
+                terminal_id: TerminalId::from_value(7),
+                byte_offset: 1200,
+                boundary_sizes: None,
+            };
+            store
+                .record_harness_step(context, &observed, 1100, &anchor)
+                .unwrap();
+            let original =
+                store.trace_activities(span, None, 200).unwrap().activities[0].activity_id;
+            let native = NativeActivity {
+                id: "model:root:native-entry-id".into(),
+                parent: None,
+                turn: Some("native-user-id".into()),
+                kind: ActivityKind::Model,
+                title: "LLM call".into(),
+                input: None,
+                output: Some("Public response".into()),
+                started: None,
+                ended: Some(2000),
+                failed: false,
+                metadata: serde_json::json!({"model":"native-model","source":"Harness history","nativeMessageTimestamp":1600,"promptTitle":"Review file","promptTime":1000}),
+            };
+            if native_first {
+                store
+                    .reconcile_native_activity(workflow, "native-session", &native)
+                    .unwrap();
+            }
+            observed.activity.as_mut().unwrap().phase = ActivityPhase::Finished;
+            observed.activity.as_mut().unwrap().metadata = serde_json::json!({"model":"native-model","source":"Observer","nativeMessageTimestamp":1600});
+            observed.detail = "Public response".into();
+            store
+                .record_harness_step(context, &observed, 2001, &anchor)
+                .unwrap();
+            store
+                .reconcile_native_activity(workflow, "native-session", &native)
+                .unwrap();
+            let page = store.trace_activities(span, None, 200).unwrap();
+            assert_eq!(page.counts.models, 1);
+            assert_eq!(page.activities[0].activity_id, original);
+            assert_eq!(page.activities[0].input, "Full provider request");
+            assert_eq!(page.activities[0].output, "Public response");
+            assert!(page.activities[0].anchor.is_some());
+        }
     }
 
     #[test]

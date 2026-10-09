@@ -197,7 +197,7 @@ export default function (pi) {
           lastModelFailed = ["error","aborted"].includes(message.stopReason);
           send({...modelCall,type:"model_end",detail:textContent(message.content) || message.errorMessage || "",
             is_error:["error","aborted"].includes(message.stopReason),metadata:{...modelCall.metadata,
-              model:message.model || modelCall.metadata.model,responseId:message.responseId,
+              model:message.model || modelCall.metadata.model,responseId:typeof message.responseId === "string" && message.responseId.length ? message.responseId : undefined,nativeMessageTimestamp:message.timestamp,
               inputTokens:message.usage?.input,outputTokens:message.usage?.output,
               cacheReadTokens:message.usage?.cacheRead,cacheWriteTokens:message.usage?.cacheWrite,
               totalTokens:message.usage?.totalTokens,cost:message.usage?.cost?.total,

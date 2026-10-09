@@ -21,6 +21,8 @@ private thinking, missing token counts, or unobserved timestamps.
 | Old native detail was never used | No linked-conversation reconciliation existed | Recover exact Codex/Claude/Pi/OMP records in a background worker |
 | Claude response text was partial | One response can span several native records | Combine public blocks in source order and merge final usage |
 | Codex file edits were absent from recovered history | Typed FileChange records were skipped; the October 8 sample contained 150 across 10 native rollouts | Recover complete file diffs, move paths, stdout/stderr, timing and status |
+| Pi model calls could appear twice without provider response IDs | Observer UUIDs and native entry IDs differed | Match a unique native message timestamp within the exact conversation, parent and model; preserve known provider IDs and either delivery order |
+| Other public Codex records were skipped | MCP, search, image-view, collaboration, message and compaction records use typed completion events | Preserve their full public records; attach supplementary data to an explicitly matching call, and enrich actual child result text |
 | Full details were irretrievable | The only stored copy was a 2 KiB preview | Retain complete large payloads in deduplicated files and page their contents |
 | Later activity was omitted | Each span stopped recording after 10,000 records | Remove that cutoff and retain paged access |
 | Overview lacked the approved entry point | Counts/action were absent | Show whole-step counts and Inspect activity |
@@ -30,7 +32,7 @@ private thinking, missing token counts, or unobserved timestamps.
 
 | Harness | Live observation | Saved-history recovery |
 | --- | --- | --- |
-| Codex | Prompt/tool/child/lifecycle events | Exact response IDs, public responses and exposed reasoning summaries, actual usage, native tools and declared child edges; includes indexed archived roots |
+| Codex | Prompt/tool/child/lifecycle events | Exact response IDs, public responses and exposed reasoning summaries, actual usage, native tools/public messages/compaction and declared child edges; includes indexed archived roots |
 | Claude Code | Prompt/tool/child/permission/compaction events | Public response blocks, request IDs, model/usage, tools, and explicit agent assignment/results; asynchronous launch acknowledgments remain starts |
 | Pi and OMP | Provider request payload, model response/usage/cost, tools, children and supported compaction events | Exact linked root and observed child files, native response/tool IDs and usage |
 | Antigravity | Prompt/tool/model invocation hooks | Live hooks only; a supplied user request is labeled as such, not as a compiled model request |
@@ -65,5 +67,5 @@ remain unavailable. It does not guess from terminal prose or a nearby session.
 
 Regression coverage includes large Unicode input/output and relaunch, more than
 10,000 activities, shortened retries, streamed Claude responses, background
-launch acknowledgments, complete Codex file-change diffs, interrupted/failed
+launch acknowledgments, complete Codex file-change diffs and public native tool records, interrupted/failed
 history, storage protections, observer shutdown/cancellation, OpenCode error/abort/recovery, and desktop inspector flows.

@@ -343,6 +343,8 @@ struct Parser {
     owner_parent: Option<String>,
     claude_calls: HashMap<String, (Vec<(String, String)>, Value)>,
     assignments: HashMap<String, (String, Option<u64>)>,
+    calls: HashSet<String>,
+    assignment_recorded: bool,
 }
 
 impl Parser {
@@ -367,6 +369,8 @@ impl Parser {
             owner_parent: None,
             claude_calls: HashMap::new(),
             assignments: HashMap::new(),
+            calls: HashSet::new(),
+            assignment_recorded: false,
         }
     }
 
@@ -481,6 +485,142 @@ impl Parser {
                         return vec![a];
                     }
                 }
+                Some(
+                    kind @ ("Extension" | "ImageView" | "McpToolCall" | "CollabAgentToolCall"),
+                ) => {
+                    if let Some(id) = string(&item["id"]) {
+                        // A matching provider call already has its own activity. Keep this
+                        // richer native observation beneath it without counting another call.
+                        let supplemental = self.calls.contains(&id);
+                        let source =
+                            format!("tool:{}:{id}", self.agent.as_deref().unwrap_or("root"));
+                        let title = item["tool"].as_str().map_or_else(
+                            || match kind {
+                                "Extension" => "Extension activity".into(),
+                                "ImageView" => "View image".into(),
+                                _ => "Native tool activity".into(),
+                            },
+                            |tool| format!("Call {tool}"),
+                        );
+                        let mut a = self.activity(
+                            if supplemental {
+                                format!("native:{source}")
+                            } else {
+                                source.clone()
+                            },
+                            if supplemental {
+                                ActivityKind::Note
+                            } else {
+                                ActivityKind::Tool
+                            },
+                            title,
+                            ended,
+                        );
+                        if supplemental {
+                            a.parent = Some(source);
+                        }
+                        a.started = started;
+                        a.failed = matches!(
+                            item["status"].as_str(),
+                            Some("failed" | "declined" | "errored")
+                        ) || item["result"]["isError"] == true
+                            || item["result"]["is_error"] == true;
+                        a.input = item
+                            .get("arguments")
+                            .or_else(|| item.get("query"))
+                            .or_else(|| item.get("path"))
+                            .map(detail);
+                        // Preserve result blocks and every emitted field, including collaboration
+                        // states/search results, rather than selecting only a text preview.
+                        a.output = Some(
+                            serde_json::to_string_pretty(item).unwrap_or_else(|_| item.to_string()),
+                        );
+                        a.metadata["recordFormat"] = "Native JSON record".into();
+                        return vec![a];
+                    }
+                }
+                Some("ContextCompaction") => {
+                    if let Some(id) = string(&item["id"]) {
+                        return vec![self.activity(
+                            format!(
+                                "note:compaction:{}:{id}",
+                                self.agent.as_deref().unwrap_or("root")
+                            ),
+                            ActivityKind::Note,
+                            "Context compacted".into(),
+                            ended,
+                        )];
+                    }
+                }
+                Some("Reasoning") => {
+                    let summary = item["summary_text"].as_str().map_or_else(
+                        || {
+                            item["summary_text"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(Value::as_str)
+                                .filter(|text| !text.trim().is_empty())
+                                .collect::<Vec<_>>()
+                                .join("\n\n")
+                        },
+                        str::to_owned,
+                    );
+                    if let Some(id) = string(&item["id"])
+                        && !summary.trim().is_empty()
+                    {
+                        let mut a = self.activity(
+                            format!("summary:{}:{id}", self.agent.as_deref().unwrap_or("root")),
+                            ActivityKind::Note,
+                            "Reasoning summary".into(),
+                            ended,
+                        );
+                        a.output = Some(summary);
+                        return vec![a];
+                    }
+                    // Raw reasoning is not an exposed summary and is never imported.
+                }
+                Some(kind @ ("UserMessage" | "AgentMessage")) => {
+                    if let Some(id) = string(&item["id"]) {
+                        let text = content(&item["content"]);
+                        if text.is_empty() || item["phase"] == "analysis" {
+                            return Vec::new();
+                        }
+                        let mut a = self.activity(
+                            format!("message:{}:{id}", self.agent.as_deref().unwrap_or("root")),
+                            ActivityKind::Note,
+                            if kind == "UserMessage" {
+                                "User message"
+                            } else {
+                                "Assistant message"
+                            }
+                            .into(),
+                            ended,
+                        );
+                        if kind == "UserMessage" {
+                            a.input = Some(text.clone());
+                        } else {
+                            a.output = Some(text.clone());
+                        }
+                        let mut records = vec![a];
+                        if kind == "AgentMessage"
+                            && item["phase"] == "final"
+                            && let Some(agent) = &self.agent
+                        {
+                            let mut child = self.activity(
+                                format!("agent:{agent}"),
+                                ActivityKind::Subagent,
+                                "Subagent".into(),
+                                None,
+                            );
+                            child.parent =
+                                self.owner_parent.as_ref().map(|id| format!("agent:{id}"));
+                            child.output = Some(text);
+                            records.push(child);
+                        }
+                        return records;
+                    }
+                }
                 _ => {}
             }
         } else if v["type"] == "response_item" {
@@ -492,7 +632,11 @@ impl Parser {
                 }
                 self.turn = string(&p["internal_chat_message_metadata_passthrough"]["turn_id"])
                     .or_else(|| self.turn.clone());
-                if let Some(agent) = &self.agent {
+                if let Some(agent) = &self.agent
+                    && !self.assignment_recorded
+                    && !text.is_empty()
+                    && !text.starts_with("<environment_context>")
+                {
                     let mut a = self.activity(
                         format!("agent:{agent}"),
                         ActivityKind::Subagent,
@@ -502,6 +646,7 @@ impl Parser {
                     a.parent = self.owner_parent.as_ref().map(|id| format!("agent:{id}"));
                     a.input = Some(text);
                     a.started = time;
+                    self.assignment_recorded = true;
                     return vec![a];
                 }
             }
@@ -518,6 +663,7 @@ impl Parser {
             ) {
                 self.tools.push(p["name"].as_str().unwrap_or("Tool").into());
                 if let Some(id) = string(&p["call_id"]) {
+                    self.calls.insert(id.clone());
                     let mut a = self.activity(
                         format!("tool:{}:{id}", self.agent.as_deref().unwrap_or("root")),
                         ActivityKind::Tool,
@@ -785,7 +931,7 @@ impl Parser {
             a.output = Some(content(&m["content"]));
             a.failed = matches!(m["stopReason"].as_str(), Some("error" | "aborted"));
             let u = &m["usage"];
-            a.metadata = json!({"source":"Harness history","model":m["model"],"responseId":id,"promptTitle":self.prompt_title,"promptTime":self.prompt_time,
+            a.metadata = json!({"source":"Harness history","model":m["model"],"responseId":string(&m["responseId"]),"nativeMessageTimestamp":m["timestamp"],"promptTitle":self.prompt_title,"promptTime":self.prompt_time,
                 "inputTokens":u["input"],"outputTokens":u["output"],"cacheReadTokens":u["cacheRead"],"cacheWriteTokens":u["cacheWrite"],
                 "totalTokens":u["totalTokens"],"cost":u["cost"]["total"],"stopReason":m["stopReason"]});
             result.push(a);
@@ -867,7 +1013,7 @@ fn content(value: &Value) -> String {
         .filter(|b| {
             matches!(
                 b["type"].as_str(),
-                Some("text" | "output_text" | "input_text" | "summary_text")
+                Some("Text" | "text" | "output_text" | "input_text" | "summary_text")
             )
         })
         .filter_map(|b| b["text"].as_str())
@@ -907,6 +1053,34 @@ fn timestamp(value: &Value) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_public_messages_preserve_child_results_without_importing_context_as_assignment_or_raw_reasoning()
+     {
+        let mut parser = Parser::new(
+            HarnessId::Codex,
+            "session".into(),
+            Path::new("agent-child.jsonl"),
+        );
+        parser.owner_parent = Some("planner".into());
+        parser.read(&json!({"type":"session_meta","payload":{"id":"session"}}));
+        assert_eq!(parser.read(&json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>Context</environment_context>"}]}})).len(),0);
+        let assignment=parser.read(&json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Review implementation"}]}}));
+        assert_eq!(
+            assignment[0].input.as_deref(),
+            Some("Review implementation")
+        );
+        let text = "Complete public response ☃".repeat(1000);
+        let rows=parser.read(&json!({"type":"event_msg","payload":{"type":"item_completed","completed_at_ms":2000,"item":{"type":"AgentMessage","id":"final","phase":"final","content":[{"type":"Text","text":text}]}}}));
+        assert_eq!(rows[0].output.as_deref(), Some(text.as_str()));
+        assert_eq!(rows[1].id, "agent:child");
+        assert_eq!(rows[1].output.as_deref(), Some(text.as_str()));
+        assert_eq!(rows[1].parent.as_deref(), Some("agent:planner"));
+        assert_eq!(rows[1].ended, None);
+        let summaries=parser.read(&json!({"type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"summary","summary_text":["Exposed summary"],"raw_content":"private data"}}}));
+        assert_eq!(summaries[0].output.as_deref(), Some("Exposed summary"));
+        assert_eq!(parser.read(&json!({"type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"hidden","summary_text":[],"raw_content":"private data"}}})).len(),0);
+    }
 
     #[test]
     fn codex_file_change_records_keep_every_diff_move_output_and_failure() {
@@ -990,4 +1164,52 @@ mod tests {
         );
         assert_eq!(rows[0].ended, Some(1_790_812_800_123));
     }
+}
+#[test]
+fn codex_native_public_tools_keep_complete_records_and_only_count_unpaired_calls() {
+    let mut parser = Parser::new(
+        HarnessId::Codex,
+        "session".into(),
+        Path::new("source.jsonl"),
+    );
+    parser.read(&json!({"type":"session_meta","payload":{"id":"session"}}));
+    parser.read(&json!({"type":"turn_context","payload":{"turn_id":"turn"}}));
+    for (kind, id) in [
+        ("Extension", "search"),
+        ("ImageView", "image"),
+        ("McpToolCall", "mcp"),
+        ("CollabAgentToolCall", "wait"),
+    ] {
+        if id == "wait" {
+            parser.read(&json!({"type":"response_item","payload":{"type":"function_call","call_id":"wait","name":"wait","arguments":"{}"}}));
+        }
+        let item = json!({"type":kind,"id":id,"tool":"actual-tool","arguments":{"path":"image.png"},"status":"completed","result":{"content":[{"type":"text","text":"Complete result ☃".repeat(1000)}]},"receiver_agents":["child"],"query":{"q":"recorded query"}});
+        let rows=parser.read(&json!({"type":"event_msg","payload":{"type":"item_completed","turn_id":"turn","started_at_ms":1000,"completed_at_ms":2000,"item":item}}));
+        let row = &rows[0];
+        assert_eq!(
+            row.kind,
+            if id == "wait" {
+                ActivityKind::Note
+            } else {
+                ActivityKind::Tool
+            }
+        );
+        assert_eq!(
+            row.parent.as_deref(),
+            if id == "wait" {
+                Some("tool:root:wait")
+            } else {
+                None
+            }
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(row.output.as_ref().unwrap()).unwrap(),
+            item
+        );
+        assert_eq!(row.started, Some(1000));
+        assert_eq!(row.ended, Some(2000));
+    }
+    let rows=parser.read(&json!({"type":"event_msg","payload":{"type":"item_completed","item":{"type":"ContextCompaction","id":"compact"},"completed_at_ms":3000}}));
+    assert_eq!(rows[0].kind, ActivityKind::Note);
+    assert_eq!(rows[0].output, None);
 }
