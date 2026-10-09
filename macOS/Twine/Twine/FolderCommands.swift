@@ -26,6 +26,7 @@ struct WorkflowActions {
 
 /// File menu commands that open a folder and close it, returning the window to the start page.
 struct FolderCommands: Commands {
+    let windows: FolderWindows
     var settings: SettingsPopup?
     #if DEBUG
         private static let testRoles = ["Implementer", "Reviewer", "Coordinator", "Worker"]
@@ -75,10 +76,10 @@ struct FolderCommands: Commands {
             #endif
             Divider()
             Button("Open Folder…") {
-                isChoosingFolder = true
+                windows.chooseFolder(from: session) { openWindow(id: "folder", value: $0) }
             }
             .keyboardShortcut("o")
-            .disabled(isChoosingFolder == nil || !isRunning)
+            .disabled(session != nil && !isRunning)
             Button("Close Folder") {
                 guard let session, session.tabs.closeAll() else { return }
                 Task { await session.coreClient.perform(.closeFolder) }

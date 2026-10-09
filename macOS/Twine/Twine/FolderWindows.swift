@@ -15,6 +15,7 @@ final class FolderWindowSession: Identifiable {
     let restoresFolder: Bool
     var hasStarted = false
     var isClosing = false
+    var isChoosingFolder = false
     weak var window: NSWindow?
 
     init(id: UUID, dataDirectory: URL, folder: String? = nil, restore: Bool = false) {
@@ -55,6 +56,17 @@ final class FolderWindows {
         URL(filePath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
+    func chooseFolder(from source: FolderWindowSession?, showWindow: (UUID) -> Void) {
+        guard !isTerminating else { return }
+        if let source, !source.isClosing {
+            source.isChoosingFolder = true
+        } else {
+            let session = session(id: UUID())
+            session.isChoosingFolder = true
+            showWindow(session.id)
+        }
+    }
+
     func open(_ path: String, from source: FolderWindowSession, showWindow: (UUID) -> Void) {
         guard !isTerminating, !source.isClosing else { return }
         let path = Self.canonicalPath(path)
@@ -62,7 +74,9 @@ final class FolderWindows {
         if let existing = sessions.values.first(where: { !$0.isClosing && $0.folder.map(Self.canonicalPath) == path }) {
             if existing.coreClient.snapshot?.folders.openFolder == nil, existing.requestedFolder == nil {
                 existing.requestedFolder = path
-                Task { await openFolder(path, in: existing) }
+                if existing.coreClient.runState == .running {
+                    Task { await openFolder(path, in: existing) }
+                }
             }
             Task {
                 existing.window?.makeKeyAndOrderFront(nil)
@@ -73,7 +87,9 @@ final class FolderWindows {
         }
         if source.folder == nil {
             source.requestedFolder = path
-            Task { await openFolder(path, in: source) }
+            if source.coreClient.runState == .running {
+                Task { await openFolder(path, in: source) }
+            }
         } else {
             let next = session(id: UUID(), folder: path)
             showWindow(next.id)

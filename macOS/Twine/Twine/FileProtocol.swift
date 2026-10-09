@@ -27,6 +27,14 @@ nonisolated struct FileEntry: Decodable, Equatable, Identifiable, Sendable {
     let kind: Kind
     var id: String { path }
 
+    func relativePath(in folder: String) -> String {
+        let root = URL(filePath: folder).standardizedFileURL.pathComponents
+        let components = URL(filePath: path).standardizedFileURL.pathComponents
+        guard components.starts(with: root) else { return path }
+        let relative = components.dropFirst(root.count).joined(separator: "/")
+        return relative.isEmpty ? "." : relative
+    }
+
     enum Kind: String, Decodable, Sendable {
         case directory, file, symlink, other
     }

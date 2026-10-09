@@ -33,17 +33,16 @@ enum WindowContent: Equatable {
 }
 
 struct ContentView: View {
-    let session: FolderWindowSession
+    @Bindable var session: FolderWindowSession
     let windows: FolderWindows
     @Environment(\.openWindow) private var openWindow
     @Environment(CoreClient.self) private var coreClient
     @Environment(FileTabsModel.self) private var fileTabs
-    @State private var isChoosingFolder = false
 
     var body: some View {
         content
             .frame(minWidth: 400, minHeight: 250)
-            .fileImporter(isPresented: $isChoosingFolder, allowedContentTypes: [.folder]) { result in
+            .fileImporter(isPresented: $session.isChoosingFolder, allowedContentTypes: [.folder]) { result in
                 switch result {
                 case .success(let url):
                     openFolder(url.path(percentEncoded: false))
@@ -51,7 +50,7 @@ struct ContentView: View {
                     folderLogger.error("Folder picker failed: \(error.localizedDescription, privacy: .public)")
                 }
             }
-            .focusedSceneValue(\.isChoosingFolder, $isChoosingFolder)
+            .focusedSceneValue(\.isChoosingFolder, $session.isChoosingFolder)
             .windowDismissBehavior(fileTabs.isSaving ? .disabled : .automatic)
             .dismissalConfirmationDialog("Discard unsaved changes?", shouldPresent: fileTabs.isDirty) {
                 Button("Discard Changes", role: .destructive) { fileTabs.discardAll() }
@@ -74,7 +73,7 @@ struct ContentView: View {
         case .startPage(let folders):
             StartPage(
                 folders: folders,
-                chooseFolder: { isChoosingFolder = true },
+                chooseFolder: { session.isChoosingFolder = true },
                 openFolder: openFolder,
                 removeRecentFolder: { perform(.removeRecentFolder(path: $0)) }
             )

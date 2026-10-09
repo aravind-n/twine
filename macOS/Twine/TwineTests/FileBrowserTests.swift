@@ -6,6 +6,21 @@ import Testing
 
 @MainActor
 struct FileBrowserTests {
+    @Test func relativePathsKeepNamesAndRespectFolderBoundaries() {
+        let cases = [
+            ("/folder/nested/hello '🌲.txt", "/folder", "nested/hello '🌲.txt"),
+            ("/folder/link", "/folder/", "link"),
+            ("/folder", "/folder", "."),
+            ("/folder-other/file", "/folder", "/folder-other/file"),
+            ("/folder/../outside", "/folder", "/folder/../outside"),
+            ("/hello.txt", "/", "hello.txt"),
+        ]
+        for (path, folder, expected) in cases {
+            let entry = FileEntry(path: path, name: "unused", kind: .file)
+            #expect(entry.relativePath(in: folder) == expected)
+        }
+    }
+
     @Test func lineSelectionUsesUTF16AndHandlesLineEndings() {
         let text = "🌲 first\r\nsecond\n"
         #expect(FileTextView.lineRange(in: text, line: 1) == NSRange(location: 0, length: 8))
