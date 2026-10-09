@@ -5,6 +5,45 @@ import Testing
 
 @MainActor
 struct FolderWindowsTests {
+    @Test func selectingAFolderBeforeTheNewWindowStartsQueuesItForStartup() async throws {
+        let data = TemporaryPath()
+        let path = try folder()
+        let windows = FolderWindows(dataDirectory: data.url)
+        var created: UUID?
+        windows.chooseFolder(from: nil) { created = $0 }
+        let createdID = try #require(created)
+        let session = try #require(windows.sessions[createdID])
+        windows.open(path.path, from: session) { _ in Issue.record("The picker must reuse its window") }
+        #expect(session.requestedFolder == path.path)
+        #expect(session.coreClient.runState == .idle)
+        await windows.start(session) { _ in Issue.record("Only the selected folder should open") }
+        #expect(session.coreClient.snapshot?.folders.openFolder == path.path)
+        #expect(session.requestedFolder == nil)
+        await session.coreClient.stopForQuit()
+    }
+
+    @Test func choosingFolderWithoutAWindowCreatesAPickerAndReusesALiveWindow() throws {
+        let data = TemporaryPath()
+        let windows = FolderWindows(dataDirectory: data.url)
+        var shown: [UUID] = []
+        windows.chooseFolder(from: nil) { shown.append($0) }
+        let firstID = try #require(shown.first)
+        let session = try #require(windows.sessions[firstID])
+        #expect(session.isChoosingFolder)
+        #expect(!session.hasStarted)
+        session.isChoosingFolder = false
+        windows.chooseFolder(from: session) { shown.append($0) }
+        #expect(session.isChoosingFolder)
+        #expect(shown == [session.id])
+        session.isClosing = true
+        windows.chooseFolder(from: session) { shown.append($0) }
+        #expect(shown.count == 2)
+        let lastID = try #require(shown.last)
+        #expect(windows.sessions[lastID]?.isChoosingFolder == true)
+        windows.isTerminating = true
+        windows.chooseFolder(from: nil) { _ in Issue.record("Quit must not open a window") }
+    }
+
     @Test func canonicalFoldersIgnoreTrailingSeparatorsAndDots() throws {
         let path = try folder()
         #expect(FolderWindows.canonicalPath(path.path + "/") == FolderWindows.canonicalPath(path.path))
