@@ -2,6 +2,7 @@
 #define TWINE_BRIDGE_H
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -123,6 +124,18 @@ TwineStatus twine_client_trace_events(
 TwineStatus twine_client_trace_activities(
     TwineClient *client, uint64_t span_id, uint64_t after_activity_id,
     uint32_t limit, TwineBuffer *out_page
+);
+
+// Full details are UTF-8 pages of 4..65536 bytes. Offsets are UTF-8 boundaries;
+// nextOffset is null at the end. Expired detail files return an explicit error.
+TwineStatus twine_client_trace_detail(
+    TwineClient *client, uint64_t activity_id, bool output, uint64_t offset,
+    uint32_t limit, TwineBuffer *out_page
+);
+// Operations: 0 status, 1 pin, 2 unpin, 3 request background cleanup.
+// Status includes clearGeneration and completedClearGeneration as cleanup receipts.
+TwineStatus twine_client_trace_storage(
+    TwineClient *client, uint64_t span_id, uint32_t operation, TwineBuffer *out_page
 );
 
 TwineStatus twine_client_next_terminal_chunk(

@@ -2,6 +2,158 @@ import XCTest
 
 extension TwineUITests {
     @MainActor
+    func testNativeHistoryShowsModelSummaryFullDetailsAndStoragePinAfterRelaunch() throws {
+        let folder = try inspectorFolder()
+        try writeInspectorAgent(in: folder)
+        try writeInspectorNativeHistory(in: folder)
+        let app = try makeApp(lastOpenFolder: folder)
+        app.launchEnvironment["SHELL"] = "/bin/sh"
+        app.launchEnvironment["TWINE_HARNESS_PATH"] = "\(folder.path)/bin:/bin:/usr/bin"
+        app.launchEnvironment["CLAUDE_CONFIG_DIR"] = folder.appending(path: "native").path
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10))
+        inspectorElement("workflowChoice-Terminal", in: app).click()
+        app.typeText(
+            "mkdir bin; printf '#!/bin/sh\\n' > bin/claude; cat inspector-stub.txt >> bin/claude; chmod +x bin/claude\r"
+        )
+        waitForFile(folder.appending(path: "bin/claude"), containing: "inspector-events", in: app)
+        app.buttons["newWorkflow"].click()
+        chooseInspectorHarness("claudeCode", displayName: "Claude Code", in: app)
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 900))
+        waitForFile(folder.appending(path: "inspector-ready"), containing: "ready", in: app)
+        app.buttons["tracesHeader"].click()
+        let step = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH 'traceSpan-' AND label CONTAINS 'Inspect parallel coding work'"
+            )
+        ).firstMatch
+        XCTAssertTrue(step.waitForExistence(timeout: 10), app.debugDescription)
+        step.click()
+        XCTAssertTrue(app.staticTexts["traceStepCounts"].waitForExistence(timeout: 10))
+        let inspect = app.buttons["inspectTraceActivity"]
+        XCTAssertTrue(inspect.waitForExistence(timeout: 10))
+        inspect.click()
+        let search = app.textFields["traceActivitySearch"]
+        search.click()
+        search.typeText("LLM call")
+        let call = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH 'traceActivity-' AND label CONTAINS 'LLM call'"
+            )
+        ).firstMatch
+        XCTAssertTrue(call.waitForExistence(timeout: 10), app.debugDescription)
+        let callID = call.identifier
+        let stepID = step.identifier
+        checkNativeModelDetails(in: app, call: call)
+        checkNativeHistoryRelaunch(in: app, callID: callID, stepID: stepID)
+    }
+
+    @MainActor
+    private func checkNativeModelDetails(in app: XCUIApplication, call: XCUIElement) {
+        call.click()
+        XCTAssertTrue(app.staticTexts["fixture-model"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["120 input tokens"].exists)
+        let fullOutput = app.buttons["traceFullOutput"]
+        XCTAssertTrue(fullOutput.waitForExistence(timeout: 5), app.debugDescription)
+        fullOutput.click()
+        XCTAssertTrue(
+            app.staticTexts.matching(
+                NSPredicate(
+                    format: "value CONTAINS 'END-OF-FULL-RESPONSE'"
+                )
+            ).firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["traceStorage"].click()
+        let pin = inspectorElement("pinTraceDetails", in: app)
+        XCTAssertTrue(pin.waitForExistence(timeout: 10), app.debugDescription)
+        pin.click()
+        waitForInspectorPin(in: app)
+        XCTAssertTrue(app.staticTexts["traceStorageUsage"].exists)
+        app.typeKey(.escape, modifierFlags: [])
+        attachWindow(in: app, name: "Recovered LLM call with complete streamed response and pinned storage")
+    }
+
+    @MainActor
+    private func checkNativeHistoryRelaunch(in app: XCUIApplication, callID: String, stepID: String) {
+        app.menuBars.menuBarItems["Twine"].click()
+        app.menuItems["Quit Twine"].click()
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
+        app.launch()
+        XCTAssertTrue(app.buttons["workflowTab-2"].waitForExistence(timeout: 10))
+        app.buttons["workflowTab-2"].click()
+        app.buttons["tracesHeader"].click()
+        XCTAssertTrue(app.buttons[stepID].waitForExistence(timeout: 10))
+        app.buttons[stepID].click()
+        selectTraceViewMode("In Depth", in: app)
+        app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+            .scroll(byDeltaX: 0, deltaY: -800)
+        app.textFields["traceActivitySearch"].click()
+        app.textFields["traceActivitySearch"].typeText("LLM call")
+        XCTAssertTrue(app.buttons[callID].waitForExistence(timeout: 10))
+        app.buttons[callID].click()
+        let fullOutput = app.buttons["traceFullOutput"]
+        XCTAssertTrue(fullOutput.waitForExistence(timeout: 5))
+        fullOutput.click()
+        XCTAssertTrue(
+            app.staticTexts.matching(
+                NSPredicate(
+                    format: "value CONTAINS 'END-OF-FULL-RESPONSE'"
+                )
+            ).firstMatch.waitForExistence(timeout: 5))
+        app.buttons["traceStorage"].click()
+        waitForInspectorPin(in: app)
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
+    @MainActor
+    private func waitForInspectorPin(in app: XCUIApplication) {
+        let pin = inspectorElement("pinTraceDetails", in: app)
+        let pinned = expectation(
+            for: NSPredicate { _, _ in
+                String(describing: pin.value ?? "") == "1" && pin.isEnabled
+            }, evaluatedWith: nil)
+        wait(for: [pinned], timeout: 10)
+    }
+
+    private func writeInspectorNativeHistory(in folder: URL) throws {
+        let project = folder.appending(path: "native/projects/fixture")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let records: [[String: Any]] = [
+            [
+                "type": "assistant", "uuid": "block-a", "sessionId": "inspector-fixture", "promptId": "inspect",
+                "requestId": "native-response", "timestamp": "2026-10-08T10:00:00.000Z",
+                "message": [
+                    "id": "message", "model": "fixture-model",
+                    "content": [
+                        [
+                            "type": "text",
+                            "text": "Public summary\n" + String(repeating: "☃ Full recorded response\n", count: 300),
+                        ]
+                    ], "usage": ["input_tokens": 120, "output_tokens": 30],
+                ],
+            ],
+            [
+                "type": "assistant", "uuid": "block-b", "sessionId": "inspector-fixture", "promptId": "inspect",
+                "requestId": "native-response", "timestamp": "2026-10-08T10:00:01.000Z",
+                "message": [
+                    "id": "message", "model": "fixture-model",
+                    "content": [["type": "text", "text": "END-OF-FULL-RESPONSE"]], "usage": ["output_tokens": 32],
+                ],
+            ],
+            [
+                "type": "system", "uuid": "compact", "sessionId": "inspector-fixture", "promptId": "inspect",
+                "subtype": "compact_boundary", "timestamp": "2026-10-08T10:00:02.000Z",
+                "compactMetadata": ["trigger": "auto"],
+            ],
+        ]
+        let lines =
+            try records.map { record in
+                try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: record), encoding: .utf8))
+            }.joined(separator: "\n") + "\n"
+        try lines.write(to: project.appending(path: "inspector-fixture.jsonl"), atomically: true, encoding: .utf8)
+    }
+
+    @MainActor
     func testTimelineInspectorShowsNestedCallsFiltersAndSurvivesRelaunch() throws {
         let folder = try inspectorFolder()
         try writeInspectorAgent(in: folder)

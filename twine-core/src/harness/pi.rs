@@ -7,8 +7,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::steps::{
-    ActivityKind, ActivityPhase, HarnessActivity, HarnessStep, MAX_DETAIL_BYTES, StepInbox,
-    StepKind, truncate,
+    ActivityKind, ActivityPhase, HarnessActivity, HarnessStep, StepInbox, StepKind, truncate,
 };
 use crate::HarnessId;
 use crate::terminal::ReplayPosition;
@@ -39,7 +38,11 @@ pub(crate) fn prepare(
     ))
 }
 
-fn parse(bytes: &[u8]) -> Option<HarnessStep> {
+#[expect(
+    clippy::too_many_lines,
+    reason = "one branch per verified native lifecycle event"
+)]
+pub(super) fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     let input: Value = serde_json::from_slice(bytes).ok()?;
     if input["type"] == "session" {
         return HarnessStep::session_started(&input["session_id"]);
@@ -66,11 +69,39 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     let failed = input["is_error"].as_bool() == Some(true);
     let event = input["type"].as_str()?;
     let mut activity = None;
-    let detail = truncate(
-        input["detail"].as_str().unwrap_or_default(),
-        MAX_DETAIL_BYTES,
-    );
+    let detail = input["detail"].as_str().unwrap_or_default().to_owned();
     let (kind, title) = match event {
+        "model_start" | "model_end" | "note" => {
+            let id = identifier(&input["activity_id"])?;
+            activity = Some(HarnessActivity {
+                id: format!(
+                    "{}:{}:{id}",
+                    if event == "note" { "note" } else { "model" },
+                    agent_id.unwrap_or("root")
+                ),
+                parent_id: agent_id.map(|id| format!("agent:{id}")),
+                kind: if event == "note" {
+                    ActivityKind::Note
+                } else {
+                    ActivityKind::Model
+                },
+                phase: if event == "model_start" {
+                    ActivityPhase::Started
+                } else {
+                    ActivityPhase::Finished
+                },
+                failed,
+                detail_path: None,
+                metadata: input
+                    .get("metadata")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            });
+            (
+                StepKind::Activity,
+                truncate(input["title"].as_str().unwrap_or("LLM call"), 160),
+            )
+        }
         event @ ("agent_start" | "agent_end") => {
             let id = agent_id?;
             activity = Some(HarnessActivity {
@@ -83,6 +114,11 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
                     ActivityPhase::Finished
                 },
                 failed,
+                detail_path: None,
+                metadata: input
+                    .get("metadata")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
             });
             let name = input["agent_name"].as_str().unwrap_or("Subagent");
             (StepKind::Activity, truncate(name, 160))
@@ -113,6 +149,11 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
                     ActivityPhase::Finished
                 },
                 failed,
+                detail_path: None,
+                metadata: input
+                    .get("metadata")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
             });
             tool_step_title(&input, event == "tool_start")?
         }
@@ -167,10 +208,11 @@ fn identifier(value: &Value) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::steps::MAX_DETAIL_BYTES;
     use serde_json::json;
 
     /// Keep the fixture alive until the Rust receiver observes its full sequence. A
-    /// fixed delay followed by `session_shutdown` drops queued events on busy CI hosts.
+    /// fixed delay makes fixture results depend on the host's polling speed.
     fn run_extension_fixture(
         node: &str,
         inbox: &StepInbox,
@@ -231,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn pi_steps_preserve_prompt_and_call_identity_and_bound_text() {
+    fn pi_steps_preserve_prompt_and_call_identity_and_full_text() {
         let step = parse(
             &serde_json::to_vec(&json!({
                 "type": "tool_start", "turn_id": "prompt-1", "tool_call_id": "call-1",
@@ -244,8 +286,7 @@ mod tests {
         assert_eq!(step.turn_id.as_deref(), Some("prompt-1"));
         assert_eq!(step.tool_call_id.as_deref(), Some("call-1"));
         assert_eq!(step.title, "Run make test");
-        assert!(step.detail.len() <= MAX_DETAIL_BYTES);
-        assert!(step.detail.ends_with("[truncated]"));
+        assert_eq!(step.detail, "☃".repeat(5000));
         assert!(parse(b"invalid").is_none());
         assert!(parse(br#"{"type":"prompt","detail":"missing id"}"#).is_none());
         assert!(parse(br#"{"type":"response","turn_id":""}"#).is_none());
@@ -299,6 +340,99 @@ mod tests {
 
     #[test]
     #[ignore = "requires Node; set TWINE_NODE to its absolute path"]
+    fn pi_extension_preserves_shutdown_bursts_for_pi_and_omp() {
+        let node = std::env::var("TWINE_NODE").expect("set TWINE_NODE");
+        for (harness, child) in [
+            (HarnessId::Pi, false),
+            (HarnessId::Omp, false),
+            (HarnessId::Omp, true),
+        ] {
+            let (inbox, arguments) = prepare(Arc::new(ReplayPosition::default()), harness).unwrap();
+            let script = r"
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+const { default: extension } = await import(pathToFileURL(process.argv[1]));
+const handlers = new Map();
+extension({ on: (name, handler) => handlers.set(name, handler) });
+const child = process.argv[2] === 'child';
+const ctx = {sessionManager:{getSessionFile:()=>'/tmp/session.jsonl'},
+  agent:{kind:child?'sub':'main',id:child?'worker':'root',parentId:'root'}};
+const emit = (name, event) => handlers.get(name)(event, ctx);
+emit('session_start', {});
+emit('message_start', {message:{role:'user',content:[{type:'text',text:'burst'}]}});
+for (let i=0; i<126; i++) {
+  emit('tool_execution_start', {toolCallId:`call-${i}`,toolName:'bash',args:{command:`printf ${i}`}});
+  emit('tool_execution_end', {toolCallId:`call-${i}`,result:{content:[{type:'text',text:`result-${i}`}]}});
+}
+emit('message_end', {message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'Done'}]}});
+emit(handlers.has('agent_settled') ? 'agent_settled' : 'agent_end', {});
+const start = Date.now();
+await emit('session_shutdown', {});
+assert.ok(Date.now()-start < 3500, 'shutdown exceeded its deadline');
+";
+            let expected = if child { 254 } else { 255 };
+            let mode = if child { "child" } else { "root" };
+            let events =
+                run_extension_fixture(&node, &inbox, &arguments[1], script, &[mode], expected);
+            assert_eq!(
+                events.last().unwrap().step.kind,
+                if child {
+                    StepKind::Activity
+                } else {
+                    StepKind::Responded
+                }
+            );
+            assert_eq!(events.last().unwrap().step.detail, "Done");
+            assert_eq!(events[expected - 2].step.title, "Finished: Run printf 125");
+        }
+    }
+
+    #[test]
+    #[ignore = "requires Node; set TWINE_NODE to its absolute path"]
+    fn pi_extension_preserves_bounded_shutdown_when_transport_stalls() {
+        let node = std::env::var("TWINE_NODE").expect("set TWINE_NODE");
+        let (inbox, arguments) =
+            prepare(Arc::new(ReplayPosition::default()), HarnessId::Pi).unwrap();
+        let stalled_socket = inbox.directory.path().join("stalled.sock");
+        let source = std::fs::read_to_string(&arguments[1]).unwrap().replace(
+            inbox.socket_path.to_str().unwrap(),
+            stalled_socket.to_str().unwrap(),
+        );
+        std::fs::write(&arguments[1], source).unwrap();
+        let script = r"
+import assert from 'node:assert/strict';
+import { createServer } from 'node:net';
+import { pathToFileURL } from 'node:url';
+const sockets = new Set();
+const server = createServer(socket => {
+  sockets.add(socket);
+  socket.on('error', () => {});
+  socket.pause();
+});
+await new Promise(resolve => server.listen(process.argv[2], resolve));
+const { default: extension } = await import(pathToFileURL(process.argv[1]));
+const handlers = new Map();
+extension({ on: (name, handler) => handlers.set(name, handler) });
+for (let i=0; i<100; i++) handlers.get('message_start')({message:{role:'user',content:'queued'}});
+const start = Date.now();
+await handlers.get('session_shutdown')({});
+assert.ok(Date.now()-start >= 2900, 'fixture did not exercise the shutdown deadline');
+assert.ok(Date.now()-start < 3500, 'shutdown exceeded its deadline');
+for (const socket of sockets) socket.destroy();
+await new Promise(resolve => server.close(resolve));
+";
+        run_extension_fixture(
+            &node,
+            &inbox,
+            &arguments[1],
+            script,
+            &[stalled_socket.to_str().unwrap()],
+            0,
+        );
+    }
+
+    #[test]
+    #[ignore = "requires Node; set TWINE_NODE to its absolute path"]
     fn omp_extension_records_parallel_nested_children_under_original_root_turn() {
         let node = std::env::var("TWINE_NODE").expect("set TWINE_NODE");
         let (inbox, arguments) =
@@ -310,7 +444,11 @@ const { default: extension } = await import(pathToFileURL(process.argv[1]));
 const bind = agent => {
   const handlers = new Map();
   extension({ on: (name, handler) => handlers.set(name, handler) });
-  return (name, event) => assert.equal(handlers.get(name)(Object.freeze(event), {agent}), undefined);
+  return (name, event) => {
+    const result = handlers.get(name)(Object.freeze(event), {agent});
+    if (name !== 'session_shutdown') assert.equal(result, undefined);
+    return result;
+  };
 };
 const root = bind({kind:'main',id:'Main'});
 const first = bind({kind:'sub',id:'worker-a',name:'explore',parentId:'Main'});
@@ -341,7 +479,7 @@ process.stdin.destroy();
 first('session_shutdown', {});
 second('session_shutdown', {});
 nested('session_shutdown', {});
-root('session_shutdown', {});
+await root('session_shutdown', {});
 ";
         let events = run_extension_fixture(&node, &inbox, &arguments[1], script, &[], 11);
         assert_eq!(events.len(), 11);
@@ -479,7 +617,9 @@ extension({ on: (name, handler) => handlers.set(name, handler) });
 assert.equal(handlers.has('agent_settled'), false);
 const emit = (name, event, kind = 'main') => {
   assert.ok(handlers.has(name));
-  assert.equal(handlers.get(name)(Object.freeze(event), {agent:{kind}}), undefined);
+  const result = handlers.get(name)(Object.freeze(event), {agent:{kind}});
+  if (name !== 'session_shutdown') assert.equal(result, undefined);
+  return result;
 };
 const prompt = (text, kind) => emit('message_start', {message:{role:'user',content:[{type:'text',text}]}}, kind);
 const response = (text, stopReason = 'stop', kind) => emit('message_end', {
@@ -510,7 +650,7 @@ await new Promise(resolve => {
   process.stdin.resume();
 });
 process.stdin.destroy();
-emit('session_shutdown', {});
+await emit('session_shutdown', {});
 ";
         let events = run_extension_fixture(&node, &inbox, &arguments[1], script, &[], 9);
         let steps: Vec<_> = events.iter().map(|event| &event.step).collect();
@@ -543,7 +683,11 @@ import { pathToFileURL } from 'node:url';
 const { default: extension } = await import(pathToFileURL(process.argv[1]));
 const handlers = new Map();
 extension({ on: (name, handler) => handlers.set(name, handler) });
-const emit = (name, event) => assert.equal(handlers.get(name)?.(event), undefined);
+const emit = (name, event) => {
+  const result = handlers.get(name)?.(event);
+  if (name !== 'session_shutdown') assert.equal(result, undefined);
+  return result;
+};
 const prompt = text => emit('message_start', { message: { role: 'user', content: [{type:'text', text}] } });
 const result = (id, text, isError = false) => emit('tool_execution_end', {
   toolCallId:id, toolName:'bash', result:{content:[{type:'text', text}]}, isError
@@ -581,7 +725,7 @@ await new Promise(resolve => {
   process.stdin.resume();
 });
 process.stdin.destroy();
-emit('session_shutdown', {});
+await emit('session_shutdown', {});
 ";
         let events = run_extension_fixture(&node, &inbox, &arguments[1], script, &[], 16);
         assert_eq!(events.len(), 16);

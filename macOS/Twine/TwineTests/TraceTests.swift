@@ -171,6 +171,67 @@ struct TraceStateTests {
         await client.stop()
     }
 
+    @Test func liveRefreshKeepsExpandedEventPagesAndSelection() async throws {
+        let transport = TraceTestTransport()
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await waitUntil { client.runState == .running }
+        let state = TracePanelState()
+        await state.refresh(workflowID: 2, client: client)
+        state.selectedSpanID = 20
+        await state.loadEvents(client: client)
+        await state.loadEvents(client: client, more: true)
+        #expect(state.events.map(\.id) == [1, 2])
+        await state.refresh(workflowID: 2, client: client)
+        await state.loadEvents(client: client)
+        #expect(state.selectedSpanID == 20)
+        #expect(state.events.map(\.id) == [1, 2])
+        #expect(state.nextAfter == nil)
+        await client.stop()
+    }
+
+    @Test func liveRefreshKeepsAnEventPaginationRequestThatIsStillLoading() async throws {
+        let transport = TraceTestTransport()
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await waitUntil { client.runState == .running }
+        let state = TracePanelState()
+        await state.refresh(workflowID: 2, client: client)
+        state.selectedSpanID = 20
+        await state.loadEvents(client: client)
+        await transport.holdMoreEvents(spanID: 20)
+        let more = Task { await state.loadEvents(client: client, more: true) }
+        try await waitUntil { await transport.hasPendingEventRead }
+        await state.loadEvents(client: client)
+        #expect(state.events.map(\.id) == [1, 2])
+        await transport.releaseEvents()
+        await more.value
+        #expect(state.events.map(\.id) == [1, 2])
+        #expect(!state.isLoadingEvents)
+        await client.stop()
+    }
+
+    @Test func liveGrowthKeepsEveryPreviouslyLoadedStepAcrossPageBoundaries() async throws {
+        let transport = TraceTestTransport()
+        await transport.enablePagination()
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await waitUntil { client.runState == .running }
+        let state = TracePanelState()
+        await state.refresh(workflowIDs: [1, 2], client: client)
+        await state.loadOlder(client: client)
+        state.selectedSpanID = 1100
+        await transport.appendSteps(220)
+        await state.refresh(workflowIDs: [1, 2], client: client)
+        #expect(state.spans.count == 842)
+        #expect(Set(state.spans.map(\.id)).count == 842)
+        #expect(state.spans.contains { $0.id == 1100 })
+        #expect(state.spans.contains { $0.id == 2100 })
+        #expect(state.selectedSpanID == 1100)
+        #expect(state.nextBefore == nil)
+        await client.stop()
+    }
+
     @Test func replacingTheLogCannotUseThePreviousSpansCursor() async throws {
         let transport = TraceTestTransport()
         let client = CoreClient(transport: transport)
@@ -241,16 +302,26 @@ struct TraceStateTests {
 
 private actor TraceTestTransport {
     private var paged = false
+    private var addedSteps = 0
     func enablePagination() { paged = true }
+    func appendSteps(_ count: Int) { addedSteps += count }
     private var heldSpan: UInt64?
+    private var holdMore = false
     private var pendingEvents: CheckedContinuation<CoreTraceEventsPage, Never>?
+    private var pendingEventSpanID: UInt64?
     private(set) var eventReadCursors: [UInt64?] = []
     var hasPendingEventRead: Bool { pendingEvents != nil }
     func holdEvents(spanID: UInt64) { heldSpan = spanID }
+    func holdMoreEvents(spanID: UInt64) {
+        heldSpan = spanID
+        holdMore = true
+    }
     func releaseEvents() {
-        if let heldSpan { pendingEvents?.resume(returning: eventPage(spanID: heldSpan, after: nil)) }
+        if let spanID = pendingEventSpanID { pendingEvents?.resume(returning: eventPage(spanID: spanID, after: nil)) }
         pendingEvents = nil
+        pendingEventSpanID = nil
         heldSpan = nil
+        holdMore = false
     }
     private var heldWorkflow: UInt64?
     private var pending: CheckedContinuation<CoreWorkflowTracePage, Never>?
@@ -279,20 +350,27 @@ private actor TraceTestTransport {
         }
         if paged {
             let base = workflowID * 1000
-            let spans =
-                before == nil
-                ? (200..<400).map { traceSpan(id: base + UInt64($0), laneID: workflowID) }
-                : [traceSpan(id: base + 100, laneID: workflowID)]
+            let all = ([100] + Array(200..<(400 + addedSteps))).map { base + UInt64($0) }.reversed()
+                .filter { $0 < (before ?? UInt64.max) }
+            let ids = Array(all.prefix(Int(limit)))
+            let spans = ids.map { traceSpan(id: $0, laneID: workflowID) }
             return CoreWorkflowTracePage(
-                summary: .init(workflowID: workflowID, revision: 1, spanCount: 201, agentCount: 0),
+                summary: .init(workflowID: workflowID, revision: 1, spanCount: UInt64(201 + addedSteps), agentCount: 0),
                 lanes: tracePage(workflowID: workflowID, spanID: 1).lanes, spans: spans,
-                nextBefore: before == nil ? base + 200 : nil)
+                nextBefore: all.count > ids.count ? ids.last : nil)
         }
         return tracePage(workflowID: workflowID, spanID: workflowID * 10)
     }
     func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) async -> CoreTraceEventsPage {
         eventReadCursors.append(after)
-        if heldSpan == spanID { return await withCheckedContinuation { pendingEvents = $0 } }
+        if heldSpan == spanID, !holdMore || after != nil {
+            if holdMore {
+                holdMore = false
+                heldSpan = nil
+            }
+            pendingEventSpanID = spanID
+            return await withCheckedContinuation { pendingEvents = $0 }
+        }
         return eventPage(spanID: spanID, after: after)
     }
     private func eventPage(spanID: UInt64, after: UInt64?) -> CoreTraceEventsPage {

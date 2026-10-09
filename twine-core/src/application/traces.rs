@@ -32,6 +32,79 @@ impl PendingTraceEnding {
 }
 
 impl Application {
+    /// Reads cached trace storage statistics and schedules background maintenance.
+    ///
+    /// # Errors
+    /// Returns storage or application-lock failures.
+    pub fn trace_storage_status(
+        &self,
+        span: Option<TraceSpanId>,
+    ) -> Result<crate::TraceStorageStatus, ApplicationError> {
+        let inner = self.lock_inner()?;
+        let status = inner.folders.read_store().storage_status(span)?;
+        let request = inner.folders.read_store().maintenance_request(false);
+        drop(inner);
+        if let Some(request) = request {
+            self.history
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?
+                .request(request);
+        }
+        Ok(status)
+    }
+
+    /// Protects a step's full retained details from automatic cleanup.
+    ///
+    /// # Errors
+    /// Returns storage or application-lock failures.
+    pub fn pin_trace_details(
+        &self,
+        span: TraceSpanId,
+        pinned: bool,
+    ) -> Result<(), ApplicationError> {
+        self.lock_inner()?
+            .folders
+            .store()
+            .pin_trace_details(span, pinned)?;
+        Ok(())
+    }
+
+    /// Clears unpinned, completed full details in the background. Native files are untouched.
+    ///
+    /// # Errors
+    /// Returns storage or application-lock failures.
+    pub fn clear_trace_details(&self) -> Result<(), ApplicationError> {
+        self.lock_inner()?.folders.store().request_trace_clear()?;
+        if let Some(request) = self
+            .lock_inner()?
+            .folders
+            .read_store()
+            .maintenance_request(true)
+        {
+            self.history
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?
+                .request(request);
+        }
+        Ok(())
+    }
+    /// Reads full recorded activity input or output in bounded UTF-8 pages.
+    ///
+    /// # Errors
+    /// Returns an error for missing activity, invalid page size, or unavailable payload storage.
+    pub fn trace_detail(
+        &self,
+        activity: crate::TraceActivityId,
+        output: bool,
+        offset: u64,
+        limit: usize,
+    ) -> Result<crate::TraceDetailPage, ApplicationError> {
+        Ok(self
+            .lock_inner()?
+            .folders
+            .read_store()
+            .trace_detail(activity, output, offset, limit)?)
+    }
     /// Reads native tool and subagent activity in stable ID order. Refresh from the beginning when
     /// the workflow revision changes, because a finish updates an existing activity.
     ///
@@ -44,6 +117,17 @@ impl Application {
         limit: usize,
     ) -> Result<crate::TraceActivitiesPage, ApplicationError> {
         self.poll_harness_steps()?;
+        if let Some(request) = self
+            .lock_inner()?
+            .folders
+            .read_store()
+            .history_request(span_id)?
+        {
+            self.history
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?
+                .request(request);
+        }
         Ok(self
             .lock_inner()?
             .folders

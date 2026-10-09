@@ -114,6 +114,8 @@ pub struct TraceActivityId(pub u64);
 pub enum TraceActivityKind {
     Tool,
     Subagent,
+    Model,
+    Note,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -138,6 +140,46 @@ pub struct TraceActivity {
     pub input: String,
     pub output: String,
     pub anchor: Option<TraceAnchor>,
+    pub metadata: serde_json::Value,
+    pub input_bytes: Option<u64>,
+    pub output_bytes: Option<u64>,
+    pub input_version: Option<String>,
+    pub output_version: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceActivityCounts {
+    pub tools: u64,
+    pub subagents: u64,
+    pub models: u64,
+    pub notes: u64,
+    pub failures: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceDetailPage {
+    pub activity_id: u64,
+    pub output: bool,
+    pub offset: u64,
+    pub next_offset: Option<u64>,
+    pub total_bytes: u64,
+    pub text: String,
+    pub version: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceStorageStatus {
+    pub payload_bytes: u64,
+    pub payload_files: u64,
+    pub budget_bytes: u64,
+    pub retention_days: u32,
+    pub updated_at: u64,
+    pub pinned: bool,
+    pub clear_generation: u64,
+    pub completed_clear_generation: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -147,6 +189,7 @@ pub struct TraceActivitiesPage {
     pub revision: u64,
     pub activities: Vec<TraceActivity>,
     pub next_after: Option<TraceActivityId>,
+    pub counts: TraceActivityCounts,
 }
 
 #[derive(Debug, Error)]

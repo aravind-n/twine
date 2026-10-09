@@ -9,6 +9,7 @@ final class TracePanelState {
     var workflowID: UInt64? { workflowIDs.first }
     private(set) var workflowIDs: [UInt64] = []
     private var cursors: [UInt64: UInt64] = [:]
+    private var oldestRequested: [UInt64: UInt64] = [:]
     private(set) var lanes: [CoreTraceLane] = []
     private(set) var spans: [CoreTraceSpan] = []
     private(set) var events: [CoreTraceEvent] = []
@@ -19,10 +20,21 @@ final class TracePanelState {
     private(set) var failureMessage: String?
     private(set) var logFailureMessage: String?
     var selectedSpanID: UInt64? {
-        didSet { if selectedSpanID != oldValue { activityDetails.reset() } }
+        didSet {
+            if selectedSpanID != oldValue {
+                activityDetails.reset()
+                logGeneration &+= 1
+                logPageCount = 1
+                events = []
+                nextAfter = nil
+                logFailureMessage = nil
+                isLoadingEvents = false
+            }
+        }
     }
     private var readGeneration: UInt64 = 0
     private var logGeneration: UInt64 = 0
+    private var logPageCount = 1
 
     var selectedSpan: CoreTraceSpan? { spans.first { $0.id == selectedSpanID } }
     var selectedLane: CoreTraceLane? { lanes.first { $0.id == selectedSpan?.laneID } }
@@ -33,6 +45,7 @@ final class TracePanelState {
         logGeneration &+= 1
         workflowIDs = workflowID.map { [$0] } ?? []
         cursors = [:]
+        oldestRequested = [:]
         lanes = []
         spans = []
         events = []
@@ -64,10 +77,8 @@ final class TracePanelState {
             var loadedCursors: [UInt64: UInt64] = [:]
             var loadedLanes: [CoreTraceLane] = []
             for workflowID in workflowIDs {
-                let laneIDs = Set(lanes.filter { $0.workflowID == workflowID }.map(\.id))
-                let count = spans.filter { laneIDs.contains($0.laneID) }.count
-                let pageCount = max(1, (count + 199) / 200)
-                let page = try await readPages(workflowID: workflowID, count: pageCount, client: client)
+                let page = try await readPages(
+                    workflowID: workflowID, through: oldestRequested[workflowID], client: client)
                 guard generation == readGeneration, self.workflowIDs == workflowIDs else { return }
                 loaded.append(contentsOf: page.spans)
                 loadedLanes.append(contentsOf: page.lanes)
@@ -78,11 +89,21 @@ final class TracePanelState {
             cursors = loadedCursors
             nextBefore = cursors.values.min()
             failureMessage = nil
+            retainLoadedBoundaries()
             if selectedSpan == nil { selectedSpanID = nil }
         } catch is CancellationError {
             return
         } catch {
             if generation == readGeneration { failureMessage = error.localizedDescription }
+        }
+    }
+
+    private func retainLoadedBoundaries() {
+        for workflowID in workflowIDs {
+            let laneIDs = Set(lanes.filter { $0.workflowID == workflowID }.map(\.id))
+            if let oldest = spans.filter({ laneIDs.contains($0.laneID) }).map(\.id).min() {
+                oldestRequested[workflowID] = oldest
+            }
         }
     }
 
@@ -92,59 +113,41 @@ final class TracePanelState {
         let nextBefore: UInt64?
     }
 
-    private func readPages(workflowID: UInt64, count: Int, client: CoreClient) async throws -> Pages {
+    private func readPages(workflowID: UInt64, through oldest: UInt64?, client: CoreClient) async throws -> Pages {
         var spans: [CoreTraceSpan] = []
         var lanes: [CoreTraceLane] = []
         var before: UInt64?
-        for _ in 0..<count {
+        repeat {
             let page = try await client.workflowTrace(workflowID: workflowID, before: before)
             try Task.checkCancellation()
+            guard page.summary.workflowID == workflowID else { throw CoreFailure.unexpectedCommandResult }
             spans.append(contentsOf: page.spans)
             lanes = page.lanes
+            let previous = before
             before = page.nextBefore
             if before == nil { break }
-        }
+            if let before, before == 0 || before >= (previous ?? UInt64.max) {
+                throw CoreFailure.unexpectedCommandResult
+            }
+            if let oldest, !spans.contains(where: { $0.id <= oldest }) { continue }
+            break
+        } while before != nil
         return Pages(spans: spans, lanes: lanes, nextBefore: before)
     }
 
     func loadOlder(client: CoreClient) async {
         guard !cursors.isEmpty, !isLoading else { return }
-        let workflowIDs = self.workflowIDs
-        readGeneration &+= 1
-        let generation = readGeneration
-        isLoading = true
-        defer { if generation == readGeneration { isLoading = false } }
-        do {
-            var loaded: [CoreTraceSpan] = []
-            var loadedLanes = lanes
-            var loadedCursors = cursors
-            for workflowID in workflowIDs {
-                guard let before = cursors[workflowID] else { continue }
-                let page = try await client.workflowTrace(workflowID: workflowID, before: before)
-                try Task.checkCancellation()
-                guard generation == readGeneration, self.workflowIDs == workflowIDs else { return }
-                loaded.append(contentsOf: page.spans)
-                loadedLanes.removeAll { $0.workflowID == workflowID }
-                loadedLanes.append(contentsOf: page.lanes)
-                loadedCursors[workflowID] = page.nextBefore
-            }
-            let known = Set(spans.map(\.id))
-            spans = (spans + loaded.filter { !known.contains($0.id) }).sorted {
-                $0.startedAt == $1.startedAt ? $0.id < $1.id : $0.startedAt < $1.startedAt
-            }
-            lanes = loadedLanes
-            cursors = loadedCursors
-            nextBefore = cursors.values.min()
-            failureMessage = nil
-        } catch is CancellationError {
-            return
-        } catch {
-            if generation == readGeneration { failureMessage = error.localizedDescription }
+        for (workflowID, before) in cursors {
+            // Save the user's intent before awaiting; a live refresh can supersede this read.
+            oldestRequested[workflowID] = before - 1
         }
+        await refresh(workflowIDs: workflowIDs, client: client)
     }
 
     func loadEvents(client: CoreClient, more: Bool = false) async {
         if more && (isLoadingEvents || nextAfter == nil) { return }
+        logPageCount += more ? 1 : 0
+        let requestedPages = logPageCount
         logGeneration &+= 1
         let generation = logGeneration
         guard let span = selectedSpan else {
@@ -154,28 +157,50 @@ final class TracePanelState {
             isLoadingEvents = false
             return
         }
-        let after = more ? nextAfter : nil
-        if !more {
-            events = []
-            nextAfter = nil
-        }
         logFailureMessage = nil
         isLoadingEvents = true
         defer { if generation == logGeneration { isLoadingEvents = false } }
         do {
-            let page = try await client.traceEvents(spanID: span.id, after: after)
-            try Task.checkCancellation()
-            guard generation == logGeneration, selectedSpanID == span.id,
-                page.workflowID == selectedLane?.workflowID
-            else { return }
-            let known = Set(events.map(\.id))
-            events.append(contentsOf: page.events.filter { !known.contains($0.id) })
-            nextAfter = page.nextAfter
+            let loaded = try await readEventPages(
+                spanID: span.id, count: requestedPages, generation: generation, client: client)
+            var known: Set<UInt64> = []
+            events = loaded.events.filter { known.insert($0.id).inserted }
+            nextAfter = loaded.nextAfter
+            logPageCount = max(1, loaded.count)
         } catch is CancellationError {
             return
         } catch {
             if generation == logGeneration, selectedSpanID == span.id { logFailureMessage = error.localizedDescription }
         }
+    }
+
+    private struct EventPages {
+        let events: [CoreTraceEvent]
+        let nextAfter: UInt64?
+        let count: Int
+    }
+
+    private func readEventPages(
+        spanID: UInt64, count: Int, generation: UInt64, client: CoreClient
+    ) async throws -> EventPages {
+        var loaded: [CoreTraceEvent] = []
+        var after: UInt64?
+        var pageCount = 0
+        for _ in 0..<count {
+            let page = try await client.traceEvents(spanID: spanID, after: after)
+            try Task.checkCancellation()
+            guard generation == logGeneration, selectedSpanID == spanID else { throw CancellationError() }
+            guard page.spanID == spanID, page.workflowID == selectedLane?.workflowID else {
+                throw CoreFailure.unexpectedCommandResult
+            }
+            loaded.append(contentsOf: page.events)
+            pageCount += 1
+            let previous = after
+            after = page.nextAfter
+            if after == nil { break }
+            if let after, after <= (previous ?? 0) { throw CoreFailure.unexpectedCommandResult }
+        }
+        return EventPages(events: loaded, nextAfter: after, count: pageCount)
     }
 
     /// Copy reads the entire selected span, independently of the visible log's pagination.

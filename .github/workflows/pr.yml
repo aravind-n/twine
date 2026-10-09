@@ -132,6 +132,7 @@ jobs:
           export TWINE_NODE
           make test-lib LIB_TEST_ARGS='harness::pi::tests::omp_extension -- --include-ignored'
           make test-lib LIB_TEST_ARGS='harness::pi::tests::pi_extension_preserves -- --include-ignored'
+          make test-lib LIB_TEST_ARGS='harness::opencode::tests::plugin_records -- --include-ignored'
 
   lint-app:
     name: Lint app

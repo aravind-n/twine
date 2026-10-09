@@ -569,7 +569,7 @@ impl Application {
                     &located.program,
                     &arguments,
                     &located.path,
-                    crate::harness::launch::launch_environment(agent.harness),
+                    &crate::harness::launch::observed_environment(agent.harness, hooks.as_ref()),
                     processes.size,
                     Arc::new(self.exit_callback()),
                 )
@@ -2103,7 +2103,7 @@ mod tests {
     }
 
     #[test]
-    fn unhooked_harness_receives_a_new_private_command_without_repeated_setup() {
+    fn unavailable_observer_receives_a_new_private_command_without_repeated_setup() {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let app = application(folder.path(), bin.path(), RECORD_INPUT);
@@ -2124,12 +2124,27 @@ mod tests {
         );
         let initial = wait_for(&app, id, |_| folder.path().join("implement-ready").exists());
         let old = std::fs::read_to_string(folder.path().join("implement-command")).unwrap();
+        // Exercise fallback when an observer cannot be installed/retained, independently of
+        // which built-in harness currently supports observation.
+        app.harness_steps
+            .lock()
+            .unwrap()
+            .remove(&initial.agents[0].terminal_id);
+        app.run_processes
+            .lock()
+            .unwrap()
+            .get_mut(&id)
+            .unwrap()
+            .completion_commands
+            .remove(&initial.agents[0].agent_id);
         finish_active_stage(&app, &initial, Decision::Done, "");
         let review = app.snapshot().unwrap().workflows.workflows[0].clone();
         finish_active_stage(&app, &review, Decision::RequestChanges, "");
         let reused = wait_for(&app, id, |_| {
-            std::fs::read_to_string(folder.path().join("implement-input"))
-                .is_ok_and(|text| text.contains("Use this completion command"))
+            std::fs::read_to_string(folder.path().join("implement-input")).is_ok_and(|text| {
+                text.contains("Use this completion command")
+                    && text.contains("Continue with the Implement stage.")
+            })
         });
         assert_eq!(reused.agents[0].terminal_id, initial.agents[0].terminal_id);
         assert!(std::process::Command::new(old.trim()).output().is_err());
@@ -2138,7 +2153,11 @@ mod tests {
         assert!(!text.contains(old.trim()));
         assert!(!text.contains("You are Implementer"));
         let processes = app.run_processes.lock().unwrap();
-        assert!(processes[&id].completion_commands.is_empty());
+        assert!(
+            !processes[&id]
+                .completion_commands
+                .contains_key(&reused.agents[0].agent_id)
+        );
         assert!(
             text.contains(
                 &processes[&id].inboxes[&reused.agents[0].agent_id]

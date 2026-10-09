@@ -32,6 +32,10 @@ impl Application {
         let mut inner = self.lock_inner()?;
         if inner.config != loaded.config {
             inner
+                .folders
+                .store()
+                .configure_trace_storage(&loaded.config.traces)?;
+            inner
                 .events
                 .append(EventKind::State(StateEvent::ConfigChanged(Box::new(
                     loaded.config.clone(),

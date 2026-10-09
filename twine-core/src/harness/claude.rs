@@ -7,8 +7,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::steps::{
-    ActivityKind, ActivityPhase, HarnessActivity, HarnessStep, MAX_DETAIL_BYTES, StepInbox,
-    StepKind, truncate,
+    ActivityKind, ActivityPhase, HarnessActivity, HarnessStep, StepInbox, StepKind, truncate,
 };
 use crate::terminal::ReplayPosition;
 
@@ -25,6 +24,10 @@ pub(crate) fn prepare(position: Arc<ReplayPosition>) -> io::Result<(StepInbox, V
         "Stop",
         "SubagentStart",
         "SubagentStop",
+        "PermissionRequest",
+        "Notification",
+        "PreCompact",
+        "PostCompact",
     ] {
         hooks.insert(event.into(), json!([{"hooks": [{"type": "command", "command": command, "async": true, "timeout": 1}]}]));
     }
@@ -37,13 +40,16 @@ pub(crate) fn prepare(position: Arc<ReplayPosition>) -> io::Result<(StepInbox, V
 }
 
 fn preview(value: &Value) -> String {
-    let text = value
+    value
         .as_str()
-        .map_or_else(|| value.to_string(), str::to_owned);
-    truncate(&text, MAX_DETAIL_BYTES)
+        .map_or_else(|| value.to_string(), str::to_owned)
 }
 
-fn parse(bytes: &[u8]) -> Option<HarnessStep> {
+#[expect(
+    clippy::too_many_lines,
+    reason = "one branch per verified native lifecycle event"
+)]
+pub(super) fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     let input: Value = serde_json::from_slice(bytes).ok()?;
     let event = input["hook_event_name"].as_str()?;
     let agent_id = identifier(&input["agent_id"]);
@@ -64,14 +70,47 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     if agent_id.is_some() && matches!(event, "UserPromptSubmit" | "Stop") {
         return None;
     }
+    if matches!(
+        event,
+        "PermissionRequest" | "Notification" | "PreCompact" | "PostCompact"
+    ) {
+        let turn = identifier(&input["prompt_id"]);
+        let id = super::steps::observation_id(&input);
+        return Some(HarnessStep {
+            session_id: super::resume::session_handle(&input["session_id"]),
+            kind: StepKind::Activity,
+            turn_id: turn,
+            tool_call_id: None,
+            title: match event {
+                "PreCompact" => "Compaction started",
+                "PostCompact" => "Compaction finished",
+                "Notification" => "Harness notification",
+                _ => "Permission requested",
+            }
+            .into(),
+            detail: input
+                .get("message")
+                .or_else(|| input.get("tool_input"))
+                .map(preview)
+                .unwrap_or_default(),
+            activity: Some(HarnessActivity {
+                id: format!(
+                    "note:{event}:{}:{id}",
+                    agent_id.as_deref().unwrap_or("root")
+                ),
+                parent_id: agent_id.as_ref().map(|id| format!("agent:{id}")),
+                kind: ActivityKind::Note,
+                phase: ActivityPhase::Finished,
+                failed: false,
+                detail_path: None,
+                metadata: json!({"event":event,"source":"Observer","notificationType":input["notification_type"]}),
+            }),
+        });
+    }
     let (kind, title, detail) = match event {
         "UserPromptSubmit" => {
             let prompt = input["prompt"].as_str()?;
-            (
-                StepKind::Prompt,
-                truncate(prompt, 160),
-                truncate(prompt, MAX_DETAIL_BYTES),
-            )
+            (StepKind::Prompt, truncate(prompt, 160), prompt.to_owned())
         }
         "Stop" => (
             StepKind::Responded,
@@ -131,6 +170,8 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
                     ActivityPhase::Finished
                 },
                 failed: event == "PostToolUseFailure",
+                detail_path: None,
+                metadata: serde_json::json!({}),
             });
             if agent_id.is_some() && activity.is_none() {
                 return None;
@@ -197,6 +238,8 @@ fn subagent_step(input: &Value, started: bool) -> Option<HarnessStep> {
                 ActivityPhase::Finished
             },
             failed: false,
+            detail_path: None,
+            metadata: serde_json::json!({}),
         }),
     })
 }
@@ -215,15 +258,15 @@ mod tests {
     }
 
     #[test]
-    fn tool_descriptions_and_large_payloads_are_bounded() {
+    fn tool_descriptions_remain_short_and_large_payloads_are_complete() {
         let step = parse(&serde_json::to_vec(&json!({"hook_event_name":"PreToolUse", "tool_name":"Edit", "tool_input":{"file_path":"src/main.rs", "new_string":"x".repeat(100_000)}})).unwrap()).unwrap();
         assert_eq!(step.title, "Edit src/main.rs");
-        assert!(step.detail.len() < MAX_DETAIL_BYTES + 16);
-        assert!(step.detail.contains("[truncated]"));
+        assert!(step.detail.len() > 100_000);
+        assert!(step.detail.contains(&"x".repeat(100_000)));
         let step = parse(br#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"make test"}}"#).unwrap();
         assert_eq!(step.title, "Run make test");
         assert!(parse(b"not json").is_none());
-        assert!(parse(br#"{"hook_event_name":"Notification"}"#).is_none());
+        assert!(parse(br#"{"hook_event_name":"Notification"}"#).is_some());
     }
 
     #[test]

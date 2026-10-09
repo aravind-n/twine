@@ -13,6 +13,27 @@ nonisolated private func activity(
 }
 
 struct TraceActivityTimelineTests {
+    @Test func modelCallsDecodeUsageSummaryAndFullDetailVersions() throws {
+        let json = """
+            {"workflowId":1,"spanId":10,"revision":8,"nextAfter":null,
+             "counts":{"tools":0,"subagents":0,"models":1,"notes":1,"failures":0},"activities":[
+              {"activityId":3,"spanId":10,"parentActivityId":null,"kind":"model","title":"LLM call",
+               "startedAt":null,"endedAt":200,"status":"completed","input":"","output":"Public summary",
+               "inputBytes":0,"outputBytes":9000,"outputVersion":"content-hash","anchor":null,
+               "metadata":{"model":"fixture","inputTokens":120,"outputTokens":32,"cost":0.00001,
+                "source":"Harness history"}}]}
+            """
+        let page = try JSONDecoder().decode(CoreTraceActivitiesPage.self, from: Data(json.utf8))
+        let call = try #require(page.activities.first)
+        #expect(call.kind == .model)
+        #expect(call.startedAt == nil)
+        #expect(call.metadata?.inputTokens == 120)
+        #expect(call.outputBytes == 9000)
+        #expect(call.outputVersion == "content-hash")
+        #expect(page.counts?.models == 1)
+        #expect(page.counts?.notes == 1)
+    }
+
     @Test func optionalTimingAndParentsDecodeWithoutFabrication() throws {
         let json = """
             {"workflowId":1,"spanId":10,"revision":8,"nextAfter":null,"activities":[
@@ -77,6 +98,28 @@ struct TraceActivityTimelineTests {
 
 @MainActor
 struct TraceActivityStateTests {
+    @Test func knownEmptyActivityRemainsAvailableDuringRefresh() async throws {
+        let transport = ActivityTestTransport()
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await waitUntil { client.runState == .running }
+        let state = TraceActivityState()
+        await state.refresh(spanID: 20, workflowID: 2, client: client)
+        #expect(state.hasLoaded)
+        #expect(state.activities.isEmpty)
+        await transport.hold(spanID: 20)
+        let refresh = Task { await state.refresh(spanID: 20, workflowID: 2, client: client) }
+        try await waitUntil { await transport.hasPendingRead }
+        #expect(state.isLoading)
+        #expect(state.hasLoaded)
+        #expect(state.activities.isEmpty)
+        await transport.release()
+        await refresh.value
+        state.reset()
+        #expect(!state.hasLoaded)
+        await client.stop()
+    }
+
     @Test func activityOutputJumpUsesTheRecordedCompletionBoundary() {
         let navigation = TraceTerminalNavigation()
         let anchor = CoreTraceAnchor(terminalID: 9, byteOffset: 42)
@@ -158,21 +201,21 @@ struct TraceActivityStateTests {
 
 private actor ActivityTestTransport: CoreTransport {
     private var finished = false
-    private var held = false
+    private var heldSpanID: UInt64?
     private var holdMore = false
     private var pending: CheckedContinuation<Void, Never>?
     var hasPendingRead: Bool { pending != nil }
-    func hold() { held = true }
+    func hold(spanID: UInt64 = 10) { heldSpanID = spanID }
     func holdNextMoreRead() { holdMore = true }
     func finish() { finished = true }
     func release() {
         pending?.resume()
         pending = nil
-        held = false
+        heldSpanID = nil
     }
 
     func traceActivities(spanID: UInt64, after: UInt64?, limit: UInt32) async -> CoreTraceActivitiesPage {
-        if spanID == 10 && held { await withCheckedContinuation { pending = $0 } }
+        if spanID == heldSpanID { await withCheckedContinuation { pending = $0 } }
         if after != nil && holdMore {
             holdMore = false
             await withCheckedContinuation { pending = $0 }

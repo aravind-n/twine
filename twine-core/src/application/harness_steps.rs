@@ -69,6 +69,15 @@ impl HarnessRecording {
 
     fn acknowledge(&mut self, index: usize) {
         let item = self.pending.remove(index).expect("pending step exists");
+        if let Some(path) = item
+            .step
+            .activity
+            .as_ref()
+            .and_then(|a| a.detail_path.as_ref())
+        {
+            // The durable content-addressed payload has committed before acknowledgment.
+            let _ = std::fs::remove_file(path);
+        }
         if item.step.kind == StepKind::Responded {
             self.open_tools.retain(|_, turn| turn != &item.step.turn_id);
         }
@@ -208,8 +217,7 @@ impl Application {
                             crate::harness::pi::prepare(position, harness)
                         }
                         HarnessId::Antigravity => crate::harness::antigravity::prepare(position),
-                        // This CLI has no launch-only plugin flag; preserve user/folder config.
-                        HarnessId::Opencode => return None,
+                        HarnessId::Opencode => crate::harness::opencode::prepare(position),
                     } {
                         Ok((inbox, flags)) => {
                             arguments.extend(flags);
@@ -264,12 +272,24 @@ impl Application {
         reason = "session capture and step lifecycle commit in the same ordered polling loop"
     )]
     pub(super) fn poll_harness_steps(&self) -> Result<(), ApplicationError> {
+        let changed = self
+            .history
+            .lock()
+            .map_err(|_| ApplicationError::Poisoned)?
+            .take_changed();
+        for workflow in changed {
+            let mut inner = self.lock_inner()?;
+            if inner.folders.read_store().has_harness_workflow(workflow)? {
+                inner.publish_trace(workflow)?;
+            }
+        }
         let mut recordings = self
             .harness_steps
             .lock()
             .map_err(|_| ApplicationError::Poisoned)?;
         let mut inner = self.lock_inner()?;
         let mut activations = Vec::new();
+        let mut maintenance = false;
         for (&terminal_id, recording) in recordings.iter_mut() {
             if !inner
                 .folders
@@ -323,6 +343,11 @@ impl Application {
                     &anchor,
                 ) {
                     Ok(span) => {
+                        maintenance |= item
+                            .step
+                            .activity
+                            .as_ref()
+                            .is_some_and(|a| a.detail_path.is_some());
                         if !recording.single_agent {
                             if item.step.kind == StepKind::Prompt && item.step.turn_id.is_none() {
                                 recording.turns.unidentified = true;
@@ -435,9 +460,20 @@ impl Application {
         for id in closed {
             inner.step_terminals.remove(&id);
         }
+        let maintenance_request = if maintenance {
+            inner.folders.read_store().maintenance_request(false)
+        } else {
+            None
+        };
         drop(inner);
         drop(recordings);
         drop(removed);
+        if let Some(request) = maintenance_request {
+            self.history
+                .lock()
+                .map_err(|_| ApplicationError::Poisoned)?
+                .request(request);
+        }
         for (workflow, agent, generation, ready) in activations {
             self.activate_workflow_completion(workflow, agent, generation, ready)?;
         }
@@ -953,6 +989,12 @@ mod tests {
         app.poll_harness_steps().unwrap();
 
         run_hook(
+            "PostInvocation",
+            &json!({"conversationId": "conv-1", "invocationNum": 0, "modelName": "test-model"}),
+        );
+        app.poll_harness_steps().unwrap();
+
+        run_hook(
             "Stop",
             &json!({"conversationId": "conv-1", "terminationReason": "NO_TOOL_CALL"}),
         );
@@ -963,9 +1005,18 @@ mod tests {
         assert_eq!(page.spans.len(), 1);
         let span = page.spans[0].span_id;
         let activities = app.trace_activities(span, None, 10).unwrap().activities;
-        assert_eq!(activities.len(), 1);
-        assert_eq!(activities[0].title, "List files");
-        assert_eq!(activities[0].status, crate::TraceActivityStatus::Completed);
+        assert_eq!(activities.len(), 2);
+        let tool = activities
+            .iter()
+            .find(|item| item.kind == crate::TraceActivityKind::Tool)
+            .unwrap();
+        assert_eq!(tool.title, "List files");
+        assert_eq!(tool.status, crate::TraceActivityStatus::Completed);
+        let model = activities
+            .iter()
+            .find(|item| item.kind == crate::TraceActivityKind::Model)
+            .unwrap();
+        assert_eq!(model.status, crate::TraceActivityStatus::Completed);
     }
 
     #[test]
@@ -1871,7 +1922,7 @@ mod tests {
         )
         .replace('\'', "'\\''");
         std::fs::write(bin.path().join("codex"), format!(
-            "#!/bin/sh\nexec '{quoted}' --no-alt-screen --sandbox read-only --ask-for-approval never -c '{trust}' \"$@\"\n"
+            "#!/bin/sh\nexec '{quoted}' --sandbox read-only --ask-for-approval never -c '{trust}' \"$@\"\n"
         )).unwrap();
         accepted(&app, Command::StartAgent {
             model: None,

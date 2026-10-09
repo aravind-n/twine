@@ -196,6 +196,11 @@ struct WireActivity<'a> {
     input: &'a str,
     output: &'a str,
     anchor: Option<WireAnchor>,
+    metadata: &'a serde_json::Value,
+    input_bytes: Option<u64>,
+    output_bytes: Option<u64>,
+    input_version: Option<&'a str>,
+    output_version: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -206,6 +211,7 @@ struct WireActivitiesPage<'a> {
     revision: u64,
     activities: Vec<WireActivity<'a>>,
     next_after: Option<u64>,
+    counts: &'a twine_core::TraceActivityCounts,
 }
 
 pub(crate) fn encode_trace_activities(
@@ -217,6 +223,7 @@ pub(crate) fn encode_trace_activities(
         span_id: page.span_id.0,
         revision: page.revision,
         next_after: page.next_after.map(|id| id.0),
+        counts: &page.counts,
         activities: page
             .activities
             .iter()
@@ -227,6 +234,8 @@ pub(crate) fn encode_trace_activities(
                 kind: match a.kind {
                     TraceActivityKind::Tool => "tool",
                     TraceActivityKind::Subagent => "subagent",
+                    TraceActivityKind::Model => "model",
+                    TraceActivityKind::Note => "note",
                 },
                 title: &a.title,
                 started_at: a.started_at,
@@ -239,6 +248,11 @@ pub(crate) fn encode_trace_activities(
                 },
                 input: &a.input,
                 output: &a.output,
+                metadata: &a.metadata,
+                input_bytes: a.input_bytes,
+                output_bytes: a.output_bytes,
+                input_version: a.input_version.as_deref(),
+                output_version: a.output_version.as_deref(),
                 anchor: a.anchor.as_ref().map(|anchor| WireAnchor {
                     terminal_id: anchor.terminal_id.value(),
                     byte_offset: anchor.byte_offset,
