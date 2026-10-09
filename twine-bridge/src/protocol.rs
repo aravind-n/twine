@@ -656,7 +656,7 @@ mod tests {
         let config_path = data.path().join("config.toml");
         std::fs::write(
             &config_path,
-            "[appearance]\ncolor_scheme = 'dark'\n[terminal]\nfont_family = 'Menlo'\nfont_size = 15.5\n",
+            "[appearance]\ncolor_scheme = 'dark'\n[terminal]\nfont_family = 'Menlo'\nfont_size = 15.5\n[editor]\nautosave = false\nautosave_delay_ms = 2000\n",
         )
         .unwrap();
         let application =
@@ -672,7 +672,8 @@ mod tests {
                 "config": {
                     "appearance": { "color_scheme": "dark" },
                     "terminal": { "font_family": "Menlo", "font_size": 15.5, "colors": {}, "palettes": twine_core::config::TerminalPalettes::default() },
-                    "traces": {"detail_budget_mb":512,"retention_days":90}
+                    "traces": {"detail_budget_mb":512,"retention_days":90},
+                    "editor": { "autosave": false, "autosave_delay_ms": 2000 }
                 },
                 "folders": { "openFolder": null, "recentFolders": [], "unavailableFolder": null, "currentBranch": null },
                 "terminals": [],

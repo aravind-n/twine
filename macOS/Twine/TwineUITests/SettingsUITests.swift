@@ -20,6 +20,7 @@ extension TwineUITests {
         let settings = app.sheets.firstMatch
         let text = settings.textViews["fileText"]
         XCTAssertTrue(text.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(settings.buttons["saveFile"].exists)
         XCTAssertEqual(text.value as? String, original)
         let saved = "# Edited\n[terminal.colors]\nmagenta = '#654321'\nbrblack = '#222222'\n"
         text.click()

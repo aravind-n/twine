@@ -1,6 +1,12 @@
 import Darwin
 import XCTest
 
+/// Native macOS static text exposes its content as an accessibility value.
+@MainActor
+func staticTextValue(_ element: XCUIElement) -> String {
+    element.value as? String ?? element.label
+}
+
 /// Helpers for tests that drive shells in a folder. Their waits explain
 /// what they found when they time out.
 extension TwineUITests {
@@ -14,10 +20,10 @@ extension TwineUITests {
     /// Disk persistence precedes live reload; wait until the editor finishes both before interacting.
     @MainActor
     func waitForSave(in app: XCUIApplication) {
-        let button = app.buttons["saveFile"].firstMatch
+        let status = app.staticTexts["fileSaveStatus"].firstMatch
         let saved = expectation(
             for: NSPredicate { _, _ in
-                button.exists && button.label == "Save"
+                status.exists && staticTextValue(status) != "Saving…" && !app.staticTexts["fileEdited"].exists
             }, evaluatedWith: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 10), .completed, app.debugDescription)
     }

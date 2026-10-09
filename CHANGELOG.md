@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Capture OpenCode v2 tool, model, and child-session activity through a private
   observer loaded for each launch.
 
+### Changed
+
+- File edits save automatically after a short typing pause, including in background
+  tabs. Disable autosave or change its delay in Settings. Keep typing while saving,
+  or press ⌘S to save immediately, regardless of the autosave setting. Autosave
+  pauses on disk conflicts or save failures so your edits remain protected.
+- Save buttons are removed from editors, Settings, the workflow designer, and
+  session forms. Use File → Save or ⌘S; session names also accept Return.
+
 ### Fixed
 
 - Open Folder remains available after closing the last window and opens a new

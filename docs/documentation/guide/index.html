@@ -83,9 +83,14 @@ editors, previews, and dialogs, and is remembered between launches.</p>
 empty directories remain visible. Twine refreshes expanded directories and the selected file
 when they change, including changes made by shells and agents.</p>
 <p>Select a file to make small edits to UTF-8 text up to <strong>2 MiB</strong>. Use <strong>⌘Z</strong> to undo, <strong>⇧⌘Z</strong> to
-redo, <strong>⌘S</strong> to save, and <strong>⌘L</strong> to go to a line. Unsaved changes show “Edited” in the header.
+redo, and <strong>⌘L</strong> to go to a line. Edits save automatically after a short typing pause, including
+in background tabs. You can keep typing during saves or press <strong>⌘S</strong> to save immediately,
+even with autosave disabled or a longer delay. Configure autosave in Settings.
+Unsaved changes show “Edited” in the header. Settings still require an explicit Save.
 Before saving, Twine checks whether the file on disk has changed. If it has, choose <strong>Reload</strong> to discard
 your edits or <strong>Overwrite</strong> to save them; <strong>Cancel</strong> keeps the edits without changing the file.
+Autosave pauses after a conflict or save failure. Use <strong>File → Save</strong> or <strong>⌘S</strong> to retry;
+successful saving or reloading resumes autosave.
 Disk updates refresh clean files and never replace unsaved edits. <strong>⌘W</strong> closes the file and returns to the
 workflow. Binary files, larger files, deleted paths, symbolic links, and special files show
 an explanatory state. Up to 256 directories can be expanded at once.</p>
@@ -120,8 +125,8 @@ resume recorded harness conversations when all unfinished active agents have
 compatible session handles.</p>
 <p>Choose <strong>Create your own</strong> (<strong>⌥⌘N</strong>) in a new tab to design a workflow type. Add roles and
 instructions, order stages and their parallel roles, connect handoffs, and bound review loops.
-The designer shows validation errors beside each affected element and enables Save only after
-the current design validates. Use Tab and Shift-Tab to navigate controls, Return to save, and
+The designer shows validation errors beside each affected element and enables <strong>File → Save</strong> only after
+the current design validates. Use Tab and Shift-Tab to navigate controls, <strong>⌘S</strong> to save, and
 Escape to cancel. The Preview tab shows the graph.</p>
 <p>From a type's launch form, <strong>Edit workflow type</strong> or <strong>Edit a copy</strong> (<strong>⇧⌘E</strong>) opens the designer.
 Saving a built-in creates a custom copy. Editing a custom type adds a version; workflows already
@@ -151,7 +156,7 @@ review its saved output. Twine leaves your harness configuration files unchanged
 commented default config and <code>themes/silica_dark.toml</code> and <code>themes/silica_light.toml</code> beside it
 on first launch. Existing files are never overwritten.</p>
 <p>Choose <strong>Twine → Settings…</strong> or press <strong>⌘,</strong> to edit the config file in a
-popup attached to the current window. Save with <strong>⌘S</strong> or the Save button. Valid settings
+popup attached to the current window. Save with <strong>⌘S</strong> or <strong>File → Save</strong>. Valid settings
 apply immediately to every open folder; invalid settings keep the previous file and active settings.
 Unsaved edits are protected when
 closing the window or quitting, and external file changes prompt you to reload or overwrite.</p>
@@ -160,7 +165,17 @@ color_scheme = "system" # "system", "light", or "dark"
 
 [terminal]
 font_family = "JetBrains Mono"
-font_size = 13.0</code></pre>
+font_size = 13.0
+
+[editor]
+autosave = true
+autosave_delay_ms = 500</code></pre>
+<p>File edits autosave by default after a 500 millisecond typing pause. Set <code>editor.autosave = false</code>
+to save manually, or change <code>editor.autosave_delay_ms</code> to a positive whole number of milliseconds
+(for example, 2000 for two seconds). Saving Settings applies these changes immediately to every open file tab.
+<strong>⌘S</strong> always saves immediately, including when autosave is disabled. Settings, workflow designs,
+and session forms use explicit saving through <strong>File → Save</strong> or <strong>⌘S</strong>; session names
+also accept Return.</p>
 <p>Terminal settings apply to live shell and agent terminals, including Bento panes, and terminal
 history. Install the font in macOS and use its family name. An omitted or empty <code>font_family</code>
 uses system monospace. Twine checks that <code>i</code> and <code>w</code> have equal character widths, allowing Nerd

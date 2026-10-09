@@ -121,7 +121,8 @@ extension TwineUITests {
         field.click()
         field.typeKey("a", modifierFlags: .command)
         field.typeText(name)
-        app.buttons["saveSession"].click()
+        XCTAssertFalse(app.buttons["saveSession"].exists)
+        app.typeKey("s", modifierFlags: .command)
     }
 
     @MainActor

@@ -3,24 +3,80 @@ import XCTest
 
 extension TwineUITests {
     @MainActor
+    func testAutosaveSettingsApplyToOpenTabsAndCommandSSavesExplicitly() throws {
+        let (app, file) = try openEditableFile(editorSettings: "[editor]\nautosave = false\n")
+        defer { app.terminate() }
+        let text = app.textViews["fileText"]
+        XCTAssertEqual(staticTextValue(app.staticTexts["fileSaveStatus"]), "⌘S to save")
+        XCTAssertFalse(app.buttons["saveFile"].exists)
+        replaceText("manual save", in: text)
+        verifyNoAutosave(file: file, original: "original")
+        app.typeKey("s", modifierFlags: .command)
+        waitForSave(in: app)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "manual save")
+
+        updateAutosaveSettings("[editor]\nautosave = true\nautosave_delay_ms = 60000\n", in: app)
+        XCTAssertEqual(staticTextValue(app.staticTexts["fileSaveStatus"]), "Autosave")
+        replaceText("save before timeout", in: text)
+        verifyNoAutosave(file: file, original: "manual save")
+        app.typeKey("s", modifierFlags: .command)
+        waitForSave(in: app)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "save before timeout")
+
+        replaceText("pending edit", in: text)
+        updateAutosaveSettings("[editor]\nautosave = true\nautosave_delay_ms = 50\n", in: app)
+        waitForDiskText("pending edit", in: file)
+        replaceText("automatic again", in: text)
+        waitForSave(in: app)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "automatic again")
+    }
+
+    @MainActor
+    private func updateAutosaveSettings(_ source: String, in app: XCUIApplication) {
+        app.typeKey(",", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        let text = sheet.textViews["fileText"]
+        XCTAssertTrue(text.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(sheet.buttons["saveFile"].exists)
+        replaceText(source, in: text)
+        app.typeKey("s", modifierFlags: .command)
+        let saved = expectation(
+            for: NSPredicate { _, _ in
+                !sheet.staticTexts["fileEdited"].exists
+                    && staticTextValue(sheet.staticTexts["fileSaveStatus"]) != "Saving…"
+            }, evaluatedWith: nil)
+        wait(for: [saved], timeout: 5)
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 3))
+    }
+
+    private func verifyNoAutosave(file: URL, original: String) {
+        let changed = expectation(
+            for: NSPredicate { _, _ in (try? String(contentsOf: file, encoding: .utf8)) != original },
+            evaluatedWith: nil)
+        changed.isInverted = true
+        wait(for: [changed], timeout: 1)
+    }
+
+    @MainActor
     func testFileEditingUndoSaveAndConflictChoices() throws {
         let (app, file) = try openEditableFile()
         let text = app.textViews["fileText"]
+        XCTAssertEqual(staticTextValue(app.staticTexts["fileSaveStatus"]), "Autosave")
+        XCTAssertFalse(app.buttons["saveFile"].exists)
         replaceText("my edits", in: text)
-        XCTAssertTrue(app.staticTexts["fileEdited"].waitForExistence(timeout: 2))
-        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "original")
-        text.typeKey("z", modifierFlags: .command)
-        XCTAssertEqual(text.value as? String, "original")
-        text.typeKey("z", modifierFlags: [.command, .shift])
-        XCTAssertEqual(text.value as? String, "my edits")
-        app.typeKey("s", modifierFlags: .command)
         waitForSaved(app)
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "my edits")
         text.typeKey("z", modifierFlags: .command)
-        XCTAssertTrue(app.staticTexts["fileEdited"].waitForExistence(timeout: 2))
         XCTAssertEqual(text.value as? String, "original")
+        waitForSaved(app)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "original")
+        text.typeKey("z", modifierFlags: [.command, .shift])
+        XCTAssertEqual(text.value as? String, "my edits")
+        waitForSaved(app)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "my edits")
+        text.typeKey("z", modifierFlags: .command)
         try "external".write(to: file, atomically: true, encoding: .utf8)
-        app.typeKey("s", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["File Changed on Disk"].waitForExistence(timeout: 3))
         clickDialogButton("Cancel", in: app)
         XCTAssertEqual(text.value as? String, "original")
@@ -40,6 +96,8 @@ extension TwineUITests {
         let text = app.textViews["fileText"]
         replaceText("unsaved", in: text)
         try "disk update".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertTrue(app.staticTexts["File Changed on Disk"].waitForExistence(timeout: 3))
+        clickDialogButton("Cancel", in: app)
         // Polling continues while dirty. Undo must then pick up the already-seen disk change.
         let marker = file.deletingLastPathComponent().appending(path: "watcher-marker")
         try "marker".write(to: marker, atomically: true, encoding: .utf8)
@@ -53,6 +111,10 @@ extension TwineUITests {
         text.typeKey("z", modifierFlags: .command)
         waitForText("disk update", in: text)
         replaceText("another edit", in: text)
+        // A disk conflict pauses autosave and protects this buffer on close.
+        try "new disk update".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertTrue(app.staticTexts["File Changed on Disk"].waitForExistence(timeout: 3))
+        clickDialogButton("Cancel", in: app)
         app.windows.firstMatch.buttons[XCUIIdentifierCloseWindow].click()
         XCTAssertTrue(app.buttons["Discard Changes"].waitForExistence(timeout: 3))
         clickDialogButton("Cancel", in: app)
@@ -62,7 +124,7 @@ extension TwineUITests {
         clickDialogButton("Discard Changes", in: app)
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 3))
         XCTAssertFalse(text.exists)
-        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "disk update")
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "new disk update")
         fileRow(marker, in: app).click()
         XCTAssertTrue(text.waitForExistence(timeout: 3))
         text.click()
@@ -85,6 +147,7 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["newWorkflow"].exists)
         app.buttons["workflowTab-1"].click()
         XCTAssertTrue(text.waitForNonExistence(timeout: 3))
+        waitForDiskText("first edited", in: first)
         fileTab(first, in: app).click()
         waitForText("first edited", in: text)
         XCTAssertTrue(fileRow(second, in: app).waitForExistence(timeout: 3))
@@ -92,6 +155,7 @@ extension TwineUITests {
         waitForText("second", in: text)
         replaceText("second edited", in: text)
         fileTab(first, in: app).click()
+        waitForDiskText("second edited", in: second)
         waitForText("first edited", in: text)
         text.typeKey("z", modifierFlags: .command)
         waitForText("original", in: text)
@@ -103,15 +167,12 @@ extension TwineUITests {
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier == %@", "fileTab-\(first.path)")).count, 1)
         replaceText("unsaved first", in: text)
         fileTab(second, in: app).click()
-        app.windows.firstMatch.buttons[XCUIIdentifierCloseWindow].click()
-        XCTAssertTrue(app.buttons["Discard Changes"].waitForExistence(timeout: 3))
-        clickDialogButton("Cancel", in: app)
+        waitForDiskText("unsaved first", in: first)
+        waitForSaved(app)
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(fileTab(second, in: app).waitForNonExistence(timeout: 3))
         waitForText("unsaved first", in: text)
         app.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(app.buttons["Discard Changes"].waitForExistence(timeout: 3))
-        clickDialogButton("Discard Changes", in: app)
         XCTAssertTrue(fileTab(first, in: app).waitForNonExistence(timeout: 3))
         XCTAssertTrue(text.waitForNonExistence(timeout: 3))
         app.terminate()
@@ -180,13 +241,21 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func openEditableFile() throws -> (XCUIApplication, URL) {
+    private func openEditableFile(editorSettings: String? = nil) throws -> (XCUIApplication, URL) {
         let folder = FileManager.default.temporaryDirectory.appending(path: "TwineEdits-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appending(path: "edit.txt")
         try "original".write(to: file, atomically: true, encoding: .utf8)
         let app = try makeApp(lastOpenFolder: folder)
+        if let editorSettings {
+            let configHome = try makeTestFolder(prefix: "TwineAutosaveConfig")
+            let configFile = configHome.appending(path: "twine/config.toml")
+            try FileManager.default.createDirectory(
+                at: configFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try editorSettings.write(to: configFile, atomically: true, encoding: .utf8)
+            app.launchEnvironment["XDG_CONFIG_HOME"] = configHome.path
+        }
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
@@ -214,6 +283,13 @@ extension TwineUITests {
     private func waitForSaved(_ app: XCUIApplication) {
         let saved = expectation(
             for: NSPredicate { _, _ in !app.staticTexts["fileEdited"].exists }, evaluatedWith: nil)
+        wait(for: [saved], timeout: 3)
+    }
+
+    private func waitForDiskText(_ expected: String, in file: URL) {
+        let saved = expectation(
+            for: NSPredicate { _, _ in (try? String(contentsOf: file, encoding: .utf8)) == expected },
+            evaluatedWith: nil)
         wait(for: [saved], timeout: 3)
     }
 }
