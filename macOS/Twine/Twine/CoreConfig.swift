@@ -3,11 +3,42 @@ import Foundation
 nonisolated struct CoreConfig: Decodable, Equatable, Sendable {
     let appearance: CoreAppearance
     let terminal: CoreTerminalConfig
+    let editor: CoreEditorConfig
+
+    init(appearance: CoreAppearance, terminal: CoreTerminalConfig, editor: CoreEditorConfig = .init()) {
+        self.appearance = appearance
+        self.terminal = terminal
+        self.editor = editor
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        appearance = try container.decode(CoreAppearance.self, forKey: .appearance)
+        terminal = try container.decode(CoreTerminalConfig.self, forKey: .terminal)
+        editor = try container.decodeIfPresent(CoreEditorConfig.self, forKey: .editor) ?? .init()
+    }
+
+    private enum CodingKeys: String, CodingKey { case appearance, terminal, editor }
 
     enum ColorScheme: String, Decodable, Sendable {
         case system
         case light
         case dark
+    }
+}
+
+nonisolated struct CoreEditorConfig: Decodable, Equatable, Sendable {
+    let autosave: Bool
+    let autosaveDelayMilliseconds: Int
+
+    init(autosave: Bool = true, autosaveDelayMilliseconds: Int = 500) {
+        self.autosave = autosave
+        self.autosaveDelayMilliseconds = autosaveDelayMilliseconds
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case autosave
+        case autosaveDelayMilliseconds = "autosave_delay_ms"
     }
 }
 

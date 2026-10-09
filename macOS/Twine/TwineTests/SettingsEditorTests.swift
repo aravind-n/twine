@@ -6,6 +6,23 @@ import Testing
 
 @MainActor
 struct SettingsEditorTests {
+    @Test func configEventsDecodeAndApplyAutosavePreferences() async throws {
+        let json = """
+            {"sequence":2,"event":{"type":"configChanged","config":{
+             "appearance":{"color_scheme":"system"},"terminal":{"font_family":"","font_size":13},
+             "editor":{"autosave":false,"autosave_delay_ms":2000}}}}
+            """
+        let event = try JSONDecoder().decode(CoreEvent.self, from: Data(json.utf8))
+        let client = CoreClient(transport: SettingsFileTransport(reloadEvent: event))
+        client.start()
+        try await client.waitUntilRunning()
+        _ = try await client.send(.reloadConfig)
+        try await waitUntil { client.snapshot?.sequence == 2 }
+        #expect(client.snapshot?.config.editor.autosave == false)
+        #expect(client.snapshot?.config.editor.autosaveDelayMilliseconds == 2000)
+        await client.stop()
+    }
+
     @Test func configChangedEventUpdatesTheFontAndPaletteWithoutRestarting() async throws {
         let ansi = Array(repeating: "\"#123456\"", count: 16).joined(separator: ",")
         let palette = """

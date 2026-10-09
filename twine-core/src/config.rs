@@ -23,6 +23,53 @@ pub use themes::{HexColor, TerminalColors, TerminalPalette, TerminalPalettes};
 pub struct Config {
     pub appearance: Appearance,
     pub terminal: TerminalConfig,
+    pub editor: EditorConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct EditorConfig {
+    pub autosave: bool,
+    pub autosave_delay_ms: AutosaveDelay,
+}
+
+impl Default for EditorConfig {
+    fn default() -> Self {
+        Self {
+            autosave: true,
+            autosave_delay_ms: AutosaveDelay::default(),
+        }
+    }
+}
+
+/// A positive autosave debounce in whole milliseconds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct AutosaveDelay(u32);
+
+impl Default for AutosaveDelay {
+    fn default() -> Self {
+        Self(500)
+    }
+}
+
+impl AutosaveDelay {
+    #[must_use]
+    pub const fn milliseconds(self) -> u32 {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for AutosaveDelay {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let milliseconds = u32::deserialize(deserializer)?;
+        if milliseconds == 0 {
+            return Err(serde::de::Error::custom(
+                "autosave delay must be a positive whole number of milliseconds",
+            ));
+        }
+        Ok(Self(milliseconds))
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -274,6 +321,8 @@ fn default_source() -> Result<String, ConfigFileError> {
          # terminal.font_family selects an installed monospace family (for example, \"JetBrains Mono\").\n\
          # An empty, unavailable, or proportional family uses system monospace.\n\
          # terminal.font_size accepts 6 through 72 points, including fractional sizes.\n\
+         # editor.autosave enables automatic file saving; Cmd+S always saves explicitly.\n\
+         # editor.autosave_delay_ms sets the typing pause in positive whole milliseconds.\n\
          # Top-level import accepts a TOML file path or a list of paths.\n\
          # Later imports override earlier imports; settings in this file override all imports.\n\
          # Imported files use the same tables as this config; colors use #RRGGBB strings.\n\
@@ -382,10 +431,60 @@ mod tests {
 
     #[test]
     fn absent_fields_use_defaults() {
-        for source in ["", "# empty\n", "[appearance]\n", "[terminal]\n"] {
+        for source in [
+            "",
+            "# empty\n",
+            "[appearance]\n",
+            "[terminal]\n",
+            "[editor]\n",
+        ] {
             let loaded = Config::parse(Path::new(PATH), source);
             assert_eq!(loaded.config, Config::default());
             assert_eq!(loaded.diagnostics, []);
+        }
+    }
+
+    #[test]
+    fn editor_settings_preserve_defaults_and_serialize_for_consumers() {
+        for source in [
+            "[editor]\nautosave = false\nautosave_delay_ms = 1500\n",
+            "editor.autosave = false\neditor.autosave_delay_ms = 1500\n",
+        ] {
+            let loaded = Config::parse(Path::new(PATH), source);
+            assert_eq!(loaded.diagnostics, []);
+            assert!(!loaded.config.editor.autosave);
+            assert_eq!(loaded.config.editor.autosave_delay_ms.milliseconds(), 1500);
+            let json = serde_json::to_value(&loaded.config).unwrap();
+            assert_eq!(json["editor"]["autosave"], false);
+            assert_eq!(json["editor"]["autosave_delay_ms"], 1500);
+        }
+        let disabled = Config::parse(Path::new(PATH), "editor.autosave = false\n");
+        assert_eq!(
+            disabled.config.editor.autosave_delay_ms,
+            AutosaveDelay::default()
+        );
+        let delay = Config::parse(Path::new(PATH), "editor.autosave_delay_ms = 1\n");
+        assert!(delay.config.editor.autosave);
+        assert_eq!(delay.config.editor.autosave_delay_ms.milliseconds(), 1);
+    }
+
+    #[test]
+    fn invalid_autosave_settings_report_the_key_and_use_defaults() {
+        for (key, values) in [
+            ("autosave", vec!["'yes'", "1", "[]"]),
+            (
+                "autosave_delay_ms",
+                vec!["0", "-1", "1.5", "4294967296", "'secret'", "true"],
+            ),
+        ] {
+            for value in values {
+                let source = format!("[editor]\n{key} = {value}\n");
+                let loaded = Config::parse(Path::new(PATH), &source);
+                assert_eq!(loaded.config, Config::default());
+                assert_eq!(loaded.diagnostics.len(), 1);
+                assert_eq!(loaded.diagnostics[0].key, format!("editor.{key}"));
+                assert_eq!(loaded.diagnostics[0].problem, ConfigProblem::InvalidValue);
+            }
         }
     }
 
@@ -589,6 +688,9 @@ mod tests {
         assert!(source.contains("[terminal]"));
         assert!(source.contains("# font_family = \"\""));
         assert!(source.contains("# font_size = 13.0"));
+        assert!(source.contains("[editor]"));
+        assert!(source.contains("# autosave = true"));
+        assert!(source.contains("# autosave_delay_ms = 500"));
         assert_eq!(Config::parse(&path, &source).config, Config::default());
         let uncommented = source
             .lines()

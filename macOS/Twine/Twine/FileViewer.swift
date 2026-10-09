@@ -21,6 +21,12 @@ struct FileViewer: View {
     private var showsPreview: Bool { previewFormat != nil && mode == .preview }
     private enum Mode { case preview, source }
     private var syntaxLanguage: SyntaxLanguage? { syntaxMode.language(path: path, source: editor.text) }
+    private var editorSettings: CoreEditorConfig { coreClient.snapshot?.config.editor ?? .init() }
+    private var saveStatus: String {
+        if editor.isSaving { return "Saving…" }
+        if editor.isConfigFile || !editor.autosaveSettings.autosave { return "⌘S to save" }
+        return editor.autosavePaused ? "Autosave paused · ⌘S to retry" : "Autosave"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,8 +48,12 @@ struct FileViewer: View {
                     .accessibilityIdentifier("\(format.accessibilityPrefix)DisplayMode")
                 }
                 if editor.isDirty { Text("Edited").sectionLabelStyle().accessibilityIdentifier("fileEdited") }
-                Button(editor.isSaving ? "Saving…" : "Save") { editor.requestSave() }
-                    .font(.caption).disabled(!editor.canSave).accessibilityIdentifier("saveFile")
+                if current?.status == .text {
+                    Text(saveStatus).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("fileSaveStatus")
+                        .accessibilityLabel(saveStatus)
+                        .help("Press ⌘S to save immediately. Configure autosave and its delay in Settings.")
+                }
                 Button("Go to Line…") { showsGoToLine = true }
                     .font(.caption)
                     .keyboardShortcut("l", modifiers: .command)
@@ -87,6 +97,8 @@ struct FileViewer: View {
         .background(Color(nsColor: .textBackgroundColor))
         .clipShape(.rect(cornerRadius: CornerRadius.panel))
         .onChange(of: editor.navigationID) { mode = .preview }
+        .onChange(of: editorSettings, initial: true) { editor.configureAutosave(editorSettings) }
+        .task(id: editor.autosaveID) { await editor.autosave() }
         .task(id: editor.saveID) { await editor.savePending(client: coreClient, didSave: didSave) }
         .alert(
             "File Changed on Disk",
@@ -119,7 +131,7 @@ struct FileViewer: View {
         case .text:
             FileTextView(
                 text: Binding(get: { editor.text }, set: { editor.text = $0 }),
-                loadID: editor.loadID, isEditable: !editor.isSaving && !showsPreview,
+                loadID: editor.loadID, isEditable: !showsPreview,
                 isVisible: isVisible && !showsPreview, lineRequest: lineRequest, language: syntaxLanguage)
         case .binary:
             unavailable("Binary File", "Only UTF-8 text files can be displayed.")

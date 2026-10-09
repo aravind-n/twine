@@ -185,20 +185,25 @@ private struct SessionNameForm: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(editor.sessionID == nil ? "New Session" : "Rename Session").font(.headline)
             TextField("Session name", text: $name).focused($isFocused).accessibilityIdentifier("sessionName")
+                .onSubmit(submit)
+            Text("Press Return or ⌘S to \(editor.sessionID == nil ? "create" : "rename") the session.")
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    save(name)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("saveSession")
             }
         }
         .padding(24)
         .frame(width: 340)
         .onAppear { isFocused = true }
+        .focusedSceneValue(
+            \.saveAction,
+            SaveAction(isEnabled: !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, perform: submit))
+    }
+
+    private func submit() {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        save(name)
+        dismiss()
     }
 }

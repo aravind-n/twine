@@ -67,7 +67,7 @@ extension TwineUITests {
         XCTAssertFalse(instructions.isEmpty)
         designer.replace("designerRoleInstructions-implementer", with: "")
         XCTAssertTrue(designer.item("designerError-roles[0]").waitForExistence(timeout: 5))
-        XCTAssertFalse(designer.item("designerSave").isEnabled)
+        XCTAssertNotEqual(staticTextValue(designer.item("designerValidation")), "Ready to save with ⌘S")
         captureDesigner(app, named: "06-inline-validation")
         designer.replace("designerRoleInstructions-implementer", with: instructions)
         repairDesignerStagesAndHandoffs(designer)
@@ -76,7 +76,7 @@ extension TwineUITests {
         app.buttons["Remove loop"].click()
         designer.section("Stages")
         XCTAssertTrue(designer.item("designerError-stages[1]").waitForExistence(timeout: 5))
-        XCTAssertFalse(designer.item("designerSave").isEnabled)
+        XCTAssertNotEqual(staticTextValue(designer.item("designerValidation")), "Ready to save with ⌘S")
         designer.section("Review loops")
         designer.item("designerAddLoop").click()
         designer.waitUntilValid()
@@ -99,7 +99,7 @@ extension TwineUITests {
         app.buttons.matching(identifier: "Move down").firstMatch.click()
         designer.section("Review loops")
         XCTAssertTrue(designer.item("designerError-review_loops[0]").waitForExistence(timeout: 5))
-        XCTAssertFalse(designer.item("designerSave").isEnabled)
+        XCTAssertNotEqual(staticTextValue(designer.item("designerValidation")), "Ready to save with ⌘S")
         designer.section("Stages")
         app.buttons.matching(identifier: "Move up").element(boundBy: 1).click()
         designer.waitUntilValid()
@@ -107,7 +107,7 @@ extension TwineUITests {
         app.buttons.matching(identifier: "Remove handoff").firstMatch.click()
         designer.section("Stages")
         XCTAssertTrue(designer.item("designerError-stages[1]").waitForExistence(timeout: 5))
-        XCTAssertFalse(designer.item("designerSave").isEnabled)
+        XCTAssertNotEqual(staticTextValue(designer.item("designerValidation")), "Ready to save with ⌘S")
         designer.section("Handoffs")
         designer.item("designerAddHandoff").click()
         designer.waitUntilValid()
@@ -151,13 +151,14 @@ private struct WorkflowDesignerUI {
 
     func waitUntilValid() {
         let ready = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "enabled == true"), object: item("designerSave"))
+            predicate: NSPredicate { _, _ in staticTextValue(item("designerValidation")) == "Ready to save with ⌘S" },
+            object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, app.debugDescription)
     }
 
     func save() {
         waitUntilValid()
-        app.typeKey(.return, modifierFlags: [])
+        app.typeKey("s", modifierFlags: .command)
         XCTAssertTrue(item("designerName").waitForNonExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(customChoice.waitForExistence(timeout: 5), app.debugDescription)
     }

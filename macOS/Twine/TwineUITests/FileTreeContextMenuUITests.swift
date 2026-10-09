@@ -41,7 +41,7 @@ extension TwineUITests {
         let preserved = expectation(
             for: NSPredicate { _, _ in text.value as? String == "unsaved first" }, evaluatedWith: nil)
         wait(for: [preserved], timeout: 3)
-        XCTAssertEqual(try String(contentsOf: first, encoding: .utf8), "first")
+        XCTAssertEqual(try String(contentsOf: first, encoding: .utf8), "unsaved first")
         app.terminate()
     }
 
