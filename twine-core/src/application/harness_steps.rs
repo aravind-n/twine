@@ -1871,7 +1871,7 @@ mod tests {
         )
         .replace('\'', "'\\''");
         std::fs::write(bin.path().join("codex"), format!(
-            "#!/bin/sh\nexec '{quoted}' --no-alt-screen --sandbox read-only --ask-for-approval never -c '{trust}' \"$@\"\n"
+            "#!/bin/sh\nexec '{quoted}' --sandbox read-only --ask-for-approval never -c '{trust}' \"$@\"\n"
         )).unwrap();
         accepted(&app, Command::StartAgent {
             model: None,

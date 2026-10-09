@@ -68,7 +68,7 @@ impl Store {
                 params![
                     sql_integer(workflow_id.0)?,
                     sql_integer(anchor.terminal_id.value())?,
-                    if single_agent {
+                    if single_agent && correlated.is_none() {
                         step.turn_id.as_deref()
                     } else {
                         None

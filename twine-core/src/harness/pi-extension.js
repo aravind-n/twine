@@ -21,6 +21,8 @@ export default function (pi) {
   let responseSucceeded = false;
   let pending;
   let closed = false;
+  let shuttingDown = false;
+  let drained;
 
   const clip = (text, limit = 2048) => {
     const value = typeof text === "string" ? text : "";
@@ -78,6 +80,7 @@ export default function (pi) {
       req?.destroy();
       pending = undefined;
       pump();
+      if (shuttingDown && !pending && queue.length === 0) drained?.();
     };
     try {
       req = request({ socketPath, path: "/", method: "POST", agent: false,
@@ -95,9 +98,27 @@ export default function (pi) {
     } catch { finish(); }
   }
   function send(event) {
-    if (closed || queue.length >= 256) return;
+    if (closed || shuttingDown || queue.length >= 256) return;
     queue.push(JSON.stringify({ ...event, session_id: sessionFile }));
     pump();
+  }
+  function shutdownTransport() {
+    shuttingDown = true;
+    calls.clear();
+    return new Promise(resolve => {
+      const finish = () => {
+        clearTimeout(timer);
+        closed = true;
+        queue.length = 0;
+        pending?.destroy();
+        drained = undefined;
+        resolve();
+      };
+      // Cover the entire bounded queue at the receiver's normal polling rate.
+      const timer = setTimeout(finish, 3000);
+      drained = finish;
+      if (!pending && queue.length === 0) finish();
+    });
   }
   function observeChild(name, event, agent) {
     const id = identifier(agent.id);
@@ -144,25 +165,26 @@ export default function (pi) {
     } else if (name === "session_shutdown") {
       children.delete(id);
       agentTurns.delete(id);
-      // The final event may still be queued, so let the bounded transport drain.
+      return shutdownTransport();
     }
   }
-  // Handlers never await I/O or return a result that could alter Pi's behavior.
+  // Work handlers never await I/O or alter decisions. Only shutdown waits for
+  // already-observed events, with a fixed deadline even if the app is unavailable.
   const observe = (name, handler) => pi.on(name, (event, ctx) => {
     try {
       if (isOmp && ctx?.agent?.kind === "sub") {
-        observeChild(name, event, ctx.agent);
-        return;
+        return observeChild(name, event, ctx.agent);
       }
       sessionFile = ctx?.sessionManager?.getSessionFile();
       ownAgentId = identifier(ctx?.agent?.id);
-      handler(event);
+      const result = handler(event);
       if (isOmp && ownAgentId) {
         if (name === "session_shutdown") agentTurns.delete(ownAgentId);
         else if (agentTurns.size < 256 || agentTurns.has(ownAgentId)) {
           agentTurns.set(ownAgentId, { kind: "main", turn_id: active });
         }
       }
+      return result;
     } catch { /* Recording is best effort. */ }
   });
   observe("session_start", () => send({ type: "session" }));
@@ -212,10 +234,5 @@ export default function (pi) {
     active = undefined;
     calls.clear();
   });
-  observe("session_shutdown", () => {
-    closed = true;
-    queue.length = 0;
-    calls.clear();
-    pending?.destroy();
-  });
+  observe("session_shutdown", shutdownTransport);
 }

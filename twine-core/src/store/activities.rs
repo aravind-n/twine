@@ -22,7 +22,9 @@ pub(super) fn activity_span(
     let Some(activity) = &step.activity else {
         return Ok(None);
     };
-    if step.turn_id.is_some() {
+    // An explicit root tool turn remains authoritative. Child hooks can carry a
+    // different prompt ID after resumption; their native lifetime stays pinned.
+    if step.turn_id.is_some() && step.kind != crate::harness::steps::StepKind::Activity {
         return Ok(None);
     }
     Ok(transaction
@@ -301,6 +303,64 @@ mod tests {
             )
             .unwrap()
             .unwrap()
+    }
+
+    #[test]
+    fn resumed_child_prompt_ids_do_not_split_native_lifetimes() {
+        let mut store = Store::open_in_memory().unwrap();
+        let workflow = setup(&mut store);
+        let first = record(
+            &mut store,
+            workflow,
+            &step(StepKind::Prompt, Some("one")),
+            100,
+        );
+        let mut child = activity(
+            "agent:review",
+            None,
+            ActivityKind::Subagent,
+            ActivityPhase::Started,
+        );
+        child.turn_id = Some("one".into());
+        record(&mut store, workflow, &child, 110);
+        let mut root = activity(
+            "tool:root:reused",
+            None,
+            ActivityKind::Tool,
+            ActivityPhase::Started,
+        );
+        root.kind = StepKind::ToolStarted;
+        root.turn_id = Some("one".into());
+        assert_eq!(record(&mut store, workflow, &root, 111), first);
+        let second = record(
+            &mut store,
+            workflow,
+            &step(StepKind::Prompt, Some("two")),
+            120,
+        );
+        root.turn_id = Some("two".into());
+        assert_eq!(record(&mut store, workflow, &root, 121), second);
+        let mut call = activity(
+            "tool:review:read",
+            Some("agent:review"),
+            ActivityKind::Tool,
+            ActivityPhase::Started,
+        );
+        call.turn_id = Some("two".into());
+        assert_eq!(record(&mut store, workflow, &call, 130), first);
+        call.activity.as_mut().unwrap().phase = ActivityPhase::Finished;
+        assert_eq!(record(&mut store, workflow, &call, 140), first);
+        child.turn_id = Some("child-turn".into());
+        child.activity.as_mut().unwrap().phase = ActivityPhase::Finished;
+        assert_eq!(record(&mut store, workflow, &child, 150), first);
+        let items = store.trace_activities(first, None, 10).unwrap().activities;
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[2].parent_activity_id, Some(items[0].activity_id));
+        assert_eq!(items[2].status, TraceActivityStatus::Completed);
+        let next = store.trace_activities(second, None, 10).unwrap().activities;
+        assert_eq!(next.len(), 1);
+        assert_ne!(items[1].activity_id, next[0].activity_id);
+        assert_eq!(next[0].status, TraceActivityStatus::Running);
     }
 
     #[test]

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep loaded trace events and older steps visible when live activity refreshes
+  the Traces panel. Show saved event logs in In Depth for steps without detailed
+  tool activity, including recordings from older versions.
+- Preserve queued Pi and OMP trace events during shutdown and keep resumed
+  subagent activity attached to its original step.
+
 ## [0.2.2] - 2026-10-08
 
 ### Added

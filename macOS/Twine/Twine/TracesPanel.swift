@@ -33,6 +33,12 @@ struct TracesPanel: View {
         "\(readKey):\(state.selectedSpanID ?? 0):\(isExpanded):\(navigation.selectionRevision)"
     }
 
+    private var showsRecordedEvents: Bool {
+        state.activityDetails.spanID == state.selectedSpanID && state.activityDetails.hasLoaded
+            && state.activityDetails.failureMessage == nil && state.activityDetails.activities.isEmpty
+            && !state.events.isEmpty
+    }
+
     private var displayLanes: [CoreTraceLane] {
         state.lanes.map { lane in
             guard workflows.count > 1, let index = workflowIDs.firstIndex(of: lane.workflowID) else { return lane }
@@ -110,7 +116,20 @@ struct TracesPanel: View {
             .frame(height: min(72, max(36, CGFloat(displayLanes.count) * 18 + 14)))
             Divider()
             if let span = state.selectedSpan, let lane = state.selectedLane {
-                TraceInspector(span: span, lane: lane, state: state.activityDetails, now: now)
+                if showsRecordedEvents {
+                    VStack(spacing: 0) {
+                        Text("Detailed activity was not recorded for this step. Its recorded events are shown below.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                        TraceDetailPanel(span: span, lane: lane, state: state, now: now) {
+                            state.selectedSpanID = nil
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("traceRecordedEventsFallback")
+                } else {
+                    TraceInspector(span: span, lane: lane, state: state.activityDetails, now: now)
+                }
             } else {
                 ContentUnavailableView(
                     "Select a step", systemImage: "timeline.selection",
@@ -130,6 +149,7 @@ struct TracesPanel: View {
             .font(.caption2).foregroundStyle(.secondary)
             .padding(.horizontal, 14).frame(height: TracesLayout.hintHeight)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("traceInDepthView")
     }
 

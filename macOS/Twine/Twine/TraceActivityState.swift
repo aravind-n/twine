@@ -15,6 +15,7 @@ final class TraceActivityState {
     private(set) var activities: [CoreTraceActivity] = []
     private(set) var nextAfter: UInt64?
     private(set) var isLoading = false
+    private(set) var hasLoaded = false
     private(set) var failureMessage: String?
     var selectedActivityID: UInt64?
     var collapsed: Set<UInt64> = []
@@ -31,6 +32,7 @@ final class TraceActivityState {
         activities = []
         nextAfter = nil
         isLoading = false
+        hasLoaded = false
         failureMessage = nil
         selectedActivityID = nil
         collapsed = []
@@ -64,6 +66,7 @@ final class TraceActivityState {
             nextAfter = loaded.nextAfter
             pageCount = max(1, loaded.count)
             failureMessage = nil
+            hasLoaded = true
             if selectedActivity == nil { selectedActivityID = nil }
         } catch is CancellationError {
             return

@@ -57,6 +57,7 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testClaudeMinimapDotsSelectTheirTraceAndScrollToThePrompt \
 	testTimelineInspectorShowsNestedCallsFiltersAndSurvivesRelaunch \
 	testTraceViewModesPreserveSelectionAndCollapsedState \
+	testLegacyTraceEventsKeepLoadedPagesWhenThePanelRefreshes \
 	testAgentReceivesTerminalColors \
 	testForceQuitPreservesAgentOutputAndCanResumeItsSession \
 	testAdversarialHarnessSelectionUserCompletionReviewLoopAndTraces \
