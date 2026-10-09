@@ -9,12 +9,12 @@ struct FileTree: View {
             LazyVStack(spacing: 0) {
                 FileTreeRow(
                     entry: FileEntry(path: folder, name: URL(filePath: folder).lastPathComponent, kind: .directory),
-                    depth: 0, isExpanded: model.isRootExpanded, action: model.toggleRoot)
+                    folder: folder, depth: 0, isExpanded: model.isRootExpanded, action: model.toggleRoot)
                 if model.isRootExpanded {
                     if let failure = model.failure {
                         Text(failure).font(.caption).foregroundStyle(.secondary).padding(12)
                     }
-                    FileTreeDirectory(path: folder, depth: 1, model: model)
+                    FileTreeDirectory(folder: folder, path: folder, depth: 1, model: model)
                 }
             }
             .padding(.horizontal, SidebarLayout.contentInset)
@@ -25,11 +25,10 @@ struct FileTree: View {
 
 private struct FileTreeDirectory: View {
     @Environment(FileTabsModel.self) private var tabs
+    let folder: String
     let path: String
     let depth: Int
     @Bindable var model: FileBrowserModel
-
-    private var folderPath: String? { model.snapshot?.folder }
 
     private var directory: FileDirectory? { model.snapshot?.directories.first { $0.path == path } }
 
@@ -43,7 +42,7 @@ private struct FileTreeDirectory: View {
                 ForEach(directory.entries) { entry in
                     row(entry)
                     if entry.kind == .directory && model.expanded.contains(entry.path) {
-                        FileTreeDirectory(path: entry.path, depth: depth + 1, model: model)
+                        FileTreeDirectory(folder: folder, path: entry.path, depth: depth + 1, model: model)
                     }
                 }
             }
@@ -61,13 +60,13 @@ private struct FileTreeDirectory: View {
 
     private func row(_ entry: FileEntry) -> some View {
         FileTreeRow(
-            entry: entry, depth: depth, isExpanded: model.expanded.contains(entry.path),
+            entry: entry, folder: folder, depth: depth, isExpanded: model.expanded.contains(entry.path),
             isSelected: tabs.selected?.path == entry.path
         ) {
             if entry.kind == .directory {
                 model.toggle(entry.path)
             } else {
-                if let folderPath { tabs.open(path: entry.path, folder: folderPath) }
+                tabs.open(path: entry.path, folder: folder)
             }
         }
     }
@@ -75,6 +74,7 @@ private struct FileTreeDirectory: View {
 
 private struct FileTreeRow: View {
     let entry: FileEntry
+    let folder: String
     let depth: Int
     let isExpanded: Bool
     var isSelected = false
@@ -112,5 +112,8 @@ private struct FileTreeRow: View {
                 : (isSelected ? "Selected" : "")
         )
         .accessibilityIdentifier("fileRow-\(entry.path)")
+        .contextMenu {
+            FileTreeContextMenu(entry: entry, folder: folder, isExpanded: isExpanded, toggleExpansion: action)
+        }
     }
 }

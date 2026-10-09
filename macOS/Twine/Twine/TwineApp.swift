@@ -63,7 +63,7 @@ struct TwineApp: App {
         .commands {
             SidebarCommands()
             UpdateCommands()
-            FolderCommands(settings: settings)
+            FolderCommands(windows: windows, settings: settings)
             AppZoomCommands(zoom: zoom)
         }
     }

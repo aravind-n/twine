@@ -7,13 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Right-click sidebar items to open files in Twine or their default app, open or
+  reveal items in Finder, copy paths or names, and expand or collapse folders.
+
 ### Fixed
 
+- Open Folder remains available after closing the last window and opens a new
+  window with the folder picker, so you can continue working without relaunching Twine.
 - Keep loaded trace events and older steps visible when live activity refreshes
   the Traces panel. Show saved event logs in In Depth for steps without detailed
   tool activity, including recordings from older versions.
 - Preserve queued Pi and OMP trace events during shutdown and keep resumed
   subagent activity attached to its original step.
+
 
 ## [0.2.2] - 2026-10-08
 
