@@ -105,6 +105,27 @@ Common tasks, each covered in the
   font_size = 13.0
   ```
 
+- **Inspect recorded agent activity** in **Traces → In Depth**. Overview shows
+  activity counts and an **Inspect activity** action. LLM calls include public
+  responses/summaries, model and usage details when the harness supplies them;
+  missing timings or request bodies remain marked as unrecorded. **Show full
+  details** opens complete saved inputs and results.
+  The storage control shows usage, pins a step, and clears completed, unpinned
+  details. Twine keeps compact metadata in SQLite and deduplicates large details
+  in adjacent files. Active steps and pinned details can exceed the cache budget.
+  Native harness files remain untouched.
+
+  ```toml
+  [traces]
+  detail_budget_mb = 512
+  retention_days = 90 # Closed, unpinned workflows; 0 disables age expiry.
+  ```
+
+  Saved Codex, Claude Code, Pi, and OMP conversations can recover activity for
+  their linked steps. Recovery uses native IDs or an unambiguous prompt/time
+  match within the same conversation. It cannot recover data absent from both
+  the observer and native history. OpenCode and Antigravity use live observers.
+
 ### Supported harnesses
 
 A **harness** is the external agent CLI that fills a role. Twine finds each one
@@ -116,8 +137,8 @@ by its command on your shell's `PATH`:
 | Claude Code | `claude` | Yes |
 | pi | `pi` | Yes |
 | OMP | `omp` | Yes |
-| Antigravity | `agy` | Workflow steps only |
-| OpenCode v2 | `opencode` | Workflow steps only |
+| Antigravity | `agy` | Yes; model invocation details where exposed |
+| OpenCode v2 | `opencode` | Yes |
 
 Install and authenticate harnesses separately. Model choices come from each
 harness's own CLI, and provider access and usage charges follow your harness

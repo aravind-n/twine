@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Right-click sidebar items to open files in Twine or their default app, open or
   reveal items in Finder, copy paths or names, and expand or collapse folders.
+- Inspect recorded LLM calls, public response and reasoning summaries, model
+  usage, compaction, retries, and permission events when the harness exposes them.
+  Recover missing activity from the exact saved Codex, Claude Code, Pi, and OMP
+  conversations, including recorded subagent assignments.
+- Open complete recorded inputs and results from the trace inspector, with
+  storage usage, per-step pinning, and cleanup controls. Configure the detail
+  cache budget and closed-history retention in Settings.
+- Capture OpenCode v2 tool, model, and child-session activity through a private
+  observer loaded for each launch.
 
 ### Fixed
 
@@ -21,7 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tool activity, including recordings from older versions.
 - Preserve queued Pi and OMP trace events during shutdown and keep resumed
   subagent activity attached to its original step.
-
+- Preserve long trace details and activity beyond 10,000 records, combine
+  streamed Claude response blocks, and show activity counts and an Inspect
+  activity action in Overview.
 
 ## [0.2.2] - 2026-10-08
 

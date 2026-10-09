@@ -53,7 +53,9 @@ impl Store {
             activate,
             span: assigned_span,
         } = context;
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if activate {
             activate_harness_trace(&transaction, anchor.terminal_id)?;
         }
@@ -124,7 +126,14 @@ impl Store {
                 params![sql_integer(span.0)?, sql_integer(anchor.terminal_id.value())?],
             )?;
         }
-        super::activities::record_activity(&transaction, span, step, observed_at, anchor)?;
+        super::activities::record_activity(
+            &transaction,
+            &self.payloads,
+            span,
+            step,
+            observed_at,
+            anchor,
+        )?;
         insert_event(
             &transaction,
             workflow_id,
@@ -145,7 +154,9 @@ impl Store {
         terminal_id: TerminalId,
         ending: &TraceEnding<'_>,
     ) -> Result<(), StoreError> {
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         insert_process_ending(&transaction, workflow_id, terminal_id, ending)?;
         transaction.commit()?;
         Ok(())

@@ -118,6 +118,39 @@ impl TwineClient {
         Ok(protocol::encode_trace_activities(&page)?)
     }
 
+    pub(crate) fn trace_detail(
+        &self,
+        activity: u64,
+        output: bool,
+        offset: u64,
+        limit: usize,
+    ) -> Result<Vec<u8>, BridgeError> {
+        Ok(serde_json::to_vec(&self.application.trace_detail(
+            twine_core::TraceActivityId(activity),
+            output,
+            offset,
+            limit,
+        )?)?)
+    }
+
+    pub(crate) fn trace_storage(&self, span: u64, operation: u32) -> Result<Vec<u8>, BridgeError> {
+        match operation {
+            1 => self
+                .application
+                .pin_trace_details(twine_core::TraceSpanId(span), true)?,
+            2 => self
+                .application
+                .pin_trace_details(twine_core::TraceSpanId(span), false)?,
+            3 => self.application.clear_trace_details()?,
+            _ => {}
+        }
+        Ok(serde_json::to_vec(
+            &self
+                .application
+                .trace_storage_status((span != 0).then_some(twine_core::TraceSpanId(span)))?,
+        )?)
+    }
+
     pub(crate) fn trace_events(
         &self,
         span_id: u64,

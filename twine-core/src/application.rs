@@ -232,6 +232,7 @@ pub struct Application {
     harness_path: Option<std::ffi::OsString>,
     run_processes: Mutex<HashMap<WorkflowId, runs::RunProcesses>>,
     harness_steps: Mutex<HashMap<TerminalId, harness_steps::HarnessRecording>>,
+    history: Mutex<crate::harness::history::HistoryWorkers>,
 }
 
 impl Application {
@@ -291,12 +292,13 @@ impl Application {
     }
 
     fn with_folders(
-        folders: Folders,
+        mut folders: Folders,
         config: Config,
         event_capacity: usize,
         transcripts: Arc<TranscriptRecorder>,
         shared_recording: bool,
     ) -> Result<Self, ApplicationError> {
+        folders.store().configure_trace_storage(&config.traces)?;
         let mut events = EventJournal::new(event_capacity)?;
         events.append(EventKind::State(StateEvent::ApplicationReady))?;
 
@@ -319,6 +321,10 @@ impl Application {
             files: crate::files::FileWatcher::new()?,
             run_processes: Mutex::new(HashMap::new()),
             harness_steps: Mutex::new(HashMap::new()),
+            history: Mutex::new(
+                crate::harness::history::HistoryWorkers::new()
+                    .map_err(crate::StoreError::TracePayload)?,
+            ),
             commands: Mutex::new(()),
             inner: Arc::new(Mutex::new(Inner {
                 state: ApplicationState::Ready,
@@ -348,6 +354,7 @@ impl Application {
         };
 
         application.restore_workflows()?;
+        let _ = application.trace_storage_status(None)?;
         info!("application core initialized");
         Ok(application)
     }

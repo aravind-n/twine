@@ -13,6 +13,27 @@ nonisolated private func activity(
 }
 
 struct TraceActivityTimelineTests {
+    @Test func modelCallsDecodeUsageSummaryAndFullDetailVersions() throws {
+        let json = """
+            {"workflowId":1,"spanId":10,"revision":8,"nextAfter":null,
+             "counts":{"tools":0,"subagents":0,"models":1,"notes":1,"failures":0},"activities":[
+              {"activityId":3,"spanId":10,"parentActivityId":null,"kind":"model","title":"LLM call",
+               "startedAt":null,"endedAt":200,"status":"completed","input":"","output":"Public summary",
+               "inputBytes":0,"outputBytes":9000,"outputVersion":"content-hash","anchor":null,
+               "metadata":{"model":"fixture","inputTokens":120,"outputTokens":32,"cost":0.00001,
+                "source":"Harness history"}}]}
+            """
+        let page = try JSONDecoder().decode(CoreTraceActivitiesPage.self, from: Data(json.utf8))
+        let call = try #require(page.activities.first)
+        #expect(call.kind == .model)
+        #expect(call.startedAt == nil)
+        #expect(call.metadata?.inputTokens == 120)
+        #expect(call.outputBytes == 9000)
+        #expect(call.outputVersion == "content-hash")
+        #expect(page.counts?.models == 1)
+        #expect(page.counts?.notes == 1)
+    }
+
     @Test func optionalTimingAndParentsDecodeWithoutFabrication() throws {
         let json = """
             {"workflowId":1,"spanId":10,"revision":8,"nextAfter":null,"activities":[

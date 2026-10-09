@@ -6,10 +6,13 @@ use thiserror::Error;
 use tracing::info;
 
 mod activities;
+mod harness_history;
 mod harness_sessions;
 mod harness_steps;
 mod recovery;
 mod run_traces;
+mod trace_payloads;
+mod trace_storage;
 mod traces;
 mod workflow_types;
 mod workflows;
@@ -230,7 +233,39 @@ const MIGRATIONS: &[&str] = &[
         anchor TEXT,
         UNIQUE(span_id, source_id)
     ) STRICT;
-    CREATE INDEX trace_activities_parent ON trace_activities(span_id, parent_source_id)"
+    CREATE INDEX trace_activities_parent ON trace_activities(span_id, parent_source_id)",
+    // 18: Model calls and observer notes, full detail references, and native metadata.
+    "ALTER TABLE trace_activities RENAME TO trace_activities_v17;
+     DROP INDEX trace_activities_parent;
+     CREATE TABLE trace_activities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        span_id INTEGER NOT NULL REFERENCES trace_spans(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL, parent_source_id TEXT,
+        kind TEXT NOT NULL CHECK (kind IN ('tool', 'subagent', 'model', 'note')),
+        title TEXT NOT NULL, started_at INTEGER, ended_at INTEGER,
+        status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'interrupted')),
+        input TEXT NOT NULL, output TEXT NOT NULL, anchor TEXT,
+        input_key TEXT, output_key TEXT,
+        input_bytes INTEGER, output_bytes INTEGER,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(span_id, source_id)
+     ) STRICT;
+     INSERT INTO trace_activities (id,span_id,source_id,parent_source_id,kind,title,started_at,ended_at,status,input,output,anchor)
+        SELECT id,span_id,source_id,parent_source_id,kind,title,started_at,ended_at,status,input,output,anchor FROM trace_activities_v17;
+     INSERT INTO sqlite_sequence(name,seq) SELECT 'trace_activities',seq FROM sqlite_sequence WHERE name='trace_activities_v17'
+        AND NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name='trace_activities');
+     UPDATE sqlite_sequence SET seq=MAX(seq,COALESCE((SELECT seq FROM sqlite_sequence WHERE name='trace_activities_v17'),0))
+        WHERE name='trace_activities';
+     DROP TABLE trace_activities_v17;
+     CREATE INDEX trace_activities_parent ON trace_activities(span_id, parent_source_id)",
+    // 19: Independent full-detail retention with explicit pinning and cached storage statistics.
+    "ALTER TABLE trace_spans ADD COLUMN pinned_details INTEGER NOT NULL DEFAULT 0 CHECK(pinned_details IN (0,1));
+     CREATE TABLE trace_storage_preferences (
+       id INTEGER PRIMARY KEY CHECK(id=1),budget_bytes INTEGER NOT NULL,retention_days INTEGER NOT NULL,
+       payload_bytes INTEGER NOT NULL DEFAULT 0,payload_files INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL DEFAULT 0,
+       clear_generation INTEGER NOT NULL DEFAULT 0,completed_clear_generation INTEGER NOT NULL DEFAULT 0
+     ) STRICT;
+     INSERT INTO trace_storage_preferences(id,budget_bytes,retention_days) VALUES(1,536870912,90)"
 ];
 
 /// How long a write waits for another connection, such as a second Twine process, to release the
@@ -249,6 +284,7 @@ pub(crate) struct StoredFolder {
 #[derive(Debug)]
 pub(crate) struct Store {
     connection: Connection,
+    payloads: trace_payloads::TracePayloads,
 }
 
 impl Store {
@@ -285,7 +321,11 @@ impl Store {
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "foreign_keys", true)?;
         migrate(&mut connection)?;
-        Ok(Self { connection })
+        let payloads = trace_payloads::TracePayloads::new(connection.path())?;
+        Ok(Self {
+            connection,
+            payloads,
+        })
     }
 
     /// Returns the recent folders, most recently opened first.
@@ -476,6 +516,8 @@ fn unsigned_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u6
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("couldn't read or store full trace details")]
+    TracePayload(#[source] std::io::Error),
     #[error("failed to resolve data directory {}", path.display())]
     ResolveDirectory {
         path: PathBuf,

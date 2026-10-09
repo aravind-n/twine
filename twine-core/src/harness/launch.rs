@@ -17,6 +17,23 @@ pub(crate) fn launch_environment(harness: HarnessId) -> &'static [(&'static str,
     }
 }
 
+/// Per-process observer settings supplement the harness's static launch environment.
+pub(crate) fn observed_environment(
+    harness: HarnessId,
+    inbox: Option<&super::steps::StepInbox>,
+) -> Vec<(&str, &str)> {
+    let mut environment = launch_environment(harness).to_vec();
+    if let Some(inbox) = inbox {
+        environment.extend(
+            inbox
+                .environment
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str())),
+        );
+    }
+    environment
+}
+
 /// A launch's model and effort level, checked so neither can read as a flag or break out of the
 /// Codex config value it goes into. Only `validate_options` makes one.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

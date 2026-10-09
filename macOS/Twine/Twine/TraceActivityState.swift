@@ -16,6 +16,7 @@ final class TraceActivityState {
     private(set) var nextAfter: UInt64?
     private(set) var isLoading = false
     private(set) var hasLoaded = false
+    private(set) var counts: CoreTraceActivityCounts?
     private(set) var failureMessage: String?
     var selectedActivityID: UInt64?
     var collapsed: Set<UInt64> = []
@@ -33,6 +34,7 @@ final class TraceActivityState {
         nextAfter = nil
         isLoading = false
         hasLoaded = false
+        counts = nil
         failureMessage = nil
         selectedActivityID = nil
         collapsed = []
@@ -64,6 +66,7 @@ final class TraceActivityState {
             var known: Set<UInt64> = []
             activities = loaded.activities.filter { known.insert($0.id).inserted }
             nextAfter = loaded.nextAfter
+            counts = loaded.counts
             pageCount = max(1, loaded.count)
             failureMessage = nil
             hasLoaded = true
@@ -79,6 +82,7 @@ final class TraceActivityState {
         let activities: [CoreTraceActivity]
         let nextAfter: UInt64?
         let count: Int
+        let counts: CoreTraceActivityCounts?
     }
 
     private func readPages(
@@ -87,6 +91,7 @@ final class TraceActivityState {
         var loaded: [CoreTraceActivity] = []
         var after: UInt64?
         var pages = 0
+        var counts: CoreTraceActivityCounts?
         for _ in 0..<count {
             let page = try await client.traceActivities(spanID: spanID, after: after)
             try Task.checkCancellation()
@@ -95,13 +100,14 @@ final class TraceActivityState {
                 throw CoreFailure.unexpectedCommandResult
             }
             loaded.append(contentsOf: page.activities)
+            counts = page.counts
             pages += 1
             let previous = after
             after = page.nextAfter
             if after == nil { break }
             if let after, after <= (previous ?? 0) { throw CoreFailure.unexpectedCommandResult }
         }
-        return Pages(activities: loaded, nextAfter: after, count: pages)
+        return Pages(activities: loaded, nextAfter: after, count: pages, counts: counts)
     }
 
 }

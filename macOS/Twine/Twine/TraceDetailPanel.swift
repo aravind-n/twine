@@ -17,6 +17,18 @@ struct TraceDetailPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            if let counts = state.activityDetails.counts {
+                HStack {
+                    Text(counts.label).font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("traceStepCounts")
+                    Spacer()
+                    if state.viewMode == .overview, counts.tools + counts.subagents + counts.models + counts.notes > 0 {
+                        Button("Inspect activity") { state.viewMode = .inDepth }
+                            .buttonStyle(.borderless).font(.caption2)
+                            .accessibilityIdentifier("inspectTraceActivity")
+                    }
+                }.padding(.horizontal, 12).padding(.vertical, 6)
+            }
             HStack(spacing: 6) {
                 Image(systemName: span.statusSymbol)
                     .foregroundStyle(span.status == .failed ? Color.orange : .secondary)
@@ -88,6 +100,8 @@ struct TraceDetailPanel: View {
                 .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
+            TraceStorageControl(spanID: span.id)
+                .id(span.id)
             Button("Copy log", systemImage: "doc.on.doc") { copyRequested = span.id }
                 .labelStyle(.iconOnly).buttonStyle(.glass).controlSize(.small)
                 .disabled(copyRequested != nil || state.logFailureMessage != nil)

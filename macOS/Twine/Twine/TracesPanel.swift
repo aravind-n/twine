@@ -85,7 +85,7 @@ struct TracesPanel: View {
             }
         }
         .task(id: "\(logKey):\(state.viewMode.rawValue)") {
-            if isExpanded && state.viewMode == .inDepth {
+            if isExpanded {
                 await state.activityDetails.refresh(
                     spanID: state.selectedSpanID, workflowID: state.selectedLane?.workflowID, client: coreClient)
             }

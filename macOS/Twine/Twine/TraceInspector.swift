@@ -54,6 +54,7 @@ struct TraceInspector: View {
             HStack(spacing: 6) {
                 Text(span.title).font(.caption.weight(.semibold)).lineLimit(1)
                 Spacer(minLength: 0)
+                TraceStorageControl(spanID: span.id).id(span.id)
                 Text(span.statusLabel).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             HStack(spacing: 8) {
@@ -104,11 +105,7 @@ struct TraceInspector: View {
     }
 
     private var emptyExplanation: String {
-        if lane.harness == "opencode" {
-            return "Detailed activity is not available for this harness yet. "
-                + "Recorded steps and terminal output remain available in Overview."
-        }
-        return "This step has no recorded tools or subagents. Its event log is available in Overview."
+        "This step has no recorded activity. Saved events and terminal output remain available."
     }
 
     private var footer: some View {
@@ -116,9 +113,7 @@ struct TraceInspector: View {
             if let failure = state.failureMessage {
                 Text(failure).lineLimit(2)
             } else {
-                let tools = activities.filter { $0.kind == .tool }.count
-                let agents = activities.filter { $0.kind == .subagent }.count
-                Text("\(tools) tool calls · \(agents) subagents").lineLimit(1)
+                Text(state.counts?.label ?? "\(activities.count) loaded activities").lineLimit(1)
             }
             Spacer(minLength: 0)
             if state.isLoading && !activities.isEmpty { ProgressView().controlSize(.mini) }

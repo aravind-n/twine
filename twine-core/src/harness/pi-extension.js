@@ -2,6 +2,8 @@
 // Loaded only with --extension; never installed in a user or project config directory.
 import { randomUUID } from "node:crypto";
 import { request } from "node:http";
+import { writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 // OMP rebinds this module's factory to child sessions in the same process. Remember only
 // observed relationships, keeping child turns tied to the root prompt that spawned them.
@@ -23,6 +25,8 @@ export default function (pi) {
   let closed = false;
   let shuttingDown = false;
   let drained;
+  let modelCall;
+  let lastModelFailed = false;
 
   const clip = (text, limit = 2048) => {
     const value = typeof text === "string" ? text : "";
@@ -35,14 +39,13 @@ export default function (pi) {
   const identifier = value => typeof value === "string" && value.length > 0
     && Buffer.byteLength(value) <= 160 ? value : undefined;
   function textContent(content) {
-    if (typeof content === "string") return clip(content);
+    if (typeof content === "string") return content;
     let text = "";
-    for (const block of Array.isArray(content) ? content.slice(0, 32) : []) {
-      if (block?.type === "text") text += clip(block.text) + "\n";
+    for (const block of Array.isArray(content) ? content : []) {
+      if (block?.type === "text") text += block.text + "\n";
       else if (block?.type === "image") text += "[image]\n";
-      if (text.length >= 2048) break;
     }
-    return clip(text.trim());
+    return text.trim();
   }
   function preview(value) {
     let remaining = 2048;
@@ -99,7 +102,14 @@ export default function (pi) {
   }
   function send(event) {
     if (closed || shuttingDown || queue.length >= 256) return;
-    queue.push(JSON.stringify({ ...event, session_id: sessionFile }));
+    let body=JSON.stringify({ ...event, session_id: sessionFile });
+    if (Buffer.byteLength(body)>16384) {
+      const path=join(dirname(socketPath),`record-${randomUUID()}.json`);
+      writeFileSync(path,body,{mode:0o600});
+      body=JSON.stringify({payload_file:path});
+    }
+    // Even a full queue now holds at most 4 MiB of small envelopes/inline records.
+    queue.push(body);
     pump();
   }
   function shutdownTransport() {
@@ -120,7 +130,7 @@ export default function (pi) {
       if (!pending && queue.length === 0) finish();
     });
   }
-  function observeChild(name, event, agent) {
+  function observeChild(name, event, agent, ctx) {
     const id = identifier(agent.id);
     if (!id) return;
     let child = children.get(id);
@@ -134,7 +144,7 @@ export default function (pi) {
       agentTurns.set(id, { kind: "sub", turn_id: child.turn_id });
       send({ type: "agent_start", agent_id: id, agent_name: child.agent_name,
         parent_agent_id: child.parent_agent_id, turn_id: child.turn_id,
-        detail: textContent(event.message.content) });
+        detail: textContent(event.message.content),metadata:{nativeSessionPath:ctx?.sessionManager?.getSessionFile()} });
     }
     if (!child) return;
     const identity = { agent_id: id, agent_name: child.agent_name,
@@ -145,13 +155,13 @@ export default function (pi) {
         tool_name: clip(event.toolName, 160),
         target: clip(event.toolName === "bash" ? event.args?.command : event.args?.path, 160) };
       child.calls.set(event.toolCallId, call);
-      send({ ...call, type: "tool_start", detail: clip(JSON.stringify(preview(event.args))) });
+      send({ ...call, type: "tool_start", detail: JSON.stringify(event.args) });
     } else if (name === "tool_execution_end") {
       const call = child.calls.get(event.toolCallId);
       if (call) {
         child.calls.delete(event.toolCallId);
         send({ ...call, type: "tool_end", is_error: event.isError === true,
-          detail: textContent(event.result?.content) || clip(JSON.stringify(preview(event.result))) });
+          detail: textContent(event.result?.content) || JSON.stringify(event.result) });
       }
     } else if (name === "message_end" && event.message?.role === "assistant") {
       child.response = textContent(event.message.content);
@@ -172,12 +182,35 @@ export default function (pi) {
   // already-observed events, with a fixed deadline even if the app is unavailable.
   const observe = (name, handler) => pi.on(name, (event, ctx) => {
     try {
+      if (name === "before_provider_request" || name === "message_end") {
+        const child = isOmp && ctx?.agent?.kind === "sub" ? children.get(ctx.agent.id) : undefined;
+        const turn = child?.turn_id || active;
+        const agent = child?.agent_id;
+        if (name === "before_provider_request" && (turn || agent)) {
+          if (lastModelFailed) send({type:"note",turn_id:turn,agent_id:agent,activity_id:randomUUID(),
+            title:"Model request after error",detail:"The harness started another request after a failed response.",metadata:{source:"Observer"}});
+          modelCall = {activity_id:randomUUID(),turn_id:turn,agent_id:agent,
+            title:"LLM call",metadata:{model:ctx?.model?.id,source:"Observer"}};
+          send({...modelCall,type:"model_start",detail:JSON.stringify(event.payload)});
+        } else if (name === "message_end" && event.message?.role === "assistant" && modelCall) {
+          const message = event.message;
+          lastModelFailed = ["error","aborted"].includes(message.stopReason);
+          send({...modelCall,type:"model_end",detail:textContent(message.content) || message.errorMessage || "",
+            is_error:["error","aborted"].includes(message.stopReason),metadata:{...modelCall.metadata,
+              model:message.model || modelCall.metadata.model,responseId:message.responseId,
+              inputTokens:message.usage?.input,outputTokens:message.usage?.output,
+              cacheReadTokens:message.usage?.cacheRead,cacheWriteTokens:message.usage?.cacheWrite,
+              totalTokens:message.usage?.totalTokens,cost:message.usage?.cost?.total,
+              stopReason:message.stopReason}});
+          modelCall = undefined;
+        }
+      }
       if (isOmp && ctx?.agent?.kind === "sub") {
-        return observeChild(name, event, ctx.agent);
+        return observeChild(name, event, ctx.agent, ctx);
       }
       sessionFile = ctx?.sessionManager?.getSessionFile();
       ownAgentId = identifier(ctx?.agent?.id);
-      const result = handler(event);
+      const result = handler(event,ctx);
       if (isOmp && ownAgentId) {
         if (name === "session_shutdown") agentTurns.delete(ownAgentId);
         else if (agentTurns.size < 256 || agentTurns.has(ownAgentId)) {
@@ -191,6 +224,7 @@ export default function (pi) {
   observe("session_switch", () => send({ type: "session" }));
   observe("message_start", event => {
     if (event.message?.role !== "user") return;
+    lastModelFailed = false;
     // Pi drains queued follow-ups before agent_settled. Finish an answered prompt before
     // the next one, while steering during a tool/model turn still interrupts the old span.
     if (active && responseSucceeded && ![...calls.values()].some(call => call.turn_id === active)) {
@@ -211,14 +245,14 @@ export default function (pi) {
         tool_name: clip(event.toolName, 160),
       target: clip(event.toolName === "bash" ? event.args?.command : event.args?.path, 160) };
     calls.set(event.toolCallId, call);
-    send({ ...call, type: "tool_start", detail: clip(JSON.stringify(preview(event.args))) });
+    send({ ...call, type: "tool_start", detail: JSON.stringify(event.args) });
   });
   observe("tool_execution_end", event => {
     const call = calls.get(event.toolCallId);
     if (!call) return;
     calls.delete(event.toolCallId);
     send({ ...call, type: "tool_end", is_error: event.isError === true,
-      detail: textContent(event.result?.content) || clip(JSON.stringify(preview(event.result))) });
+      detail: textContent(event.result?.content) || JSON.stringify(event.result) });
   });
   observe("message_end", event => {
     if (event.message?.role !== "assistant") return;
@@ -227,6 +261,15 @@ export default function (pi) {
     responseSucceeded = ["stop", "length"].includes(event.message.stopReason)
       && !(Array.isArray(event.message.content) && event.message.content.some(block => block.type === "toolCall"));
   });
+  observe("before_provider_request", () => {});
+  for (const name of ["session_before_compact","session_compact","session_compact_failed"]) {
+    observe(name, event => {
+      if (!active) return;
+      send({type:"note",turn_id:active,activity_id:randomUUID(),title:name.replaceAll("_"," "),
+        detail:event.compactionEntry?.summary || event.errorMessage || "",is_error:name.endsWith("failed"),
+        metadata:{event:name,source:"Observer"}});
+    });
+  }
   // Pi settles after retries. OMP marks continuing agent_end notifications explicitly.
   observe(isOmp ? "agent_end" : "agent_settled", event => {
     if (isOmp && event.willContinue) return;

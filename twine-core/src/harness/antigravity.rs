@@ -11,8 +11,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::steps::{
-    ActivityKind, ActivityPhase, HarnessActivity, HarnessStep, MAX_DETAIL_BYTES, StepInbox,
-    StepKind, truncate,
+    ActivityKind, ActivityPhase, HarnessActivity, HarnessStep, StepInbox, StepKind, truncate,
 };
 use crate::terminal::ReplayPosition;
 
@@ -30,10 +29,11 @@ set -e
 EVENT="$1"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 SOCKET="{}"
-PAYLOAD=$(/usr/bin/head -c 4194305)
+BODY=$(/usr/bin/mktemp "$DIR/record.XXXXXXXX")
+/bin/cat > "$BODY"
 
 if [ "$EVENT" = "PreInvocation" ]; then
-  INVOCATION=$(printf '%s' "$PAYLOAD" | sed -n 's/.*"invocationNum":[ ]*\([0-9]*\).*/\1/p')
+  INVOCATION=$(sed -n 's/.*"invocationNum":[ ]*\([0-9]*\).*/\1/p' "$BODY")
   if [ -n "$INVOCATION" ]; then
     printf '%s' "$INVOCATION" > "$DIR/current_turn"
   fi
@@ -44,7 +44,7 @@ if [ -f "$DIR/current_turn" ]; then
   TURN=$(/bin/cat "$DIR/current_turn" 2>/dev/null || true)
 fi
 
-printf '{{"event":"%s","turn":"%s","payload":%s}}' "$EVENT" "$TURN" "$PAYLOAD" | \
+printf '{{"event":"%s","turn":"%s","payload_file":"%s"}}' "$EVENT" "$TURN" "$BODY" | \
   /usr/bin/curl --silent --max-time 1 --output /dev/null --header 'Expect:' --unix-socket "$SOCKET" --data-binary @- http://localhost/ >/dev/null 2>&1 || true
 
 if [ "$EVENT" = "PreToolUse" ]; then
@@ -81,6 +81,7 @@ fi
                     "timeout": 5
                 }
             ],
+            "PostInvocation": [{"type":"command","command":format!("{hook_command} PostInvocation"),"timeout":5}],
             "PreToolUse": [
                 {
                     "matcher": "*",
@@ -123,10 +124,9 @@ fi
 }
 
 fn preview(value: &Value) -> String {
-    let text = value
+    value
         .as_str()
-        .map_or_else(|| value.to_string(), str::to_owned);
-    truncate(&text, MAX_DETAIL_BYTES)
+        .map_or_else(|| value.to_string(), str::to_owned)
 }
 
 fn clean_prompt(content: &str) -> String {
@@ -156,6 +156,23 @@ fn read_latest_user_prompt(path: &Path) -> Option<String> {
         }
     }
     last_prompt
+}
+
+fn latest_user_identity(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut identity = None;
+    for (index, line) in std::io::BufRead::lines(std::io::BufReader::new(file)).enumerate() {
+        let line = line.ok()?;
+        let entry: Value = serde_json::from_str(&line).ok()?;
+        if entry["type"] == "USER_INPUT" {
+            identity = Some(
+                entry["id"]
+                    .as_str()
+                    .map_or_else(|| format!("entry-{index}"), str::to_owned),
+            );
+        }
+    }
+    identity
 }
 
 fn tool_action(tool: &str, arguments: &Value) -> String {
@@ -228,6 +245,8 @@ fn parse_tool_step(
             kind: ActivityKind::Tool,
             phase,
             failed,
+            detail_path: None,
+            metadata: serde_json::json!({}),
         }),
         session_id,
         kind,
@@ -248,10 +267,16 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     };
 
     let session_id = super::resume::session_handle(&payload["conversationId"]);
-    let turn = input["turn"]
+    let turn = payload["transcriptPath"]
         .as_str()
-        .filter(|t| !t.is_empty())
-        .map(|t| format!("turn:{t}"));
+        .and_then(|path| latest_user_identity(Path::new(path)))
+        .map(|id| format!("user:{id}"))
+        .or_else(|| {
+            input["turn"]
+                .as_str()
+                .filter(|t| !t.is_empty())
+                .map(|t| format!("turn:{t}"))
+        });
 
     match event {
         "SessionStart" => Some(HarnessStep {
@@ -274,15 +299,52 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
                 })
                 .unwrap_or_else(|| "Prompt".into());
             Some(HarnessStep {
-                activity: None,
+                activity: Some(HarnessActivity {
+                    id: format!(
+                        "model:{}:{}",
+                        turn.as_deref().unwrap_or("unknown"),
+                        payload["invocationNum"]
+                    ),
+                    parent_id: None,
+                    kind: ActivityKind::Model,
+                    phase: ActivityPhase::Started,
+                    failed: false,
+                    detail_path: None,
+                    metadata: json!({"source":"Observer","model":payload["modelName"],"inputKind":"USER REQUEST","invocation":payload["invocationNum"]}),
+                }),
                 session_id,
                 kind: StepKind::Prompt,
                 turn_id: turn,
                 tool_call_id: None,
                 title: truncate(&prompt_text, 160),
-                detail: truncate(&prompt_text, MAX_DETAIL_BYTES),
+                detail: prompt_text,
             })
         }
+        "PostInvocation" => Some(HarnessStep {
+            session_id,
+            kind: StepKind::Activity,
+            turn_id: turn.clone(),
+            tool_call_id: None,
+            title: "LLM call".into(),
+            detail: payload
+                .get("response")
+                .or_else(|| payload.get("summary"))
+                .map(preview)
+                .unwrap_or_default(),
+            activity: Some(HarnessActivity {
+                id: format!(
+                    "model:{}:{}",
+                    turn.as_deref().unwrap_or("unknown"),
+                    payload["invocationNum"]
+                ),
+                parent_id: None,
+                kind: ActivityKind::Model,
+                phase: ActivityPhase::Finished,
+                failed: payload["error"].as_str().is_some_and(|s| !s.is_empty()),
+                detail_path: None,
+                metadata: json!({"source":"Observer","model":payload["modelName"],"inputKind":"USER REQUEST","invocation":payload["invocationNum"]}),
+            }),
+        }),
         "PreToolUse" => parse_tool_step(payload, session_id, turn, true),
         "PostToolUse" => parse_tool_step(payload, session_id, turn, false),
         "Stop" => Some(HarnessStep {

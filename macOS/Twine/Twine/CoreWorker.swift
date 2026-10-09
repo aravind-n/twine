@@ -117,33 +117,6 @@ actor CoreWorker: CoreTransport {
         return try decoder.decode(CoreEventBatch.self, from: consume(&response)).events
     }
 
-    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) throws -> CoreWorkflowTracePage {
-        var response = TwineBuffer()
-        let status = try withClient { client in
-            twine_client_workflow_trace(client, workflowID, before ?? 0, limit, &response)
-        }
-        try check(status)
-        return try decoder.decode(CoreWorkflowTracePage.self, from: consume(&response))
-    }
-
-    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) throws -> CoreTraceEventsPage {
-        var response = TwineBuffer()
-        let status = try withClient { client in
-            twine_client_trace_events(client, spanID, after ?? 0, limit, &response)
-        }
-        try check(status)
-        return try decoder.decode(CoreTraceEventsPage.self, from: consume(&response))
-    }
-
-    func traceActivities(spanID: UInt64, after: UInt64?, limit: UInt32) throws -> CoreTraceActivitiesPage {
-        var response = TwineBuffer()
-        let status = try withClient { client in
-            twine_client_trace_activities(client, spanID, after ?? 0, limit, &response)
-        }
-        try check(status)
-        return try decoder.decode(CoreTraceActivitiesPage.self, from: consume(&response))
-    }
-
     func nextTerminalChunk() throws -> CoreTerminalChunk? {
         var chunk = TwineTerminalChunk()
         let status = try withClient { client in
@@ -319,4 +292,49 @@ extension CoreWorker {
         return try decoder.decode([String].self, from: consume(&response))
     }
 
+}
+
+extension CoreWorker {
+    func workflowTrace(workflowID: UInt64, before: UInt64?, limit: UInt32) throws -> CoreWorkflowTracePage {
+        var response = TwineBuffer()
+        let status = try withClient { client in
+            twine_client_workflow_trace(client, workflowID, before ?? 0, limit, &response)
+        }
+        try check(status)
+        return try decoder.decode(CoreWorkflowTracePage.self, from: consume(&response))
+    }
+
+    func traceEvents(spanID: UInt64, after: UInt64?, limit: UInt32) throws -> CoreTraceEventsPage {
+        var response = TwineBuffer()
+        let status = try withClient { client in
+            twine_client_trace_events(client, spanID, after ?? 0, limit, &response)
+        }
+        try check(status)
+        return try decoder.decode(CoreTraceEventsPage.self, from: consume(&response))
+    }
+
+    func traceActivities(spanID: UInt64, after: UInt64?, limit: UInt32) throws -> CoreTraceActivitiesPage {
+        var response = TwineBuffer()
+        let status = try withClient { client in
+            twine_client_trace_activities(client, spanID, after ?? 0, limit, &response)
+        }
+        try check(status)
+        return try decoder.decode(CoreTraceActivitiesPage.self, from: consume(&response))
+    }
+
+    func traceDetail(activityID: UInt64, output: Bool, offset: UInt64, limit: UInt32) throws -> CoreTraceDetailPage {
+        var response = TwineBuffer()
+        let status = try withClient { client in
+            twine_client_trace_detail(client, activityID, output, offset, limit, &response)
+        }
+        try check(status)
+        return try decoder.decode(CoreTraceDetailPage.self, from: consume(&response))
+    }
+
+    func traceStorage(spanID: UInt64?, operation: UInt32) throws -> CoreTraceStorageStatus {
+        var response = TwineBuffer()
+        let status = try withClient { client in twine_client_trace_storage(client, spanID ?? 0, operation, &response) }
+        try check(status)
+        return try decoder.decode(CoreTraceStorageStatus.self, from: consume(&response))
+    }
 }

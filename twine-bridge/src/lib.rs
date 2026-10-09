@@ -487,6 +487,63 @@ pub unsafe extern "C" fn twine_client_trace_activities(
 }
 
 #[unsafe(no_mangle)]
+/// Returns a UTF-8 page of full recorded activity input or output.
+///
+/// # Safety
+/// The client must be live and exclusively owned. Output storage must be aligned and writable
+/// without an existing allocation. Null pointers and invalid limits are rejected.
+pub unsafe extern "C" fn twine_client_trace_detail(
+    client: *mut TwineClient,
+    activity_id: u64,
+    output: bool,
+    offset: u64,
+    limit: u32,
+    out_page: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: The caller supplies writable output storage, validated before use.
+        unsafe { ffi::initialize_buffer(out_page) }?;
+        if !(4..=64 * 1024).contains(&limit) {
+            return Err(BridgeError::InvalidArgument);
+        }
+        // SAFETY: The caller owns a live client for the duration of this call.
+        let page = unsafe {
+            ffi::with_client(client, |client| {
+                client.trace_detail(activity_id, output, offset, limit as usize)
+            })
+        }?;
+        // SAFETY: Output storage was initialized and validated above.
+        unsafe { ffi::write_buffer(out_page, TwineBuffer::from_vec(page)) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Reads trace storage, pins/unpins a step, or clears completed unpinned full details.
+///
+/// # Safety
+/// The client must be live and exclusively owned; output must be writable without an existing
+/// allocation. Null pointers and invalid operation values are rejected.
+pub unsafe extern "C" fn twine_client_trace_storage(
+    client: *mut TwineClient,
+    span_id: u64,
+    operation: u32,
+    out_page: *mut TwineBuffer,
+) -> TwineStatus {
+    catch_status(|| {
+        // SAFETY: Output storage is validated and initialized before use.
+        unsafe { ffi::initialize_buffer(out_page) }?;
+        if operation > 3 || (matches!(operation, 1 | 2) && span_id == 0) {
+            return Err(BridgeError::InvalidArgument);
+        }
+        // SAFETY: The caller owns the live client exclusively for this call.
+        let bytes =
+            unsafe { ffi::with_client(client, |client| client.trace_storage(span_id, operation)) }?;
+        // SAFETY: Output was initialized and validated above.
+        unsafe { ffi::write_buffer(out_page, TwineBuffer::from_vec(bytes)) }
+    })
+}
+
+#[unsafe(no_mangle)]
 /// Removes and returns the next binary terminal-output chunk.
 ///
 /// # Safety

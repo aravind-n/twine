@@ -23,6 +23,25 @@ pub use themes::{HexColor, TerminalColors, TerminalPalette, TerminalPalettes};
 pub struct Config {
     pub appearance: Appearance,
     pub terminal: TerminalConfig,
+    pub traces: TraceConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct TraceConfig {
+    /// Budget for full detail files; compact trace metadata remains in SQLite.
+    pub detail_budget_mb: u32,
+    /// Closed, unpinned workflows expire after this many days; zero disables age expiry.
+    pub retention_days: u32,
+}
+
+impl Default for TraceConfig {
+    fn default() -> Self {
+        Self {
+            detail_budget_mb: 512,
+            retention_days: 90,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

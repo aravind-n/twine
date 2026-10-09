@@ -10,8 +10,6 @@ use crate::{
     TraceActivityStatus, TraceAnchor, TraceError, TraceSpanId, WorkflowId,
 };
 
-const MAX_SPAN_ACTIVITIES: i64 = 10_000;
-
 /// Child turns have their own native turn IDs. Once observed, their identity pins all later
 /// activity to the original assignment, including hooks arriving after the next prompt.
 pub(super) fn activity_span(
@@ -44,6 +42,7 @@ pub(super) fn activity_span(
 
 pub(super) fn record_activity(
     transaction: &Transaction<'_>,
+    payloads: &super::trace_payloads::TracePayloads,
     span: TraceSpanId,
     step: &HarnessStep,
     observed_at: u64,
@@ -90,24 +89,34 @@ pub(super) fn record_activity(
     let kind = match activity.kind {
         ActivityKind::Tool => "tool",
         ActivityKind::Subagent => "subagent",
+        ActivityKind::Model => "model",
+        ActivityKind::Note => "note",
     };
     let status = if activity.failed {
         "failed"
-    } else if started {
+    } else if started && activity.kind != ActivityKind::Note {
         "running"
     } else {
         "completed"
     };
     let detail = truncate(&step.detail, MAX_DETAIL_BYTES);
+    let (detail_key, detail_bytes) = if let Some(path) = &activity.detail_path {
+        let (key, bytes) = payloads.save_file(path)?;
+        (Some(key), sql_integer(bytes)?)
+    } else {
+        (
+            payloads.save(&step.detail)?,
+            i64::try_from(step.detail.len()).map_err(|_| StoreError::InvalidIdentifier)?,
+        )
+    };
     let title = truncate(&step.title, 256);
     // Start and finish may be delivered in either order. The first endpoint wins on retries;
     // a late start fills the missing input without reopening a completed activity.
     transaction.execute(
         "INSERT INTO trace_activities
-         (span_id, source_id, parent_source_id, kind, title, started_at, ended_at, status, input, output, anchor)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
-         WHERE (SELECT COUNT(*) FROM trace_activities WHERE span_id = ?1) < ?12
-            OR EXISTS(SELECT 1 FROM trace_activities WHERE span_id = ?1 AND source_id = ?2)
+         (span_id, source_id, parent_source_id, kind, title, started_at, ended_at, status, input, output, anchor,
+          input_key,output_key,input_bytes,output_bytes,metadata)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
          ON CONFLICT(span_id, source_id) DO UPDATE SET
             parent_source_id = COALESCE(trace_activities.parent_source_id, excluded.parent_source_id),
             title = CASE WHEN trace_activities.started_at IS NULL AND excluded.started_at IS NOT NULL
@@ -117,17 +126,25 @@ pub(super) fn record_activity(
             status = CASE WHEN trace_activities.status = 'failed' OR excluded.status = 'failed' THEN 'failed'
                 WHEN trace_activities.ended_at IS NOT NULL THEN trace_activities.status
                 WHEN excluded.ended_at IS NOT NULL THEN excluded.status ELSE trace_activities.status END,
-            input = CASE WHEN trace_activities.started_at IS NULL AND excluded.started_at IS NOT NULL
+            input = CASE WHEN excluded.input_bytes > COALESCE(trace_activities.input_bytes, -1)
                 THEN excluded.input ELSE trace_activities.input END,
-            output = CASE WHEN trace_activities.ended_at IS NULL AND excluded.ended_at IS NOT NULL
+            output = CASE WHEN excluded.output_bytes > COALESCE(trace_activities.output_bytes, -1)
                 THEN excluded.output ELSE trace_activities.output END,
+            input_key = CASE WHEN excluded.input_bytes > COALESCE(trace_activities.input_bytes, -1) THEN excluded.input_key ELSE trace_activities.input_key END,
+            output_key = CASE WHEN excluded.output_bytes > COALESCE(trace_activities.output_bytes, -1) THEN excluded.output_key ELSE trace_activities.output_key END,
+            input_bytes = MAX(COALESCE(trace_activities.input_bytes, 0), COALESCE(excluded.input_bytes, 0)),
+            output_bytes = MAX(COALESCE(trace_activities.output_bytes, 0), COALESCE(excluded.output_bytes, 0)),
+            metadata = json_patch(trace_activities.metadata, excluded.metadata),
             anchor = CASE WHEN trace_activities.ended_at IS NULL AND excluded.ended_at IS NOT NULL
                 THEN excluded.anchor ELSE trace_activities.anchor END",
         params![sql_integer(span.0)?, activity.id, activity.parent_id, kind, title,
             started.then(|| sql_integer(observed_at)).transpose()?,
-            (!started).then(|| sql_integer(observed_at)).transpose()?, status,
+            (!started || activity.kind == ActivityKind::Note).then(|| sql_integer(observed_at)).transpose()?, status,
             if started { &detail } else { "" }, if started { "" } else { &detail },
-            serde_json::to_string(anchor).map_err(|_| StoreError::InvalidIdentifier)?, MAX_SPAN_ACTIVITIES],
+            serde_json::to_string(anchor).map_err(|_| StoreError::InvalidIdentifier)?,
+            if started { detail_key.as_deref() } else { None }, if started { None } else { detail_key.as_deref() },
+            started.then_some(detail_bytes), (!started).then_some(detail_bytes),
+            activity.metadata.to_string()],
     )?;
     transaction.execute(
         "UPDATE trace_activities SET status = 'interrupted' WHERE span_id = ?1 AND status = 'running'
@@ -164,7 +181,7 @@ impl Store {
         let mut statement = transaction.prepare(
             "SELECT a.id, p.id, a.kind, a.title, a.started_at, a.ended_at,
              a.status,
-             a.input, a.output, a.anchor
+             a.input, a.output, a.anchor, a.metadata, a.input_bytes, a.output_bytes, a.input_key, a.output_key
              FROM trace_activities a JOIN trace_spans s ON s.id = a.span_id
              LEFT JOIN trace_activities p ON p.span_id = a.span_id AND p.source_id = a.parent_source_id
              WHERE a.span_id = ?1 AND (?2 IS NULL OR a.id > ?2) ORDER BY a.id LIMIT ?3"
@@ -184,10 +201,11 @@ impl Store {
                         activity_id: TraceActivityId(unsigned_column(row, 0)?),
                         span_id: span,
                         parent_activity_id: optional_unsigned(row, 1)?.map(TraceActivityId),
-                        kind: if kind == "subagent" {
-                            TraceActivityKind::Subagent
-                        } else {
-                            TraceActivityKind::Tool
+                        kind: match kind.as_str() {
+                            "subagent" => TraceActivityKind::Subagent,
+                            "model" => TraceActivityKind::Model,
+                            "note" => TraceActivityKind::Note,
+                            _ => TraceActivityKind::Tool,
                         },
                         title: row.get(3)?,
                         started_at: optional_unsigned(row, 4)?,
@@ -200,6 +218,12 @@ impl Store {
                         },
                         input: row.get(7)?,
                         output: row.get(8)?,
+                        metadata: serde_json::from_str(&row.get::<_, String>(10)?)
+                            .unwrap_or_default(),
+                        input_bytes: optional_unsigned(row, 11)?,
+                        output_bytes: optional_unsigned(row, 12)?,
+                        input_version: row.get(13)?,
+                        output_version: row.get(14)?,
                         anchor: anchor
                             .map(|json| {
                                 serde_json::from_str(&json).map_err(|error| {
@@ -228,6 +252,59 @@ impl Store {
             revision,
             activities,
             next_after,
+            counts: transaction.query_row(
+                "SELECT SUM(kind='tool'), SUM(kind='subagent'), SUM(kind='model'), SUM(kind='note'), SUM(status='failed')
+                 FROM trace_activities WHERE span_id=?1", [sql_integer(span.0)?], |row| {
+                    Ok(crate::TraceActivityCounts {
+                        tools: optional_unsigned(row, 0)?.unwrap_or(0),
+                        subagents: optional_unsigned(row, 1)?.unwrap_or(0),
+                        models: optional_unsigned(row, 2)?.unwrap_or(0),
+                        notes: optional_unsigned(row, 3)?.unwrap_or(0),
+                        failures: optional_unsigned(row, 4)?.unwrap_or(0),
+                    })
+                }).map_err(StoreError::from)?,
+        })
+    }
+
+    pub(crate) fn trace_detail(
+        &self,
+        activity: crate::TraceActivityId,
+        output: bool,
+        offset: u64,
+        limit: usize,
+    ) -> Result<crate::TraceDetailPage, TraceError> {
+        if !(4..=64 * 1024).contains(&limit) {
+            return Err(TraceError::InvalidLimit);
+        }
+        let (preview, key): (String, Option<String>) = self.connection.query_row(
+            "SELECT CASE WHEN ?2 THEN output ELSE input END, CASE WHEN ?2 THEN output_key ELSE input_key END
+             FROM trace_activities WHERE id=?1", params![sql_integer(activity.0)?, output], |row| Ok((row.get(0)?,row.get(1)?))
+        ).optional().map_err(StoreError::from)?.ok_or(TraceError::SpanNotFound)?;
+        let version = key.clone();
+        let (text, total) = if let Some(key) = key {
+            self.payloads.read(&key, offset, limit)?
+        } else {
+            let start = usize::try_from(offset)
+                .map_err(|_| StoreError::InvalidIdentifier)?
+                .min(preview.len());
+            if !preview.is_char_boundary(start) {
+                return Err(StoreError::InvalidIdentifier.into());
+            }
+            let mut end = (start + limit).min(preview.len());
+            while !preview.is_char_boundary(end) {
+                end -= 1;
+            }
+            (preview[start..end].to_owned(), preview.len() as u64)
+        };
+        let end = offset.saturating_add(text.len() as u64);
+        Ok(crate::TraceDetailPage {
+            version,
+            activity_id: activity.0,
+            output,
+            offset,
+            text,
+            total_bytes: total,
+            next_offset: (end < total).then_some(end),
         })
     }
 }
@@ -275,6 +352,8 @@ mod tests {
             kind,
             phase,
             failed: false,
+            detail_path: None,
+            metadata: serde_json::json!({}),
         });
         event
     }
@@ -303,6 +382,56 @@ mod tests {
             )
             .unwrap()
             .unwrap()
+    }
+
+    #[test]
+    fn all_activity_is_recorded_after_ten_thousand_calls_and_short_retries_keep_full_payload_versions()
+     {
+        let mut store = Store::open_in_memory().unwrap();
+        let workflow = setup(&mut store);
+        let span = record(
+            &mut store,
+            workflow,
+            &step(StepKind::Prompt, Some("one")),
+            100,
+        );
+        for id in 0..10_005 {
+            let mut call = activity(
+                &format!("tool:root:{id}"),
+                None,
+                ActivityKind::Tool,
+                ActivityPhase::Finished,
+            );
+            call.turn_id = Some("one".into());
+            record(&mut store, workflow, &call, 110);
+        }
+        let mut call = activity(
+            "tool:root:10004",
+            None,
+            ActivityKind::Tool,
+            ActivityPhase::Finished,
+        );
+        call.turn_id = Some("one".into());
+        call.detail = "☃ complete output\n".repeat(1000);
+        record(&mut store, workflow, &call, 120);
+        let before = store
+            .trace_activities(span, Some(TraceActivityId(10004)), 200)
+            .unwrap();
+        assert_eq!(before.counts.tools, 10_005);
+        let last = before.activities.last().unwrap();
+        let version = last.output_version.clone();
+        let id = last.activity_id;
+        let expected = call.detail.clone();
+        call.detail = "short retry".into();
+        record(&mut store, workflow, &call, 130);
+        let after = store
+            .trace_activities(span, Some(TraceActivityId(10004)), 200)
+            .unwrap();
+        assert_eq!(after.activities.last().unwrap().output_version, version);
+        assert_eq!(
+            store.trace_detail(id, true, 0, 64 * 1024).unwrap().text,
+            expected
+        );
     }
 
     #[test]
