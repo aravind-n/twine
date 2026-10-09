@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Right-click sidebar items to open files in Twine or their default app, open or
   reveal items in Finder, copy paths or names, and expand or collapse folders.
 
+### Changed
+
+- File edits save automatically after a short typing pause, including in background
+  tabs. Keep typing while saving, or press ⌘S to save immediately. Autosave pauses
+  on disk conflicts or save failures so your edits remain protected.
+
 ### Fixed
 
 - Open Folder remains available after closing the last window and opens a new

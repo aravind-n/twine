@@ -17,12 +17,15 @@ final class FileEditorModel: Identifiable {
     private(set) var navigationID = UUID()
     var text = "" {
         didSet {
+            if oldValue != text { autosaveID = UUID() }
             if oldValue != baseline?.text && text == baseline?.text { generation = UUID() }
         }
     }
     private(set) var loadID = UUID()
     private(set) var generation = UUID()
     private(set) var saveID: UUID?
+    private(set) var autosaveID = UUID()
+    private(set) var autosavePaused = false
     private var pendingSave: FileSaveRequest?
     var conflict: FilePreview?
     var failure: String?
@@ -30,6 +33,7 @@ final class FileEditorModel: Identifiable {
     var isDirty: Bool { baseline?.status == .text && text != baseline?.text }
     var isSaving: Bool { pendingSave != nil }
     var canSave: Bool { isDirty && !isSaving && baseline?.version != nil }
+    var canAutosave: Bool { !isConfigFile && !autosavePaused && conflict == nil && failure == nil && canSave }
 
     init(path: String, folder: String, isConfigFile: Bool = false) {
         self.path = path
@@ -49,6 +53,20 @@ final class FileEditorModel: Identifiable {
             preview != baseline
         else { return }
         replace(with: preview)
+    }
+
+    /// The view cancels this debounce on each edit; the revision also rejects stale requests.
+    func autosave(after delay: Duration = .milliseconds(500)) async {
+        guard canAutosave else { return }
+        let revision = autosaveID
+        do {
+            try await Task.sleep(for: delay)
+            try Task.checkCancellation()
+        } catch {
+            return
+        }
+        guard revision == autosaveID, canAutosave else { return }
+        requestSave()
     }
 
     func requestSave(overwrite: Bool = false) {
@@ -72,19 +90,25 @@ final class FileEditorModel: Identifiable {
                 }
                 baseline = file
                 diskFile = file
+                autosavePaused = false
                 try await didSave?()
             case .conflict:
                 guard let file = result.file, file.path == path else { throw CoreFailure.unexpectedCommandResult }
                 conflict = file
+                autosavePaused = true
             case .failed:
                 failure = result.message ?? "The file could not be saved."
+                autosavePaused = true
             }
         } catch {
             failure = error.localizedDescription
+            autosavePaused = true
             fileEditorLogger.error("File save failed: \(error.localizedDescription, privacy: .public)")
         }
         pendingSave = nil
         generation = UUID()
+        // Edits made during the write need a new debounce against the saved version.
+        autosaveID = UUID()
     }
 
     func reloadConflict(_ conflict: FilePreview) {
@@ -114,6 +138,7 @@ final class FileEditorModel: Identifiable {
     }
 
     private func replace(with preview: FilePreview) {
+        autosavePaused = false
         baseline = preview
         text = preview.text ?? ""
         loadID = UUID()
