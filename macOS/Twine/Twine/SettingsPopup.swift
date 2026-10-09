@@ -73,7 +73,7 @@ struct SettingsView: View {
                     .keyboardShortcut(.cancelAction)
                     .accessibilityIdentifier("closeSettings")
             }
-            Text("Saved settings apply immediately to all open folders.")
+            Text("Press ⌘S to save. Saved settings apply immediately to all open folders.")
                 .font(.caption).foregroundStyle(.secondary)
             if let editor = settings.editor {
                 FileViewer(

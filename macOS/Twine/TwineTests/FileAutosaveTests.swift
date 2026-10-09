@@ -34,6 +34,89 @@ struct FileAutosaveTests {
         #expect(settings.isSaving)
     }
 
+    @Test func disablingOrChangingAutosaveInvalidatesThePendingDebounce() async throws {
+        let editor = makeEditor()
+        editor.configureAutosave(.init(autosaveDelayMilliseconds: 60_000))
+        editor.text = "my edits"
+        let debounce = Task { await editor.autosave(after: .milliseconds(50)) }
+        try await Task.sleep(for: .milliseconds(10))
+        let revision = editor.autosaveID
+        editor.configureAutosave(.init(autosave: false))
+        #expect(editor.autosaveID != revision)
+        await debounce.value
+        #expect(!editor.isSaving)
+        await editor.autosave(after: .zero)
+        #expect(!editor.isSaving)
+        #expect(editor.canSave)
+        editor.requestSave()
+        #expect(editor.isSaving)
+    }
+
+    @Test func configuredDelayCanBeBypassedWithAnExplicitSave() async throws {
+        let editor = makeEditor()
+        editor.configureAutosave(.init(autosaveDelayMilliseconds: 60_000))
+        editor.text = "my edits"
+        let debounce = Task { await editor.autosave() }
+        try await Task.sleep(for: .milliseconds(10))
+        #expect(!editor.isSaving)
+        editor.requestSave()
+        #expect(editor.isSaving)
+        debounce.cancel()
+        await debounce.value
+    }
+
+    @Test func explicitSaveDuringAWriteKeepsLaterEditsUnsavedWhenAutosaveIsDisabled() async throws {
+        let transport = AutosaveTransport(holdsSave: true)
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await client.waitUntilRunning()
+        let editor = makeEditor()
+        editor.configureAutosave(.init(autosave: false))
+        editor.text = "first edit"
+        editor.requestSave()
+        let save = Task { await editor.savePending(client: client) }
+        try await waitUntil { await transport.requests.count == 1 }
+        editor.text = "original"
+        #expect(editor.canSave)
+        editor.requestSave()
+        editor.text = "typed after the shortcut"
+        await transport.finishSave()
+        await save.value
+        #expect(editor.isSaving)
+        await editor.savePending(client: client)
+        #expect(await transport.requests.last?.text == "original")
+        #expect(await transport.requests.last?.expectedVersion.fingerprint == "saved-1")
+        #expect(editor.isDirty)
+        #expect(editor.text == "typed after the shortcut")
+        #expect(!editor.isSaving)
+        await client.stop()
+    }
+
+    @Test func anotherExplicitSaveCanReplaceAQueuedSnapshotWithTheInFlightText() async throws {
+        let transport = AutosaveTransport(holdsSave: true)
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await client.waitUntilRunning()
+        let editor = makeEditor()
+        editor.configureAutosave(.init(autosave: false))
+        editor.text = "first edit"
+        editor.requestSave()
+        let save = Task { await editor.savePending(client: client) }
+        try await waitUntil { await transport.requests.count == 1 }
+        editor.text = "second edit"
+        editor.requestSave()
+        #expect(!editor.canSave)
+        editor.text = "first edit"
+        #expect(editor.canSave)
+        editor.requestSave()
+        await transport.finishSave()
+        await save.value
+        #expect(!editor.isSaving)
+        #expect(!editor.isDirty)
+        #expect(await transport.requests.count == 1)
+        await client.stop()
+    }
+
     @Test func editsDuringSavingUseTheNewDiskVersionAndPreserveUndoIdentity() async throws {
         let transport = AutosaveTransport(holdsSave: true)
         let client = CoreClient(transport: transport)

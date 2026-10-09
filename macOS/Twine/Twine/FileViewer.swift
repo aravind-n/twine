@@ -21,6 +21,12 @@ struct FileViewer: View {
     private var showsPreview: Bool { previewFormat != nil && mode == .preview }
     private enum Mode { case preview, source }
     private var syntaxLanguage: SyntaxLanguage? { syntaxMode.language(path: path, source: editor.text) }
+    private var editorSettings: CoreEditorConfig { coreClient.snapshot?.config.editor ?? .init() }
+    private var saveStatus: String {
+        if editor.isSaving { return "Saving…" }
+        if editor.isConfigFile || !editor.autosaveSettings.autosave { return "⌘S to save" }
+        return editor.autosavePaused ? "Autosave paused · ⌘S to retry" : "Autosave"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,13 +48,11 @@ struct FileViewer: View {
                     .accessibilityIdentifier("\(format.accessibilityPrefix)DisplayMode")
                 }
                 if editor.isDirty { Text("Edited").sectionLabelStyle().accessibilityIdentifier("fileEdited") }
-                if editor.isConfigFile || editor.autosavePaused {
-                    Button(editor.isSaving ? "Saving…" : "Save") { editor.requestSave() }
-                        .font(.caption).disabled(!editor.canSave).accessibilityIdentifier("saveFile")
-                } else if current?.status == .text {
-                    Text(editor.isSaving ? "Saving…" : "Autosave")
-                        .sectionLabelStyle().accessibilityIdentifier("fileAutosave")
-                        .help("Edits save automatically after a short pause. Press ⌘S to save immediately.")
+                if current?.status == .text {
+                    Text(saveStatus).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("fileSaveStatus")
+                        .accessibilityLabel(saveStatus)
+                        .help("Press ⌘S to save immediately. Configure autosave and its delay in Settings.")
                 }
                 Button("Go to Line…") { showsGoToLine = true }
                     .font(.caption)
@@ -93,6 +97,7 @@ struct FileViewer: View {
         .background(Color(nsColor: .textBackgroundColor))
         .clipShape(.rect(cornerRadius: CornerRadius.panel))
         .onChange(of: editor.navigationID) { mode = .preview }
+        .onChange(of: editorSettings, initial: true) { editor.configureAutosave(editorSettings) }
         .task(id: editor.autosaveID) { await editor.autosave() }
         .task(id: editor.saveID) { await editor.savePending(client: coreClient, didSave: didSave) }
         .alert(

@@ -3,10 +3,66 @@ import XCTest
 
 extension TwineUITests {
     @MainActor
+    func testAutosaveSettingsApplyToOpenTabsAndCommandSSavesExplicitly() throws {
+        let (app, file) = try openEditableFile(editorSettings: "[editor]\nautosave = false\n")
+        defer { app.terminate() }
+        let text = app.textViews["fileText"]
+        XCTAssertEqual(staticTextValue(app.staticTexts["fileSaveStatus"]), "⌘S to save")
+        XCTAssertFalse(app.buttons["saveFile"].exists)
+        replaceText("manual save", in: text)
+        verifyNoAutosave(file: file, original: "original")
+        app.typeKey("s", modifierFlags: .command)
+        waitForSave(in: app)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "manual save")
+
+        updateAutosaveSettings("[editor]\nautosave = true\nautosave_delay_ms = 60000\n", in: app)
+        XCTAssertEqual(staticTextValue(app.staticTexts["fileSaveStatus"]), "Autosave")
+        replaceText("save before timeout", in: text)
+        verifyNoAutosave(file: file, original: "manual save")
+        app.typeKey("s", modifierFlags: .command)
+        waitForSave(in: app)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "save before timeout")
+
+        replaceText("pending edit", in: text)
+        updateAutosaveSettings("[editor]\nautosave = true\nautosave_delay_ms = 50\n", in: app)
+        waitForDiskText("pending edit", in: file)
+        replaceText("automatic again", in: text)
+        waitForSave(in: app)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "automatic again")
+    }
+
+    @MainActor
+    private func updateAutosaveSettings(_ source: String, in app: XCUIApplication) {
+        app.typeKey(",", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        let text = sheet.textViews["fileText"]
+        XCTAssertTrue(text.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(sheet.buttons["saveFile"].exists)
+        replaceText(source, in: text)
+        app.typeKey("s", modifierFlags: .command)
+        let saved = expectation(
+            for: NSPredicate { _, _ in
+                !sheet.staticTexts["fileEdited"].exists
+                    && staticTextValue(sheet.staticTexts["fileSaveStatus"]) != "Saving…"
+            }, evaluatedWith: nil)
+        wait(for: [saved], timeout: 5)
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 3))
+    }
+
+    private func verifyNoAutosave(file: URL, original: String) {
+        let changed = expectation(
+            for: NSPredicate { _, _ in (try? String(contentsOf: file, encoding: .utf8)) != original },
+            evaluatedWith: nil)
+        changed.isInverted = true
+        wait(for: [changed], timeout: 1)
+    }
+
+    @MainActor
     func testFileEditingUndoSaveAndConflictChoices() throws {
         let (app, file) = try openEditableFile()
         let text = app.textViews["fileText"]
-        XCTAssertTrue(app.staticTexts["fileAutosave"].exists)
+        XCTAssertEqual(staticTextValue(app.staticTexts["fileSaveStatus"]), "Autosave")
         XCTAssertFalse(app.buttons["saveFile"].exists)
         replaceText("my edits", in: text)
         waitForSaved(app)
@@ -185,13 +241,21 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func openEditableFile() throws -> (XCUIApplication, URL) {
+    private func openEditableFile(editorSettings: String? = nil) throws -> (XCUIApplication, URL) {
         let folder = FileManager.default.temporaryDirectory.appending(path: "TwineEdits-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appending(path: "edit.txt")
         try "original".write(to: file, atomically: true, encoding: .utf8)
         let app = try makeApp(lastOpenFolder: folder)
+        if let editorSettings {
+            let configHome = try makeTestFolder(prefix: "TwineAutosaveConfig")
+            let configFile = configHome.appending(path: "twine/config.toml")
+            try FileManager.default.createDirectory(
+                at: configFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try editorSettings.write(to: configFile, atomically: true, encoding: .utf8)
+            app.launchEnvironment["XDG_CONFIG_HOME"] = configHome.path
+        }
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))

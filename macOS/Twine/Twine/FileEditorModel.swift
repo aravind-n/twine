@@ -26,14 +26,21 @@ final class FileEditorModel: Identifiable {
     private(set) var saveID: UUID?
     private(set) var autosaveID = UUID()
     private(set) var autosavePaused = false
+    private(set) var autosaveSettings = CoreEditorConfig()
     private var pendingSave: FileSaveRequest?
+    private var queuedSave: (text: String, overwrite: Bool)?
     var conflict: FilePreview?
     var failure: String?
 
     var isDirty: Bool { baseline?.status == .text && text != baseline?.text }
     var isSaving: Bool { pendingSave != nil }
-    var canSave: Bool { isDirty && !isSaving && baseline?.version != nil }
-    var canAutosave: Bool { !isConfigFile && !autosavePaused && conflict == nil && failure == nil && canSave }
+    var canSave: Bool {
+        baseline?.version != nil && (isSaving ? text != (queuedSave?.text ?? pendingSave?.text) : isDirty)
+    }
+    var canAutosave: Bool {
+        autosaveSettings.autosave && !isConfigFile && !isSaving && !autosavePaused
+            && conflict == nil && failure == nil && canSave
+    }
 
     init(path: String, folder: String, isConfigFile: Bool = false) {
         self.path = path
@@ -55,12 +62,18 @@ final class FileEditorModel: Identifiable {
         replace(with: preview)
     }
 
-    /// The view cancels this debounce on each edit; the revision also rejects stale requests.
-    func autosave(after delay: Duration = .milliseconds(500)) async {
+    func configureAutosave(_ settings: CoreEditorConfig) {
+        guard settings != autosaveSettings else { return }
+        autosaveSettings = settings
+        autosaveID = UUID()
+    }
+
+    /// The view cancels this debounce on each edit or setting change; reject stale requests too.
+    func autosave(after delay: Duration? = nil) async {
         guard canAutosave else { return }
         let revision = autosaveID
         do {
-            try await Task.sleep(for: delay)
+            try await Task.sleep(for: delay ?? .milliseconds(autosaveSettings.autosaveDelayMilliseconds))
             try Task.checkCancellation()
         } catch {
             return
@@ -71,6 +84,14 @@ final class FileEditorModel: Identifiable {
 
     func requestSave(overwrite: Bool = false) {
         guard canSave, let version = baseline?.version else { return }
+        if isSaving {
+            queuedSave = (text, overwrite)
+            return
+        }
+        enqueueSave(text: text, version: version, overwrite: overwrite)
+    }
+
+    private func enqueueSave(text: String, version: FileVersion, overwrite: Bool) {
         pendingSave = FileSaveRequest(
             folder: folder, path: path, text: text, expectedVersion: version, overwrite: overwrite)
         conflict = nil
@@ -109,6 +130,12 @@ final class FileEditorModel: Identifiable {
         generation = UUID()
         // Edits made during the write need a new debounce against the saved version.
         autosaveID = UUID()
+        let queued = queuedSave
+        queuedSave = nil
+        guard let queued, conflict == nil, failure == nil, let version = baseline?.version,
+            queued.text != baseline?.text
+        else { return }
+        enqueueSave(text: queued.text, version: version, overwrite: queued.overwrite)
     }
 
     func reloadConflict(_ conflict: FilePreview) {

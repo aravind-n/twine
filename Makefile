@@ -65,6 +65,7 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testBentoPanesKeepEachShellAndMoveTheKeyboardBetweenThem \
 	testTerminalSplitsResizeKeepTheirNeighborAndRestoreOutput \
 	testFileEditingUndoSaveAndConflictChoices \
+	testAutosaveSettingsApplyToOpenTabsAndCommandSSavesExplicitly \
 	testFileTreeContextMenusTargetClickedRowsAndPreserveEdits \
 	testSwiftSyntaxHighlightingPreservesUnicodeCRLFEditingAndUndo \
 	testSyntaxLanguageOverridesStayWithTheirFileTabs \

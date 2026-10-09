@@ -9,6 +9,12 @@ extension FocusedValues {
     @Entry var newWorkflowType: Binding<Bool>?
     /// The path of the file open in the focused window.
     @Entry var openFilePath: String?
+    @Entry var saveAction: SaveAction?
+}
+
+struct SaveAction {
+    let isEnabled: Bool
+    let perform: () -> Void
 }
 
 struct WorkflowActions {
@@ -38,11 +44,13 @@ struct FolderCommands: Commands {
     @FocusedBinding(\.newWorkflowType) private var newWorkflowType
     @FocusedValue(\.workflowActions) private var workflowActions
     @FocusedValue(\.openFilePath) private var openFilePath
+    @FocusedValue(\.saveAction) private var saveAction
 
     var body: some Commands {
         let showsSettings = settings?.isPresented == true && settings?.presentedWindowID == session?.id
         let isRunning = !showsSettings && session?.coreClient.runState == .running
         let editor = showsSettings ? settings?.editor : session?.tabs.selected
+        let formSave = showsSettings ? nil : saveAction
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {
                 if let session { settings?.show(in: session) }
@@ -109,9 +117,11 @@ struct FolderCommands: Commands {
                 .disabled(workflowActions?.moveFocus == nil)
         }
         CommandGroup(replacing: .saveItem) {
-            Button("Save") { editor?.requestSave() }
-                .keyboardShortcut("s")
-                .disabled(editor?.canSave != true || (!showsSettings && !isRunning))
+            Button("Save") {
+                if let formSave { formSave.perform() } else { editor?.requestSave() }
+            }
+            .keyboardShortcut("s")
+            .disabled(formSave.map { !$0.isEnabled } ?? (editor?.canSave != true || (!showsSettings && !isRunning)))
             Button(closeTitle) {
                 if showsSettings {
                     settings?.close()

@@ -65,16 +65,7 @@ struct WorkflowDesigner: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Text(validationSummary).foregroundStyle(.secondary).accessibilityIdentifier("designerValidation")
-                Button("Save") {
-                    Task {
-                        if let type = await model.save(using: client) {
-                            saved(type)
-                            dismiss()
-                        }
-                    }
-                }
-                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                .disabled(!model.canSave).accessibilityIdentifier("designerSave")
+                    .accessibilityLabel(validationSummary)
             }
         }
         .font(.caption).controlSize(.small).textFieldStyle(.roundedBorder)
@@ -88,15 +79,26 @@ struct WorkflowDesigner: View {
         .interactiveDismissDisabled(model.isSaving)
         .task(id: model.definition) { await model.validate(using: client) }
         .onAppear { nameFocused = true }
+        .focusedSceneValue(\.saveAction, SaveAction(isEnabled: model.canSave, perform: save))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workflowDesigner")
     }
 
     private var validationSummary: String {
+        if model.isSaving { return "Saving…" }
         if model.failure != nil { return "Validation unavailable" }
         if model.isValidating { return "Checking design…" }
-        if model.issues.isEmpty { return "Ready to save" }
+        if model.issues.isEmpty { return "Ready to save with ⌘S" }
         return model.issues.count == 1 ? "1 issue to fix" : "\(model.issues.count) issues to fix"
+    }
+
+    private func save() {
+        Task {
+            if let type = await model.save(using: client) {
+                saved(type)
+                dismiss()
+            }
+        }
     }
 
     private func sectionTitle(_ section: Section) -> String {
