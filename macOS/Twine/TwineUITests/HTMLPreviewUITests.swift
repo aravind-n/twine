@@ -12,6 +12,9 @@ extension TwineUITests {
         <script>document.getElementById('section').textContent = location.search + location.hash;</script>
         """.write(to: folder.appending(path: "next.HTM"), atomically: true, encoding: .utf8)
         let app = try makeApp(lastOpenFolder: folder)
+        let config = folder.appending(path: "manual-save.toml")
+        try "[editor]\nautosave = false\n".write(to: config, atomically: true, encoding: .utf8)
+        app.launchEnvironment["TWINE_CONFIG_PATH"] = config.path
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1000, height: 680))

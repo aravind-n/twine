@@ -46,6 +46,7 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testZoomReflowsTerminalAndScalesEditorPopoverAndSheet \
 	testZoomBoundsKeepSplitDraggingAndSmallWindowsUsable \
 	testZoomedWebPreviewsKeepLocalLinksInteractive \
+	testHTMLPreviewFillsViewportAtEveryZoomLevel \
 	testRelaunchOpensLastFolderAndReturnsToStartPage \
 	testFolderWindowsKeepShellsAndCommandsIndependent \
 	testOpeningAnOpenFolderFocusesItsWindowIncludingSymlinks \
