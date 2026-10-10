@@ -8,7 +8,7 @@ use super::{FileEntry, FileKind};
 
 /// Open each component relative to its already-open parent. Renaming a parent or replacing it
 /// with a link cannot redirect an in-flight read. Links are never followed inside the folder.
-pub(super) fn open_file(folder: &Path, path: &Path, directory: bool) -> io::Result<File> {
+pub(crate) fn open_file(folder: &Path, path: &Path, directory: bool) -> io::Result<File> {
     let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK;
     let relative = path
         .strip_prefix(folder)

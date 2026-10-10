@@ -10,6 +10,7 @@ struct FolderSidebar: View {
     @Environment(FileTabsModel.self) private var fileTabs
     let path: String
     @Bindable var files: FileBrowserModel
+    @Binding var showsMemories: Bool
     @State private var editor: SessionEditor?
     @State private var pendingDeletion: CoreSession?
     @State private var failureMessage: String?
@@ -52,6 +53,24 @@ struct FolderSidebar: View {
                 }
                 .padding(.horizontal, SidebarLayout.contentInset)
             }
+            Divider().padding(.horizontal, SidebarLayout.contentInset)
+            Text("Memories").sidebarSectionLabelStyle()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, SidebarLayout.sectionHeaderPadding)
+                .frame(height: SidebarLayout.sectionHeaderHeight)
+            Button {
+                fileTabs.showWorkflows()
+                showsMemories = true
+            } label: {
+                Label("Source Outline", systemImage: "list.bullet.indent")
+                    .font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, SidebarLayout.rowInset).frame(height: SidebarLayout.rowHeight)
+                    .background(
+                        showsMemories ? Color.fileSelection : .clear,
+                        in: .rect(cornerRadius: CornerRadius.fileRowSelection))
+            }.buttonStyle(.plain).padding(.horizontal, SidebarLayout.contentInset)
+                .accessibilityIdentifier("memoryEntry-outline")
+            Spacer().frame(height: 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background { SidebarMaterial().ignoresSafeArea() }
@@ -111,6 +130,7 @@ struct FolderSidebar: View {
     private func sessionRow(_ session: CoreSession) -> some View {
         let selected = selectedSession?.id == session.id
         return Button {
+            showsMemories = false
             fileTabs.showWorkflows()
             run { try await coreClient.selectSession(sessionID: session.id) }
         } label: {

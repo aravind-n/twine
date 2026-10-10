@@ -25,6 +25,7 @@
 <li><a href="#run-your-first-workflow">Run your first workflow</a></li>
 <li><a href="#folder-windows">Folder windows</a></li>
 <li><a href="#files">Files</a></li>
+<li><a href="#memories">Memories</a></li>
 <li><a href="#agent-workflows">Agent workflows</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#terminal-panes">Terminal panes</a></li>
@@ -105,6 +106,24 @@ Unknown languages and files that exceed the highlighting work budget remain edit
 text. Shell highlighting uses the Bash grammar; embedded languages in HTML
 <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> blocks, strings, or Markdown code fences
 are not highlighted separately.</p>
+<h2 id="memories">Memories<a class="headerlink" href="#memories" title="Permanent link">#</a></h2>
+<p>Choose <strong>Memories → Source Outline</strong> in the sidebar to inspect local Codex and
+Claude Code memory. Expand <strong>Global</strong>, <strong>This folder</strong>, or
+<strong>Other folder</strong>, then a harness and storage location. Select a source to read its
+original contents and path. Search filenames and paths, filter by harness, scope, or kind, and
+use <strong>Refresh</strong> to rescan disk. In a narrow pane, use <strong>Sources</strong> to return
+to the outline; choose a row or press Return to open the reader.</p>
+<p>The reader is selectable and read-only, even when file autosave is enabled. It displays
+generated memory files, SQLite extraction records, instructions, rules, agent memory, skills,
+and extension text resources. A file existing on disk does not prove that a running harness
+has loaded it. Folder-associated files can live outside the opened folder; unresolved stores
+remain under <strong>Other folder</strong>.</p>
+<p>Memory viewing uses local files without starting a harness or requesting cloud memory.
+Known synchronized Claude mirrors are excluded. Missing, unreadable, binary, or oversized sources
+show an explanation. Text reads are limited to 2 MiB; discovery is bounded to 1,024 sources and
+directory entries, 32 databases, and 256 recent extraction records per database. Memory trees are
+scanned eight levels deep and folder instructions six levels deep. The checked-locations menu
+shows discovery diagnostics. Return to workflows with the terminal button in the memory header.</p>
 <h2 id="agent-workflows">Agent workflows<a class="headerlink" href="#agent-workflows" title="Permanent link">#</a></h2>
 <p>Choose <strong>Adversarial</strong>, <strong>Coordinator</strong>, or a stored custom workflow type from a new tab.
 Pick a harness for each role instance, and optionally its model and effort level, then start it.

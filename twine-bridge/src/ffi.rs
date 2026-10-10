@@ -279,7 +279,8 @@ fn status_for_error(error: &BridgeError) -> TwineStatus {
             ),
         )
         | BridgeError::InputTooLarge
-        | BridgeError::InvalidArgument => TwineStatus::InvalidArgument,
+        | BridgeError::InvalidArgument
+        | BridgeError::Memory(_) => TwineStatus::InvalidArgument,
         BridgeError::Empty => TwineStatus::Empty,
         BridgeError::InvalidUtf8 => TwineStatus::InvalidUtf8,
         BridgeError::MalformedCommand => TwineStatus::MalformedCommand,

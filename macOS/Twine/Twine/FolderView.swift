@@ -16,13 +16,14 @@ struct FolderView: View {
     @State private var files = FileBrowserModel()
     @State private var traceNavigation = TraceTerminalNavigation()
     @State private var isTracesExpanded = false
+    @State private var showsMemories = MemoryInspection.opensOnLaunch
     private var scale: CGFloat { zoom?.scale ?? 1 }
 
     var body: some View {
         // Read the selected trace mode here so its height also updates the native scroll document.
         let chromeHeight = workspaceChromeHeight
         return NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            FolderSidebar(path: path, files: files)
+            FolderSidebar(path: path, files: files, showsMemories: $showsMemories)
                 .appZoom()
                 .frame(
                     minWidth: SidebarLayout.minimumWidth * scale,
@@ -35,44 +36,58 @@ struct FolderView: View {
                     max: SidebarLayout.maximumWidth * scale
                 )
         } detail: {
-            GeometryReader { geometry in
-                WorkspaceViewport(
-                    contentHeight: (workspaceHeight(in: geometry.size.height / scale, chromeHeight: chromeHeight)
-                        + chromeHeight)
-                        * scale
-                ) {
-                    VStack(spacing: Spacing.windowSections) {
-                        WorkflowWorkspace(folder: path, selection: $selection, files: files)
+            ZStack {
+                GeometryReader { geometry in
+                    WorkspaceViewport(
+                        contentHeight: (workspaceHeight(in: geometry.size.height / scale, chromeHeight: chromeHeight)
+                            + chromeHeight)
+                            * scale
+                    ) {
+                        VStack(spacing: Spacing.windowSections) {
+                            WorkflowWorkspace(
+                                folder: path, selection: $selection, files: files,
+                                isPresented: !showsMemories
+                            )
                             .frame(
-                                height: workspaceHeight(in: geometry.size.height / scale, chromeHeight: chromeHeight))
-                        if tabs.selected == nil {
-                            TracesPanel(workflows: traceWorkflows, isExpanded: $isTracesExpanded)
+                                height: workspaceHeight(
+                                    in: geometry.size.height / scale, chromeHeight: chromeHeight))
+                            if tabs.selected == nil {
+                                TracesPanel(workflows: traceWorkflows, isExpanded: $isTracesExpanded)
+                            }
+                            StatusFooter(
+                                branch: coreClient.snapshot?.folders.currentBranch,
+                                workflow: selectedWorkflow
+                            )
                         }
-                        StatusFooter(
-                            branch: coreClient.snapshot?.folders.currentBranch,
-                            workflow: selectedWorkflow
-                        )
+                        .padding(Spacing.windowMargins)
+                        .appZoom()
                     }
-                    .padding(Spacing.windowMargins)
-                    .appZoom()
+                    .accessibilityIdentifier("workspaceViewport")
                 }
-                .accessibilityIdentifier("workspaceViewport")
+                .background(.windowBackground)
+                .navigationTitle(URL(filePath: path).lastPathComponent)
+                .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
+                .opacity(!showsMemories ? 1 : 0)
+                .allowsHitTesting(!showsMemories)
+                .accessibilityHidden(showsMemories)
+                if showsMemories {
+                    MemoryViewer(folder: path, close: { showsMemories = false }).appZoom()
+                }
             }
-            .background(.windowBackground)
-            .navigationTitle(URL(filePath: path).lastPathComponent)
-            .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
         }
         .environment(traceNavigation)
         .environment(\.traceLaneColors, traceNavigation.laneColors)
         .onChange(of: traceNavigation.activity.lanes) { traceNavigation.updateLaneColors() }
         .onChange(of: traceNavigation.destination) {
             if let target = traceNavigation.destination {
+                showsMemories = false
                 selection.selectedID = target.workflowID
                 tabs.showWorkflows()
             }
         }
         .navigationSplitViewStyle(.balanced)
         .windowToolbarFullScreenVisibility(.visible)
+        .onChange(of: tabs.selectedID) { if tabs.selectedID != nil { showsMemories = false } }
         .task(id: path) { await refreshGitBranch() }
         .task(id: files.request(folder: path, file: tabs.selected?.path)) {
             let editor = tabs.selected
