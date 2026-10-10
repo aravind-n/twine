@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- HTML and Markdown previews fill their pane at every global zoom level, with
+  correctly scaled content and clickable links, including after resizing the window.
 - Open Folder remains available after closing the last window and opens a new
   window with the folder picker, so you can continue working without relaunching Twine.
 - Keep loaded trace events and older steps visible when live activity refreshes

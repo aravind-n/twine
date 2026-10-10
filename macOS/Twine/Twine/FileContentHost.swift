@@ -18,35 +18,42 @@ final class FileContentHost<Content: NSView>: NSView {
         self.content = content
         self.responder = responder
         super.init(frame: .zero)
-        content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor),
-            content.topAnchor.constraint(equalTo: topAnchor),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
     }
 
     required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        // Auto Layout uses the host's frame size, which differs from its zoom-adjusted bounds.
+        // WebKit must fill those bounds to get a physical viewport and apply pageZoom exactly once.
+        if content.frame != bounds { content.frame = bounds }
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         // Retained hidden source editors can otherwise keep invalidating window constraints.
         guard frame.size != newSize else { return }
         super.setFrameSize(newSize)
         updateViewportBounds()
+        needsLayout = true
     }
 
     private func updateViewportBounds() {
         guard viewportScale != 1 else {
-            if bounds.size != frame.size { setBoundsSize(frame.size) }
+            if bounds.size != frame.size {
+                setBoundsSize(frame.size)
+                needsLayout = true
+            }
             return
         }
         let backing = window?.backingScaleFactor ?? 1
         let size = CGSize(
             width: (frame.width * viewportScale * backing).rounded() / backing,
             height: (frame.height * viewportScale * backing).rounded() / backing)
-        if bounds.size != size { setBoundsSize(size) }
+        if bounds.size != size {
+            setBoundsSize(size)
+            needsLayout = true
+        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

@@ -89,6 +89,8 @@ struct FileViewer: View {
                         }
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("fileViewport")
             } else {
                 ProgressView("Loading file…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
