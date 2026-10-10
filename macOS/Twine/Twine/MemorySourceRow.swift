@@ -2,24 +2,32 @@ import SwiftUI
 
 struct MemorySourceRow: View {
     let source: CoreMemorySource
+    var folder: String?
+
+    private var filename: String {
+        if let folder, source.scope == .folder, source.location.hasPrefix(folder + "/") {
+            return String(source.location.dropFirst(folder.count + 1))
+        }
+        return source.title
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 5) {
-                Image(systemName: source.kind == .storeStatus ? "externaldrive" : "doc.text")
-                    .foregroundStyle(source.harness == .codex ? Color.blue : Color.orange)
-                Text(source.title).fontWeight(.medium).lineLimit(2)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Circle().fill(source.harness == .codex ? Color.blue : .orange).frame(width: 5, height: 5)
+                Text(filename).font(.system(size: 11, design: .monospaced))
+                    .lineLimit(1).truncationMode(.middle)
             }
-            Text("\(source.harness.title) · \(source.scope.title)")
-                .font(.caption2).foregroundStyle(.secondary)
-            HStack {
-                Text(source.kind.title)
-                if source.example { Text("Example").foregroundStyle(.orange) }
-            }.font(.caption2).foregroundStyle(.secondary)
-            Text(source.shortPath).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+            HStack(spacing: 4) {
+                MemoryBadge(source.harness.title, tint: source.harness == .codex ? .blue : .orange)
+                MemoryBadge(source.scope.title)
+                if source.example { MemoryBadge("Example", tint: .orange) }
+            }
         }
-        .font(.caption).padding(.vertical, 5)
-        .help(source.location)
+        .padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle()).help(source.location)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(filename), \(source.harness.title), \(source.scope.title)")
         .accessibilityIdentifier("memorySource-\(source.id)")
     }
 }

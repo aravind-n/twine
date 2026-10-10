@@ -6,10 +6,11 @@ final class MemoryModel {
     @ObservationIgnored private var catalogRequest = UUID()
     @ObservationIgnored private var readRequest = UUID()
     @ObservationIgnored private let examplesRoot: String
-    var expandedScopes = Set(MemoryScope.allCases)
-    var expandedGroups: Set<String> = []
-    var expandedHarnesses: Set<String> = []
+    var expandedScopes: Set<MemoryScope> = [.folder]
     var pane = MemoryPane.reader
+    var display = MemoryDisplay.rendered
+    var navigationURL: URL?
+    var linkFailure: String?
     private(set) var catalog: CoreMemoryCatalog?
     private(set) var contents: CoreMemoryRead?
     private(set) var state = MemoryLoadState.idle
@@ -38,6 +39,13 @@ final class MemoryModel {
 
     var selected: CoreMemorySource? { catalog?.sources.first { $0.id == selectedID } }
 
+    var editableFile: FilePreview? {
+        guard selected?.isMarkdown == true, selectedID == contents?.source.id,
+            let file = contents?.file, file.status == .text, file.version != nil
+        else { return nil }
+        return file
+    }
+
     func reconcileSelection() {
         defer { revealSelection() }
         guard !filteredSources.contains(where: { $0.id == selectedID }) else { return }
@@ -45,6 +53,34 @@ final class MemoryModel {
     }
 
     func refresh() { refreshID = UUID() }
+
+    func request(folder: String?, sourceID: String? = nil) -> CoreMemoryRequest {
+        CoreMemoryRequest(folder: folder, sourceID: sourceID, examplesRoot: includeExamples ? examplesRoot : nil)
+    }
+
+    func select(_ source: CoreMemorySource) {
+        selectedID = source.id
+        navigationURL = nil
+        pane = .reader
+    }
+
+    func openLink(_ url: URL) {
+        guard
+            let source = catalog?.sources.first(where: {
+                URL(filePath: $0.location).standardizedFileURL.path == url.standardizedFileURL.path
+            })
+        else {
+            linkFailure = "This link is not a discovered local memory source."
+            return
+        }
+        query = ""
+        harness = nil
+        scope = nil
+        kind = nil
+        select(source)
+        navigationURL = url
+        display = .rendered
+    }
 
     private func selectionRank(_ source: CoreMemorySource) -> Int {
         let scopeRank = source.scope == .folder ? 0 : source.scope == .global ? 10 : 20
@@ -59,9 +95,10 @@ final class MemoryModel {
 
     func revealSelection() {
         if let source = selected {
+            if navigationURL?.standardizedFileURL.path != URL(filePath: source.location).standardizedFileURL.path {
+                navigationURL = nil
+            }
             expandedScopes.insert(source.scope)
-            expandedGroups.insert(source.group)
-            expandedHarnesses.insert("\(source.scope.rawValue).\(source.harness.rawValue)")
         }
     }
 

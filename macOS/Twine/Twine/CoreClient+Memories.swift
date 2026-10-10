@@ -9,6 +9,10 @@ extension CoreClient {
     func memoryRead(_ request: CoreMemoryRequest) async throws -> CoreMemoryRead {
         try await transport.memoryRead(request)
     }
+
+    func memorySave(_ request: CoreMemorySaveRequest) async throws -> FileSaveResult {
+        try await transport.memorySave(request)
+    }
 }
 
 extension CoreWorker {
@@ -19,10 +23,25 @@ extension CoreWorker {
     func memoryRead(_ request: CoreMemoryRequest) async throws -> CoreMemoryRead {
         try await memoryWorker.memoryRead(request)
     }
+
+    func memorySave(_ request: CoreMemorySaveRequest) async throws -> FileSaveResult {
+        try await memoryWorker.memorySave(request)
+    }
 }
 
 /// Memory scans run independently so snapshots never hold up terminal I/O.
 actor MemoryWorker {
+    func memorySave(_ request: CoreMemorySaveRequest) throws -> FileSaveResult {
+        try Task.checkCancellation()
+        let data = try JSONEncoder().encode(request)
+        var response = TwineBuffer()
+        let status = data.withUnsafeBytes { bytes in
+            twine_memory_save(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &response)
+        }
+        try checkMemoryStatus(status)
+        return try JSONDecoder().decode(FileSaveResult.self, from: consumeMemory(&response))
+    }
+
     func memoryCatalog(_ request: CoreMemoryRequest) throws -> CoreMemoryCatalog {
         try Task.checkCancellation()
         let data = try JSONEncoder().encode(request)

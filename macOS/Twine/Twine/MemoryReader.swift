@@ -2,38 +2,38 @@ import AppKit
 import SwiftUI
 
 struct MemoryReader: View {
+    @Environment(FileTabsModel.self) private var tabs
     @Bindable var model: MemoryModel
+    var folder: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let source = model.selected {
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack {
-                        Text(source.title).font(.headline).textSelection(.enabled)
-                        Spacer()
-                        Label("Read-only", systemImage: "lock").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Text("\(source.harness.title) · \(source.scope.title) · \(source.kind.title)")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text(source.shortPath).font(.caption.monospaced()).foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                    if source.example {
-                        Text("Emulated source · isolated fixture").font(.caption).foregroundStyle(.orange)
-                    }
-                    if let association = source.association {
-                        Text(association).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    }
-                    HStack {
-                        Text(source.format.uppercased())
-                        if let modified = source.modifiedAt {
-                            Text(Date(timeIntervalSince1970: TimeInterval(modified)), format: .dateTime)
+                MemoryReaderHeader(
+                    source: source, lineCount: model.contents?.text?.components(separatedBy: "\n").count ?? 0,
+                    display: $model.display, canEdit: model.editableFile != nil,
+                    edit: {
+                        if let file = model.editableFile {
+                            tabs.openMemory(file, request: model.request(folder: folder, sourceID: source.id))
                         }
-                    }.font(.caption2).foregroundStyle(.tertiary)
-                }.padding(16)
+                    })
                 Divider()
             }
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.accessibilityIdentifier("memoryReader")
+            if let source = model.selected {
+                Divider()
+                DisclosureGroup("Source details") {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(source.location).textSelection(.enabled)
+                        Text("\(source.kind.title) · \(source.format.uppercased())")
+                        if let modified = source.modifiedAt {
+                            Text(Date(timeIntervalSince1970: TimeInterval(modified)), format: .dateTime)
+                        }
+                    }.font(.caption.monospaced()).frame(maxWidth: .infinity, alignment: .leading)
+                }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 18).padding(.vertical, 9)
+            }
+        }.background(MemoryPalette.document)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("memoryReader")
     }
 
     @ViewBuilder private var content: some View {
@@ -48,7 +48,22 @@ struct MemoryReader: View {
                 description: Text(message))
         case .available:
             if let text = model.contents?.text {
-                MemoryTextView(text: text)
+                if model.selected?.isMarkdown == true, model.display == .rendered, let read = model.contents {
+                    // Database records get a virtual document base; only real files offer editing.
+                    let file =
+                        read.file
+                        ?? FilePreview(
+                            path: read.source.location, status: .text, text: text, message: nil,
+                            version: FileVersion(fingerprint: model.generation.uuidString, utf8BOM: false))
+                    HTMLPreview(
+                        file: file, folder: URL(filePath: file.path).deletingLastPathComponent().path,
+                        navigationURL: model.navigationURL, isVisible: true,
+                        openFile: model.openLink, format: .markdown, localResourcesOnly: true, markdownStyle: .memory
+                    )
+                    .id(file.path)
+                } else {
+                    MemoryTextView(text: text)
+                }
             } else {
                 ContentUnavailableView(
                     "Source Unavailable", systemImage: "doc.badge.ellipsis",

@@ -18,10 +18,19 @@ pub(crate) struct SaveRequest {
 }
 
 #[derive(Deserialize)]
-struct Version {
+pub(crate) struct Version {
     fingerprint: String,
     #[serde(rename = "utf8BOM")]
     utf8_bom: bool,
+}
+
+impl From<Version> for FileVersion {
+    fn from(version: Version) -> Self {
+        Self {
+            fingerprint: version.fingerprint,
+            utf8_bom: version.utf8_bom,
+        }
+    }
 }
 
 impl From<SaveRequest> for FileSaveRequest {

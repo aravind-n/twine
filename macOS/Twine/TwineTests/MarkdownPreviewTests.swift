@@ -7,6 +7,18 @@ import WebKit
 
 @MainActor
 struct MarkdownPreviewTests {
+    @Test func memoryRenderingHidesFrontmatterAndRestrictsRemoteResources() async throws {
+        let source = "---\nname: hidden metadata\n---\n# Readable memory\n\n**Useful** advice.\n"
+        let html = try await MarkdownRenderer.render(source, localResourcesOnly: true, style: .memory)
+        #expect(html.contains("<h1>Readable memory</h1>"))
+        #expect(html.contains("<strong>Useful</strong>"))
+        #expect(!html.contains("hidden metadata"))
+        #expect(html.contains("default-src 'none'"))
+        #expect(html.contains("img-src twine-markdown: data:"))
+        #expect(try await MarkdownRenderer.render(source).contains("hidden metadata"))
+        #expect(try await MarkdownRenderer.render("---\nunclosed", style: .memory).contains("unclosed"))
+    }
+
     @Test func rendersBlocksInlineFormattingAndGitHubExtensions() async throws {
         let html = try await MarkdownRenderer.render(
             """

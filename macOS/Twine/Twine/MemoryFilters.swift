@@ -19,11 +19,12 @@ struct MemoryFilters: View {
                 harness
                 kind
             }
-        }.padding(.horizontal, 14).padding(.bottom, 12)
+        }.controlSize(.small).padding(.horizontal, 10).padding(.vertical, 8)
+            .background(MemoryPalette.surface)
     }
 
     private var search: some View {
-        TextField("Search sources", text: $model.query)
+        TextField("Search memories…", text: $model.query)
             .textFieldStyle(.roundedBorder).frame(minWidth: 120)
             .accessibilityIdentifier("memorySearch")
     }
@@ -40,21 +41,21 @@ struct MemoryFilters: View {
         Picker("Scope", selection: $model.scope) {
             Text("All scopes").tag(Optional<MemoryScope>.none)
             ForEach(MemoryScope.allCases) { Text($0.title).tag(Optional($0)) }
-        }.accessibilityIdentifier("memoryScope")
+        }.labelsHidden().accessibilityIdentifier("memoryScope")
     }
 
     private var harness: some View {
         Picker("Harness", selection: $model.harness) {
             Text("Both harnesses").tag(Optional<MemoryHarness>.none)
             ForEach(MemoryHarness.allCases) { Text($0.title).tag(Optional($0)) }
-        }.accessibilityIdentifier("memoryHarness")
+        }.labelsHidden().accessibilityIdentifier("memoryHarness")
     }
 
     private var kind: some View {
         Picker("Kind", selection: $model.kind) {
             Text("All kinds").tag(Optional<MemoryKind>.none)
             ForEach(MemoryKind.allCases) { Text($0.title).tag(Optional($0)) }
-        }.accessibilityIdentifier("memoryKind")
+        }.labelsHidden().accessibilityIdentifier("memoryKind")
     }
 }
 

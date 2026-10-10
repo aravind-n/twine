@@ -24,7 +24,7 @@ struct FileViewer: View {
     private var editorSettings: CoreEditorConfig { coreClient.snapshot?.config.editor ?? .init() }
     private var saveStatus: String {
         if editor.isSaving { return "Saving…" }
-        if editor.isConfigFile || !editor.autosaveSettings.autosave { return "⌘S to save" }
+        if editor.requiresExplicitSave || !editor.autosaveSettings.autosave { return "⌘S to save" }
         return editor.autosavePaused ? "Autosave paused · ⌘S to retry" : "Autosave"
     }
 
@@ -48,6 +48,10 @@ struct FileViewer: View {
                     .accessibilityIdentifier("\(format.accessibilityPrefix)DisplayMode")
                 }
                 if editor.isDirty { Text("Edited").sectionLabelStyle().accessibilityIdentifier("fileEdited") }
+                if editor.memoryRequest != nil {
+                    Button("Save", action: { editor.requestSave() })
+                        .disabled(!editor.canSave).accessibilityIdentifier("saveMemoryFile")
+                }
                 if current?.status == .text {
                     Text(saveStatus).font(.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("fileSaveStatus")
@@ -78,7 +82,8 @@ struct FileViewer: View {
                             if diskFile.status == .text, let format = previewFormat {
                                 HTMLPreview(
                                     file: diskFile, folder: folder, navigationURL: editor.navigationURL,
-                                    isVisible: isVisible, openFile: openFile, format: format
+                                    isVisible: isVisible, openFile: openFile, format: format,
+                                    localResourcesOnly: editor.memoryRequest != nil
                                 )
                                 .id(editor.navigationID)
                             } else {
@@ -99,6 +104,9 @@ struct FileViewer: View {
         .background(Color(nsColor: .textBackgroundColor))
         .clipShape(.rect(cornerRadius: CornerRadius.panel))
         .onChange(of: editor.navigationID) { mode = .preview }
+        .onChange(of: editor.sourceRequestID, initial: true) {
+            if editor.sourceRequestID != nil { mode = .source }
+        }
         .onChange(of: editorSettings, initial: true) { editor.configureAutosave(editorSettings) }
         .task(id: editor.autosaveID) { await editor.autosave() }
         .task(id: editor.saveID) { await editor.savePending(client: coreClient, didSave: didSave) }

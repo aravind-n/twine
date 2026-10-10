@@ -13,7 +13,7 @@ nonisolated enum MemoryScope: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .global: "Global"
         case .folder: "This folder"
-        case .otherFolder: "Other folder"
+        case .otherFolder: "Other folders"
         }
     }
 }
@@ -64,6 +64,7 @@ nonisolated struct CoreMemorySource: Decodable, Identifiable, Sendable {
     let example: Bool
     let association: String?
     var shortPath: String { (location as NSString).abbreviatingWithTildeInPath }
+    var isMarkdown: Bool { ["md", "markdown"].contains(format.lowercased()) }
 }
 
 nonisolated struct CoreMemoryCatalog: Decodable, Sendable {
@@ -75,6 +76,19 @@ nonisolated struct CoreMemoryRead: Decodable, Sendable {
     let source: CoreMemorySource
     let text: String?
     let message: String?
+    var file: FilePreview?
+}
+
+nonisolated struct CoreMemorySaveRequest: Encodable, Sendable {
+    let source: CoreMemoryRequest
+    let text: String
+    let expectedVersion: FileVersion
+    let overwrite: Bool
+}
+
+enum MemoryDisplay: String, CaseIterable {
+    case rendered = "Rendered"
+    case markdown = "Markdown"
 }
 
 nonisolated enum MemoryLoadState: Equatable {

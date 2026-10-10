@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MemorySourceList: View {
     @Bindable var model: MemoryModel
+    var folder: String?
 
     var body: some View {
         if model.state == .loading && model.catalog == nil {
@@ -17,7 +18,9 @@ struct MemorySourceList: View {
                         let sources = model.filteredSources.filter { $0.scope == scope }
                         if !sources.isEmpty { scopeGroup(scope, sources: sources) }
                     }
-                }.listStyle(.inset).accessibilityIdentifier("memorySources")
+                }.listStyle(.inset).scrollContentBackground(.hidden)
+                    .background(MemoryPalette.surface)
+                    .accessibilityIdentifier("memorySources")
                     .onKeyPress(.return) {
                         model.pane = .reader
                         return .handled
@@ -33,43 +36,36 @@ struct MemorySourceList: View {
         DisclosureGroup(isExpanded: expansion(scope)) {
             ForEach(MemoryHarness.allCases) { harness in
                 let items = sources.filter { $0.harness == harness }
-                if !items.isEmpty { harnessGroup(harness, scope: scope, sources: items) }
+                if !items.isEmpty {
+                    Text(harness.title.uppercased())
+                        .font(.system(size: 9, weight: .semibold)).tracking(1)
+                        .foregroundStyle(.secondary).padding(.top, 5)
+                        .listRowSeparator(.hidden)
+                    if scope == .otherFolder {
+                        ForEach(Array(Set(items.map(\.group))).sorted(), id: \.self) { group in
+                            Text(storageTitle(group)).font(.caption).foregroundStyle(.secondary)
+                                .listRowSeparator(.hidden).help(group)
+                            rows(items.filter { $0.group == group })
+                        }
+                    } else {
+                        rows(items)
+                    }
+                }
             }
         } label: {
-            Label(scope.title, systemImage: scope == .global ? "globe" : "folder")
+            HStack(spacing: 5) {
+                Text(scope.title).fontWeight(.semibold)
+                Text("· \(sources.count)").foregroundStyle(.secondary)
+            }.font(.system(size: 12))
         }
+        .listRowSeparator(.hidden)
     }
 
-    private func harnessGroup(_ harness: MemoryHarness, scope: MemoryScope, sources: [CoreMemorySource]) -> some View {
-        let key = "\(scope.rawValue).\(harness.rawValue)"
-        return DisclosureGroup(
-            isExpanded: Binding(
-                get: { model.expandedHarnesses.contains(key) },
-                set: { if $0 { model.expandedHarnesses.insert(key) } else { model.expandedHarnesses.remove(key) } }
-            )
-        ) {
-            ForEach(Array(Set(sources.map(\.group))).sorted(), id: \.self) { group in
-                DisclosureGroup(
-                    storageTitle(group),
-                    isExpanded: Binding(
-                        get: { model.expandedGroups.contains(group) },
-                        set: {
-                            if $0 { model.expandedGroups.insert(group) } else { model.expandedGroups.remove(group) }
-                        }
-                    )
-                ) {
-                    ForEach(sources.filter { $0.group == group }) { source in
-                        MemorySourceRow(source: source).tag(source.id).id(source.id)
-                            .onTapGesture {
-                                model.selectedID = source.id
-                                model.pane = .reader
-                            }
-                    }
-                }.help(group)
-            }
-        } label: {
-            Label(harness.title, systemImage: harness == .codex ? "terminal" : "bubble.left")
-                .foregroundStyle(harness == .codex ? Color.blue : Color.orange)
+    private func rows(_ sources: [CoreMemorySource]) -> some View {
+        ForEach(sources) { source in
+            MemorySourceRow(source: source, folder: folder).tag(source.id).id(source.id)
+                .listRowSeparator(.hidden)
+                .onTapGesture { model.select(source) }
         }
     }
 
@@ -85,7 +81,7 @@ struct MemorySourceList: View {
         if group.hasPrefix("Claude folder: ") {
             let key = String(group.dropFirst("Claude folder: ".count))
             let homeKey = NSHomeDirectory().replacingOccurrences(of: "/", with: "-") + "-workspaces-"
-            return "Auto memory · " + (key.hasPrefix(homeKey) ? String(key.dropFirst(homeKey.count)) : key)
+            return key.hasPrefix(homeKey) ? String(key.dropFirst(homeKey.count)) : key
         }
         return group.replacingOccurrences(of: "Codex SQLite: ", with: "SQLite · ")
             .replacingOccurrences(of: "Codex ", with: "").replacingOccurrences(of: "Claude ", with: "")

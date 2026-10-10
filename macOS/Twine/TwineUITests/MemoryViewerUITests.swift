@@ -35,13 +35,14 @@ extension TwineUITests {
         if !app.buttons["memoryEntry-outline"].exists { sidebarToggle(in: app).click() }
         app.buttons["memoryEntry-outline"].click()
         let contents = app.textViews["memoryText"]
-        waitForMemory("Claude folder auto-memory index", in: contents)
+        XCTAssertTrue(app.staticTexts["Claude folder auto-memory index"].waitForExistence(timeout: 10))
         app.typeText("touch memory-leaked-command\r")
         app.buttons["closeMemories"].click()
         app.typeText("printf returned > workflow-returned\r")
         waitForFile(folder.appending(path: "workflow-returned"), containing: "returned", in: app)
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appending(path: "memory-leaked-command").path))
         app.buttons["memoryEntry-outline"].click()
+        app.radioButtons["Markdown"].click()
         verifyClaudeMemoryFiltersAndNarrowNavigation(in: app, contents: contents)
         for (file, original) in files { XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), original) }
     }
@@ -66,7 +67,11 @@ extension TwineUITests {
         XCTAssertTrue(sources.isHittable)
         sources.click()
         XCTAssertTrue(contents.waitForNonExistence(timeout: 5))
-        app.staticTexts["topic.md"].firstMatch.click()
+        app.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND (label CONTAINS %@ OR value CONTAINS %@)",
+                "memorySource-", "topic.md", "topic.md")
+        ).firstMatch.click()
         waitForMemory("Claude learned topic", in: contents)
         app.typeKey("=", modifierFlags: .command)
         app.typeKey("=", modifierFlags: .command)
@@ -101,6 +106,8 @@ extension TwineUITests {
         app.launch()
         if !app.buttons["memoryEntry-outline"].waitForExistence(timeout: 10) { sidebarToggle(in: app).click() }
         app.buttons["memoryEntry-outline"].click()
+        XCTAssertTrue(app.staticTexts["Local memory"].waitForExistence(timeout: 10))
+        app.radioButtons["Markdown"].click()
         let contents = app.textViews["memoryText"]
         XCTAssertTrue(contents.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue((contents.value as? String)?.contains("Original memory marker") == true)
@@ -109,9 +116,9 @@ extension TwineUITests {
         app.typeKey("s", modifierFlags: .command)
         XCTAssertEqual(try String(contentsOf: memory, encoding: .utf8), "# Local memory\nOriginal memory marker\n")
         app.buttons["memoryEntry-outline"].click()
-        XCTAssertTrue(app.staticTexts["Global"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Codex"].exists)
-        XCTAssertTrue(app.staticTexts["memories"].exists)
+        XCTAssertTrue(app.staticTexts["Global"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["CODEX"].exists)
+        XCTAssertTrue(app.staticTexts["MEMORY.md"].firstMatch.exists)
         XCTAssertTrue((contents.value as? String)?.contains("Original memory marker") == true)
         let outline = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         outline.name = "Codex memory source outline"

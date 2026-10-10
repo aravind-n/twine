@@ -7,6 +7,8 @@ struct HTMLPreview: View {
     let isVisible: Bool
     let openFile: (URL) -> Void
     var format: FilePreviewFormat = .html
+    var localResourcesOnly = false
+    var markdownStyle = MarkdownRenderer.Style.document
     @State private var load: Load?
     @State private var failure: String?
 
@@ -42,7 +44,8 @@ struct HTMLPreview: View {
                     let html: String?
                     if format == .markdown {
                         html = try await MarkdownRenderer.render(
-                            file.text ?? "", baseURL: MarkdownPreviewURL.preview(location.file))
+                            file.text ?? "", baseURL: MarkdownPreviewURL.preview(location.file),
+                            localResourcesOnly: localResourcesOnly, style: markdownStyle)
                     } else {
                         html = nil
                     }

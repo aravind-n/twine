@@ -16,11 +16,20 @@ pub(super) struct Locations {
 
 impl Locations {
     pub fn live(request: &MemoryRequest) -> Self {
-        let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from);
-        let codex =
-            std::env::var_os("CODEX_HOME").map_or_else(|| home.join(".codex"), PathBuf::from);
-        let claude = std::env::var_os("CLAUDE_CONFIG_DIR")
-            .map_or_else(|| home.join(".claude"), PathBuf::from);
+        let process_working = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        let home = absolute_home(
+            std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from),
+            &process_working,
+        );
+        let codex = absolute_home(
+            std::env::var_os("CODEX_HOME").map_or_else(|| home.join(".codex"), PathBuf::from),
+            &process_working,
+        );
+        let claude = absolute_home(
+            std::env::var_os("CLAUDE_CONFIG_DIR")
+                .map_or_else(|| home.join(".claude"), PathBuf::from),
+            &process_working,
+        );
         let config = read_toml(&codex.join("config.toml"));
         let working = request
             .folder
@@ -92,6 +101,15 @@ impl Locations {
             "note": "User-file values plus source-code defaults. Profiles, trusted folder layers, managed policy and per-session overrides may change actual enablement. Viewing never changes settings."
         })
     }
+}
+
+fn absolute_home(path: PathBuf, working: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path
+    } else {
+        working.join(path)
+    };
+    absolute.canonicalize().unwrap_or(absolute)
 }
 
 pub(super) fn expand(value: &str, home: &Path) -> PathBuf {
@@ -240,6 +258,32 @@ fn sqlite_location(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relative_harness_homes_support_versioned_markdown_writes() {
+        let fixture = tempfile::tempdir().unwrap();
+        for name in ["codex", "claude"] {
+            let directory = fixture.path().join(name);
+            std::fs::create_dir_all(&directory).unwrap();
+            let root = absolute_home(PathBuf::from(name), fixture.path());
+            assert!(root.is_absolute());
+            let path = root.join("MEMORY.md");
+            std::fs::write(&path, "original").unwrap();
+            let read = crate::files::read_preview(&root, &path);
+            assert!(matches!(
+                crate::files::save(&crate::FileSaveRequest {
+                    folder: root,
+                    path: path.clone(),
+                    text: "edited".into(),
+                    expected_version: read.version.unwrap(),
+                    overwrite: false,
+                })
+                .unwrap(),
+                crate::FileSaveOutcome::Saved(_)
+            ));
+            assert_eq!(std::fs::read_to_string(path).unwrap(), "edited");
+        }
+    }
 
     #[test]
     fn claude_key_handles_utf16_and_long_names_and_git_metadata_is_bounded() {

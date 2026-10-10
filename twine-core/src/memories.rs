@@ -1,8 +1,11 @@
-//! Read-only discovery of harness memories, instructions, and extraction records.
-//! Database reads use private snapshots; no harness is launched or configured.
+//! Discovery of local harness memories, instructions, and extraction records.
+//! Database reads use private snapshots; explicit edits are limited to Markdown files.
 mod database;
 mod discovery;
+mod editing;
 mod locations;
+
+pub use editing::save;
 
 use crate::FileContent;
 use serde::{Deserialize, Serialize};
@@ -80,6 +83,8 @@ pub struct MemoryRead {
     pub source: MemorySource,
     pub text: Option<String>,
     pub message: Option<String>,
+    #[serde(skip)]
+    pub file: Option<crate::FilePreview>,
 }
 
 #[derive(Debug, Error)]
@@ -88,6 +93,10 @@ pub enum MemoryError {
     InvalidPath,
     #[error("The source is no longer available. Refresh the source list.")]
     MissingSource,
+    #[error("Only local Markdown files can be edited from Memories.")]
+    UnsupportedEdit,
+    #[error(transparent)]
+    File(#[from] crate::FileError),
 }
 
 /// Lists bounded local sources without generating or editing memory.
@@ -116,8 +125,14 @@ pub fn read(request: &MemoryRequest) -> Result<MemoryRead, MemoryError> {
         .into_iter()
         .find(|e| &e.source.id == id)
         .ok_or(MemoryError::MissingSource)?;
+    let mut file = None;
     let content = match entry.backing {
-        discovery::Backing::File { root, path } => crate::files::read_preview(&root, &path).content,
+        discovery::Backing::File { root, path } => {
+            let preview = crate::files::read_preview(&root, &path);
+            let content = preview.content.clone();
+            file = Some(preview);
+            content
+        }
         discovery::Backing::Text(text) => FileContent::Text(text),
         discovery::Backing::Database {
             root,
@@ -150,5 +165,6 @@ pub fn read(request: &MemoryRequest) -> Result<MemoryRead, MemoryError> {
         source: entry.source,
         text,
         message,
+        file,
     })
 }

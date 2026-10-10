@@ -17,13 +17,14 @@ struct FolderView: View {
     @State private var traceNavigation = TraceTerminalNavigation()
     @State private var isTracesExpanded = false
     @State private var showsMemories = MemoryInspection.opensOnLaunch
+    @State private var memories = MemoryModel()
     private var scale: CGFloat { zoom?.scale ?? 1 }
 
     var body: some View {
         // Read the selected trace mode here so its height also updates the native scroll document.
         let chromeHeight = workspaceChromeHeight
         return NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            FolderSidebar(path: path, files: files, showsMemories: $showsMemories)
+            FolderSidebar(path: path, files: files, showsMemories: $showsMemories, memories: memories)
                 .appZoom()
                 .frame(
                     minWidth: SidebarLayout.minimumWidth * scale,
@@ -71,7 +72,7 @@ struct FolderView: View {
                 .allowsHitTesting(!showsMemories)
                 .accessibilityHidden(showsMemories)
                 if showsMemories {
-                    MemoryViewer(folder: path, close: { showsMemories = false }).appZoom()
+                    MemoryViewer(folder: path, close: { showsMemories = false }, model: memories).appZoom()
                 }
             }
         }
@@ -89,11 +90,16 @@ struct FolderView: View {
         .windowToolbarFullScreenVisibility(.visible)
         .onChange(of: tabs.selectedID) { if tabs.selectedID != nil { showsMemories = false } }
         .task(id: path) { await refreshGitBranch() }
-        .task(id: files.request(folder: path, file: tabs.selected?.path)) {
-            let editor = tabs.selected
+        .task(id: files.request(folder: path, file: watchedEditor?.path)) {
+            let editor = watchedEditor
             await files.watch(files.request(folder: path, file: editor?.path), client: coreClient, editor: editor)
         }
         .focusedSceneValue(\.openFilePath, tabs.selected?.path)
+    }
+
+    private var watchedEditor: FileEditorModel? {
+        guard let editor = tabs.selected, editor.memoryRequest == nil else { return nil }
+        return editor
     }
 
     /// Keep two terminal rows usable when zoom leaves less room than the surrounding panels need.

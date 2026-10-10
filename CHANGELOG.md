@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Inspect local Codex and Claude Code memories in a read-only source outline,
-  grouped by scope and harness, with search, filters, and file or SQLite contents.
+- Browse local Codex and Claude Code memories in a compact source outline with
+  scope shortcuts, search, filters, rendered Markdown, and file or SQLite contents.
+  Edit Markdown files with explicit saves and protection against changes on disk.
 
 - Right-click sidebar items to open files in Twine or their default app, open or
   reveal items in Finder, copy paths or names, and expand or collapse folders.

@@ -107,17 +107,25 @@ text. Shell highlighting uses the Bash grammar; embedded languages in HTML
 <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> blocks, strings, or Markdown code fences
 are not highlighted separately.</p>
 <h2 id="memories">Memories<a class="headerlink" href="#memories" title="Permanent link">#</a></h2>
-<p>Choose <strong>Memories → Source Outline</strong> in the sidebar to inspect local Codex and
-Claude Code memory. Expand <strong>Global</strong>, <strong>This folder</strong>, or
-<strong>Other folder</strong>, then a harness and storage location. Select a source to read its
-original contents and path. Search filenames and paths, filter by harness, scope, or kind, and
+<p>Choose <strong>Memories → All sources</strong> in the sidebar to inspect local Codex and
+Claude Code memory, or use the <strong>Global</strong>, <strong>This folder</strong>, and
+<strong>Other folders</strong> shortcuts. The compact outline groups sources by scope and harness.
+Other folders is collapsed initially and names each store; it contains memories associated with
+other checkouts or stores that cannot be associated with the opened folder. Select a source to
+read its contents and path. Search filenames and paths, filter by harness, scope, or kind, and
 use <strong>Refresh</strong> to rescan disk. In a narrow pane, use <strong>Sources</strong> to return
 to the outline; choose a row or press Return to open the reader.</p>
-<p>The reader is selectable and read-only, even when file autosave is enabled. It displays
-generated memory files, SQLite extraction records, instructions, rules, agent memory, skills,
-and extension text resources. A file existing on disk does not prove that a running harness
-has loaded it. Folder-associated files can live outside the opened folder; unresolved stores
-remain under <strong>Other folder</strong>.</p>
+<p>Markdown opens rendered, with headings, lists, tables, and links. Switch to
+<strong>Markdown</strong> to inspect the original text, including any frontmatter.
+Choose <strong>Edit Markdown</strong> to open a local Markdown file in Twine's editor.
+Save explicitly with <strong>Save</strong> or <strong>⌘S</strong>, even when regular file autosave is enabled.
+If the harness changes the file, Twine offers Reload or Overwrite before replacing it.
+Unsaved edits remain in their file tab when you return to Memories.</p>
+<p>SQLite records, settings summaries, and other non-Markdown sources remain read-only.
+The viewer includes generated memory, instructions, rules, agent memory, skills, and extension
+resources. A file existing on disk does not prove that a running harness has loaded it.
+Folder-associated files can live outside the opened folder. Rendered memories do not load remote
+images or scripts; clicking an external link opens your browser.</p>
 <p>Memory viewing uses local files without starting a harness or requesting cloud memory.
 Known synchronized Claude mirrors are excluded. Missing, unreadable, binary, or oversized sources
 show an explanation. Text reads are limited to 2 MiB; discovery is bounded to 1,024 sources and

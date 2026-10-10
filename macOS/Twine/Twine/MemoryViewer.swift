@@ -4,7 +4,7 @@ struct MemoryViewer: View {
     @Environment(CoreClient.self) private var client
     let folder: String?
     let close: () -> Void
-    @State private var model = MemoryModel()
+    @Bindable var model: MemoryModel
 
     var body: some View {
         GeometryReader { geometry in
@@ -23,11 +23,22 @@ struct MemoryViewer: View {
             model.revealSelection()
         }
         .accessibilityIdentifier("memoryViewer")
+        .alert(
+            "Couldn't Open Link",
+            isPresented: Binding(
+                get: { model.linkFailure != nil }, set: { if !$0 { model.linkFailure = nil } }
+            )
+        ) {
+            Button("OK") { model.linkFailure = nil }
+        } message: {
+            Text(model.linkFailure ?? "")
+        }
     }
 
     private var content: some View {
         VStack(spacing: 0) {
             MemoryHeader(model: model, close: close)
+            Divider()
             MemoryFilters(model: model)
             Divider()
             if case .failed(let message) = model.state {
@@ -38,17 +49,18 @@ struct MemoryViewer: View {
                 GeometryReader { geometry in
                     if geometry.size.width >= 600 {
                         HSplitView {
-                            MemorySourceList(model: model).frame(minWidth: 260, idealWidth: 330, maxWidth: 450)
-                            MemoryReader(model: model).frame(minWidth: 220)
+                            MemorySourceList(model: model, folder: folder).frame(
+                                minWidth: 280, idealWidth: 280, maxWidth: 360)
+                            MemoryReader(model: model, folder: folder).frame(minWidth: 280)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 0) {
                             if model.pane == .reader {
                                 Button("Sources", systemImage: "chevron.left") { model.pane = .sources }
                                     .padding(10).accessibilityIdentifier("showMemorySources")
-                                MemoryReader(model: model)
+                                MemoryReader(model: model, folder: folder)
                             } else {
-                                MemorySourceList(model: model)
+                                MemorySourceList(model: model, folder: folder)
                             }
                         }
                     }
@@ -57,15 +69,15 @@ struct MemoryViewer: View {
             Divider()
             HStack {
                 if model.state == .loading { ProgressView().controlSize(.mini) }
-                Text("\(model.filteredSources.count) sources")
+                Text("\(model.filteredSources.count) sources · Local files")
                 Spacer()
                 Menu("Checked locations") {
                     ForEach(Array((model.catalog?.diagnostics ?? []).enumerated()), id: \.offset) { Text($0.element) }
-                }.accessibilityIdentifier("memoryLocations")
-            }.font(.caption).foregroundStyle(.secondary).padding(10)
+                }.menuStyle(.borderlessButton).fixedSize().accessibilityIdentifier("memoryLocations")
+            }.font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 8)
         }
-        .background(.windowBackground).clipShape(.rect(cornerRadius: 17))
-        .overlay { RoundedRectangle(cornerRadius: 17).stroke(.hairline, lineWidth: 1) }
+        .background(MemoryPalette.document).clipShape(.rect(cornerRadius: 13))
+        .overlay { RoundedRectangle(cornerRadius: 13).stroke(.hairline, lineWidth: 1) }
         .padding(14)
     }
 }
@@ -81,10 +93,11 @@ private struct SelectionKey: Equatable {
 
 struct MemoryViewPreview: View {
     @State private var showsMemories = true
+    @State private var model = MemoryModel()
     var body: some View {
         Group {
             if showsMemories {
-                MemoryViewer(folder: nil, close: { showsMemories = false })
+                MemoryViewer(folder: nil, close: { showsMemories = false }, model: model)
             } else {
                 Button("Show Memories") { showsMemories = true }
             }

@@ -42,11 +42,15 @@ typedef struct TwineTerminalChunk {
 // user config file can be saved. Output ownership follows twine_buffer_release.
 // Save input is bounded to 12 MiB + 16 KiB; pointer/length rules match twine_client_save_file.
 TwineStatus twine_config_file(TwineBuffer *out_file);
-// Read-only local memories. Request JSON: {folder?, sourceId?, examplesRoot?}.
+// Local memory discovery and reading. Request JSON: {folder?, sourceId?, examplesRoot?}.
 // Catalog returns sources and discovery diagnostics; read requires a discovered sourceId.
 // No client is needed. Input/ownership rules match send_command and twine_buffer_release.
 TwineStatus twine_memory_catalog(const uint8_t *bytes, size_t length, TwineBuffer *out_catalog);
 TwineStatus twine_memory_read(const uint8_t *bytes, size_t length, TwineBuffer *out_source);
+// Explicit Markdown save: {source: <memory request>, text, expectedVersion, overwrite}.
+// Returns saved/conflict/failed JSON. Input bound and pointer rules match save_file;
+// no client is needed, and output ownership follows twine_buffer_release.
+TwineStatus twine_memory_save(const uint8_t *bytes, size_t length, TwineBuffer *out_result);
 TwineStatus twine_config_save_file(const uint8_t *request_bytes, size_t request_length, TwineBuffer *out_result);
 
 // A null out parameter is rejected with TWINE_STATUS_NULL_POINTER. Otherwise it must point to

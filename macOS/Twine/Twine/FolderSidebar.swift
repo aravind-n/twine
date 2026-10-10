@@ -11,6 +11,7 @@ struct FolderSidebar: View {
     let path: String
     @Bindable var files: FileBrowserModel
     @Binding var showsMemories: Bool
+    @Bindable var memories: MemoryModel
     @State private var editor: SessionEditor?
     @State private var pendingDeletion: CoreSession?
     @State private var failureMessage: String?
@@ -58,18 +59,12 @@ struct FolderSidebar: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, SidebarLayout.sectionHeaderPadding)
                 .frame(height: SidebarLayout.sectionHeaderHeight)
-            Button {
-                fileTabs.showWorkflows()
-                showsMemories = true
-            } label: {
-                Label("Source Outline", systemImage: "list.bullet.indent")
-                    .font(.caption).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, SidebarLayout.rowInset).frame(height: SidebarLayout.rowHeight)
-                    .background(
-                        showsMemories ? Color.fileSelection : .clear,
-                        in: .rect(cornerRadius: CornerRadius.fileRowSelection))
-            }.buttonStyle(.plain).padding(.horizontal, SidebarLayout.contentInset)
+            memoryEntry("All sources", systemImage: "list.bullet.indent", scope: nil)
                 .accessibilityIdentifier("memoryEntry-outline")
+            ForEach(MemoryScope.allCases) { scope in
+                memoryEntry(scope.title, systemImage: scope == .global ? "globe" : "folder", scope: scope)
+                    .accessibilityIdentifier("memoryScopeEntry-\(scope.rawValue)")
+            }
             Spacer().frame(height: 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -109,6 +104,22 @@ struct FolderSidebar: View {
         }
     }
 
+    private func memoryEntry(_ title: String, systemImage: String, scope: MemoryScope?) -> some View {
+        Button {
+            fileTabs.showWorkflows()
+            memories.scope = scope
+            showsMemories = true
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, scope == nil ? 0 : 14)
+                .padding(.horizontal, SidebarLayout.rowInset).frame(height: SidebarLayout.rowHeight)
+                .background(
+                    showsMemories && memories.scope == scope ? Color.fileSelection : .clear,
+                    in: .rect(cornerRadius: CornerRadius.fileRowSelection))
+        }.buttonStyle(.plain).padding(.horizontal, SidebarLayout.contentInset)
+    }
+
     private func sectionHeader<Actions: View>(_ title: String, @ViewBuilder actions: () -> Actions) -> some View {
         HStack {
             Text(title).sidebarSectionLabelStyle()
@@ -128,7 +139,7 @@ struct FolderSidebar: View {
     }
 
     private func sessionRow(_ session: CoreSession) -> some View {
-        let selected = selectedSession?.id == session.id
+        let selected = !showsMemories && selectedSession?.id == session.id
         return Button {
             showsMemories = false
             fileTabs.showWorkflows()

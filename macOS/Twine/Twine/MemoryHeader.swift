@@ -6,16 +6,16 @@ struct MemoryHeader: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Label("Memories", systemImage: "brain").font(.headline)
-            Text("Local · Read-only").font(.caption).foregroundStyle(.secondary)
+            Text("Memories").font(.system(size: 14, weight: .semibold))
             Spacer(minLength: 0)
+            MemoryBadge("Local", tint: .green)
             Button("Refresh", systemImage: "arrow.clockwise", action: model.refresh)
                 .labelStyle(.iconOnly).help("Rescan local memory sources")
                 .accessibilityIdentifier("refreshMemories")
             Button("Return to Workflows", systemImage: "terminal", action: close)
                 .labelStyle(.iconOnly).help("Return to workflows")
                 .accessibilityIdentifier("closeMemories")
-        }.padding(14)
+        }.controlSize(.small).padding(.horizontal, 14).padding(.vertical, 12)
     }
 }
 

@@ -69,8 +69,18 @@ struct WorkflowWorkspace: View {
                 ForEach(fileTabs.editors) { editor in
                     let shown = isPresented && editor.id == fileTabs.selectedID
                     FileViewer(
-                        path: editor.path, folder: folder, failure: files.failure, isVisible: shown,
-                        openFile: { fileTabs.open(path: $0.path, folder: folder, navigationURL: $0) }
+                        path: editor.path, folder: editor.folder, failure: files.failure, isVisible: shown,
+                        openFile: { url in
+                            if let request = editor.memoryRequest {
+                                Task {
+                                    do {
+                                        try await fileTabs.openMemoryLink(url, request: request, client: coreClient)
+                                    } catch { failureMessage = error.localizedDescription }
+                                }
+                            } else {
+                                fileTabs.open(path: url.path, folder: folder, navigationURL: url)
+                            }
+                        }
                     )
                     .environment(editor)
                     .opacity(shown ? 1 : 0)
