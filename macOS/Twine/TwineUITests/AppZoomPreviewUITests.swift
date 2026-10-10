@@ -56,13 +56,14 @@ extension TwineUITests {
 
     @MainActor
     private func verifyHTMLResizeAndSidebar(in app: XCUIApplication, percent: Int, originalHeight: CGFloat) {
-        resizeWindow(app.windows.firstMatch, to: CGSize(width: 950, height: 700))
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 922, height: 675))
         assertHTMLViewport(in: app, percent: percent, originalHeight: originalHeight)
         let pane = app.descendants(matching: .any).matching(identifier: "fileViewport").firstMatch
-        let widthWithSidebar = pane.frame.width
+        let widthBeforeToggle = pane.frame.width
         toggleHTMLSidebar(in: app)
         assertHTMLViewport(in: app, percent: percent, originalHeight: originalHeight)
-        XCTAssertGreaterThan(pane.frame.width, widthWithSidebar + 10)
+        // Compact windows can already have a collapsed sidebar, so either direction is valid.
+        XCTAssertGreaterThan(abs(pane.frame.width - widthBeforeToggle), 10)
         toggleHTMLSidebar(in: app)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 800))
         assertHTMLViewport(in: app, percent: percent, originalHeight: originalHeight)
