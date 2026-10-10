@@ -75,9 +75,9 @@ extension TwineUITests {
         let text = app.textViews["fileText"]
         XCTAssertTrue(text.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(text.value as? String, original)
+        XCTAssertEqual(staticTextValue(app.staticTexts["fileSaveStatus"]), "Autosave")
+        XCTAssertFalse(app.buttons["saveMemoryFile"].exists)
         replaceMemoryText("# Saved memory\n\nUseful edited advice.\n", in: text)
-        XCTAssertEqual(try String(contentsOf: topic, encoding: .utf8), original)
-        app.buttons["saveMemoryFile"].click()
         waitForSave(in: app)
         XCTAssertEqual(try String(contentsOf: topic, encoding: .utf8), "# Saved memory\n\nUseful edited advice.\n")
         app.buttons["memoryEntry-outline"].click()
@@ -88,9 +88,9 @@ extension TwineUITests {
 
     @MainActor
     private func verifyMemoryConflict(in app: XCUIApplication, text: XCUIElement, file: URL) throws {
-        replaceMemoryText("# Pending edit\n", in: text)
         try "# Harness update\n".write(to: file, atomically: true, encoding: .utf8)
-        app.buttons["saveMemoryFile"].click()
+        replaceMemoryText("# Pending edit\n", in: text)
+        app.typeKey("s", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["File Changed on Disk"].waitForExistence(timeout: 5))
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "# Harness update\n")
         clickDialogButton("Reload", in: app)

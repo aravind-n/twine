@@ -12,7 +12,6 @@ final class FileEditorModel: Identifiable {
     let folder: String
     let isConfigFile: Bool
     private(set) var memoryRequest: CoreMemoryRequest?
-    var requiresExplicitSave: Bool { isConfigFile || memoryRequest != nil }
     private(set) var sourceRequestID: UUID?
     private(set) var baseline: FilePreview?
     private(set) var diskFile: FilePreview?
@@ -41,7 +40,7 @@ final class FileEditorModel: Identifiable {
         baseline?.version != nil && (isSaving ? text != (queuedSave?.text ?? pendingSave?.text) : isDirty)
     }
     var canAutosave: Bool {
-        autosaveSettings.autosave && !requiresExplicitSave && !isSaving && !autosavePaused
+        autosaveSettings.autosave && !isConfigFile && !isSaving && !autosavePaused
             && conflict == nil && failure == nil && canSave
     }
 

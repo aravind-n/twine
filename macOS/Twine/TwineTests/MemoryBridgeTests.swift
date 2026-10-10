@@ -6,7 +6,8 @@ import Testing
 
 @MainActor
 struct MemoryBridgeTests {
-    @Test func markdownEditorSavesThroughRealBridgeAndDetectsHarnessChanges() async throws {
+    @Test(arguments: [true, false])
+    func markdownEditorUsesAutosaveSettingsAndDetectsHarnessChanges(autosave: Bool) async throws {
         let fixture = FileManager.default.temporaryDirectory.appending(path: "TwineMemorySave-\(UUID())")
         defer { try? FileManager.default.removeItem(at: fixture) }
         let memory = fixture.appending(path: "home/.codex/memories/MEMORY.md")
@@ -21,11 +22,12 @@ struct MemoryBridgeTests {
         let editor = FileEditorModel(
             path: file.path, folder: memory.deletingLastPathComponent().path, memoryRequest: request)
         editor.receive(file)
+        editor.configureAutosave(.init(autosave: autosave))
         editor.text = "# Saved\n"
         await editor.autosave(after: .zero)
-        #expect(!editor.isSaving)
+        #expect(editor.isSaving == autosave)
         #expect(try String(contentsOf: memory, encoding: .utf8) == "# Original\n")
-        editor.requestSave()
+        if !autosave { editor.requestSave() }
         await editor.savePending(client: client)
         #expect(!editor.isDirty)
         #expect(try String(contentsOf: memory, encoding: .utf8) == "# Saved\n")
@@ -34,6 +36,7 @@ struct MemoryBridgeTests {
         editor.requestSave()
         await editor.savePending(client: client)
         #expect(editor.conflict?.text == "# Harness update\n")
+        #expect(editor.autosavePaused)
         #expect(editor.text == "# My draft\n")
         #expect(try String(contentsOf: memory, encoding: .utf8) == "# Harness update\n")
     }

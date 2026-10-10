@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 struct FileTabsTests {
-    @Test func memoriesAndFilesShareOneExplicitSaveBufferInBothDirections() async throws {
+    @Test func memoriesAndFilesShareOneAutosavingBufferInBothDirections() async throws {
         for memoryFirst in [true, false] {
             let tabs = FileTabsModel()
             let file = preview(path: "/folder/.claude/rules/topic.md", text: "original")
@@ -25,9 +25,9 @@ struct FileTabsTests {
             #expect(tabs.selected === first)
             #expect(tabs.editors.count == 1)
             #expect(first.text == "unsaved")
-            #expect(first.requiresExplicitSave)
+            #expect(first.canAutosave)
             await first.autosave(after: .zero)
-            #expect(!first.isSaving)
+            #expect(first.isSaving)
         }
     }
 
