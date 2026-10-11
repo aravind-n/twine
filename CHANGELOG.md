@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-11
+
 ### Changed
 
 - Memories open in file tabs with the app's standard Markdown preview and editor.
@@ -21,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep file and memory viewer controls accessible when switching tabs or using
+  narrow windows.
+- Keep memory previews current after refresh and preserve completed saves when an
+  older memory read finishes.
+- Hide the Overview/In Depth toggle when no traces are available.
 - Restore File → Save and ⌘S activation as workflow designs and session names become
   valid, without needing to move keyboard focus.
 
@@ -173,7 +180,8 @@ Initial release of Twine, a native macOS workspace for coordinating coding agent
 - The app is ad hoc signed and not notarized. Follow the included install instructions
   to approve the first launch in macOS Privacy & Security settings.
 
-[unreleased]: https://github.com/aravind-n/twine/compare/v0.2.4...HEAD
+[unreleased]: https://github.com/aravind-n/twine/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/aravind-n/twine/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/aravind-n/twine/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/aravind-n/twine/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/aravind-n/twine/compare/v0.2.1...v0.2.2

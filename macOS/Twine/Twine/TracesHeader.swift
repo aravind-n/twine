@@ -9,7 +9,7 @@ struct TracesHeader: View {
     var body: some View {
         HStack(spacing: 10) {
             titleButton
-            if isExpanded {
+            if isExpanded, (summary?.spanCount ?? 0) > 0 {
                 Picker("Trace view", selection: $viewMode) {
                     ForEach(TraceViewMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
                 }

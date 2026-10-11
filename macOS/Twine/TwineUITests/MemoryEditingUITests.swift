@@ -48,6 +48,22 @@ extension TwineUITests {
         XCTAssertEqual(staticTextValue(app.staticTexts["fileSaveStatus"]), "Read-only")
         XCTAssertEqual(try Data(contentsOf: file), original)
         attachScreenshot(of: app, named: "SQLite extraction remains read-only")
+        verifyCompactStoreStatus(in: app)
+    }
+
+    @MainActor
+    private func verifyCompactStoreStatus(in app: XCUIApplication) {
+        app.popUpButtons["memoryKind"].click()
+        app.menuItems["Store status"].click()
+        openMemorySource("extraction records", in: app)
+        XCTAssertTrue(app.textViews["fileText"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.radioButtons["Preview"].exists)
+        sidebarToggle(in: app).click()
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 520, height: 620))
+        XCTAssertEqual(staticTextValue(app.staticTexts["fileSaveStatus"]), "Read-only")
+        XCTAssertTrue(app.buttons["memorySourceInfo"].isHittable)
+        app.buttons["memorySourceInfo"].click()
+        XCTAssertTrue(app.staticTexts["Read-only source"].waitForExistence(timeout: 3))
     }
 
     @MainActor
@@ -77,9 +93,9 @@ extension TwineUITests {
         XCTAssertTrue(app.staticTexts["Linked memory"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["name: hidden metadata"].exists)
         attachScreenshot(of: app, named: claude ? "Claude rendered memory" : "Codex rendered memory")
-        XCTAssertTrue(app.buttons["fileTab-\(topic.path)"].exists)
+        XCTAssertTrue(fileTab(topic, in: app).exists)
         XCTAssertTrue(
-            app.buttons["fileTab-\(topic.deletingLastPathComponent().appending(path: "MEMORY.md").path)"].exists)
+            fileTab(topic.deletingLastPathComponent().appending(path: "MEMORY.md"), in: app).exists)
         XCTAssertFalse(app.buttons["editMemoryMarkdown"].exists)
         app.radioButtons["Source"].click()
         let text = app.textViews["fileText"]

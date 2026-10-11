@@ -17,10 +17,7 @@ struct MemoryLoading: ViewModifier {
                     request.folder == folder
                 else { return }
                 do {
-                    let read = try await client.memoryRead(request)
-                    guard !Task.isCancelled, tabs.editors.contains(where: { $0 === editor }) else { return }
-                    editor.useMemorySource(request, source: read.source)
-                    editor.receive(read.preview)
+                    try await tabs.refreshMemory(editor, client: client)
                 } catch {
                     guard !Task.isCancelled, tabs.selected === editor else { return }
                     model.openFailure = error.localizedDescription

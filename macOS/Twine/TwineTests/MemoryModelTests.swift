@@ -42,6 +42,51 @@ struct MemoryModelTests {
         #expect(tabs.selected === existing)
     }
 
+    @Test(arguments: ["refresh", "open", "link"])
+    func memoryReadsCannotReplaceACompletedSave(action: String) async throws {
+        let transport = DeferredMemoryTransport()
+        let client = CoreClient(transport: transport)
+        let tabs = FileTabsModel()
+        let source = memorySource(id: "saved.md")
+        let request = CoreMemoryRequest(folder: "/folder", sourceID: source.id)
+        let old = FilePreview(
+            path: source.location, status: .text, text: "Before save", message: nil,
+            version: .init(fingerprint: "old", utf8BOM: false))
+        let read = CoreMemoryRead(source: source, text: old.text, message: nil, file: old)
+        tabs.openMemory(read, request: request)
+        let editor = try #require(tabs.selected)
+        let pending = Task {
+            switch action {
+            case "refresh": try await tabs.refreshMemory(editor, client: client)
+            case "link":
+                try await tabs.openMemoryLink(URL(filePath: source.location), request: request, client: client)
+            default: try await tabs.openMemory(request: request, client: client)
+            }
+        }
+        if action == "link" {
+            try await transport.waitForCatalogs(1)
+            await transport.completeCatalog(0, result: .success(.init(sources: [source], diagnostics: [])))
+        }
+        try await transport.waitForReads(1)
+        editor.text = "Saved changes"
+        let saved = FilePreview(
+            path: source.location, status: .text, text: editor.text, message: nil,
+            version: .init(fingerprint: "saved", utf8BOM: false))
+        await transport.setSaveResult(.init(status: .saved, file: saved, message: nil))
+        editor.requestSave()
+        await editor.savePending(client: client)
+        let loadID = editor.loadID
+        #expect(!editor.isDirty && !editor.isSaving)
+        await transport.completeRead(0, result: .success(read))
+        try await pending.value
+        #expect(editor.text == saved.text)
+        #expect(editor.baseline == saved)
+        #expect(editor.diskFile == saved)
+        #expect(editor.loadID == loadID)
+        #expect(tabs.selected === editor)
+        #expect(tabs.editors.count == 1)
+    }
+
     @Test func pendingMemoryReadsCannotStealSelectionAndNewestClickWins() async throws {
         for switchToWorkflows in [true, false] {
             let transport = DeferredMemoryTransport()

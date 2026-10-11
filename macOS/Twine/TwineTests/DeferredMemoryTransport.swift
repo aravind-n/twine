@@ -4,6 +4,7 @@ import Foundation
 
 actor DeferredMemoryTransport: CoreTransport {
     private var catalogs: [CheckedContinuation<CoreMemoryCatalog, any Error>] = []
+    private var saveResult: FileSaveResult?
     private var reads: [CheckedContinuation<CoreMemoryRead, any Error>] = []
 
     func memoryCatalog(_ request: CoreMemoryRequest) async throws -> CoreMemoryCatalog {
@@ -11,6 +12,11 @@ actor DeferredMemoryTransport: CoreTransport {
     }
     func memoryRead(_ request: CoreMemoryRequest) async throws -> CoreMemoryRead {
         try await withCheckedThrowingContinuation { reads.append($0) }
+    }
+    func setSaveResult(_ result: FileSaveResult) { saveResult = result }
+    func memorySave(_ request: CoreMemorySaveRequest) async throws -> FileSaveResult {
+        guard let saveResult else { throw CoreFailure.unexpectedCommandResult }
+        return saveResult
     }
     func completeCatalog(_ index: Int, result: Result<CoreMemoryCatalog, any Error>) {
         catalogs[index].resume(with: result)

@@ -31,44 +31,28 @@ struct FileViewer: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "doc.text").foregroundStyle(.secondary)
-                Text(
-                    editor.memorySource?.title
-                        ?? (path.hasPrefix(folder + "/") ? String(path.dropFirst(folder.count + 1)) : path)
-                )
-                .font(.caption).lineLimit(1).truncationMode(.middle).help(path)
-                Spacer(minLength: 0)
-                if current?.status == .text, !showsPreview {
-                    syntaxMenu
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    fileTitle
+                    Spacer(minLength: 0)
+                    syntaxControls
+                    displayControls
+                    saveControls
                 }
-                if let format = previewFormat {
-                    Picker("\(format.name) display", selection: $mode) {
-                        Text("Preview").tag(Mode.preview)
-                        Text("Source").tag(Mode.source)
+                VStack(alignment: .leading, spacing: 8) {
+                    fileTitle
+                    if previewFormat != nil || editor.memorySource != nil {
+                        HStack(spacing: 10) {
+                            displayControls
+                            Spacer(minLength: 0)
+                        }
                     }
-                    .pickerStyle(.segmented).fixedSize().controlSize(.small)
-                    .help("Preview shows the saved file. Source lets you view and edit its \(format.name).")
-                    .accessibilityIdentifier("\(format.accessibilityPrefix)DisplayMode")
+                    HStack(spacing: 10) {
+                        syntaxControls
+                        saveControls
+                        Spacer(minLength: 0)
+                    }
                 }
-                if let source = editor.memorySource {
-                    MemorySourceInfo(
-                        source: source, lineCount: editor.text.components(separatedBy: "\n").count,
-                        canEdit: editor.isEditable)
-                }
-                if editor.isDirty { Text("Edited").sectionLabelStyle().accessibilityIdentifier("fileEdited") }
-                if current?.status == .text {
-                    Text(saveStatus).font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("fileSaveStatus")
-                        .accessibilityLabel(saveStatus)
-                        .help("Press ⌘S to save immediately. Configure autosave and its delay in Settings.")
-                }
-                Button("Go to Line…") { showsGoToLine = true }
-                    .font(.caption)
-                    .keyboardShortcut("l", modifiers: .command)
-                    .disabled(current?.status != .text || showsPreview)
-                    .accessibilityIdentifier("goToLine")
-                    .popover(isPresented: $showsGoToLine) { goToLineForm.appZoom() }
             }
             .padding(14)
             Divider()
@@ -110,6 +94,7 @@ struct FileViewer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
         .clipShape(.rect(cornerRadius: CornerRadius.panel))
+        .accessibilityElement(children: .contain)
         .onChange(of: editor.navigationID) { mode = .preview }
         .onChange(of: editorSettings, initial: true) { editor.configureAutosave(editorSettings) }
         .task(id: editor.autosaveID) { await editor.autosave() }
@@ -138,6 +123,56 @@ struct FileViewer: View {
         } message: {
             Text(editor.failure ?? "")
         }
+    }
+
+    private var fileTitle: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "doc.text").foregroundStyle(.secondary)
+            Text(
+                editor.memorySource?.title
+                    ?? (path.hasPrefix(folder + "/") ? String(path.dropFirst(folder.count + 1)) : path)
+            )
+            .font(.caption).lineLimit(1).truncationMode(.middle).help(path)
+        }
+    }
+
+    @ViewBuilder private var syntaxControls: some View {
+        if current?.status == .text, !showsPreview {
+            syntaxMenu
+        }
+    }
+
+    @ViewBuilder private var displayControls: some View {
+        if let format = previewFormat {
+            Picker("\(format.name) display", selection: $mode) {
+                Text("Preview").tag(Mode.preview)
+                Text("Source").tag(Mode.source)
+            }
+            .pickerStyle(.segmented).fixedSize().controlSize(.small)
+            .help("Preview shows the saved file. Source lets you view and edit its \(format.name).")
+            .accessibilityIdentifier("\(format.accessibilityPrefix)DisplayMode")
+        }
+        if let source = editor.memorySource {
+            MemorySourceInfo(
+                source: source, lineCount: editor.text.components(separatedBy: "\n").count,
+                canEdit: editor.isEditable)
+        }
+    }
+
+    @ViewBuilder private var saveControls: some View {
+        if editor.isDirty { Text("Edited").sectionLabelStyle().accessibilityIdentifier("fileEdited") }
+        if current?.status == .text {
+            Text(saveStatus).font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("fileSaveStatus")
+                .accessibilityLabel(saveStatus)
+                .help("Press ⌘S to save immediately. Configure autosave and its delay in Settings.")
+        }
+        Button("Go to Line…") { showsGoToLine = true }
+            .font(.caption)
+            .keyboardShortcut("l", modifiers: .command)
+            .disabled(current?.status != .text || showsPreview)
+            .accessibilityIdentifier("goToLine")
+            .popover(isPresented: $showsGoToLine) { goToLineForm.appZoom() }
     }
 
     @ViewBuilder private func content(_ preview: FilePreview) -> some View {

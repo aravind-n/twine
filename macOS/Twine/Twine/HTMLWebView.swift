@@ -59,11 +59,15 @@ struct HTMLWebView: NSViewRepresentable {
         coordinator.isVisible = isVisible
         host.focusesOnShow = focusesOnShow
         host.setVisible(isVisible)
-        guard !coordinator.hasLoaded || coordinator.version != version || coordinator.location != location else {
+        guard
+            !coordinator.hasLoaded || coordinator.version != version || coordinator.location != location
+                || coordinator.generatedHTML != html
+        else {
             return
         }
         coordinator.hasLoaded = true
         coordinator.version = version
+        coordinator.generatedHTML = html
         coordinator.location = location
         if let html {
             coordinator.loadGenerated(html, in: view)
@@ -86,6 +90,7 @@ struct HTMLWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         var location: HTMLPreviewLocation
         var version: FileVersion?
+        var generatedHTML: String?
         var hasLoaded = false
         var isActive = true
         var isVisible = true

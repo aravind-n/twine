@@ -62,6 +62,8 @@ extension TwineUITests {
         app.buttons["memoryScope-folder"].click()
         XCTAssertTrue(app.popUpButtons["memoryHarness"].value as? String == "Claude Code")
         openMemorySource("MEMORY.md", in: app)
+        attachScreenshot(of: app, named: "Reopened memory source controls")
+        XCTAssertTrue(app.radioButtons["Source"].isHittable, app.debugDescription)
         app.radioButtons["Source"].click()
         waitForMemory("Claude folder auto-memory index", in: contents)
         app.popUpButtons["memoryKind"].click()
