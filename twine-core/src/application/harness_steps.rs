@@ -26,6 +26,7 @@ struct AssignmentTurns {
     order: VecDeque<String>,
     active: HashMap<String, crate::TraceSpanId>,
     completed: HashSet<String>,
+    received_at: HashMap<String, Instant>,
     unidentified: bool,
 }
 
@@ -283,6 +284,10 @@ impl Application {
                 inner.publish_trace(workflow)?;
             }
         }
+        let submission_snapshot_at = Instant::now();
+        let Some(submissions) = self.graph_submissions()? else {
+            return Ok(());
+        };
         let mut recordings = self
             .harness_steps
             .lock()
@@ -311,6 +316,19 @@ impl Application {
             recording.capture_session(inner.folders.store(), terminal_id)?;
             while let Some(index) = recording.next_ready(inner.folders.store(), terminal_id)? {
                 let item = &recording.pending[index];
+                // A write can arm its submission after the routing snapshot. Keep its hook
+                // pending until the next snapshot rather than consume it as an old prompt.
+                if !recording.single_agent
+                    && item.step.kind == StepKind::Prompt
+                    && item.received_at > submission_snapshot_at
+                {
+                    break;
+                }
+                let fresh_turn = item
+                    .step
+                    .turn_id
+                    .as_ref()
+                    .is_some_and(|turn| !recording.turns.spans.contains_key(turn));
                 if item.step.kind == StepKind::SessionStarted {
                     recording.acknowledge(index);
                     continue;
@@ -367,20 +385,6 @@ impl Application {
                                 }
                             }
                         }
-                        if !recording.single_agent
-                            && item.step.kind == StepKind::Prompt
-                            && let (Some(turn), Some(span)) = (&item.step.turn_id, span)
-                            && !recording.turns.spans.contains_key(turn)
-                        {
-                            if recording.turns.order.len() == 256
-                                && let Some(oldest) = recording.turns.order.pop_front()
-                            {
-                                recording.turns.spans.remove(&oldest);
-                                recording.turns.completed.remove(&oldest);
-                            }
-                            recording.turns.order.push_back(turn.clone());
-                            recording.turns.spans.insert(turn.clone(), span);
-                        }
                         if !recording.active && span.is_some() {
                             if recording.single_agent {
                                 inner.trace_spans.remove(&terminal_id);
@@ -392,6 +396,73 @@ impl Application {
                         }
                         if recording.single_agent {
                             inner.track_harness_step(terminal_id, &item.step, span)?;
+                        }
+                        if item.step.kind == StepKind::Prompt
+                            && !recording.single_agent
+                            && fresh_turn
+                            && span.is_some_and(|span| {
+                                inner.trace_spans.get(&terminal_id) == Some(&span)
+                            })
+                            && inner.workflows.workflows.iter().any(|workflow| {
+                                workflow.workflow_id == recording.workflow_id
+                                    && workflow.run.as_ref().is_some_and(|run| {
+                                        run.status == crate::RunStatus::Running
+                                            && run
+                                                .graph
+                                                .as_ref()
+                                                .is_some_and(|graph| !graph.started)
+                                            && workflow.agents.iter().any(|agent| {
+                                                agent.terminal_id == terminal_id
+                                                    && submissions
+                                                        .get(&(
+                                                            workflow.workflow_id,
+                                                            agent.agent_id,
+                                                        ))
+                                                        .is_some_and(|(generation, since)| {
+                                                            *generation
+                                                                == run.assignment_generation(
+                                                                    agent.agent_id.0,
+                                                                )
+                                                                && item.received_at >= *since
+                                                        })
+                                            })
+                                    })
+                            })
+                        {
+                            match item.step.workflow_prompt() {
+                                Ok(Some(prompt)) => {
+                                    inner.adopt_graph_prompt(
+                                        recording.workflow_id,
+                                        terminal_id,
+                                        prompt,
+                                    )?;
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    tracing::warn!(%error, "couldn't read the graph's first native prompt");
+                                }
+                            }
+                        }
+                        // Mark a turn recorded only after its task state is durable. A failed
+                        // save leaves this hook eligible for adoption when polling retries it.
+                        if !recording.single_agent
+                            && item.step.kind == StepKind::Prompt
+                            && let (Some(turn), Some(span)) = (&item.step.turn_id, span)
+                            && !recording.turns.spans.contains_key(turn)
+                        {
+                            if recording.turns.order.len() == 256
+                                && let Some(oldest) = recording.turns.order.pop_front()
+                            {
+                                recording.turns.spans.remove(&oldest);
+                                recording.turns.completed.remove(&oldest);
+                                recording.turns.received_at.remove(&oldest);
+                            }
+                            recording.turns.order.push_back(turn.clone());
+                            recording.turns.spans.insert(turn.clone(), span);
+                            recording
+                                .turns
+                                .received_at
+                                .insert(turn.clone(), item.received_at);
                         }
                         recording.acknowledge(index);
                         if let Err(error) = inner.publish_trace(recording.workflow_id) {
@@ -425,7 +496,19 @@ impl Application {
                     && inner.trace_spans.get(&terminal_id).is_some_and(|current| {
                         recording.turns.active.values().all(|span| span == current)
                     });
-                activations.push((workflow.workflow_id, agent.agent_id, run.generation, ready));
+                activations.push((
+                    workflow.workflow_id,
+                    agent.agent_id,
+                    run.assignment_generation(agent.agent_id.0),
+                    ready,
+                    recording
+                        .turns
+                        .active
+                        .keys()
+                        .filter_map(|turn| recording.turns.received_at.get(turn))
+                        .min()
+                        .copied(),
+                ));
             }
             // A full deferred batch can leave already-received steps in the inbox. Drain them
             // before retirement; the next poll persists this bounded batch.
@@ -474,8 +557,8 @@ impl Application {
                 .map_err(|_| ApplicationError::Poisoned)?
                 .request(request);
         }
-        for (workflow, agent, generation, ready) in activations {
-            self.activate_workflow_completion(workflow, agent, generation, ready)?;
+        for (workflow, agent, generation, ready, received_at) in activations {
+            self.activate_workflow_completion(workflow, agent, generation, ready, received_at)?;
         }
         Ok(())
     }
@@ -550,7 +633,27 @@ mod tests {
         let binary = bin.join("claude");
         std::fs::write(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{args_file}'\nprintf '%s\\n' \"$CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN\" > '{args_file}.renderer'\nprintf 'READY\\n'\nwhile read line; do printf 'OUTPUT:%s\\n' \"$line\"; done\n")).unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
-        std::fs::copy(&binary, bin.join("codex")).unwrap();
+        std::fs::write(
+            bin.join("codex"),
+            format!(
+                r#"#!/bin/sh
+if [ "$1" = app-server ]; then
+  read init
+  printf '%s\n' '{{"id":1,"result":{{}}}}'
+  read initialized
+  read config
+  printf '%s\n' '{{"id":2,"result":{{"config":{{"developer_instructions":null}}}}}}'
+  read end
+  exit
+fi
+exec '{}' "$@"
+"#,
+                binary.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(bin.join("codex"), std::fs::Permissions::from_mode(0o700))
+            .unwrap();
         std::fs::copy(&binary, bin.join("pi")).unwrap();
         std::fs::copy(&binary, bin.join("agy")).unwrap();
         app.harness_path = Some(OsString::from(format!("{}:/usr/bin:/bin", bin.display())));
@@ -589,14 +692,106 @@ mod tests {
             .unwrap()
     }
 
+    #[test]
+    fn native_graph_prompt_requires_submission_and_retries_a_failed_save() {
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let mut app = Application::with_event_capacity(4096).unwrap();
+        let id = setup(&mut app, folder.path(), bin.path());
+        let mut definition = BuiltinType::Adversarial.definition();
+        let graph = definition.graph.as_mut().unwrap();
+        graph.edges.clear();
+        graph.review_agents.clear();
+        let reference =
+            crate::workflow_type::WorkflowCatalog::new(app.lock_inner().unwrap().folders.store())
+                .create(&definition)
+                .unwrap();
+        accepted(
+            &app,
+            Command::StartWorkflowRun {
+                workflow_id: id,
+                workflow_type: reference,
+                prompt: String::new(),
+                roles: definition
+                    .roles
+                    .iter()
+                    .map(|role| RoleLaunch {
+                        role: role.id.0.clone(),
+                        harness: HarnessId::ClaudeCode,
+                        model: None,
+                        effort: None,
+                        yolo: false,
+                    })
+                    .collect(),
+                size: SIZE,
+            },
+        );
+        let terminal = workflow(&app, id).agents[0].terminal_id;
+        wait_for_output(&app, terminal, b"READY");
+        let old =
+            json!({"hook_event_name":"UserPromptSubmit","prompt_id":"old","prompt":"Old task"});
+        send_hook(&app, terminal, &old);
+        assert!(workflow(&app, id).run.unwrap().needs_task());
+        app.write_terminal_input(terminal, b"Fresh task\r").unwrap();
+        send_hook(&app, terminal, &old);
+        assert!(workflow(&app, id).run.unwrap().needs_task());
+        app.lock_inner().unwrap().folders.store().execute_test_sql(
+            "CREATE TRIGGER reject_adoption BEFORE UPDATE ON workflow_runs BEGIN SELECT RAISE(FAIL, 'temporary task save failure'); END;");
+        dispatch_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit","prompt_id":"fresh","prompt":"Fresh task"}),
+        );
+        assert!(app.poll_harness_steps().is_err());
+        assert!(
+            app.lock_inner().unwrap().workflows.workflows[0]
+                .run
+                .as_ref()
+                .unwrap()
+                .needs_task()
+        );
+        app.lock_inner()
+            .unwrap()
+            .folders
+            .store()
+            .execute_test_sql("DROP TRIGGER reject_adoption");
+        app.poll_harness_steps().unwrap();
+        app.poll_workflow_signals().unwrap();
+        let started = workflow(&app, id);
+        let run = started.run.as_ref().unwrap();
+        assert_eq!(run.prompt, "Fresh task");
+        assert_eq!(run.incoming.len(), 2);
+        assert_eq!(
+            run.traces
+                .iter()
+                .filter(|trace| trace.kind == "taskSubmitted")
+                .count(),
+            1
+        );
+        send_hook(
+            &app,
+            terminal,
+            &json!({"hook_event_name":"UserPromptSubmit","prompt_id":"fresh","prompt":"Wrong replay"}),
+        );
+        assert_eq!(workflow(&app, id).run.unwrap().prompt, "Fresh task");
+        accepted(&app, Command::CancelWorkflowRun { workflow_id: id });
+    }
+
     fn start_adversarial(app: &Application, id: WorkflowId) {
         start_adversarial_with_harness(app, id, HarnessId::ClaudeCode);
     }
 
     fn start_adversarial_with_harness(app: &Application, id: WorkflowId, harness: HarnessId) {
         let builtin = BuiltinType::Adversarial;
-        let roles = builtin
-            .definition()
+        let definition = builtin.legacy_definition();
+        let type_id = app
+            .lock_inner()
+            .unwrap()
+            .folders
+            .store()
+            .create_workflow_type(&toml::to_string(&definition).unwrap(), 0)
+            .unwrap();
+        let roles = definition
             .roles
             .iter()
             .flat_map(|role| {
@@ -613,7 +808,10 @@ mod tests {
             app,
             Command::StartWorkflowRun {
                 workflow_id: id,
-                workflow_type: WorkflowTypeRef::Builtin(builtin),
+                workflow_type: WorkflowTypeRef::User {
+                    type_id,
+                    version: 1,
+                },
                 prompt: "Implement then review".into(),
                 roles,
                 size: SIZE,

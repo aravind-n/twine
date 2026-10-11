@@ -45,10 +45,10 @@ private struct WorkflowEndpointEditor: View {
                 Text("Choose a stage").tag("")
                 ForEach(definition.stages) { Text($0.name).tag($0.id) }
             }
-            Picker("\(title) role", selection: $endpoint.role) {
-                Text("Choose a role").tag("")
+            Picker("\(title) agent", selection: $endpoint.role) {
+                Text("Choose an agent").tag("")
                 if !endpoint.role.isEmpty && !roles.contains(where: { $0.id == endpoint.role }) {
-                    Text("Role no longer in stage").tag(endpoint.role)
+                    Text("Agent no longer in stage").tag(endpoint.role)
                 }
                 ForEach(roles) { role in
                     Label(role.name, systemImage: RoleStyle(role: role.name).symbol)

@@ -35,9 +35,8 @@ struct WorkflowRunTests {
             let types = try #require(snapshot.workflowTypes)
             #expect(types.map(\.definition.name) == ["Adversarial", "Coordinator"])
             let coordinator = try #require(types.first { $0.reference.builtin == "coordinator" })
-            let role = try #require(coordinator.definition.roles.first { $0.id == "worker" })
-            #expect(role.instances.min == 2)
-            #expect(role.instances.max >= role.instances.min)
+            #expect(coordinator.definition.roles.map(\.id) == ["planner", "worker-1", "worker-2", "coordinator"])
+            #expect(coordinator.definition.roles.allSatisfy { $0.instances.min == 1 && $0.instances.max == 1 })
             await worker.close()
             try FileManager.default.removeItem(at: directory)
         } catch {

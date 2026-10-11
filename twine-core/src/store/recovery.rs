@@ -90,7 +90,7 @@ mod tests {
         let mut run = WorkflowRun::new(
             WorkflowType {
                 reference: WorkflowTypeRef::Builtin(BuiltinType::Adversarial),
-                definition: BuiltinType::Adversarial.definition(),
+                definition: BuiltinType::Adversarial.legacy_definition(),
             },
             "Task".into(),
             &[

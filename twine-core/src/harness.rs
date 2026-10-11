@@ -20,6 +20,7 @@ pub(crate) mod antigravity;
 pub(crate) mod claude;
 pub(crate) mod codex;
 pub(crate) mod history;
+pub(crate) mod instructions;
 pub(crate) mod launch;
 pub(crate) mod models;
 pub(crate) mod opencode;

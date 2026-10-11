@@ -49,11 +49,12 @@ extension TwineUITests {
         app.typeKey("t", modifierFlags: .command)
         XCTAssertTrue(app.buttons["workflowTab-2"].waitForExistence(timeout: 5))
         for _ in 0..<5 { app.typeKey("=", modifierFlags: .command) }
-        app.typeKey("n", modifierFlags: [.command, .option])
+        app.menuBars.menuBarItems["File"].click()
+        app.menuItems["New workflow graph…"].click()
         let name = app.textFields["designerName"]
         XCTAssertTrue(name.waitForExistence(timeout: 5))
         XCTAssertTrue(name.isHittable)
-        let cancel = app.buttons["Cancel"]
+        let cancel = app.buttons["Back"]
         XCTAssertTrue(cancel.isHittable)
         name.typeText("Zoomed workflow")
         XCTAssertEqual(name.value as? String, "Zoomed workflow")

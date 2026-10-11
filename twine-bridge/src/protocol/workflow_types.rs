@@ -7,7 +7,16 @@ use crate::error::BridgeError;
 #[derive(Deserialize)]
 struct RawDefinition {
     source: Option<WorkflowTypeRef>,
+    #[serde(rename = "expectedDefinition")]
+    expected_definition: Option<WorkflowTypeDefinition>,
     definition: WorkflowTypeDefinition,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawDeletion {
+    reference: WorkflowTypeRef,
+    expected_definition: WorkflowTypeDefinition,
 }
 
 #[derive(Serialize)]
@@ -26,6 +35,14 @@ impl From<&ValidationIssue> for WireValidationIssue {
 }
 
 pub(super) fn decode_command(kind: &str, raw: &Value) -> Result<Command, BridgeError> {
+    if kind == "deleteWorkflowType" {
+        let raw: RawDeletion =
+            serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
+        return Ok(Command::DeleteWorkflowType {
+            reference: raw.reference,
+            expected_definition: Box::new(raw.expected_definition),
+        });
+    }
     let raw: RawDefinition =
         serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
     match kind {
@@ -34,6 +51,7 @@ pub(super) fn decode_command(kind: &str, raw: &Value) -> Result<Command, BridgeE
         }),
         "saveWorkflowType" => Ok(Command::SaveWorkflowType {
             source: raw.source,
+            expected_definition: raw.expected_definition.map(Box::new),
             definition: raw.definition,
         }),
         _ => Err(BridgeError::MalformedCommand),
@@ -57,12 +75,37 @@ mod tests {
             decode_command("saveWorkflowType", &raw).unwrap(),
             Command::SaveWorkflowType {
                 source: Some(source),
+                expected_definition: None,
                 definition: definition.clone()
             }
         );
         assert_eq!(
             decode_command("validateWorkflowType", &raw).unwrap(),
             Command::ValidateWorkflowType { definition }
+        );
+    }
+
+    #[test]
+    fn deletion_requires_the_confirmed_reference_and_definition() {
+        let reference = WorkflowTypeRef::User {
+            type_id: 4,
+            version: 2,
+        };
+        let definition = BuiltinType::Adversarial.definition();
+        let raw = serde_json::json!({"reference": reference, "expectedDefinition": definition});
+        assert_eq!(
+            decode_command("deleteWorkflowType", &raw).unwrap(),
+            Command::DeleteWorkflowType {
+                reference,
+                expected_definition: Box::new(definition),
+            }
+        );
+        assert!(
+            decode_command(
+                "deleteWorkflowType",
+                &serde_json::json!({"reference": reference})
+            )
+            .is_err()
         );
     }
 

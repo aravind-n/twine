@@ -1,0 +1,89 @@
+# A Coordinator variant that the current graph editor can express.
+# Both workers receive the same numbered plan and select their own part.
+# This is not equivalent to the built-in Coordinator: graph links cannot route
+# structured tasks and file lists to individual workers or validate ownership.
+# The same Coordinator agent splits the work and then gathers the results.
+# Publish the plan with Piece ready, then send Done to release the Coordinator.
+# Finish waits while workers run. All inputs starts the Coordinator again only
+# after both workers send Done. The final turn sends Done without another plan.
+# Each worker is a separate agent. Duplicate a worker in the editor to add another.
+schema_version = 1
+id = 202610100002
+version = 1
+
+[definition]
+name = "Coordinator (shared plan)"
+description = "One coordinator sends a shared plan to two workers, then checks both results. Separate worker assignments are not supported."
+
+[[definition.roles]]
+id = "coordinator"
+name = "Coordinator"
+color = "purple"
+instructions = "On the first task, split the work into two parts. Write one numbered plan for Worker 1 and Worker 2. Give each part a task and a file list. Keep the file lists separate. Send the plan once with Piece ready. Then send Done to release your turn. When both worker results arrive, check and combine them. Send the final result with Done. Do not send the plan again."
+instances = { min = 1, max = 1 }
+
+[[definition.roles]]
+id = "worker-1"
+name = "Worker 1"
+color = "teal"
+instructions = "Read the shared plan. Select the part with your agent name: Worker 1 or Worker 2. Complete that part. Change only the files listed for your part. Send the result with Done."
+instances = { min = 1, max = 1 }
+
+[[definition.roles]]
+id = "worker-2"
+name = "Worker 2"
+color = "teal"
+instructions = "Read the shared plan. Select the part with your agent name: Worker 1 or Worker 2. Complete that part. Change only the files listed for your part. Send the result with Done."
+instances = { min = 1, max = 1 }
+
+[definition.graph]
+finish = "all"
+max_activations = 32
+
+[definition.graph.receive]
+coordinator = "all"
+worker-1 = "any"
+worker-2 = "any"
+
+[definition.graph.positions]
+task = { x = 140, y = 280 }
+coordinator = { x = 440, y = 280 }
+worker-1 = { x = 730, y = 230 }
+worker-2 = { x = 730, y = 430 }
+finish = { x = 730, y = 140 }
+
+[[definition.graph.edges]]
+id = "task-coordinator"
+from = "task"
+to = "coordinator"
+event = "task"
+
+[[definition.graph.edges]]
+id = "coordinator-worker-1"
+from = "coordinator"
+to = "worker-1"
+event = "piece_ready"
+
+[[definition.graph.edges]]
+id = "coordinator-worker-2"
+from = "coordinator"
+to = "worker-2"
+event = "piece_ready"
+
+[[definition.graph.edges]]
+id = "worker-1-coordinator"
+from = "worker-1"
+to = "coordinator"
+event = "done"
+
+[[definition.graph.edges]]
+id = "worker-2-coordinator"
+from = "worker-2"
+to = "coordinator"
+event = "done"
+
+[[definition.graph.edges]]
+id = "coordinator-finish"
+from = "coordinator"
+to = "finish"
+event = "done"

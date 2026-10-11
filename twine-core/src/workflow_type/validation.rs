@@ -15,6 +15,8 @@ pub enum ElementPath {
     Name,
     Roles,
     Stages,
+    Graph,
+    Edge(usize),
     Role(usize),
     Stage(usize),
     Handoff(usize),
@@ -27,6 +29,8 @@ impl fmt::Display for ElementPath {
             Self::Name => formatter.write_str("name"),
             Self::Roles => formatter.write_str("roles"),
             Self::Stages => formatter.write_str("stages"),
+            Self::Graph => formatter.write_str("graph"),
+            Self::Edge(index) => write!(formatter, "graph.edges[{index}]"),
             Self::Role(index) => write!(formatter, "roles[{index}]"),
             Self::Stage(index) => write!(formatter, "stages[{index}]"),
             Self::Handoff(index) => write!(formatter, "handoffs[{index}]"),
@@ -44,11 +48,15 @@ pub struct ValidationIssue {
 
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum ValidationProblem {
+    #[error("{0}")]
+    Graph(String),
     #[error("needs a name")]
     MissingName,
     #[error("name must be a single line")]
     MultilineName,
-    #[error("needs at least one role")]
+    #[error("name must produce a valid file name")]
+    InvalidFileName,
+    #[error("needs at least one agent")]
     NoRoles,
     #[error("needs at least one stage")]
     NoStages,
@@ -56,29 +64,31 @@ pub enum ValidationProblem {
     MissingId,
     #[error("ID is already used")]
     DuplicateId,
+    #[error("default agent settings need a valid model and effort")]
+    InvalidAgentDefaults,
     #[error("needs instructions")]
     MissingInstructions,
     #[error("instance count {min}–{max} must be between 1 and {MAX_PARALLEL_AGENTS}")]
     InvalidInstanceCount { min: u8, max: u8 },
-    #[error("role isn't used by any stage")]
+    #[error("agent isn't used by any stage")]
     UnusedRole,
-    #[error("needs at least one role")]
+    #[error("needs at least one agent")]
     EmptyStage,
-    #[error("role `{0}` doesn't exist")]
+    #[error("agent `{0}` doesn't exist")]
     UnknownRole(RoleId),
     #[error("stage `{0}` doesn't exist")]
     UnknownStage(StageId),
-    #[error("role `{0}` appears more than once")]
+    #[error("agent `{0}` appears more than once")]
     RepeatedRole(RoleId),
     #[error("runs up to {count} agents at once; the limit is {MAX_PARALLEL_AGENTS}")]
     TooManyAgents { count: usize },
-    #[error("role `{role}` doesn't run in stage `{stage}`")]
+    #[error("agent `{role}` doesn't run in stage `{stage}`")]
     RoleNotInStage { role: RoleId, stage: StageId },
     #[error("reviewer `{0}` must be a single agent")]
     ReviewerNotSingle(RoleId),
     #[error("a review stage needs a review loop")]
     ReviewWithoutLoop,
-    #[error("role `{0}` receives no handoff from the previous stage")]
+    #[error("agent `{0}` receives no handoff from the previous stage")]
     MissingHandoff(RoleId),
     #[error("must go to the next stage")]
     HandoffNotForward,
@@ -112,13 +122,45 @@ pub fn validate(definition: &WorkflowTypeDefinition) -> Result<(), Vec<Validatio
     };
     validator.check_name();
     validator.check_roles();
-    validator.check_stages();
-    let loops = validator.check_review_loops();
-    validator.check_handoffs(&loops);
+    if definition.graph.is_some() {
+        super::graph::validate_graph(definition, &mut validator.issues);
+    } else {
+        validator.check_stages();
+        let loops = validator.check_review_loops();
+        validator.check_handoffs(&loops);
+    }
     if validator.issues.is_empty() {
         Ok(())
     } else {
         Err(validator.issues)
+    }
+}
+
+/// New and edited workflows use graphs; ordered definitions remain readable for saved runs.
+pub(crate) fn validate_editable(
+    definition: &WorkflowTypeDefinition,
+) -> Result<(), Vec<ValidationIssue>> {
+    let mut issues = validate(definition).err().unwrap_or_default();
+    if !definition.name.trim().is_empty() && super::files::filename_stem(&definition.name).is_none()
+    {
+        issues.push(ValidationIssue {
+            element: ElementPath::Name,
+            problem: ValidationProblem::InvalidFileName,
+        });
+    }
+    if definition.graph.is_none() {
+        issues.push(ValidationIssue {
+            element: ElementPath::Graph,
+            problem: ValidationProblem::Graph(
+                "Stage definitions are read only. Convert this workflow to a graph before saving."
+                    .to_owned(),
+            ),
+        });
+    }
+    if issues.is_empty() {
+        Ok(())
+    } else {
+        Err(issues)
     }
 }
 
@@ -145,9 +187,7 @@ impl Validator<'_> {
 
     fn check_name(&mut self) {
         let name = &self.definition.name;
-        if name.trim().is_empty() {
-            self.report(ElementPath::Name, ValidationProblem::MissingName);
-        } else if name.chars().any(char::is_control) {
+        if !name.trim().is_empty() && name.chars().any(char::is_control) {
             self.report(ElementPath::Name, ValidationProblem::MultilineName);
         }
     }
@@ -171,6 +211,17 @@ impl Validator<'_> {
             if role.instructions.trim().is_empty() {
                 self.report(element, ValidationProblem::MissingInstructions);
             }
+            if let Some(defaults) = &role.agent_defaults
+                && crate::harness::launch::validate_options(
+                    defaults.harness,
+                    defaults.model.as_deref(),
+                    defaults.effort.as_deref(),
+                    defaults.yolo,
+                )
+                .is_none()
+            {
+                self.report(element, ValidationProblem::InvalidAgentDefaults);
+            }
             let count = role.instances;
             if count.min == 0 || count.min > count.max || count.max > MAX_PARALLEL_AGENTS {
                 self.report(
@@ -183,6 +234,9 @@ impl Validator<'_> {
             } else {
                 self.roles.entry(&role.id).or_insert(role);
             }
+        }
+        if definition.graph.is_some() {
+            return;
         }
         let used: HashSet<_> = definition
             .stages
@@ -478,6 +532,22 @@ mod tests {
         toml::from_str(VALID).expect("the fixture should parse")
     }
 
+    #[test]
+    fn ordered_definitions_are_readable_but_not_editable() {
+        let definition = valid();
+        assert_eq!(validate(&definition), Ok(()));
+        let issues = validate_editable(&definition).unwrap_err();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].element, ElementPath::Graph);
+    }
+
+    #[test]
+    fn bundled_graphs_are_editable() {
+        for builtin in super::super::BuiltinType::ALL {
+            assert_eq!(validate_editable(&builtin.definition()), Ok(()));
+        }
+    }
+
     fn issues(definition: &WorkflowTypeDefinition) -> Vec<ValidationIssue> {
         validate(definition).expect_err("the definition should be invalid")
     }
@@ -552,17 +622,28 @@ mod tests {
     }
 
     #[test]
-    fn names_must_be_present_and_single_line() {
+    fn workflow_names_can_be_empty_but_must_be_single_line() {
         let mut definition = valid();
         definition.name = " ".to_owned();
-        assert_eq!(
-            issues(&definition),
-            [issue(ElementPath::Name, ValidationProblem::MissingName)]
-        );
+        assert!(validate(&definition).is_ok());
         definition.name = "Two\nlines".to_owned();
         assert_eq!(
             issues(&definition),
             [issue(ElementPath::Name, ValidationProblem::MultilineName)]
+        );
+    }
+
+    #[test]
+    fn editable_names_allow_macos_symbols_and_reject_unusable_filenames() {
+        let mut definition = super::super::BuiltinType::Adversarial.definition();
+        for name in ["", "  ", "Review!", "Résumé (draft)"] {
+            definition.name = name.to_owned();
+            assert!(validate_editable(&definition).is_ok());
+        }
+        definition.name = "/:".to_owned();
+        assert_eq!(
+            validate_editable(&definition).unwrap_err(),
+            [issue(ElementPath::Name, ValidationProblem::InvalidFileName)]
         );
     }
 

@@ -5,10 +5,10 @@ struct WorkflowLaunchForm: View {
     let workflowID: UInt64
     let type: CoreWorkflowType
     var isSelected = true
+    var edit: () -> Void = {}
     let back: () -> Void
     @Environment(HarnessModelCatalog.self) private var catalog
     /// Each role's harness choices, one per instance.
-    @State private var showsDesigner = false
     @State private var choices: [String: [HarnessChoice]] = [:]
     @State private var isStarting = false
     @State private var failure: String?
@@ -18,11 +18,11 @@ struct WorkflowLaunchForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
             Text(type.definition.name).font(.system(size: 14, weight: .bold))
-            Button(type.reference.builtin == nil ? "Edit workflow type" : "Edit a copy", systemImage: "pencil") {
-                showsDesigner = true
+            Button("Edit Workflow", systemImage: "pencil") {
+                edit()
             }
             .keyboardShortcut("e", modifiers: [.command, .shift]).disabled(isStarting || !isSelected)
-            .help("Edit workflow type (⇧⌘E)")
+            .help("Edit Workflow (⇧⌘E)")
             .accessibilityIdentifier("workflowEditType")
             Text(type.definition.description).font(.caption).foregroundStyle(.secondary)
             WorkflowGraph(type: type, counts: choices.mapValues(\.count))
@@ -32,6 +32,9 @@ struct WorkflowLaunchForm: View {
             if let first = firstRoleName {
                 Text("After you start, tell the \(first) what to do in its terminal.")
                     .font(.caption).foregroundStyle(.secondary)
+                if hasParallelStarts {
+                    Text("The same task goes to each start agent.").font(.caption).foregroundStyle(.secondary)
+                }
             }
             if let failure {
                 Text(failure).font(.caption).foregroundStyle(Color.statusNeedsAttention)
@@ -39,18 +42,15 @@ struct WorkflowLaunchForm: View {
             }
             HStack {
                 Button("Back", action: back)
-                    .keyboardShortcut(isSelected && !showsDesigner ? .cancelAction : nil)
+                    .keyboardShortcut(isSelected ? .cancelAction : nil)
                     .disabled(isStarting)
                 Spacer()
                 Button("Start", action: start)
                     .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(isSelected && !showsDesigner ? .defaultAction : nil)
+                    .keyboardShortcut(isSelected ? .defaultAction : nil)
                     .disabled(isStarting)
                     .accessibilityIdentifier("workflowStart")
             }.controlSize(.small)
-        }
-        .sheet(isPresented: $showsDesigner) {
-            WorkflowDesigner(type: type) { _ in back() }.environment(client).appZoom()
         }
         .onAppear {
             if !hasLoaded {
@@ -63,7 +63,17 @@ struct WorkflowLaunchForm: View {
 
     /// The role that starts the run, which the user talks to first.
     private var firstRoleName: String? {
-        type.definition.stages.first?.roles.first.flatMap { id in type.definition.roles.first { $0.id == id }?.name }
+        if let graph = type.definition.graph {
+            return type.definition.roles.first { graph.startsAgent($0.id) }?.name
+        }
+        return type.definition.stages.first?.roles.first.flatMap { id in
+            type.definition.roles.first { $0.id == id }?.name
+        }
+    }
+
+    private var hasParallelStarts: Bool {
+        guard let graph = type.definition.graph else { return false }
+        return type.definition.roles.filter { graph.startsAgent($0.id) }.count > 1
     }
 
     private func rolePickers(_ role: CoreWorkflowType.Role) -> some View {
@@ -84,7 +94,8 @@ struct WorkflowLaunchForm: View {
             ForEach(0..<(choices[role.id]?.count ?? 0), id: \.self) { index in
                 HarnessChoiceRow(
                     title: role.instances.max > 1 ? "\(role.name) \(index + 1)" : role.name,
-                    symbol: RoleStyle(role: role.name).symbol, color: RoleStyle(role: role.name).color,
+                    symbol: RoleStyle(role: role.name).symbol,
+                    color: role.color?.tint ?? RoleStyle(role: role.name).color,
                     choice: Binding(
                         get: { choices[role.id]?[index] ?? HarnessChoice(harness: .codex) },
                         set: { choices[role.id]?[index] = $0 }),
@@ -104,7 +115,8 @@ struct WorkflowLaunchForm: View {
         Task {
             defer { isStarting = false }
             do {
-                try await client.startWorkflowRun(workflowID: workflowID, workflowType: type.reference, roles: roles)
+                try await client.startWorkflowRun(
+                    workflowID: workflowID, workflowType: type.reference, roles: roles, prompt: "")
                 preferences.remember(assignments, for: type)
             } catch { failure = error.localizedDescription }
         }

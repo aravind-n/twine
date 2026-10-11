@@ -1,0 +1,40 @@
+# The stage-based default saved by Twine before agent-only graph defaults.
+name = "Adversarial"
+description = "An implementer does the task and a reviewer reviews it until approval."
+
+[[roles]]
+id = "implementer"
+name = "Implementer"
+instructions = "Complete the task in this folder. When the reviewer requests changes, address their feedback, then signal that you are done again."
+
+[[roles]]
+id = "reviewer"
+name = "Reviewer"
+instructions = "Review the implementer's changes to this folder against the task. Approve them, or request changes with specific, actionable feedback."
+
+[[stages]]
+id = "implement"
+name = "Implement"
+roles = ["implementer"]
+completion = { rule = "all_roles_done" }
+
+[[stages]]
+id = "review"
+name = "Review"
+roles = ["reviewer"]
+completion = { rule = "review_decision", reviewer = "reviewer" }
+
+[[handoffs]]
+from = { stage = "implement", role = "implementer" }
+to = { stage = "review", role = "reviewer" }
+content = "result"
+
+[[handoffs]]
+from = { stage = "review", role = "reviewer" }
+to = { stage = "implement", role = "implementer" }
+content = "feedback"
+
+[[review_loops]]
+review_stage = "review"
+back_to = "implement"
+max_rounds = 3

@@ -74,15 +74,21 @@ sends changes back.
 ## Usage
 
 A **session** is a named body of work in a folder. Each top-level tab in a
-session is a **workflow**, created from a **workflow type**:
+session is a **workflow**. Select a built-in workflow or create your own agent graph:
 
-| Workflow type | How it works |
+| Workflow | How it works |
 | --- | --- |
 | Terminal | A plain shell, with optional split panes. |
 | Single agent | One interactive coding agent. |
 | Adversarial | An implementer does the task; a reviewer approves it or requests changes. |
-| Coordinator | A coordinator assigns sub-tasks to parallel workers, then gathers and checks their results. |
-| Custom | Your own roles, stages, handoffs, and review loops, built in the visual designer. |
+| Coordinator | A planner sends a shared plan to two workers. A coordinator waits for both results and checks their work. |
+| Custom | Your own graph of agents and event links. Run agents in parallel, stream pieces, review results, or compare times. |
+
+Click **+**, then **Create your own**, to open the native graph editor in the new
+tab. Saved workflows are TOML files in `$XDG_CONFIG_HOME/twine/workflows`
+(default `~/.config/twine/workflows`). Copy these files to share workflows or keep them
+in version control. Agent instructions use native harness instruction channels;
+setup does not start agent work.
 
 Common tasks, each covered in the
 [user guide](https://standing-desks.github.io/twine/documentation/guide/):

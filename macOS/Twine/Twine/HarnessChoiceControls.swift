@@ -34,6 +34,8 @@ struct HarnessChoiceRow: View {
     let color: Color
     @Binding var choice: HarnessChoice
     let identifier: String
+    var usesInlineCustomModel = false
+    var adaptsChoiceToCatalog = true
     @State private var showsCustomModel = false
 
     private var entry: HarnessModelCatalog.Entry {
@@ -41,6 +43,38 @@ struct HarnessChoiceRow: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            controls
+            if usesInlineCustomModel && showsCustomModel {
+                CustomModelForm(
+                    action: "Use", cancel: { showsCustomModel = false }, usesKeyboardShortcuts: false,
+                    submit: { model, _ in
+                        choice.model = model
+                        showsCustomModel = false
+                    })
+            }
+        }
+        // Editing defaults must not rewrite a saved model when a different machine lists other models.
+        .onChange(of: entry, initial: true) { if adaptsChoiceToCatalog { choice.fit(to: entry.models) } }
+        .onChange(of: choice.model) { choice.fit(to: entry.models) }
+    }
+
+    @ViewBuilder private var controls: some View {
+        if usesInlineCustomModel {
+            Form {
+                LabeledContent("Agent") { harnessPicker }
+                LabeledContent("Model") { modelMenu }
+                if entry.models?.efforts(for: choice.model).isEmpty == false {
+                    LabeledContent("Effort") { effortPicker }
+                }
+                LabeledContent("Permissions") { yoloToggle }
+            }.formStyle(.columns)
+        } else {
+            launchControls
+        }
+    }
+
+    private var launchControls: some View {
         // One line when the card is wide, then the label above the controls, then two control lines.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: NewTabLayout.spacing) {
@@ -72,9 +106,6 @@ struct HarnessChoiceRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // A restored choice, or one made before the list loaded, is checked once the list arrives.
-        .onChange(of: entry, initial: true) { choice.fit(to: entry.models) }
-        .onChange(of: choice.model) { choice.fit(to: entry.models) }
     }
 
     private var roleLabel: some View {
@@ -125,10 +156,16 @@ struct HarnessChoiceRow: View {
         } label: {
             Text(modelTitle).lineLimit(1)
         }
-        .fixedSize()
+        .fixedSize(horizontal: !usesInlineCustomModel, vertical: true)
+        .frame(maxWidth: usesInlineCustomModel ? .infinity : nil, alignment: .leading)
         .help(choice.model ?? "The harness's default model")
         .accessibilityIdentifier("roleModel-\(identifier)")
-        .popover(isPresented: $showsCustomModel) {
+        .popover(
+            isPresented: Binding(
+                get: { showsCustomModel && !usesInlineCustomModel },
+                set: { if !usesInlineCustomModel { showsCustomModel = $0 } }
+            )
+        ) {
             CustomModelForm(action: "Use") { model, _ in
                 choice.model = model
                 showsCustomModel = false
@@ -157,7 +194,7 @@ struct HarnessChoiceRow: View {
 
     private var yoloToggle: some View {
         let supported = entry.models?.supportsYolo ?? (choice.harness != .piAgent && choice.harness != .opencode)
-        return Toggle("YOLO", isOn: $choice.yolo)
+        return Toggle(usesInlineCustomModel ? "Skip prompts" : "YOLO", isOn: $choice.yolo)
             .toggleStyle(.checkbox)
             .disabled(!supported)
             .help(
@@ -233,6 +270,8 @@ struct CustomModelForm: View {
     @Environment(\.dismiss) private var dismiss
     let action: String
     var efforts: [String] = []
+    var cancel: (() -> Void)?
+    var usesKeyboardShortcuts = true
     let submit: (String, String?) -> Void
     @State private var model = ""
     @State private var effort: String?
@@ -263,10 +302,11 @@ struct CustomModelForm: View {
                     .fixedSize()
                 }
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                Button("Cancel", role: .cancel) {
+                    if let cancel { cancel() } else { dismiss() }
+                }.keyboardShortcut(usesKeyboardShortcuts ? .cancelAction : nil)
                 Button(action) { submit(trimmed, effort) }
-                    .keyboardShortcut(.defaultAction)
+                    .keyboardShortcut(usesKeyboardShortcuts ? .defaultAction : nil)
                     .disabled(!isValid)
             }
             .controlSize(.small)

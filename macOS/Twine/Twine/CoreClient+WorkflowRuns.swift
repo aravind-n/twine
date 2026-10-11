@@ -2,11 +2,11 @@ import Foundation
 
 extension CoreClient {
     func startWorkflowRun(
-        workflowID: UInt64, workflowType: CoreWorkflowType.Reference, roles: [CoreRoleLaunch]
+        workflowID: UInt64, workflowType: CoreWorkflowType.Reference, roles: [CoreRoleLaunch], prompt: String = ""
     ) async throws {
         try await sendRunCommand(
             .startWorkflowRun(
-                workflowID: workflowID, workflowType: workflowType, roles: roles,
+                workflowID: workflowID, workflowType: workflowType, roles: roles, prompt: prompt,
                 size: .init(rows: 24, columns: 80, pixelWidth: 800, pixelHeight: 480)))
     }
 
@@ -16,6 +16,15 @@ extension CoreClient {
         try await sendRunCommand(
             .completeWorkflowRole(
                 workflowID: workflowID, agentID: agentID, generation: generation, signal: signal))
+    }
+
+    func submitWorkflowTask(workflowID: UInt64, generation: UInt64, prompt: String) async throws {
+        try await sendRunCommand(.submitWorkflowTask(workflowID: workflowID, generation: generation, prompt: prompt))
+    }
+
+    func chooseWorkflowResult(workflowID: UInt64, generation: UInt64, agentID: UInt64) async throws {
+        try await sendRunCommand(
+            .chooseWorkflowResult(workflowID: workflowID, generation: generation, agentID: agentID))
     }
 
     func cancelWorkflowRun(workflowID: UInt64) async throws {
@@ -41,7 +50,9 @@ extension CoreClient {
             try await change?.completion.value
             guard !individualMode, let run = observedRun, let generation, let modeRevision,
                 let role = run.agents.first(where: { $0.id == agentID })?.role,
-                run.workflowType?.definition.stages.first?.roles.contains(role) == true
+                let definition = run.workflowType?.definition,
+                definition.graph.map({ $0.startsAgent(role) })
+                    ?? (definition.stages.first?.roles.contains(role) == true)
             else { return }
             try await sendRunCommand(
                 .continueWorkflowRun(

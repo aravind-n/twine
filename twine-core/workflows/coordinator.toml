@@ -1,0 +1,69 @@
+# Bundled default. Every node is a separate agent.
+schema_version = 2
+id = 2
+version = 1
+
+[definition]
+name = "Coordinator"
+description = "A planner splits the task between two workers. A coordinator checks both results."
+
+[[definition.roles]]
+id = "planner"
+name = "Planner"
+color = "purple"
+instructions = "Split the user's task into two parts. Send one plan with sections named Worker 1 and Worker 2. Give each section a task and a list of files that the worker can change. Each file must belong to only one worker. Both workers receive the plan. Include the full user task in the plan."
+
+[[definition.roles]]
+id = "worker-1"
+name = "Worker 1"
+color = "teal"
+instructions = "Read the plan and complete the Worker 1 task. Change only the files listed for Worker 1. Worker 2 works at the same time. Send a complete result that states what you changed and how you checked it."
+
+[[definition.roles]]
+id = "worker-2"
+name = "Worker 2"
+color = "green"
+instructions = "Read the plan and complete the Worker 2 task. Change only the files listed for Worker 2. Worker 1 works at the same time. Send a complete result that states what you changed and how you checked it."
+
+[[definition.roles]]
+id = "coordinator"
+name = "Coordinator"
+color = "blue"
+instructions = "Read both worker results. Check the combined work against the user's task. Correct any problems and send the final result."
+
+[definition.graph]
+finish = "all"
+max_activations = 32
+
+[definition.graph.receive]
+coordinator = "all"
+
+[definition.graph.positions]
+planner = { x = 240, y = 300 }
+worker-1 = { x = 540, y = 200 }
+worker-2 = { x = 540, y = 400 }
+coordinator = { x = 840, y = 300 }
+
+[[definition.graph.edges]]
+id = "planner-worker-1"
+from = "planner"
+to = "worker-1"
+event = "done"
+
+[[definition.graph.edges]]
+id = "planner-worker-2"
+from = "planner"
+to = "worker-2"
+event = "done"
+
+[[definition.graph.edges]]
+id = "worker-1-coordinator"
+from = "worker-1"
+to = "coordinator"
+event = "done"
+
+[[definition.graph.edges]]
+id = "worker-2-coordinator"
+from = "worker-2"
+to = "coordinator"
+event = "done"

@@ -74,6 +74,14 @@ pub(super) struct AgentInput {
 }
 
 impl AgentInput {
+    pub(super) fn will_submit(&self, bytes: &[u8]) -> bool {
+        self.draft.clone().observe(bytes).is_some()
+    }
+
+    pub(super) fn notification_will_submit(&self) -> bool {
+        !self.draft.pending
+    }
+
     pub(super) fn clear_feedback(&mut self) {
         self.feedback.clear();
     }

@@ -109,9 +109,11 @@ pub unsafe extern "C" fn twine_memory_save(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TEST_LOCK;
 
     #[test]
     fn memory_calls_reject_invalid_pointers_and_oversized_requests() {
+        let _guard = TEST_LOCK.lock().expect("test lock should be available");
         let mut output = TwineBuffer::empty();
         // SAFETY: All rejected arguments are checked without dereferencing them.
         unsafe {

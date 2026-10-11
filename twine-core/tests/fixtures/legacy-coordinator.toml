@@ -1,0 +1,42 @@
+# The stage-based default saved by Twine before agent-only graph defaults.
+name = "Coordinator"
+description = "A coordinator splits the task among parallel workers and gathers their results."
+
+[[roles]]
+id = "coordinator"
+name = "Coordinator"
+instructions = "Split the task into one part per worker. Give each worker a sub-task and the set of files it owns; no file may belong to more than one worker. When the workers finish, gather and check their results."
+
+[[roles]]
+id = "worker"
+name = "Worker"
+instructions = "Complete your sub-task. Change only the files you own; other workers are editing the rest of this folder at the same time."
+instances = { min = 2, max = 5 }
+
+[[stages]]
+id = "split"
+name = "Split"
+roles = ["coordinator"]
+completion = { rule = "all_roles_done" }
+
+[[stages]]
+id = "work"
+name = "Work"
+roles = ["worker"]
+completion = { rule = "all_roles_done" }
+
+[[stages]]
+id = "gather"
+name = "Gather"
+roles = ["coordinator"]
+completion = { rule = "all_roles_done" }
+
+[[handoffs]]
+from = { stage = "split", role = "coordinator" }
+to = { stage = "work", role = "worker" }
+content = "assignment"
+
+[[handoffs]]
+from = { stage = "work", role = "worker" }
+to = { stage = "gather", role = "coordinator" }
+content = "result"

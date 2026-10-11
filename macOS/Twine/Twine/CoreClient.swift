@@ -52,7 +52,8 @@ final class CoreClient {
         let receipt = try await transport.send(command)
         if receipt.status == .accepted {
             switch command {
-            case .validateWorkflowType, .saveWorkflowType, .ping, .startTerminal, .closeTerminal, .createWorkflow,
+            case .validateWorkflowType, .saveWorkflowType, .deleteWorkflowType, .ping, .startTerminal, .closeTerminal,
+                .createWorkflow,
                 .activateWorkflow, .closeWorkflow,
                 .startAgent, .resumeAgent, .cancelAgent, .createSession, .renameSession, .selectSession, .deleteSession:
                 if commandResults.removeValue(forKey: receipt.requestID) == nil {
@@ -60,7 +61,8 @@ final class CoreClient {
                 }
             case .reloadConfig, .openFolder, .restoreFolder, .closeFolder, .closeFolderIfOpen, .removeRecentFolder,
                 .nameDraftWorkflow,
-                .refreshGitBranch, .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun,
+                .refreshGitBranch, .startWorkflowRun, .submitWorkflowTask, .chooseWorkflowResult,
+                .completeWorkflowRole, .continueWorkflowRun,
                 .setWorkflowIndividualMode, .cancelWorkflowRun:
                 break
             }
@@ -237,7 +239,8 @@ final class CoreClient {
             markTerminalRunning(terminalID, in: &snapshot)
         case .terminalClosed(let terminalID):
             markTerminalClosed(terminalID, in: &snapshot)
-        case .workflowTypeValidated, .workflowTypeSaved, .pong, .workflowCreated, .workflowActivated, .workflowClosed,
+        case .workflowTypeValidated, .workflowTypeSaved, .workflowTypeDeleted, .pong, .workflowCreated,
+            .workflowActivated, .workflowClosed,
             .agentStarted, .agentCancelled,
             .sessionCreated, .sessionRenamed, .sessionSelected, .sessionDeleted:
             break

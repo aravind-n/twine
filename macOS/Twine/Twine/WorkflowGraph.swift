@@ -12,11 +12,20 @@ struct WorkflowGraph: View {
 
     private var instanceCounts: [String: Int] { run?.roleCounts ?? counts }
 
-    private var height: CGFloat {
-        WorkflowGraphLayout(definition: type.definition, counts: instanceCounts, width: 0).size.height
+    var height: CGFloat {
+        if type.definition.graph != nil { return WorkflowGraphOverview.height }
+        return WorkflowGraphLayout(definition: type.definition, counts: instanceCounts, width: 0).size.height
     }
 
     var body: some View {
+        if type.definition.graph != nil {
+            WorkflowGraphOverview(definition: type.definition)
+        } else {
+            orderedGraph
+        }
+    }
+
+    private var orderedGraph: some View {
         GeometryReader { geometry in
             let layout = WorkflowGraphLayout(
                 definition: type.definition, counts: instanceCounts, width: geometry.size.width)
@@ -93,19 +102,20 @@ struct WorkflowGraph: View {
         .accessibilityLabel(column.stage.name)
         .accessibilityIdentifier("graphStage-\(column.id)")
         .accessibilityValue(current ? "Current stage" : "")
-        .help(column.stage.completion.rule == .allRolesDone ? "Every role must finish" : "The reviewer decides")
+        .help(column.stage.completion.rule == .allRolesDone ? "Every agent must finish" : "The reviewer decides")
     }
 
     private func roleNode(_ node: WorkflowGraphLayout.Node) -> some View {
         let style = RoleStyle(role: node.role.name)
+        let color = node.role.color?.tint ?? style.color
         let agent = run?.agents.first { $0.role == node.role.id && $0.instance == node.instance }
         let stage = state(of: node.stageID)
         let done = stage == .done || (stage == .current && agent?.done == true)
         let running = stage == .current && !done
         return HStack(spacing: 8) {
             ZStack {
-                if running { PulseRing(color: style.color) }
-                Circle().fill(style.color.gradient)
+                if running { PulseRing(color: color) }
+                Circle().fill(color.gradient)
                 Image(systemName: style.symbol)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.white)
@@ -132,7 +142,7 @@ struct WorkflowGraph: View {
         .background(.workflowChoiceBackground, in: .rect(cornerRadius: CornerRadius.graphNode))
         .overlay {
             RoundedRectangle(cornerRadius: CornerRadius.graphNode)
-                .stroke(running ? style.color : Color.hairline, lineWidth: running ? 1.5 : Surface.hairlineWidth)
+                .stroke(running ? color : Color.hairline, lineWidth: running ? 1.5 : Surface.hairlineWidth)
         }
         .opacity(stage == .pending ? Self.pendingOpacity : 1)
         .accessibilityElement(children: .combine)

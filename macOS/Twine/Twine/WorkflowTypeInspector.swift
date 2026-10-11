@@ -11,7 +11,7 @@ struct WorkflowTypeInspector: View {
         ScrollView {
             VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
                 HStack {
-                    Text("WORKFLOW TYPE").font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
+                    Text("WORKFLOW").font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
                     Spacer()
                     Button("Close", systemImage: "xmark") { dismiss() }
                         .labelStyle(.iconOnly).buttonStyle(.glass).controlSize(.mini)
@@ -36,7 +36,7 @@ struct WorkflowTypeInspector: View {
             width: min(600, maximum.width),
             height: min(
                 600, maximum.height,
-                WorkflowGraphLayout(definition: type.definition, counts: run.roleCounts, width: 600).size.height + 160)
+                WorkflowGraph(type: type, run: run).height + 160)
         )
         .background(Color(nsColor: .windowBackgroundColor), in: .rect(cornerRadius: CornerRadius.panel))
         .overlay {

@@ -103,7 +103,7 @@ struct CoreClientTests {
             }
 
             let targetSequence = initialSequence + 2_000
-            for _ in 0..<1_000 where client.snapshot?.sequence != targetSequence {
+            for _ in 0..<1_000 where (client.snapshot?.sequence ?? 0) < targetSequence {
                 try await Task.sleep(for: .milliseconds(10))
                 recordConcurrentProgress(
                     client: client,
@@ -114,7 +114,8 @@ struct CoreClientTests {
                 )
             }
 
-            #expect(client.snapshot?.sequence == targetSequence)
+            // Other startup events can also advance the snapshot sequence.
+            #expect((client.snapshot?.sequence ?? 0) >= targetSequence)
         } catch {
             heartbeatTask?.cancel()
             await heartbeatTask?.value

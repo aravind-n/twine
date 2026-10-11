@@ -5,17 +5,19 @@ struct ChoiceTile: View {
     let title: String
     let detail: String
     var opensMenu = false
+    var trailingSpace: CGFloat = 0
 
     init(choice: WorkflowChoice) {
         self.init(
             symbol: choice.symbol, title: choice.rawValue, detail: choice.detail, opensMenu: choice.opensMenu)
     }
 
-    init(symbol: String, title: String, detail: String, opensMenu: Bool = false) {
+    init(symbol: String, title: String, detail: String, opensMenu: Bool = false, trailingSpace: CGFloat = 0) {
         self.symbol = symbol
         self.title = title
         self.detail = detail
         self.opensMenu = opensMenu
+        self.trailingSpace = trailingSpace
     }
 
     var body: some View {
@@ -26,12 +28,13 @@ struct ChoiceTile: View {
                 .foregroundStyle(.primary.opacity(0.8))
                 .frame(width: NewTabLayout.symbolWidth, height: NewTabLayout.symbolWidth)
             VStack(alignment: .leading, spacing: NewTabLayout.choiceTextSpacing) {
-                Text(title).font(.caption.weight(.semibold))
+                Text(title).font(.body.weight(.medium))
                 Text(detail)
-                    .font(.caption.weight(.medium))
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
+            .padding(.trailing, trailingSpace)
             Spacer(minLength: 0)
             if opensMenu {
                 MenuChevron()
@@ -39,7 +42,7 @@ struct ChoiceTile: View {
         }
         .padding(NewTabLayout.choicePadding)
         .frame(maxWidth: .infinity, minHeight: NewTabLayout.minimumChoiceHeight, alignment: .topLeading)
-        .background(.workflowChoiceBackground, in: .rect(cornerRadius: CornerRadius.choiceTile))
+        .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: CornerRadius.choiceTile))
         .overlay {
             RoundedRectangle(cornerRadius: CornerRadius.choiceTile)
                 .stroke(.hairline, lineWidth: Surface.hairlineWidth)

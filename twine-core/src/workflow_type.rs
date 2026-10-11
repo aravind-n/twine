@@ -1,8 +1,8 @@
 //! Workflow types: the reusable definitions that workflows are created from.
 //!
-//! A type lists its roles, runs its stages in order, and moves work between stages only through
-//! explicit handoffs. The only way back to an earlier stage is a bounded review loop, so a type is
-//! never a general graph and never spawns agents beyond the counts chosen at launch.
+//! Types coordinate a fixed set of agents through explicit signals. Graphs support parallel
+//! work, streamed pieces, joins, and bounded feedback. Ordered stages remain readable for
+//! existing workflow files and saved runs.
 
 use std::fmt;
 
@@ -10,11 +10,15 @@ use serde::{Deserialize, Serialize};
 
 mod builtin;
 mod catalog;
+mod files;
+mod graph;
 mod validation;
 
 pub use builtin::BuiltinType;
 pub(crate) use catalog::WorkflowCatalog;
 pub use catalog::{CatalogError, WorkflowType, WorkflowTypeRef};
+pub use graph::{AgentGraph, GraphEdge, GraphEvent, GraphFinish, GraphPosition, GraphReceive};
+pub(crate) use validation::validate_editable;
 pub use validation::{ElementPath, ValidationIssue, ValidationProblem, validate};
 
 /// The most agents that can run at once in one stage, counting every instance of every role.
@@ -51,10 +55,14 @@ pub struct WorkflowTypeDefinition {
     pub description: String,
     pub roles: Vec<Role>,
     /// Stages run in this order.
+    #[serde(default)]
     pub stages: Vec<Stage>,
+    #[serde(default)]
     pub handoffs: Vec<Handoff>,
     #[serde(default)]
     pub review_loops: Vec<ReviewLoop>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph: Option<AgentGraph>,
 }
 
 /// A responsibility in the type, independent of the harness that fills it.
@@ -66,6 +74,37 @@ pub struct Role {
     pub instructions: String,
     #[serde(default)]
     pub instances: InstanceCount,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<AgentColor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_defaults: Option<AgentDefaults>,
+}
+
+/// A portable color name. The front end chooses the platform color for each appearance.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentColor {
+    Blue,
+    Teal,
+    Green,
+    Yellow,
+    Orange,
+    Red,
+    Pink,
+    Purple,
+}
+
+/// Optional choices that prefill the launch form. Each launch can override them.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentDefaults {
+    pub harness: crate::HarnessId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yolo: bool,
 }
 
 /// How many agents can fill a role. The user picks the count within these bounds at launch.

@@ -7,14 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Create workflow graphs in a native editor that fills the tab. Agent cards have
+  system colors and badges that show where work starts and results return. The
+  dotted canvas has zoom, Fit, and undo. Fit includes feedback links and event labels.
+- Double-click empty canvas space to add an agent. Right-click for canvas tools
+  or to duplicate an agent. Click an agent or link to edit its settings beside it;
+  press Delete to remove the selected agent and its links. Draw connections from
+  either end, between an output and an input. Graph previews support screen readers.
+- Connect agents to work in parallel, send pieces while work continues, collect
+  results, select a result, or compare completion times. Forward links determine
+  which agents start and return results. Feedback links send changes back.
+- Set instructions, work rules, and an optional color for each agent. Save optional
+  default harness, model, effort, and permission settings. These defaults fill the
+  launch form and can be changed before starting.
+- Hover over a saved workflow to show its delete button. Confirm deletion in a
+  native dialog. Existing runs keep their saved graph.
+- Identify debug builds with a DEBUG badge on the app icon.
+
 ### Changed
 
 - Twine source, releases, and update checks now use `standing-desks/twine`.
   The website and guides are at `https://standing-desks.github.io/twine/`.
 
 - Homebrew installs now use `standing-desks/tap/twine-ade` (agent development
-  environment). Existing installations migrate to the new cask name and continue
-  receiving release updates.
+  environment). Existing installations migrate to the `twine-ade` cask.
+- New tabs show separate grids for built-in and user workflows. Create your own
+  opens the graph editor in that tab. Commands use New workflow graph and Edit
+  Workflow. The designer hides Traces and the restored session bar.
+- Store user workflows as versioned TOML files beside the selected config file.
+  The default location is `$XDG_CONFIG_HOME/twine/workflows` (or
+  `~/.config/twine/workflows`). Debug builds use their own config directory. Share
+  files or keep them in version control. Existing saved workflows move from SQLite
+  to files; saved runs keep their original definitions. Older definitions with
+  duplicate names or names unsuitable for files remain readable in SQLite.
+- Name workflow files from the workflow name: lowercase, trim whitespace, and
+  replace spaces with underscores. Keep macOS-valid symbols. Empty names use
+  `untitled.toml`, `untitled-1.toml`, and so on. Rename the file when the workflow
+  name changes and reject duplicate names with a clear message.
+- Adversarial and Coordinator ship as TOML agent graphs and use the same editor
+  and runtime as user graphs. Coordinator has a planner, two separate workers,
+  and a coordinator that waits for both results. Edits to a built-in save as a user
+  workflow. Each card represents one agent.
+- New saves use file format version 2 and require agent graphs. Older stage
+  definitions and version 1 files remain readable. Copying an older Coordinator
+  into a graph explains the changes to shared plans, planning and result agents,
+  and worker counts.
+- Start graph workflows in the agent terminal and enter the task there. Parallel
+  start agents receive the same task. After completion or the review limit, enter
+  a new task in the same agent conversations. Incoming results identify the agent
+  that sent them.
+- Restore a Save button in the workflow designer, with File → Save and ⌘S available.
+
+### Fixed
+
+- Opening an idle workflow no longer sends setup instructions as a task or starts
+  agent work before the user enters a task.
 
 ## [0.2.5] - 2026-10-11
 

@@ -11,7 +11,9 @@ use crate::workflow::timestamp;
 use crate::workflow_type::{Completion, HandoffContent, WorkflowType, WorkflowTypeRef, validate};
 
 pub(crate) mod completion;
+mod graph;
 mod recovery;
+pub use graph::{GraphOutput, GraphRun};
 
 /// One harness choice per role instance, fixed at launch.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -34,6 +36,7 @@ pub struct RoleLaunch {
 #[serde(rename_all = "camelCase")]
 pub enum Decision {
     Done,
+    PieceReady,
     Approve,
     RequestChanges,
 }
@@ -124,7 +127,7 @@ pub struct WorkflowTrace {
 }
 
 /// The most a task, typed up front or reported by the first stage, can hold.
-const MAX_TASK_BYTES: usize = 32 * 1024;
+pub(crate) const MAX_TASK_BYTES: usize = 32 * 1024;
 
 /// Serializable run state. A run pins both its type reference and definition. Processes and
 /// completion mailboxes are deliberately absent; restoring an active run interrupts it.
@@ -137,6 +140,8 @@ pub struct WorkflowRun {
     pub prompt: String,
     pub agents: Vec<RunAgent>,
     pub stage_index: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph: Option<GraphRun>,
     /// Changes on every stage entry, including loop backs. UI actions must match this value.
     pub generation: u64,
     /// Private follow-ups never start another workflow cycle. Missing in older records.
@@ -206,7 +211,9 @@ impl WorkflowRun {
         if choices.len() != agents.len() {
             return Err(RunError::HarnessChoices);
         }
+        let graph = definition.graph.as_ref().map(|_| GraphRun::default());
         Ok(Self {
+            graph,
             workflow_type,
             prompt,
             agents,
@@ -231,6 +238,24 @@ impl WorkflowRun {
 
     #[must_use]
     pub fn active_agents(&self) -> Vec<&RunAgent> {
+        if let Some(graph) = &self.graph {
+            return self
+                .agents
+                .iter()
+                .filter(|agent| {
+                    if graph.started {
+                        graph.ready.contains(&agent.agent_id)
+                            || graph.assigned.contains(&agent.agent_id)
+                    } else {
+                        self.workflow_type
+                            .definition
+                            .graph
+                            .as_ref()
+                            .is_some_and(|definition| definition.is_start(&agent.role))
+                    }
+                })
+                .collect();
+        }
         let stage = &self.workflow_type.definition.stages[self.stage_index];
         self.agents
             .iter()
@@ -240,6 +265,13 @@ impl WorkflowRun {
 
     #[must_use]
     pub fn is_reviewer(&self, agent_id: u64) -> bool {
+        if let Some(graph) = &self.workflow_type.definition.graph {
+            return self
+                .agents
+                .iter()
+                .find(|agent| agent.agent_id == agent_id)
+                .is_some_and(|agent| graph.is_review(&agent.role));
+        }
         matches!(&self.workflow_type.definition.stages[self.stage_index].completion,
             Completion::ReviewDecision { reviewer } if self.agents.iter().any(|a| a.agent_id == agent_id && a.role == reviewer.0))
     }
@@ -247,6 +279,9 @@ impl WorkflowRun {
     /// Receivers whose assignments must be supplied by this participant before it can finish.
     #[must_use]
     pub fn assignment_targets(&self, agent_id: u64) -> Vec<&RunAgent> {
+        if self.graph.is_some() {
+            return Vec::new();
+        }
         let stage = &self.workflow_type.definition.stages[self.stage_index];
         let Some(sender) = self.agents.iter().find(|a| a.agent_id == agent_id) else {
             return Vec::new();
@@ -271,10 +306,20 @@ impl WorkflowRun {
         generation: u64,
         mode_revision: u64,
     ) -> Result<bool, RunError> {
-        let first = &self.workflow_type.definition.stages[0];
-        if !self.agents.iter().any(|agent| {
-            agent.agent_id == agent_id && first.roles.iter().any(|role| role.0 == agent.role)
-        }) {
+        let roots = if self.graph.is_some() {
+            self.graph_roots()
+        } else {
+            self.workflow_type.definition.stages[0]
+                .roles
+                .iter()
+                .map(|role| role.0.clone())
+                .collect()
+        };
+        if !self
+            .agents
+            .iter()
+            .any(|agent| agent.agent_id == agent_id && roots.contains(&agent.role))
+        {
             return Err(RunError::StaleSignal);
         }
         if generation > self.generation {
@@ -301,6 +346,28 @@ impl WorkflowRun {
             .generation
             .checked_add(1)
             .ok_or(RunError::StaleSignal)?;
+        if self.graph.is_some() {
+            let mut counters = self
+                .graph
+                .as_ref()
+                .expect("graph")
+                .assignment_generations
+                .clone();
+            for agent in &self.agents {
+                if roots.contains(&agent.role) {
+                    counters.insert(
+                        agent.agent_id,
+                        self.assignment_generation(agent.agent_id)
+                            .checked_add(1)
+                            .ok_or(RunError::StaleSignal)?,
+                    );
+                }
+            }
+            self.graph = Some(graph::GraphRun {
+                assignment_generations: counters,
+                ..graph::GraphRun::default()
+            });
+        }
         self.stage_index = 0;
         self.generation = next_generation;
         self.status = RunStatus::Running;
@@ -311,13 +378,15 @@ impl WorkflowRun {
         self.assignments.clear();
         self.message = None;
         for agent in &mut self.agents {
-            if first.roles.iter().any(|role| role.0 == agent.role) {
+            if roots.contains(&agent.role) {
                 agent.status = RunAgentStatus::Waiting;
+            } else if self.graph.is_some() {
+                agent.status = RunAgentStatus::Completed;
             }
         }
         self.trace(
             "workflowContinued",
-            Some(agent_id),
+            self.graph.is_none().then_some(agent_id),
             None,
             "Continuing with a new task",
         );
@@ -365,6 +434,9 @@ impl WorkflowRun {
         generation: u64,
         signal: CompletionSignal,
     ) -> Result<bool, RunError> {
+        if self.graph.is_some() {
+            return self.complete_graph(agent_id, generation, &signal);
+        }
         if self.status != RunStatus::Running
             || generation != self.generation
             || !self.active_agents().iter().any(|a| a.agent_id == agent_id)
@@ -453,6 +525,9 @@ impl WorkflowRun {
         {
             return Err(RunError::SignalTooLarge);
         }
+        if signal.decision == Decision::PieceReady {
+            return Err(RunError::Decision);
+        }
         let reviewer = self.is_reviewer(agent_id);
         if reviewer == (signal.decision == Decision::Done) {
             return Err(RunError::Decision);
@@ -519,6 +594,7 @@ impl WorkflowRun {
                 "{}: {}",
                 match signal.decision {
                     Decision::Done => "Marked done",
+                    Decision::PieceReady => "Piece ready",
                     Decision::Approve => "Approved",
                     Decision::RequestChanges => "Requested changes",
                 },
@@ -654,6 +730,16 @@ impl WorkflowRun {
     }
 
     pub(crate) fn follow_up_instructions(&self, agent_id: u64) -> String {
+        if self.graph.is_some() {
+            let incoming = self.incoming.get(&agent_id).map_or("", String::as_str);
+            if incoming == self.prompt {
+                return self.prompt.clone();
+            }
+            return format!(
+                "Task:\n{}\n\nIncoming work:\n{incoming}\n\nComplete this assignment using your existing Twine signal command.",
+                self.prompt
+            );
+        }
         let stage = &self.workflow_type.definition.stages[self.stage_index];
         format!(
             "Continue with the {} stage.\n\nTask:\n{}\n\nYour assignment:\n{}\n\n{}\n\nWhen finished, submit the result using your existing completion command:\n{}\n{}",
@@ -678,7 +764,18 @@ impl WorkflowRun {
             .unwrap_or_default()
     }
 
+    pub(crate) fn initial_task(&self, agent_id: u64) -> String {
+        if self.needs_task() {
+            String::new()
+        } else {
+            self.follow_up_instructions(agent_id)
+        }
+    }
+
     pub(crate) fn instructions(&self, agent_id: u64, command: &str) -> String {
+        if self.graph.is_some() {
+            return self.graph_instructions(agent_id, command);
+        }
         let agent = self
             .agents
             .iter()
@@ -694,19 +791,16 @@ impl WorkflowRun {
         let stage = &self.workflow_type.definition.stages[self.stage_index];
         let example = self.completion_example(agent_id);
         let task = if self.needs_task() {
-            "The user gives you the task in this terminal. If they haven't yet, ask them what they \
-             want done. Include it, restated in full, as task when you submit your completion."
+            "Wait for the user to give you a task in this terminal. These instructions are setup, not a task. Do not start work or ask a question at launch. Include the actual task, restated in full, as task when you submit your completion."
         } else {
-            self.prompt.as_str()
+            "Wait for a task or a handoff. The next user message supplies the work."
         };
-        let assignment = self.assignment_instructions(agent_id);
         format!(
-            "You are {} in the {} stage of a Twine workflow.\n{}\n\nTask:\n{}\n\nYour assignment:\n{assignment}\n\nHandoffs:\n{}\n\nAll agents work directly in this folder. Do not create a worktree or isolated checkout. Give parallel workers non-overlapping file sets; file ownership is advisory.\n\nWhen finished, explicitly submit JSON on stdin to this command:\n{} <<'TWINE_COMPLETION'\n{}\nTWINE_COMPLETION\n\n{}\nSupply an assignment for every receiver listed in the example (with its exact role and instance). Use actual sub-tasks and file sets. A process exit or terminal message does not complete the stage. A rejected submission returns feedback; correct it and submit again. Keep using this completion command for subsequent assignments and user follow-ups in this conversation. The user can also mark done in Twine.\n",
+            "You are {} in a Twine workflow.\n{}\n\n{}\n\nFirst assignment only:\nThe first task uses the {} stage and JSON example below. Later Twine task messages supply the current stage and JSON example. Use those current rules for each later assignment.\n\nAll agents work directly in this folder. Do not create a worktree or isolated checkout. Give parallel workers non-overlapping file sets; file ownership is advisory.\n\nWhen finished, explicitly submit JSON on stdin to this command:\n{} <<'TWINE_COMPLETION'\n{}\nTWINE_COMPLETION\n\n{}\nFor the first assignment only, supply an assignment for each receiver in this example. Use its exact role and instance, with actual sub-tasks and file sets. For each later assignment, use the receiver list in the current Twine task message. Omit assignments if that list is empty. For each new user task, include task with the user's full task text. A process exit or terminal message does not complete the stage. A rejected submission returns feedback; correct it and submit again. Keep using this completion command for subsequent assignments and user follow-ups in this conversation. The user can also mark done in Twine.\n",
             agent.label,
-            stage.name,
             role.instructions,
             task,
-            self.incoming.get(&agent_id).map_or("None", String::as_str),
+            stage.name,
             command,
             serde_json::to_string_pretty(&example).expect("signal serializes"),
             if self.is_reviewer(agent_id) {
@@ -730,12 +824,10 @@ impl WorkflowRun {
         }
         self.traces.push(WorkflowTrace {
             sequence: self.traces.last().map_or(1, |event| event.sequence + 1),
-            generation: self.generation,
+            generation: agent_id.map_or(self.generation, |agent| self.assignment_generation(agent)),
             timestamp: timestamp(),
             kind: kind.to_owned(),
-            stage: self.workflow_type.definition.stages[self.stage_index]
-                .name
-                .clone(),
+            stage: self.stage_name().to_owned(),
             agent_id,
             target_agent_id,
             message: message.to_owned(),
@@ -766,15 +858,21 @@ impl WorkflowRun {
 
 #[derive(Debug, Error)]
 pub enum RunError {
-    #[error("The workflow type is invalid.")]
+    #[error("The receiver queue is full. Wait for the receiver to complete work, then retry.")]
+    QueueFull,
+    #[error(
+        "The graph activation limit was reached. Increase the limit or end the feedback cycle."
+    )]
+    ActivationLimit,
+    #[error("The workflow is invalid.")]
     InvalidType,
     #[error("Enter a prompt of at most 32 KiB.")]
     Prompt,
     #[error("Include the user's task, restated in full and at most 32 KiB, as task.")]
     Task,
-    #[error("Choose a harness for each role within the type's instance limits.")]
+    #[error("Choose a harness for each agent within the workflow's limits.")]
     HarnessChoices,
-    #[error("Choose each role's model and effort from the lists, or type one model name.")]
+    #[error("Choose each agent's model and effort from the lists, or type one model name.")]
     Model,
     #[error("This stage has already advanced or this agent has already finished.")]
     StaleSignal,
@@ -835,7 +933,7 @@ mod tests {
 
     #[test]
     fn review_signals_are_explicit_and_stale_signals_cannot_advance_a_later_round() {
-        let mut run = run(BuiltinType::Adversarial.definition());
+        let mut run = run(BuiltinType::Adversarial.legacy_definition());
         assert!(run.complete(1, 1, signal(Decision::Approve)).is_err());
         assert!(run.complete(2, 1, signal(Decision::Approve)).is_err());
         run.complete(1, 1, signal(Decision::Done)).unwrap();
@@ -852,7 +950,7 @@ mod tests {
 
     #[test]
     fn individual_mode_preserves_results_and_invalidates_queued_continuations() {
-        let mut run = run(BuiltinType::Adversarial.definition());
+        let mut run = run(BuiltinType::Adversarial.legacy_definition());
         assert!(!run.individual_mode);
         run.complete(1, 1, signal(Decision::Done)).unwrap();
         run.complete(2, 2, signal(Decision::Approve)).unwrap();
@@ -884,7 +982,7 @@ mod tests {
             RunStatus::Cancelled,
             RunStatus::Interrupted,
         ] {
-            let mut run = run(BuiltinType::Adversarial.definition());
+            let mut run = run(BuiltinType::Adversarial.legacy_definition());
             run.status = status;
             let before = run.clone();
             assert!(matches!(
@@ -893,7 +991,7 @@ mod tests {
             ));
             assert_eq!(run, before);
         }
-        let mut run = run(BuiltinType::Adversarial.definition());
+        let mut run = run(BuiltinType::Adversarial.legacy_definition());
         run.status = RunStatus::LimitReached;
         assert!(run.set_individual_mode(true, 1, 0).unwrap());
         let before = run.clone();
@@ -907,7 +1005,7 @@ mod tests {
 
     #[test]
     fn a_follow_up_starts_new_work_without_reusing_old_completions_or_feedback() {
-        let mut run = run(BuiltinType::Adversarial.definition());
+        let mut run = run(BuiltinType::Adversarial.legacy_definition());
         run.complete(1, 1, signal(Decision::Done)).unwrap();
         run.complete(2, 2, signal(Decision::RequestChanges))
             .unwrap();
@@ -933,21 +1031,19 @@ mod tests {
         completion.task = "A new task".into();
         run.complete(1, 5, completion).unwrap();
         assert_eq!(run.prompt, "A new task");
-        assert!(
-            run.instructions(2, "complete")
-                .contains("Task:\nA new task")
-        );
+        assert!(run.initial_task(2).contains("Task:\nA new task"));
         run.complete(2, 6, signal(Decision::Approve)).unwrap();
         assert!(!run.continue_with(1, 4, 0).unwrap());
     }
 
     #[test]
     fn a_run_without_a_task_takes_it_from_the_first_completion() {
-        let mut run = run(BuiltinType::Adversarial.definition());
+        let mut run = run(BuiltinType::Adversarial.legacy_definition());
         run.prompt = String::new();
         assert!(run.needs_task());
         let first = run.instructions(1, "complete");
-        assert!(first.contains("ask them what they want done"));
+        assert!(first.contains("Wait for the user to give you a task"));
+        assert_eq!(run.initial_task(1), "");
         assert!(first.contains("\"task\": \"The user's task, restated in full\""));
 
         let previous = run.clone();
@@ -968,13 +1064,13 @@ mod tests {
         done.task = "  Add a dark mode toggle  ".into();
         run.complete(1, 1, done).unwrap();
         assert_eq!(run.prompt, "Add a dark mode toggle");
-        let review = run.instructions(2, "complete");
+        let review = run.initial_task(2);
         assert!(review.contains("Task:\nAdd a dark mode toggle"));
         assert!(!review.contains("\"task\""));
         // A review loop back to the first stage keeps the task and doesn't ask for it again.
         run.complete(2, 2, signal(Decision::RequestChanges))
             .unwrap();
-        let again = run.instructions(1, "complete");
+        let again = run.initial_task(1);
         assert!(again.contains("Task:\nAdd a dark mode toggle"));
         assert!(!again.contains("ask them what they want done"));
         run.complete(1, 3, signal(Decision::Done)).unwrap();
@@ -984,7 +1080,7 @@ mod tests {
 
     #[test]
     fn every_parallel_first_agent_reports_its_task_and_later_stages_get_them_all() {
-        let mut definition = BuiltinType::Coordinator.definition();
+        let mut definition = BuiltinType::Coordinator.legacy_definition();
         // Workers start the run in parallel, then the coordinator gathers.
         definition.stages.remove(0);
         definition.handoffs.remove(0);
@@ -1012,10 +1108,7 @@ mod tests {
         run.complete(workers[0], 1, second).unwrap();
         assert!(run.prompt.contains("Worker 1: Build the UI"));
         assert!(run.prompt.contains("Worker 2: Build the API"));
-        assert!(
-            run.instructions(gather, "complete")
-                .contains("Worker 2: Build the API")
-        );
+        assert!(run.initial_task(gather).contains("Worker 2: Build the API"));
     }
 
     #[test]
@@ -1024,7 +1117,7 @@ mod tests {
             WorkflowRun::new(
                 WorkflowType {
                     reference: WorkflowTypeRef::Builtin(BuiltinType::Adversarial),
-                    definition: BuiltinType::Adversarial.definition(),
+                    definition: BuiltinType::Adversarial.legacy_definition(),
                 },
                 "Task".into(),
                 &[
@@ -1056,7 +1149,10 @@ mod tests {
 
     #[test]
     fn coordinator_delivers_each_assignment_and_gathers_all_parallel_results() {
-        let mut run = run(BuiltinType::Coordinator.definition());
+        let mut run = run(BuiltinType::Coordinator.legacy_definition());
+        let setup = run.instructions(1, "complete");
+        assert!(setup.contains("First assignment only"));
+        assert!(setup.contains("Later Twine task messages supply the current stage"));
         assert!(run.complete(1, 1, signal(Decision::Done)).is_err());
         let mut split = signal(Decision::Done);
         split.assignments = (1..=2)
@@ -1069,7 +1165,7 @@ mod tests {
             .collect();
         run.complete(1, 1, split).unwrap();
         for (id, instance) in [(2, 1), (3, 2)] {
-            let prompt = run.instructions(id, "complete");
+            let prompt = run.initial_task(id);
             assert!(prompt.contains(&format!("Task {instance}")));
             assert!(prompt.contains(&format!("file-{instance}")));
             assert!(!prompt.contains(&format!("Task {}", 3 - instance)));
@@ -1079,6 +1175,10 @@ mod tests {
         run.complete(3, 2, signal(Decision::Done)).unwrap();
         assert!(run.incoming[&1].contains("Worker 1"));
         assert!(run.incoming[&1].contains("Worker 2"));
+        let current = run.initial_task(1);
+        assert!(current.contains("Continue with the Gather stage"));
+        assert_eq!(run.completion_example(1).assignments, []);
+        assert!(setup.contains("Omit assignments if that list is empty"));
         run.complete(1, 3, signal(Decision::Done)).unwrap();
         assert_eq!(run.status, RunStatus::Completed);
         assert_eq!(run.traces.iter().filter(|t| t.kind == "handoff").count(), 4);
@@ -1086,7 +1186,7 @@ mod tests {
 
     #[test]
     fn loop_stops_after_the_configured_number_of_returns() {
-        let mut run = run(BuiltinType::Adversarial.definition());
+        let mut run = run(BuiltinType::Adversarial.legacy_definition());
         for round in 0..=3 {
             run.complete(1, run.generation, signal(Decision::Done))
                 .unwrap();
@@ -1110,8 +1210,8 @@ mod tests {
 
     #[test]
     fn a_custom_review_loop_keeps_each_workers_assignment() {
-        let mut definition = BuiltinType::Coordinator.definition();
-        let adversarial = BuiltinType::Adversarial.definition();
+        let mut definition = BuiltinType::Coordinator.legacy_definition();
+        let adversarial = BuiltinType::Adversarial.legacy_definition();
         definition.roles.push(adversarial.roles[1].clone());
         definition.stages[2] = adversarial.stages[1].clone();
         definition.handoffs[1].to = crate::StageRole {
@@ -1145,14 +1245,14 @@ mod tests {
         run.complete(4, 3, signal(Decision::RequestChanges))
             .unwrap();
         for (id, instance) in [(2, 1), (3, 2)] {
-            for prompt in [
-                run.instructions(id, "complete"),
-                run.follow_up_instructions(id),
-            ] {
-                assert!(prompt.contains(&format!("Task {instance}")));
-                assert!(prompt.contains(&format!("file-{instance}")));
-                assert!(prompt.contains("Specific result or feedback"));
-            }
+            let prompt = run.initial_task(id);
+            assert!(prompt.contains(&format!("Task {instance}")));
+            assert!(prompt.contains(&format!("file-{instance}")));
+            assert!(prompt.contains("Specific result or feedback"));
+            assert!(
+                !run.instructions(id, "complete")
+                    .contains("Specific result or feedback")
+            );
         }
     }
 }

@@ -1,9 +1,7 @@
 use thiserror::Error;
-use tracing::warn;
 
-use super::{BuiltinType, ValidationIssue, WorkflowTypeDefinition, validate};
+use super::{BuiltinType, ValidationIssue, WorkflowTypeDefinition, validate, validate_editable};
 use crate::store::{Store, StoreError, StoredWorkflowType};
-use crate::workflow::timestamp;
 
 /// One exact workflow type. A workflow keeps the reference it started with.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -36,17 +34,12 @@ impl<'a> WorkflowCatalog<'a> {
     /// never hides the others.
     pub(crate) fn list(&self) -> Result<Vec<WorkflowType>, CatalogError> {
         let mut types: Vec<_> = BuiltinType::ALL.into_iter().map(builtin).collect();
-        for stored in self.store.latest_workflow_types()? {
-            match parse(&stored) {
-                Ok(workflow_type) => types.push(workflow_type),
-                Err(error) => warn!(
-                    type_id = stored.type_id,
-                    version = stored.version,
-                    kind = error.kind(),
-                    "skipping a stored workflow type that can't be loaded"
-                ),
-            }
-        }
+        super::files::migrate(self.store)?;
+        types.extend(
+            super::files::list(&self.store.workflow_directory)?
+                .into_iter()
+                .map(|(_, value)| value),
+        );
         Ok(types)
     }
 
@@ -54,6 +47,10 @@ impl<'a> WorkflowCatalog<'a> {
         match reference {
             WorkflowTypeRef::Builtin(id) => Ok(builtin(id)),
             WorkflowTypeRef::User { type_id, version } => {
+                super::files::migrate(self.store)?;
+                if let Some(value) = super::files::get(&self.store.workflow_directory, reference)? {
+                    return Ok(value);
+                }
                 let definition = self
                     .store
                     .workflow_type_version(type_id, version)?
@@ -72,26 +69,51 @@ impl<'a> WorkflowCatalog<'a> {
         &mut self,
         definition: &WorkflowTypeDefinition,
     ) -> Result<WorkflowTypeRef, CatalogError> {
-        let serialized = serialize(definition)?;
-        let type_id = self.store.create_workflow_type(&serialized, timestamp())?;
-        Ok(WorkflowTypeRef::User {
-            type_id,
-            version: 1,
-        })
+        validate_editable(definition).map_err(CatalogError::Invalid)?;
+        super::files::migrate(self.store)?;
+        super::files::create(&self.store.workflow_directory, definition)
     }
 
-    /// Adds the next version of a user-made type. Built-in types can only be copied.
+    /// Add a file version. Reject edits made from an obsolete picker or editor.
+    #[cfg(test)]
     pub(crate) fn edit(
         &mut self,
         type_id: u64,
         definition: &WorkflowTypeDefinition,
     ) -> Result<WorkflowTypeRef, CatalogError> {
-        let serialized = serialize(definition)?;
-        let version = self
-            .store
-            .add_workflow_type_version(type_id, &serialized, timestamp())?
-            .ok_or(CatalogError::UnknownType(type_id))?;
-        Ok(WorkflowTypeRef::User { type_id, version })
+        let source = self
+            .list()?
+            .into_iter()
+            .find(|value| {
+                matches!(value.reference,
+            WorkflowTypeRef::User { type_id: id, .. } if id == type_id)
+            })
+            .ok_or(CatalogError::UnknownType(type_id))?
+            .reference;
+        self.edit_version(source, definition, None)
+    }
+
+    pub(crate) fn edit_version(
+        &mut self,
+        source: WorkflowTypeRef,
+        definition: &WorkflowTypeDefinition,
+        expected: Option<&WorkflowTypeDefinition>,
+    ) -> Result<WorkflowTypeRef, CatalogError> {
+        validate_editable(definition).map_err(CatalogError::Invalid)?;
+        super::files::migrate(self.store)?;
+        super::files::edit(&self.store.workflow_directory, source, definition, expected)
+    }
+
+    pub(crate) fn delete(
+        &mut self,
+        reference: WorkflowTypeRef,
+        expected: &WorkflowTypeDefinition,
+    ) -> Result<(), CatalogError> {
+        if matches!(reference, WorkflowTypeRef::Builtin(_)) {
+            return Err(CatalogError::BuiltinDeletion);
+        }
+        super::files::migrate(self.store)?;
+        super::files::delete(&self.store.workflow_directory, reference, expected)
     }
 
     #[cfg(test)]
@@ -109,14 +131,9 @@ fn builtin(id: BuiltinType) -> WorkflowType {
     }
 }
 
-fn serialize(definition: &WorkflowTypeDefinition) -> Result<String, CatalogError> {
-    validate(definition).map_err(CatalogError::Invalid)?;
-    Ok(toml::to_string(definition)?)
-}
-
 /// Loads a stored definition, validating it again because the rules may have tightened since it
 /// was stored.
-fn parse(stored: &StoredWorkflowType) -> Result<WorkflowType, CatalogError> {
+pub(super) fn parse(stored: &StoredWorkflowType) -> Result<WorkflowType, CatalogError> {
     let reference = WorkflowTypeRef::User {
         type_id: stored.type_id,
         version: stored.version,
@@ -132,42 +149,39 @@ fn parse(stored: &StoredWorkflowType) -> Result<WorkflowType, CatalogError> {
 
 #[derive(Debug, Error)]
 pub enum CatalogError {
-    #[error("the workflow type has {} problem(s)", .0.len())]
+    #[error("Built-in workflows cannot be deleted.")]
+    BuiltinDeletion,
+    #[error("The workflow changed. Close this message and try again.")]
+    DeletionConflict,
+    #[error("A workflow with this name already exists.")]
+    DuplicateName,
+    #[error("The workflow file has an invalid format or an unsupported schema version.")]
+    FileFormat,
+    #[error("The workflow file changed. Open it again before you save.")]
+    Conflict,
+    #[error("Could not read or save workflow files: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("The workflow has {} problem(s).", .0.len())]
     Invalid(Vec<ValidationIssue>),
-    #[error("user workflow type {0} doesn't exist")]
+    #[error("User workflow {0} does not exist.")]
     UnknownType(u64),
-    #[error("workflow type {0:?} doesn't exist")]
+    #[error("Workflow {0:?} does not exist.")]
     NotFound(WorkflowTypeRef),
-    #[error("stored workflow type {reference:?} can't be read")]
+    #[error("Stored workflow {reference:?} cannot be read.")]
     Unreadable {
         reference: WorkflowTypeRef,
         #[source]
         source: toml::de::Error,
     },
-    #[error("stored workflow type {reference:?} is no longer valid")]
+    #[error("Stored workflow {reference:?} is no longer valid.")]
     InvalidStored {
         reference: WorkflowTypeRef,
         issues: Vec<ValidationIssue>,
     },
-    #[error("failed to serialize the workflow type")]
+    #[error("Could not save the workflow definition.")]
     Serialize(#[from] toml::ser::Error),
     #[error(transparent)]
     Store(#[from] StoreError),
-}
-
-impl CatalogError {
-    /// A name for the error that is safe to log, since some errors quote stored definitions.
-    fn kind(&self) -> &'static str {
-        match self {
-            Self::Invalid(_) => "invalid",
-            Self::UnknownType(_) => "unknown_type",
-            Self::NotFound(_) => "not_found",
-            Self::Unreadable { .. } => "unreadable",
-            Self::InvalidStored { .. } => "invalid_stored",
-            Self::Serialize(_) => "serialize",
-            Self::Store(_) => "store",
-        }
-    }
 }
 
 #[cfg(test)]
@@ -245,14 +259,14 @@ mod tests {
         let mut catalog = WorkflowCatalog::new(&mut store);
         let valid = type_id(catalog.create(&user_type("Valid")).unwrap());
         let mut invalid = user_type("Invalid");
-        invalid.review_loops[0].max_rounds = 0;
+        invalid.graph.as_mut().unwrap().max_activations = 0;
 
         for result in [catalog.create(&invalid), catalog.edit(valid, &invalid)] {
             let Err(CatalogError::Invalid(issues)) = result else {
                 panic!("the invalid type should be rejected: {result:?}");
             };
-            assert_eq!(issues[0].element, ElementPath::ReviewLoop(0));
-            assert_eq!(issues[0].problem, ValidationProblem::InvalidMaxRounds(0));
+            assert_eq!(issues[0].element, ElementPath::Graph);
+            assert!(matches!(issues[0].problem, ValidationProblem::Graph(_)));
         }
         assert_eq!(catalog.list().unwrap().len(), BuiltinType::ALL.len() + 1);
         assert!(matches!(
@@ -276,7 +290,9 @@ mod tests {
                 }
             );
             assert_eq!(
-                catalog.edit(type_id(copy), &user_type("Mine")).unwrap(),
+                catalog
+                    .edit(type_id(copy), &user_type(&format!("Mine {builtin:?}")))
+                    .unwrap(),
                 user_ref(type_id(copy), 2)
             );
         }
@@ -317,7 +333,7 @@ mod tests {
             .create_workflow_type("not a workflow type", 0)
             .unwrap();
         let mut invalid = user_type("No longer valid");
-        invalid.review_loops[0].max_rounds = 0;
+        invalid.graph.as_mut().unwrap().max_activations = 0;
         let invalid = store
             .create_workflow_type(&toml::to_string(&invalid).unwrap(), 0)
             .unwrap();

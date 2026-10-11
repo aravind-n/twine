@@ -10,9 +10,9 @@ struct WorkflowRoleEditor: View {
                 Label(role.name, systemImage: RoleStyle(role: role.name).symbol)
                     .foregroundStyle(RoleStyle(role: role.name).color).fontWeight(.semibold)
                 Spacer()
-                Button("Remove role", systemImage: "minus.circle", action: remove)
+                Button("Remove agent", systemImage: "minus.circle", action: remove)
             }
-            TextField("Role name", text: $role.name).accessibilityIdentifier("designerRoleName-\(role.id)")
+            TextField("Agent name", text: $role.name).accessibilityIdentifier("designerRoleName-\(role.id)")
             TextField("Instructions", text: $role.instructions, axis: .vertical).lineLimit(2...6)
                 .accessibilityIdentifier("designerRoleInstructions-\(role.id)")
             HStack {
@@ -63,7 +63,7 @@ struct WorkflowStageEditor: View {
                             rule: rule, reviewer: rule == .reviewDecision ? stage.roles.first ?? "" : nil)
                     })
             ) {
-                Text("All roles done").tag(CoreWorkflowType.CompletionRule.allRolesDone)
+                Text("All agents done").tag(CoreWorkflowType.CompletionRule.allRolesDone)
                 Text("Review decision").tag(CoreWorkflowType.CompletionRule.reviewDecision)
             }
             if stage.completion.rule == .reviewDecision {

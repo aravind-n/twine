@@ -1,0 +1,45 @@
+# Graph equivalent of the built-in Adversarial workflow.
+# Four activations allow the first implementation plus three change requests.
+# Reviewer approval ends the run. A fourth rejection reaches the limit.
+schema_version = 2
+id = 202610100001
+version = 1
+
+[definition]
+name = "Adversarial (graph)"
+description = "An implementer does the task. A reviewer approves it or sends changes back."
+
+[[definition.roles]]
+id = "implementer"
+name = "Implementer"
+color = "blue"
+instructions = "Complete the task in this folder. When the reviewer requests changes, address their feedback, then signal that you are done again."
+instances = { min = 1, max = 1 }
+
+[[definition.roles]]
+id = "reviewer"
+name = "Reviewer"
+color = "orange"
+instructions = "Review the implementer's changes to this folder against the task. Approve them, or request changes with specific, actionable feedback."
+instances = { min = 1, max = 1 }
+
+[definition.graph]
+review_agents = ["reviewer"]
+finish = "all"
+max_activations = 4
+
+[definition.graph.positions]
+implementer = { x = 410, y = 280 }
+reviewer = { x = 710, y = 280 }
+
+[[definition.graph.edges]]
+id = "implementer-reviewer"
+from = "implementer"
+to = "reviewer"
+event = "done"
+
+[[definition.graph.edges]]
+id = "reviewer-implementer"
+from = "reviewer"
+to = "implementer"
+event = "feedback"

@@ -18,14 +18,14 @@ _Avoid_: Workspace, project
 A named body of work inside a folder, listed in the sidebar next to the folder's files. A session contains workflows.
 
 **Workflow**:
-One top-level tab in a session, created from a workflow type. Its task comes from the user, typed to its first agent.
+One top-level tab in a session, created from a workflow type. Its task comes from the user. A graph sends the same task to its starting roles; an ordered workflow accepts the task in its first agent terminal.
 
 **Workflow type**:
-The reusable definition a workflow is created from: its roles, stages, and handoffs. Built-in types are Terminal, Single agent, Adversarial, and Coordinator. Users can define their own.
+The reusable definition a workflow is created from: its roles and coordination rules. A user type connects roles in a graph; an ordered type uses stages and handoffs. Built-in types are Terminal, Single agent, Adversarial, and Coordinator. Users can define their own.
 _Avoid_: Pattern, DAG
 
 **Workflow graph**:
-A visual representation of a workflow type's roles, stages, and handoffs.
+A set of roles and event links that coordinate agents. A piece can start work in another role while its producer continues; a busy receiver keeps incoming work in a queue.
 
 **Individual mode**:
 A workflow-wide setting for follow-ups after completion or the review limit. Off by default, it allows a follow-up to a first-stage agent to start another workflow cycle with the same conversations. On keeps follow-ups individual without advancing the workflow. Switching mode starts no work, preserves the last result and history, and persists across relaunch. The setting appears in the terminal toolbar in both Tabs and Bento.

@@ -1,9 +1,8 @@
-use super::{
-    Completion, Handoff, HandoffContent, InstanceCount, MAX_PARALLEL_AGENTS, ReviewLoop, Role,
-    RoleId, Stage, StageId, StageRole, WorkflowTypeDefinition,
-};
+use std::sync::LazyLock;
 
-/// Built-in types ship with Twine and can be copied but not edited.
+use super::{WorkflowTypeDefinition, files};
+
+/// Stable identities for the default TOML graphs shipped with Twine.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BuiltinType {
@@ -16,170 +15,96 @@ impl BuiltinType {
 
     #[must_use]
     pub fn definition(self) -> WorkflowTypeDefinition {
+        static ADVERSARIAL: LazyLock<WorkflowTypeDefinition> =
+            LazyLock::new(|| load(BuiltinType::Adversarial));
+        static COORDINATOR: LazyLock<WorkflowTypeDefinition> =
+            LazyLock::new(|| load(BuiltinType::Coordinator));
         match self {
-            Self::Adversarial => adversarial(),
-            Self::Coordinator => coordinator(),
+            Self::Adversarial => ADVERSARIAL.clone(),
+            Self::Coordinator => COORDINATOR.clone(),
         }
     }
-}
 
-const ADVERSARIAL_REVIEW_ROUNDS: u8 = 3;
+    const fn contents(self) -> &'static str {
+        match self {
+            Self::Adversarial => include_str!("../../workflows/adversarial.toml"),
+            Self::Coordinator => include_str!("../../workflows/coordinator.toml"),
+        }
+    }
 
-fn adversarial() -> WorkflowTypeDefinition {
-    WorkflowTypeDefinition {
-        name: "Adversarial".to_owned(),
-        description: "An implementer does the task and a reviewer reviews it until approval."
-            .to_owned(),
-        roles: vec![
-            role(
-                "implementer",
-                "Implementer",
-                "Complete the task in this folder. When the reviewer requests changes, address \
-                 their feedback, then signal that you are done again.",
-            ),
-            role(
-                "reviewer",
-                "Reviewer",
-                "Review the implementer's changes to this folder against the task. Approve them, \
-                 or request changes with specific, actionable feedback.",
-            ),
-        ],
-        stages: vec![
-            stage(
-                "implement",
-                "Implement",
-                &["implementer"],
-                Completion::AllRolesDone {},
-            ),
-            stage(
-                "review",
-                "Review",
-                &["reviewer"],
-                Completion::ReviewDecision {
-                    reviewer: RoleId("reviewer".to_owned()),
-                },
-            ),
-        ],
-        handoffs: vec![
-            handoff(
-                ("implement", "implementer"),
-                ("review", "reviewer"),
-                HandoffContent::Result,
-            ),
-            handoff(
-                ("review", "reviewer"),
-                ("implement", "implementer"),
-                HandoffContent::Feedback,
-            ),
-        ],
-        review_loops: vec![ReviewLoop {
-            review_stage: StageId("review".to_owned()),
-            back_to: StageId("implement".to_owned()),
-            max_rounds: ADVERSARIAL_REVIEW_ROUNDS,
-        }],
+    /// Historical defaults test saved stage-based runs without changing today's built-ins.
+    #[cfg(test)]
+    pub(crate) fn legacy_definition(self) -> WorkflowTypeDefinition {
+        let contents = match self {
+            Self::Adversarial => include_str!("../../tests/fixtures/legacy-adversarial.toml"),
+            Self::Coordinator => include_str!("../../tests/fixtures/legacy-coordinator.toml"),
+        };
+        toml::from_str(contents).expect("legacy workflow fixture must parse")
     }
 }
 
-fn coordinator() -> WorkflowTypeDefinition {
-    WorkflowTypeDefinition {
-        name: "Coordinator".to_owned(),
-        description: "A coordinator splits the task among parallel workers and gathers their \
-                      results."
-            .to_owned(),
-        roles: vec![
-            role(
-                "coordinator",
-                "Coordinator",
-                "Split the task into one part per worker. Give each worker a sub-task and the set \
-                 of files it owns; no file may belong to more than one worker. When the workers \
-                 finish, gather and check their results.",
-            ),
-            Role {
-                instances: InstanceCount {
-                    min: 2,
-                    max: MAX_PARALLEL_AGENTS,
-                },
-                ..role(
-                    "worker",
-                    "Worker",
-                    "Complete your sub-task. Change only the files you own; other workers are \
-                     editing the rest of this folder at the same time.",
-                )
-            },
-        ],
-        stages: vec![
-            stage(
-                "split",
-                "Split",
-                &["coordinator"],
-                Completion::AllRolesDone {},
-            ),
-            stage("work", "Work", &["worker"], Completion::AllRolesDone {}),
-            stage(
-                "gather",
-                "Gather",
-                &["coordinator"],
-                Completion::AllRolesDone {},
-            ),
-        ],
-        handoffs: vec![
-            handoff(
-                ("split", "coordinator"),
-                ("work", "worker"),
-                HandoffContent::Assignment,
-            ),
-            handoff(
-                ("work", "worker"),
-                ("gather", "coordinator"),
-                HandoffContent::Result,
-            ),
-        ],
-        review_loops: Vec::new(),
-    }
-}
-
-fn role(id: &str, name: &str, instructions: &str) -> Role {
-    Role {
-        id: RoleId(id.to_owned()),
-        name: name.to_owned(),
-        instructions: instructions.to_owned(),
-        instances: InstanceCount::default(),
-    }
-}
-
-fn stage(id: &str, name: &str, roles: &[&str], completion: Completion) -> Stage {
-    Stage {
-        id: StageId(id.to_owned()),
-        name: name.to_owned(),
-        roles: roles
-            .iter()
-            .map(|role| RoleId((*role).to_owned()))
-            .collect(),
-        completion,
-    }
-}
-
-fn handoff(from: (&str, &str), to: (&str, &str), content: HandoffContent) -> Handoff {
-    let endpoint = |(stage, role): (&str, &str)| StageRole {
-        stage: StageId(stage.to_owned()),
-        role: RoleId(role.to_owned()),
-    };
-    Handoff {
-        from: endpoint(from),
-        to: endpoint(to),
-        content,
-    }
+fn load(builtin: BuiltinType) -> WorkflowTypeDefinition {
+    files::decode(builtin.contents())
+        .expect("bundled workflow TOML must be valid")
+        .definition
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow_type::validate;
+    use crate::workflow_type::{GraphReceive, InstanceCount, validate};
 
     #[test]
-    fn every_builtin_type_is_valid() {
+    fn legacy_defaults_remain_readable() {
         for builtin in BuiltinType::ALL {
-            assert_eq!(validate(&builtin.definition()), Ok(()), "{builtin:?}");
+            assert_eq!(validate(&builtin.legacy_definition()), Ok(()));
         }
+    }
+
+    #[test]
+    fn every_builtin_is_an_agent_only_graph() {
+        for builtin in BuiltinType::ALL {
+            let definition = builtin.definition();
+            assert_eq!(validate(&definition), Ok(()), "{builtin:?}");
+            assert_eq!(definition.stages, []);
+            assert_eq!(definition.handoffs, []);
+            assert_eq!(definition.review_loops, []);
+            let graph = definition.graph.as_ref().unwrap();
+            for role in &definition.roles {
+                assert_eq!(role.instances, InstanceCount::default());
+            }
+            for edge in &graph.edges {
+                assert!(definition.roles.iter().any(|role| role.id.0 == edge.from));
+                assert!(definition.roles.iter().any(|role| role.id.0 == edge.to));
+            }
+        }
+    }
+
+    #[test]
+    fn bundled_graphs_can_be_read_as_user_workflow_files() {
+        let directory = tempfile::tempdir().unwrap();
+        for builtin in BuiltinType::ALL {
+            let path = directory.path().join("workflow.toml");
+            std::fs::write(&path, builtin.contents()).unwrap();
+            assert_eq!(files::read(&path).unwrap().definition, builtin.definition());
+        }
+    }
+
+    #[test]
+    fn coordinator_waits_for_both_distinct_workers() {
+        let definition = BuiltinType::Coordinator.definition();
+        let graph = definition.graph.unwrap();
+        assert_eq!(definition.roles.len(), 4);
+        assert!(graph.is_start("planner"));
+        assert!(graph.is_result("coordinator"));
+        assert_eq!(graph.receive.get("coordinator"), Some(&GraphReceive::All));
+        let incoming: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|edge| edge.to == "coordinator")
+            .collect();
+        assert_eq!(incoming.len(), 2);
+        assert!(incoming.iter().any(|edge| edge.from == "worker-1"));
+        assert!(incoming.iter().any(|edge| edge.from == "worker-2"));
     }
 }

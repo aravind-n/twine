@@ -34,6 +34,9 @@ struct WorkflowLaunchPreferences {
             defaults.dictionary(forKey: Self.optionsKey)?[type.preferenceKey] as? [String: [[String: String]]] ?? [:]
         return Dictionary(
             uniqueKeysWithValues: type.definition.roles.map { role in
+                if let agentDefaults = role.agentDefaults {
+                    return (role.id, Array(repeating: agentDefaults.choice, count: role.instances.min))
+                }
                 let harnesses = (saved[role.id] ?? []).compactMap(CoreHarness.init(rawValue:))
                 let roleOptions = options[role.id] ?? []
                 let choices = harnesses.indices.map { index in

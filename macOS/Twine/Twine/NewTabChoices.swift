@@ -11,9 +11,13 @@ struct NewTabChoices: View {
     let startAgent: (HarnessChoice) async throws -> Void
     /// Gives the keyboard back to the terminal, which nothing else in the card can take.
     let focusTerminal: () -> Void
+    var createWorkflow: (CoreWorkflowType?) -> Void = { _ in }
     @State private var showsDesigner = false
     @State private var contentHeight: CGFloat = 0
     @State private var startFailure: String?
+    @State private var pendingDeletion: CoreWorkflowType?
+    @State private var isDeleting = false
+    @State private var deletionFailure: String?
     @Binding var selectedType: CoreWorkflowType?
     /// Set while a picked harness starts, so keys typed meanwhile can't turn the draft into a shell.
     @Binding var startingHarness: CoreHarness?
@@ -44,10 +48,14 @@ struct NewTabChoices: View {
     var body: some View {
         ScrollView {
             if let selectedType {
-                WorkflowLaunchForm(workflowID: workflowID, type: selectedType, isSelected: isSelected) {
-                    self.selectedType = nil
-                    focusTerminal()
-                }
+                WorkflowLaunchForm(
+                    workflowID: workflowID, type: selectedType, isSelected: isSelected,
+                    edit: { createWorkflow(selectedType) },
+                    back: {
+                        self.selectedType = nil
+                        focusTerminal()
+                    }
+                )
                 .id(selectedType.id)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { contentHeight = $0 })
             } else {
@@ -76,8 +84,11 @@ struct NewTabChoices: View {
                 .padding(NewTabLayout.closePadding)
                 .accessibilityIdentifier("closeNewTabChoices")
         }
-        .sheet(isPresented: $showsDesigner, onDismiss: focusTerminal) {
-            WorkflowDesigner { _ in }.environment(client).appZoom()
+        .onChange(of: showsDesigner) { _, value in
+            if value {
+                createWorkflow(nil)
+                showsDesigner = false
+            }
         }
         .focusedSceneValue(
             \.newWorkflowType, isSelected && !showsPrompt && startingHarness == nil ? $showsDesigner : nil
@@ -85,6 +96,33 @@ struct NewTabChoices: View {
         .accessibilityIdentifier("newTabChoices")
         .offset(y: verticalOffset)
         .task(id: client.snapshot?.folders.openFolder) { await harnessCatalog.load(using: client) }
+        .alert(
+            "Delete Workflow?",
+            isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } })
+        ) {
+            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+            Button("Delete", role: .destructive) {
+                guard let type = pendingDeletion else { return }
+                pendingDeletion = nil
+                deleteWorkflow(type)
+            }
+            .accessibilityIdentifier("confirmWorkflowDeletion")
+        } message: {
+            Text(
+                """
+                Delete “\(pendingDeletion?.definition.name ?? "")” from Your workflows?
+                Existing runs keep their saved graph.
+                """
+            )
+        }
+        .alert(
+            "Could Not Delete Workflow",
+            isPresented: Binding(get: { deletionFailure != nil }, set: { if !$0 { deletionFailure = nil } })
+        ) {
+            Button("OK") { deletionFailure = nil }
+        } message: {
+            Text(deletionFailure ?? "")
+        }
         .sheet(item: $customModelHarness) { harness in
             VStack(alignment: .leading, spacing: 0) {
                 Text("\(harness.displayName) model").font(.headline).padding([.top, .horizontal], 12)
@@ -104,7 +142,7 @@ struct NewTabChoices: View {
     private var choices: some View {
         VStack(alignment: .leading, spacing: NewTabLayout.sectionSpacing) {
             ChoicesHeading(
-                title: "Choose a workflow", message: "Pick a workflow type, or start typing to use Terminal.")
+                title: "Choose a workflow", message: "Pick a workflow, or start typing to use Terminal.")
             if let startFailure {
                 Label(startFailure, systemImage: "exclamationmark.triangle")
                     .font(.caption.weight(.medium))
@@ -112,29 +150,53 @@ struct NewTabChoices: View {
                     .accessibilityIdentifier("agentStartFailure")
             }
 
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: NewTabLayout.minimumChoiceWidth), spacing: NewTabLayout.spacing)],
-                spacing: NewTabLayout.spacing
-            ) {
+            Text("Built-in").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 quickChoices
-                ForEach(catalog) { type in
-                    Button {
-                        selectedType = type
-                    } label: {
-                        WorkflowTypeChoiceTile(type: type)
-                    }
-                    .buttonStyle(.plain)
-                    .help(type.definition.description)
-                    .accessibilityIdentifier(
-                        type.reference.builtin == nil
-                            ? "workflowChoice-\(type.id)" : "workflowChoice-\(type.definition.name)")
-                }
+                typeChoices(catalog.filter { $0.reference.builtin != nil })
+            }
+            Text("Your workflows").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            let custom = catalog.filter { $0.reference.user != nil }
+            if custom.isEmpty {
+                Text("Create a workflow to add it here.").font(.callout).foregroundStyle(.secondary)
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) { typeChoices(custom) }
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button("Create your own…") { showsDesigner = true }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isSelected || startingHarness != nil)
+                    .help("Create a workflow (⌥⌘N)")
+                    .accessibilityIdentifier("workflowCreateOwn")
             }
 
-            Button("Create your own", systemImage: "plus.square.on.square") { showsDesigner = true }
-                .disabled(!isSelected || startingHarness != nil)
-                .help("Create your own workflow type (⌥⌘N)")
-                .accessibilityIdentifier("workflowCreateOwn")
+        }
+    }
+
+    private func typeChoices(_ types: [CoreWorkflowType]) -> some View {
+        ForEach(types) { type in
+            WorkflowTypeChoiceTile(
+                type: type, choose: { selectedType = type },
+                delete: type.reference.user == nil ? nil : { pendingDeletion = type }
+            )
+            .disabled(isDeleting || startingHarness != nil || !isSelected)
+        }
+    }
+
+    private func deleteWorkflow(_ type: CoreWorkflowType) {
+        guard !isDeleting else { return }
+        isDeleting = true
+        Task {
+            defer { isDeleting = false }
+            do {
+                let result = try await client.sendAndAwaitCompletion(
+                    .deleteWorkflowType(reference: type.reference, expectedDefinition: type.definition))
+                guard case .workflowTypeDeleted = result else { throw CoreFailure.unexpectedCommandResult }
+            } catch CoreFailure.commandRejected(_, let message) {
+                deletionFailure = message
+            } catch { deletionFailure = error.localizedDescription }
         }
     }
 

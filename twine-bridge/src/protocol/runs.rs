@@ -22,12 +22,15 @@ pub(super) struct WireRun<'a> {
     /// The first stage still has to report the task the user gave it.
     needs_task: bool,
     agents: Vec<WireRunAgent<'a>>,
+    outputs: Vec<&'a twine_core::GraphOutput>,
+    selected_result: Option<u64>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WireRunAgent<'a> {
     agent_id: u64,
+    assignment_generation: u64,
     role: &'a str,
     instance: u8,
     active: bool,
@@ -52,17 +55,24 @@ impl<'a> From<&'a WorkflowRun> for WireRun<'a> {
             generation: run.generation,
             individual_mode: run.individual_mode,
             mode_revision: run.mode_revision,
-            stage: &run.workflow_type.definition.stages[run.stage_index].name,
-            stage_id: &run.workflow_type.definition.stages[run.stage_index].id.0,
+            stage: run.stage_name(),
+            stage_id: run.stage_id(),
             workflow_type: &run.workflow_type,
             status: run.status,
             message: run.message.as_deref(),
             needs_task: run.needs_task(),
+            outputs: run
+                .graph
+                .as_ref()
+                .map(|graph| graph.outputs.values().collect())
+                .unwrap_or_default(),
+            selected_result: run.graph.as_ref().and_then(|graph| graph.selected),
             agents: run
                 .agents
                 .iter()
                 .map(|agent| WireRunAgent {
                     agent_id: agent.agent_id,
+                    assignment_generation: run.assignment_generation(agent.agent_id),
                     role: &agent.role,
                     instance: agent.instance,
                     active: run.status == RunStatus::Running && active.contains(&agent),
@@ -128,6 +138,38 @@ struct RawIndividualMode {
 
 pub(super) fn decode_command(kind: &str, raw: &Value) -> Result<Command, BridgeError> {
     match kind {
+        "submitWorkflowTask" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Raw {
+                workflow_id: u64,
+                generation: u64,
+                prompt: String,
+            }
+            let raw: Raw =
+                serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
+            Ok(Command::SubmitWorkflowTask {
+                workflow_id: WorkflowId(raw.workflow_id),
+                generation: raw.generation,
+                prompt: raw.prompt,
+            })
+        }
+        "chooseWorkflowResult" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Raw {
+                workflow_id: u64,
+                generation: u64,
+                agent_id: u64,
+            }
+            let raw: Raw =
+                serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
+            Ok(Command::ChooseWorkflowResult {
+                workflow_id: WorkflowId(raw.workflow_id),
+                generation: raw.generation,
+                agent_id: AgentId(raw.agent_id),
+            })
+        }
         "startWorkflowRun" => {
             let raw: RawStart =
                 serde_json::from_value(raw.clone()).map_err(|_| BridgeError::MalformedCommand)?;
@@ -211,6 +253,14 @@ mod tests {
     #[test]
     fn run_serializes_the_pinned_definition_stage_id_and_role_assignments() {
         let mut definition = twine_core::BuiltinType::Adversarial.definition();
+        definition.graph = None;
+        definition.stages = serde_json::from_value(serde_json::json!([
+            {"id":"implement", "name":"Implement", "roles":["implementer"],
+                "completion":{"rule":"all_roles_done"}},
+            {"id":"review", "name":"Review", "roles":["reviewer"],
+                "completion":{"rule":"review_decision", "reviewer":"reviewer"}}
+        ]))
+        .unwrap();
         // Stage names need not be unique; graph state must use the stable ID.
         for stage in &mut definition.stages {
             stage.name = "Work".to_owned();

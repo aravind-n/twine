@@ -65,6 +65,7 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testForceQuitPreservesAgentOutputAndCanResumeItsSession \
 	testAdversarialHarnessSelectionUserCompletionReviewLoopAndTraces \
 	testWorkflowDesignerKeyboardEntryValidationAndBuiltinCopy \
+	testSavedWorkflowHoverDeleteRequiresConfirmation \
 	testBentoPanesKeepEachShellAndMoveTheKeyboardBetweenThem \
 	testTerminalSplitsResizeKeepTheirNeighborAndRestoreOutput \
 	testFileEditingUndoSaveAndConflictChoices \

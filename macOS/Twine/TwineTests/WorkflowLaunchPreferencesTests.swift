@@ -96,6 +96,39 @@ struct WorkflowLaunchPreferencesTests {
         #expect(choices["worker"] == [.init(harness: .piAgent), .init(harness: .claudeCode)])
     }
 
+    @Test func workflowAgentDefaultsPrefillEachInstanceAndCanBeOverridden() throws {
+        let suite = "com.twineproject.Twine.tests.TwineLaunchTests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = WorkflowLaunchPreferences(defaults: defaults)
+        let original = type(id: 1, version: 1, min: 2, max: 2)
+        var definition = original.definition
+        let choice = HarnessChoice(harness: .claudeCode, model: "sonnet", effort: "high")
+        preferences.remember(["worker": [.init(harness: .codex)]], for: original)
+        definition.roles[0].agentDefaults = .init(choice: choice)
+        let custom = CoreWorkflowType(reference: original.reference, definition: definition)
+        #expect(preferences.choices(for: custom)["worker"] == [choice, choice])
+        var launch = preferences.choices(for: custom)
+        launch["worker"]?[0] = .init(harness: .piAgent)
+        #expect(custom.definition.roles[0].agentDefaults?.choice == choice)
+        #expect(launch["worker"]?.first?.harness == .piAgent)
+        definition.roles[0].agentDefaults = nil
+        let cleared = CoreWorkflowType(reference: original.reference, definition: definition)
+        #expect(preferences.choices(for: cleared)["worker"]?.first?.harness == .codex)
+    }
+
+    @Test func agentSettingsDecodeWithoutOptionalFieldsAndRoundTrip() throws {
+        let data = Data(
+            """
+            {"id":"writer","name":"Writer","instances":{"min":1,"max":1},
+             "instructions":"Write.","color":"purple","agent_defaults":{"harness":"claudeCode"}}
+            """.utf8)
+        let role = try JSONDecoder().decode(CoreWorkflowType.Role.self, from: data)
+        #expect(role.color == .purple)
+        #expect(role.agentDefaults?.choice == .init(harness: .claudeCode))
+        #expect(try JSONDecoder().decode(CoreWorkflowType.Role.self, from: JSONEncoder().encode(role)) == role)
+    }
+
     private func type(id: UInt64, version: UInt32, min: Int = 2, max: Int = 5) -> CoreWorkflowType {
         .init(
             reference: .init(user: .init(typeID: id, version: version)),

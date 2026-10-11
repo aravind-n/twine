@@ -71,7 +71,7 @@ impl TwineClient {
         let receipt = match envelope.command {
             DecodedCommand::Known(command) => self
                 .application
-                .handle_command(envelope.request_id, command)?,
+                .handle_command(envelope.request_id, *command)?,
             DecodedCommand::Unsupported(command_type) => {
                 warn!(request_id = envelope.request_id.0, "command rejected");
                 protocol::unsupported_receipt(envelope.request_id, &command_type)

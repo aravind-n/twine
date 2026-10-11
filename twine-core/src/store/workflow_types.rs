@@ -1,4 +1,6 @@
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+#[cfg(test)]
+use rusqlite::TransactionBehavior;
+use rusqlite::{OptionalExtension, params};
 
 use super::{Store, StoreError, sql_integer, unsigned_column};
 
@@ -11,6 +13,7 @@ pub(crate) struct StoredWorkflowType {
 
 impl Store {
     /// Adds a workflow type with `definition` as its first version and returns the type's ID.
+    #[cfg(test)]
     pub(crate) fn create_workflow_type(
         &mut self,
         definition: &str,
@@ -30,6 +33,7 @@ impl Store {
 
     /// Adds the next version of a workflow type and returns its number, or `None` if the type
     /// doesn't exist.
+    #[cfg(test)]
     pub(crate) fn add_workflow_type_version(
         &mut self,
         type_id: u64,

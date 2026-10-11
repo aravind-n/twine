@@ -17,8 +17,8 @@ mod workflow;
 mod workflow_run;
 mod workflow_type;
 pub use workflow_run::{
-    Assignment, CompletionSignal, Decision, RoleLaunch, RunAgent, RunAgentStatus, RunError,
-    RunStatus, WorkflowRun, WorkflowTrace,
+    Assignment, CompletionSignal, Decision, GraphOutput, GraphRun, RoleLaunch, RunAgent,
+    RunAgentStatus, RunError, RunStatus, WorkflowRun, WorkflowTrace,
 };
 
 pub use application::{
@@ -45,10 +45,11 @@ pub use workflow::{
     WorkflowState, WorkflowStatus, WorkflowTerminal,
 };
 pub use workflow_type::{
-    BuiltinType, CatalogError, Completion, ElementPath, Handoff, HandoffContent, InstanceCount,
-    MAX_PARALLEL_AGENTS, MAX_REVIEW_ROUNDS, ReviewLoop, Role, RoleId, Stage, StageId, StageRole,
-    ValidationIssue, ValidationProblem, WorkflowType, WorkflowTypeDefinition, WorkflowTypeRef,
-    validate,
+    AgentColor, AgentDefaults, AgentGraph, BuiltinType, CatalogError, Completion, ElementPath,
+    GraphEdge, GraphEvent, GraphFinish, GraphPosition, GraphReceive, Handoff, HandoffContent,
+    InstanceCount, MAX_PARALLEL_AGENTS, MAX_REVIEW_ROUNDS, ReviewLoop, Role, RoleId, Stage,
+    StageId, StageRole, ValidationIssue, ValidationProblem, WorkflowType, WorkflowTypeDefinition,
+    WorkflowTypeRef, validate,
 };
 
 pub use trace::{

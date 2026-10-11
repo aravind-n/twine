@@ -14,8 +14,11 @@ struct WorkflowTerminalSurface: View {
     @State private var draft = WorkflowDraftPresentation()
     @State private var showsChoices = false
     @State private var focusRequest = 0
+    @State private var showsDesigner = false
+    @State private var editingType: CoreWorkflowType?
     @State private var selectedType: CoreWorkflowType?
     @State private var startingHarness: CoreHarness?
+    private var isDesigning: Bool { workflow.kind == .draft && showsDesigner }
     private var history: TraceTerminalTarget? {
         navigation.target.flatMap { $0.workflowID == workflow.id ? $0 : nil }
     }
@@ -26,7 +29,7 @@ struct WorkflowTerminalSurface: View {
                 folder: folder, workflow: workflow, isSelected: isSelected, reportFailure: reportFailure)
         } else {
             VStack(spacing: 0) {
-                if workflow.showsRestoredNotice {
+                if workflow.showsRestoredNotice && !isDesigning {
                     RestoredWorkflowNotice(workflow: workflow)
                 }
                 if workflow.terminalID == 0 {
@@ -52,6 +55,7 @@ struct WorkflowTerminalSurface: View {
                     .id(history.id)
                 }
             }
+            .preference(key: WorkflowDesignerVisibilityKey.self, value: isDesigning ? [workflow.id] : [])
         }
     }
 
@@ -72,9 +76,10 @@ struct WorkflowTerminalSurface: View {
         TerminalSurface(
             terminalID: workflow.terminalID,
             historyTerminalIDs: workflow.terminalHistory?.map(\.terminalID) ?? [], restoresOutput: workflow.restored,
-            isVisible: (isVisible ?? isSelected) && history == nil,
-            isSelected: isSelected && history == nil, focusRequest: focusRequest,
-            automaticallyFocuses: workflow.kind != .draft || (selectedType == nil && startingHarness == nil),
+            isVisible: (isVisible ?? isSelected) && history == nil && !isDesigning,
+            isSelected: isSelected && history == nil && !isDesigning, focusRequest: focusRequest,
+            automaticallyFocuses: workflow.kind != .draft
+                || (selectedType == nil && startingHarness == nil && !isDesigning),
             padding: isTiled ? BentoLayout.terminalPadding : Spacing.terminalContent,
             subject: workflow.kind == .singleAgent ? "Agent" : "Shell", isCancelled: workflow.status == .cancelled,
             beforeUserInput: {
@@ -85,11 +90,24 @@ struct WorkflowTerminalSurface: View {
         .id(workflow.terminalID)
         .overlay {
             GeometryReader { geometry in
-                if workflow.kind == .draft && showsChoices {
+                if isDesigning {
+                    WorkflowDesigner(
+                        type: editingType, isSelected: isSelected,
+                        saved: { type in
+                            selectedType = type
+                            showsDesigner = false
+                        }, cancel: { showsDesigner = false }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if workflow.kind == .draft && showsChoices {
                     NewTabChoices(
                         workflowID: workflow.id, availableHeight: geometry.size.height,
                         isSelected: isSelected,
                         choose: choose, startAgent: startAgent, focusTerminal: { focusRequest += 1 },
+                        createWorkflow: { type in
+                            editingType = type
+                            showsDesigner = true
+                        },
                         selectedType: $selectedType, startingHarness: $startingHarness
                     )
                     .frame(
@@ -136,5 +154,14 @@ struct WorkflowTerminalSurface: View {
                 reportFailure(error.localizedDescription)
             }
         }
+    }
+}
+
+/// Each mounted tab reports its designer state so the selected tab can control window panels.
+nonisolated struct WorkflowDesignerVisibilityKey: PreferenceKey {
+    static let defaultValue: Set<UInt64> = []
+
+    static func reduce(value: inout Set<UInt64>, nextValue: () -> Set<UInt64>) {
+        value.formUnion(nextValue())
     }
 }

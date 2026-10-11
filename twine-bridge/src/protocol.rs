@@ -28,7 +28,7 @@ pub(crate) struct CommandEnvelope {
 
 #[derive(Debug)]
 pub(crate) enum DecodedCommand {
-    Known(Command),
+    Known(Box<Command>),
     Unsupported(String),
 }
 
@@ -254,6 +254,9 @@ enum WireCommandResult {
     WorkflowTypeSaved {
         reference: twine_core::WorkflowTypeRef,
     },
+    WorkflowTypeDeleted {
+        reference: twine_core::WorkflowTypeRef,
+    },
     SessionCreated {
         session_id: u64,
     },
@@ -299,6 +302,9 @@ impl From<&CommandResult> for WireCommandResult {
             CommandResult::WorkflowTypeSaved { reference } => Self::WorkflowTypeSaved {
                 reference: *reference,
             },
+            CommandResult::WorkflowTypeDeleted { reference } => Self::WorkflowTypeDeleted {
+                reference: *reference,
+            },
             CommandResult::SessionCreated { session_id } => Self::SessionCreated {
                 session_id: session_id.0,
             },
@@ -337,6 +343,10 @@ impl From<&CommandResult> for WireCommandResult {
     }
 }
 
+fn known(command: Command) -> DecodedCommand {
+    DecodedCommand::Known(Box::new(command))
+}
+
 pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeError> {
     let text = std::str::from_utf8(bytes).map_err(|_| BridgeError::InvalidUtf8)?;
     let raw: RawCommandEnvelope =
@@ -347,29 +357,29 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         .and_then(Value::as_str)
         .ok_or(BridgeError::MalformedCommand)?;
     let command = match command_type {
-        "validateWorkflowType" | "saveWorkflowType" => {
-            DecodedCommand::Known(workflow_types::decode_command(command_type, &raw.command)?)
+        "validateWorkflowType" | "saveWorkflowType" | "deleteWorkflowType" => {
+            known(workflow_types::decode_command(command_type, &raw.command)?)
         }
-        "startWorkflowRun"
+        "submitWorkflowTask"
+        | "chooseWorkflowResult"
+        | "startWorkflowRun"
         | "completeWorkflowRole"
         | "continueWorkflowRun"
         | "setWorkflowIndividualMode"
-        | "cancelWorkflowRun" => {
-            DecodedCommand::Known(runs::decode_command(command_type, &raw.command)?)
-        }
-        "ping" => DecodedCommand::Known(Command::Ping),
-        "reloadConfig" => DecodedCommand::Known(Command::ReloadConfig),
-        "openFolder" => DecodedCommand::Known(Command::OpenFolder {
+        | "cancelWorkflowRun" => known(runs::decode_command(command_type, &raw.command)?),
+        "ping" => known(Command::Ping),
+        "reloadConfig" => known(Command::ReloadConfig),
+        "openFolder" => known(Command::OpenFolder {
             path: decode_path(&raw.command)?,
         }),
-        "restoreFolder" => DecodedCommand::Known(Command::RestoreFolder {
+        "restoreFolder" => known(Command::RestoreFolder {
             path: decode_path(&raw.command)?,
         }),
-        "closeFolder" => DecodedCommand::Known(Command::CloseFolder),
-        "closeFolderIfOpen" => DecodedCommand::Known(Command::CloseFolderIfOpen {
+        "closeFolder" => known(Command::CloseFolder),
+        "closeFolderIfOpen" => known(Command::CloseFolderIfOpen {
             path: decode_path(&raw.command)?,
         }),
-        "removeRecentFolder" => DecodedCommand::Known(Command::RemoveRecentFolder {
+        "removeRecentFolder" => known(Command::RemoveRecentFolder {
             path: decode_path(&raw.command)?,
         }),
         "refreshGitBranch" => {
@@ -378,19 +388,19 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
                 .get("folder")
                 .and_then(Value::as_str)
                 .ok_or(BridgeError::MalformedCommand)?;
-            DecodedCommand::Known(Command::RefreshGitBranch {
+            known(Command::RefreshGitBranch {
                 folder: PathBuf::from(folder),
             })
         }
         "createSession" | "renameSession" | "selectSession" | "deleteSession"
         | "createWorkflow" | "activateWorkflow" | "nameDraftWorkflow" | "closeWorkflow"
         | "startAgent" | "resumeAgent" | "cancelAgent" => {
-            DecodedCommand::Known(workflows::decode_command(command_type, &raw.command)?)
+            known(workflows::decode_command(command_type, &raw.command)?)
         }
         "startTerminal" => {
             let command: RawStartTerminal =
                 serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
-            DecodedCommand::Known(Command::StartTerminal {
+            known(Command::StartTerminal {
                 working_directory: command.working_directory.into(),
                 size: TerminalSize {
                     rows: command.size.rows,
@@ -403,7 +413,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<CommandEnvelope, BridgeErro
         "closeTerminal" => {
             let command: RawCloseTerminal =
                 serde_json::from_value(raw.command).map_err(|_| BridgeError::MalformedCommand)?;
-            DecodedCommand::Known(Command::CloseTerminal {
+            known(Command::CloseTerminal {
                 terminal_id: TerminalId::from_value(command.terminal_id),
             })
         }
@@ -553,7 +563,7 @@ mod tests {
 
     fn decode(json: &str) -> Command {
         match decode_command(json.as_bytes()).unwrap().command {
-            DecodedCommand::Known(command) => command,
+            DecodedCommand::Known(command) => *command,
             DecodedCommand::Unsupported(kind) => panic!("unsupported command {kind}"),
         }
     }

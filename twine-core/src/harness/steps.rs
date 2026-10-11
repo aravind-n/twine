@@ -78,6 +78,30 @@ impl HarnessStep {
         })
     }
 
+    /// Read the exact native prompt, not its bounded trace preview.
+    pub(crate) fn workflow_prompt(&self) -> io::Result<Option<String>> {
+        if self.kind != StepKind::Prompt {
+            return Ok(None);
+        }
+        let limit = crate::workflow_run::MAX_TASK_BYTES;
+        let prompt = if let Some(activity) = &self.activity
+            && let Some(path) = &activity.detail_path
+        {
+            // A native record above the transport limit cannot be a supported workflow task.
+            if activity.metadata.get("recordFormat").is_some() {
+                return Ok(None);
+            }
+            let mut text = String::new();
+            std::fs::File::open(path)?
+                .take((limit + 1) as u64)
+                .read_to_string(&mut text)?;
+            text
+        } else {
+            self.detail.clone()
+        };
+        Ok((!prompt.trim().is_empty() && prompt.len() <= limit).then_some(prompt))
+    }
+
     pub(crate) fn message(&self) -> String {
         if self.detail.is_empty() {
             self.title.clone()

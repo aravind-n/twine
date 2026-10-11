@@ -137,32 +137,79 @@ directory entries, 32 databases, and 256 recent extraction records per database.
 scanned eight levels deep and folder instructions six levels deep. The checked-locations menu
 shows discovery diagnostics. Return to workflows by clicking the Sessions header.</p>
 <h2 id="agent-workflows">Agent workflows<a class="headerlink" href="#agent-workflows" title="Permanent link">#</a></h2>
-<p>Choose <strong>Adversarial</strong>, <strong>Coordinator</strong>, or a stored custom workflow type from a new tab.
-Pick a harness for each role instance, and optionally its model and effort level, then start it.
+<p>Choose <strong>Adversarial</strong>, <strong>Coordinator</strong>, or a saved workflow from a new tab.
+Pick a harness for each agent, and optionally its model and effort level, then start it.
 Supported harnesses are Codex, Claude Code, pi, Antigravity (<code>agy</code>), OMP (<code>omp</code>), and OpenCode (<code>opencode</code>), installed on your shell's PATH.
 Choose a model and effort level from the options shown in the launch form. Claude Code
 also accepts a model name you type yourself. Where available, <strong>YOLO</strong> lets the harness
 run without asking for permission before each action. Pi does not ask for permission,
-so it has no YOLO option. The first stage's agent asks for the task in
-its terminal and reports it when it finishes, so later roles receive it. Harnesses run directly
-in the open folder; parallel workers receive their own sub-task and advisory file ownership.
-Each role has a terminal subtab. Later stages and review rounds reuse a role's live
-harness conversation when it remains available. After a role completes its assignment,
-its terminal stays interactive for follow-up prompts. A follow-up to a first-stage agent can
-start another workflow cycle while retaining the agents and trace history. After a workflow
-completes or reaches its review limit, turn on <strong>Individual mode</strong> in the terminal toolbar
-to follow up with each agent without starting another cycle. Restored workflows
+so it has no YOLO option. Built-in workflows wait for a task in the first agent's terminal.
+Instructions use the harness instruction channel. Setup does not start agent work.
+Work moves through the graph's links. Harnesses run directly in the open folder.
+Each agent has a terminal subtab. Review rounds reuse the agent's live harness conversation
+when it remains available. After an agent completes its work, its terminal stays interactive.
+After a workflow completes or reaches its review limit, give a start agent another task
+to start a new cycle with the same conversations and trace history. Older stage workflows
+also have <strong>Individual mode</strong> for separate follow-up conversations. Restored workflows
 resume recorded harness conversations when all unfinished active agents have
 compatible session handles.</p>
-<p>Choose <strong>Create your own</strong> (<strong>⌥⌘N</strong>) in a new tab to design a workflow type. Add roles and
-instructions, order stages and their parallel roles, connect handoffs, and bound review loops.
-The designer shows validation errors beside each affected element and enables <strong>File → Save</strong> only after
-the current design validates. Use Tab and Shift-Tab to navigate controls, <strong>⌘S</strong> to save, and
-Escape to cancel. The Preview tab shows the graph.</p>
-<p>From a type's launch form, <strong>Edit workflow type</strong> or <strong>Edit a copy</strong> (<strong>⇧⌘E</strong>) opens the designer.
-Saving a built-in creates a custom copy. Editing a custom type adds a version; workflows already
-started keep their original version. Saved types appear in the catalog and survive relaunch.</p>
-<p>Agents advance stages when they explicitly report completion. Terminal text and
+<p>Click the <strong>+</strong> button to open a new tab. The workflow chooser has two grids:
+<strong>Built-in</strong> and <strong>Your workflows</strong>. Choose <strong>Create your own</strong> to open the
+native graph editor in that tab. Add agents and enter their instructions. Drag agents to move them.
+Drag between an output circle and an input circle to connect agents. You can start at either end.
+Ports of the same type cannot connect. You can also click the circles.
+Click an agent or link to change its settings. The editor has compact cards on a dotted canvas.
+Use <strong>Fit</strong> to see the full graph. The name and description fields are above the canvas.
+A valid receiving card lights up as you drag a connection. You can also use <strong>Connect to…</strong>
+under <strong>Actions</strong> in agent settings or in a card's context menu. Settings keep your draft edits when you click outside them.
+The <strong>Agent</strong> view contains the name, color, and instructions. Choose a color to tint the card and
+its outgoing links. Incoming work settings appear when an agent has multiple input links.
+Use <strong>When work ends</strong> to send a result or make a review decision.
+Right-click an agent and choose <strong>Duplicate agent</strong> to add another agent with the same settings. Switch to
+<strong>Launch defaults</strong> to set optional harness, model, effort, and permission choices.
+These choices fill the launch form. You can change them before starting.
+Right-click empty canvas space for workflow settings and the activation limit under <strong>Advanced</strong>.
+Double-click empty canvas space to add an agent at that point.</p>
+<p>Each graph node is an agent. Agents with no forward input links start the workflow.
+If there are multiple start agents, they receive the same task and can work at the same time.
+A <strong>Work complete</strong> link sends a complete result. An <strong>Item ready</strong> link sends one
+piece while the source keeps working. A busy receiver queues new pieces. Use <strong>Start as work arrives</strong> to
+process items one at a time, or <strong>Wait for every incoming link</strong> to wait for one result from each input.
+Use <strong>Approved</strong> and <strong>Changes requested</strong> links for review. Add another event in a link's
+popover to send both pieces and a final result between the same agents.</p>
+<p>Agents with no forward output links return the final results. Feedback links do not change which agents
+start or return results. Workflow settings offer <strong>Wait for all results</strong>,
+<strong>Choose a result</strong>, and <strong>Compare times</strong>. Each option waits for active work to stop.
+Choose keeps all outputs and lets you select one. Compare times shows the time from task delivery
+to explicit completion for each final agent. A bounded activation limit stops repeated feedback loops.
+A graph can use up to five agents and 64 links.</p>
+<p>Enter a name and use <strong>Save</strong> or <strong>⌘S</strong>. Use <strong>⌘Z</strong> to undo edits.
+The editor enables Save when the current graph is valid. From a launch form, <strong>Edit Workflow</strong>
+opens the editor in the same tab. Changes to a built-in save as a user workflow.</p>
+<p>Adversarial and Coordinator ship as TOML files and use the same agent graph format as user workflows.
+Adversarial connects an Implementer to a Reviewer. The Reviewer can approve the result or send feedback.
+Coordinator connects a Planner to Worker 1 and Worker 2. Both workers receive the plan and work on their
+named parts. Their results go to a Coordinator, which waits for both and checks the combined work.
+The default files are included in <code>Twine.app/Contents/Resources/workflows</code>.</p>
+<p>Start a graph, then enter the task in the first agent's terminal.
+Use <strong>Results</strong> to read all final outputs, select a result, or compare times.</p>
+<p>Twine saves user types as versioned TOML files in <code>$XDG_CONFIG_HOME/twine/workflows</code>.
+The default path is <code>~/.config/twine/workflows</code>. Copy a <code>.toml</code> file to this directory to
+share or import a type. You can rename the file and keep it in version control. Keep its <code>id</code>
+when you move or share it. Use Create your own or edit a built-in to create a separate identity.
+The chooser refreshes after file changes. Invalid files are skipped. A save conflict preserves
+external edits. Reopen the type to load those edits before you save again.</p>
+<p>New graph files contain <code>schema_version = 2</code>, an <code>id</code>, a <code>version</code>, and a
+<code>definition</code>. The definition has roles and a <code>graph</code>. Each graph edge has a stable
+<code>id</code>, <code>from</code>, <code>to</code>, and <code>event</code>. Events are
+<code>done</code>, <code>piece_ready</code>, <code>feedback</code>, and <code>approved</code>.
+Endpoints use role IDs. Version 1 files with <code>task</code> and <code>finish</code> endpoints remain readable.
+Receive rules are <code>any</code> or <code>all</code>; Finish is <code>all</code>, <code>choose</code>, or
+<code>timed</code>. Saved versions stay in <code>.history</code>. Existing SQLite types export once;
+a deleted exported file stays deleted. Started workflows keep their complete original definition.
+Older ordered stage definitions remain readable. The editor converts them to graphs before saving.
+New saves must use graphs.</p>
+<p>Agents send work through their links when they explicitly report completion. Terminal text and
 process exits do not advance a workflow.</p>
 <p><strong>Mark done…</strong> is always available for an unfinished active role, including after its process
 exits. Its form also supports review decisions and worker assignments. Review loops stop at the

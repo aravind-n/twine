@@ -1,0 +1,42 @@
+# Bundled default. This file uses the same format as user workflows.
+schema_version = 2
+id = 1
+version = 1
+
+[definition]
+name = "Adversarial"
+description = "An implementer does the task. A reviewer approves it or requests changes."
+
+[[definition.roles]]
+id = "implementer"
+name = "Implementer"
+color = "blue"
+instructions = "Complete the task in this folder. If the reviewer requests changes, apply the feedback and send the complete result again."
+
+[[definition.roles]]
+id = "reviewer"
+name = "Reviewer"
+color = "orange"
+instructions = "Check the implementer's work against the user's task. Approve it, or request changes with clear feedback."
+
+[definition.graph]
+review_agents = ["reviewer"]
+finish = "all"
+# The first attempt and three rounds of changes.
+max_activations = 4
+
+[definition.graph.positions]
+implementer = { x = 300, y = 280 }
+reviewer = { x = 620, y = 280 }
+
+[[definition.graph.edges]]
+id = "implementer-reviewer"
+from = "implementer"
+to = "reviewer"
+event = "done"
+
+[[definition.graph.edges]]
+id = "reviewer-implementer"
+from = "reviewer"
+to = "implementer"
+event = "feedback"

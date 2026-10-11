@@ -51,8 +51,13 @@ pub enum Command {
         definition: crate::WorkflowTypeDefinition,
     },
     SaveWorkflowType {
+        expected_definition: Option<Box<crate::WorkflowTypeDefinition>>,
         source: Option<crate::WorkflowTypeRef>,
         definition: crate::WorkflowTypeDefinition,
+    },
+    DeleteWorkflowType {
+        reference: crate::WorkflowTypeRef,
+        expected_definition: Box<crate::WorkflowTypeDefinition>,
     },
     /// Opens the folder at an absolute path and records it as the most recent folder.
     OpenFolder {
@@ -156,6 +161,16 @@ pub enum Command {
         mode_revision: u64,
         individual_mode: bool,
     },
+    SubmitWorkflowTask {
+        workflow_id: WorkflowId,
+        generation: u64,
+        prompt: String,
+    },
+    ChooseWorkflowResult {
+        workflow_id: WorkflowId,
+        generation: u64,
+        agent_id: crate::AgentId,
+    },
     CancelWorkflowRun {
         workflow_id: WorkflowId,
     },
@@ -212,6 +227,8 @@ struct Inner {
     shell_process_endings: HashMap<TerminalId, traces::PendingTraceEnding>,
     pending_shell_marks: std::collections::VecDeque<crate::terminal::ShellObservation>,
     pending_shell_workflows: HashMap<TerminalId, crate::Workflow>,
+    workflow_types_cache: Vec<crate::WorkflowType>,
+    workflow_types_polled: Option<std::time::Instant>,
 }
 
 pub struct Application {
@@ -340,6 +357,8 @@ impl Application {
                 shell_process_endings: HashMap::new(),
                 pending_shell_marks: std::collections::VecDeque::new(),
                 pending_shell_workflows: HashMap::new(),
+                workflow_types_cache: Vec::new(),
+                workflow_types_polled: None,
             })),
             terminal_output: Arc::clone(&terminal_output),
             terminals,
@@ -383,9 +402,20 @@ impl Application {
             Command::ValidateWorkflowType { definition } => {
                 self.validate_workflow_type(request_id, &definition)?
             }
-            Command::SaveWorkflowType { source, definition } => {
-                self.save_workflow_type(request_id, source, &definition)?
-            }
+            Command::SaveWorkflowType {
+                source,
+                definition,
+                expected_definition,
+            } => self.save_workflow_type(
+                request_id,
+                source,
+                &definition,
+                expected_definition.as_deref(),
+            )?,
+            Command::DeleteWorkflowType {
+                reference,
+                expected_definition,
+            } => self.delete_workflow_type(request_id, reference, &expected_definition)?,
             Command::Ping => {
                 let mut inner = self.lock_inner()?;
                 inner.events.append(EventKind::CommandCompleted {
@@ -484,6 +514,16 @@ impl Application {
                 mode_revision,
                 individual_mode,
             )?,
+            Command::SubmitWorkflowTask {
+                workflow_id,
+                generation,
+                prompt,
+            } => self.submit_workflow_task(workflow_id, generation, prompt)?,
+            Command::ChooseWorkflowResult {
+                workflow_id,
+                generation,
+                agent_id,
+            } => self.choose_workflow_result(workflow_id, generation, agent_id)?,
             Command::CancelWorkflowRun { workflow_id } => self.cancel_workflow_run(workflow_id)?,
             Command::StartTerminal {
                 working_directory,
@@ -518,6 +558,7 @@ impl Application {
         let mut inner = self.lock_inner()?;
         let workflow_types =
             crate::workflow_type::WorkflowCatalog::new(inner.folders.store()).list()?;
+        inner.workflow_types_cache.clone_from(&workflow_types);
         let mut terminals = inner
             .terminals
             .iter()
@@ -557,17 +598,27 @@ impl Application {
         self.poll_workflow_signals()?;
         let mut inner = self.lock_inner()?;
         let previous = inner.folders.state().clone();
-        if inner.folders.refresh_shared()? {
-            if *inner.folders.state() != previous {
-                let folders = inner.folders.state().clone();
-                inner
-                    .events
-                    .append(EventKind::State(StateEvent::FoldersChanged(folders)))?;
-            }
-            let types = crate::workflow_type::WorkflowCatalog::new(inner.folders.store()).list()?;
+        if inner.folders.refresh_shared()? && *inner.folders.state() != previous {
+            let folders = inner.folders.state().clone();
             inner
                 .events
-                .append(EventKind::State(StateEvent::WorkflowTypesChanged(types)))?;
+                .append(EventKind::State(StateEvent::FoldersChanged(folders)))?;
+        }
+        if inner
+            .workflow_types_polled
+            .is_none_or(|time| time.elapsed() >= std::time::Duration::from_secs(1))
+        {
+            inner.workflow_types_polled = Some(std::time::Instant::now());
+            let types = crate::workflow_type::WorkflowCatalog::new(inner.folders.store()).list()?;
+            if types != inner.workflow_types_cache {
+                let initialized = !inner.workflow_types_cache.is_empty();
+                inner.workflow_types_cache.clone_from(&types);
+                if initialized {
+                    inner
+                        .events
+                        .append(EventKind::State(StateEvent::WorkflowTypesChanged(types)))?;
+                }
+            }
         }
         Ok(inner.events.after(sequence, limit)?)
     }
@@ -649,6 +700,8 @@ fn rejection(code: &str, error: &dyn std::error::Error) -> CommandDisposition {
 
 #[derive(Debug, Error)]
 pub enum ApplicationError {
+    #[error("Could not create a workflow signal inbox: {0}")]
+    CompletionInbox(std::io::Error),
     #[error(transparent)]
     Harness(#[from] crate::harness::HarnessError),
     #[error(transparent)]

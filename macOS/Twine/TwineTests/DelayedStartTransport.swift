@@ -62,13 +62,15 @@ actor DelayedStartTransport {
         case .closeTerminal(let terminalID):
             closedTerminalIDs.insert(terminalID)
             deliver(.commandCompleted(requestID: requestID, result: .terminalClosed(terminalID: terminalID)))
-        case .validateWorkflowType, .saveWorkflowType, .ping, .reloadConfig, .openFolder, .restoreFolder, .closeFolder,
+        case .validateWorkflowType, .saveWorkflowType, .deleteWorkflowType, .ping, .reloadConfig, .openFolder,
+            .restoreFolder, .closeFolder,
             .closeFolderIfOpen,
             .removeRecentFolder, .createWorkflow,
             .activateWorkflow, .closeWorkflow, .startAgent, .resumeAgent, .cancelAgent, .nameDraftWorkflow,
             .refreshGitBranch,
             .createSession, .renameSession, .selectSession, .deleteSession,
-            .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun, .setWorkflowIndividualMode,
+            .startWorkflowRun, .submitWorkflowTask, .chooseWorkflowResult, .completeWorkflowRole,
+            .continueWorkflowRun, .setWorkflowIndividualMode,
             .cancelWorkflowRun:
             break
         }

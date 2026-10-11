@@ -23,6 +23,7 @@ pub(super) struct RunProcesses {
     inboxes: HashMap<AgentId, (u64, CompletionInbox)>,
     completion_commands: HashMap<AgentId, CompletionCommand>,
     completion_routing: HashMap<AgentId, CompletionRouting>,
+    graph_submissions: HashMap<AgentId, (u64, Instant)>,
     inputs: HashMap<TerminalId, Arc<Mutex<AgentInput>>>,
     /// Accepted helpers keep their receipt until they consume it; their harness remains alive.
     retired_inboxes: std::collections::VecDeque<(Instant, CompletionInbox)>,
@@ -31,12 +32,22 @@ pub(super) struct RunProcesses {
 
 const PROMPT_HOOK_TIMEOUT: Duration = Duration::from_secs(2);
 
+#[derive(Clone, Copy)]
 enum CompletionRouting {
     AwaitingSubmission(u64),
     AwaitingPrompt(u64, Instant),
     Active(u64),
     Private,
 }
+
+pub(super) struct WorkflowSubmission {
+    workflow: WorkflowId,
+    agent: AgentId,
+    generation: u64,
+    since: Instant,
+}
+
+type GraphSubmissions = HashMap<(WorkflowId, AgentId), (u64, Instant)>;
 
 impl CompletionRouting {
     fn generation(&self) -> Option<u64> {
@@ -78,7 +89,22 @@ impl RunProcesses {
         inbox: &CompletionInbox,
         user: bool,
         previous_turn_finished: bool,
-    ) -> String {
+    ) -> std::io::Result<String> {
+        if run.graph.is_some() {
+            let command = self.command_for(AgentId(agent), inbox)?;
+            self.completion_commands[&AgentId(agent)].deactivate();
+            self.completion_routing.insert(
+                AgentId(agent),
+                CompletionRouting::AwaitingSubmission(run.assignment_generation(agent)),
+            );
+            if user {
+                return Ok(String::new());
+            }
+            return Ok(format!(
+                "Use this completion command for this and later assignments: {command}\n{}",
+                run.follow_up_instructions(agent)
+            ));
+        }
         if let Some(command) = self.completion_commands.get(&AgentId(agent)) {
             // Manual completion can advance while the old turn is still working. A prompt
             // attributed to this assignment activates its helper after older turns finish.
@@ -91,18 +117,18 @@ impl RunProcesses {
             {
                 self.completion_routing.insert(
                     AgentId(agent),
-                    CompletionRouting::AwaitingSubmission(run.generation),
+                    CompletionRouting::AwaitingSubmission(run.assignment_generation(agent)),
                 );
-                return if user {
+                return Ok(if user {
                     String::new()
                 } else {
                     run.follow_up_instructions(agent)
-                };
+                });
             }
         }
         self.completion_routing
             .insert(AgentId(agent), CompletionRouting::Private);
-        format!(
+        Ok(format!(
             "Use this completion command for the current assignment: {}\n{}",
             inbox.command(),
             if user {
@@ -110,7 +136,7 @@ impl RunProcesses {
             } else {
                 run.follow_up_instructions(agent)
             }
-        )
+        ))
     }
 
     fn command_for(&mut self, agent: AgentId, inbox: &CompletionInbox) -> std::io::Result<String> {
@@ -160,18 +186,26 @@ fn workflow_launch_options(agent: &crate::RunAgent) -> crate::harness::launch::L
     })
 }
 
-fn final_review_feedback(agents: &[Agent], run: &WorkflowRun) -> Vec<(TerminalId, String)> {
-    run.incoming.iter().filter_map(|(target, message)| {
-                    let terminal = agents.iter().find(|agent| agent.agent_id.0 == *target)?.terminal_id;
-                    Some((terminal, format!(
-                        "{message}\n{}\n",
-                        if run.status == RunStatus::Completed {
-                            "The review is complete. Wait for the user's next message."
-                        } else {
-                            "The review limit was reached. Discuss this feedback with the user before continuing."
-                        }
-                    )))
-                }).collect::<Vec<_>>()
+fn final_review_feedback(
+    agents: &[Agent],
+    run: &WorkflowRun,
+    reviewer_id: u64,
+) -> Vec<(TerminalId, String)> {
+    let ending = if run.status == RunStatus::Completed {
+        "The review is complete. Wait for the user's next message."
+    } else {
+        "The review limit was reached. Discuss this feedback with the user before continuing."
+    };
+    run.final_review_messages(reviewer_id)
+        .into_iter()
+        .filter_map(|(target, message)| {
+            let terminal = agents
+                .iter()
+                .find(|agent| agent.agent_id.0 == target)?
+                .terminal_id;
+            Some((terminal, format!("{message}\n{ending}\n")))
+        })
+        .collect()
 }
 
 struct PreparedAgent {
@@ -232,6 +266,10 @@ impl Application {
                 .folders
                 .store()
                 .start_workflow_run(workflow_id, &mut run)?;
+            if run.graph.is_some() && !run.prompt.trim().is_empty() {
+                run.start_graph_task(run.prompt.clone())
+                    .map_err(|_| ApplicationError::Poisoned)?;
+            }
             let workflow = inner
                 .workflows
                 .workflows
@@ -288,6 +326,7 @@ impl Application {
                     inboxes: HashMap::new(),
                     completion_commands: HashMap::new(),
                     completion_routing: HashMap::new(),
+                    graph_submissions: HashMap::new(),
                     inputs: HashMap::new(),
                     retired_inboxes: std::collections::VecDeque::new(),
                     resumed_sessions: HashMap::new(),
@@ -299,6 +338,10 @@ impl Application {
 
     /// Resume only a fully identified interrupted stage. Finished roles keep their completion,
     /// while every unfinished role receives a fresh completion inbox and the same conversation.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "resume identity and generation checks precede one launch"
+    )]
     pub(super) fn resume_workflow_run(
         &self,
         saved: &Workflow,
@@ -321,16 +364,26 @@ impl Application {
                 let Some(tab) = saved.agents.iter().find(|a| a.agent_id.0 == agent.agent_id) else {
                     return Ok(());
                 };
+                let pending = saved_run
+                    .graph
+                    .as_ref()
+                    .is_some_and(|graph| !graph.started || graph.ready.contains(&agent.agent_id));
                 let Some(session) = inner.folders.store().harness_session(tab.terminal_id)? else {
+                    if pending {
+                        continue;
+                    }
                     return Ok(());
                 };
                 if crate::harness::resume::arguments(agent.harness, &session).is_none() {
+                    if pending {
+                        continue;
+                    }
                     return Ok(());
                 }
                 sessions.insert(tab.agent_id, session);
             }
         }
-        if sessions.is_empty() {
+        if sessions.is_empty() && saved_run.graph.is_none() {
             return Ok(());
         }
         let mut harnesses = HashMap::new();
@@ -351,8 +404,18 @@ impl Application {
         let mut workflow = saved.clone();
         let run = workflow.run.as_mut().expect("restored workflow has a run");
         run.status = RunStatus::Running;
-        run.generation += 1;
-        run.message = None;
+        let Some(generation) = run.generation.checked_add(1) else {
+            tracing::warn!("couldn't advance the restored workflow generation");
+            return Ok(());
+        };
+        if let Err(error) = run.prepare_graph_resume() {
+            tracing::warn!(%error, "couldn't advance the restored assignment generation");
+            return Ok(());
+        }
+        run.generation = generation;
+        run.message = run
+            .graph_choice_ready()
+            .then(|| "All results are ready. Choose a result.".to_owned());
         run.trace(
             "workflowResumed",
             None,
@@ -385,6 +448,7 @@ impl Application {
                     inboxes: HashMap::new(),
                     completion_commands: HashMap::new(),
                     completion_routing: HashMap::new(),
+                    graph_submissions: HashMap::new(),
                     inputs: HashMap::new(),
                     retired_inboxes: std::collections::VecDeque::new(),
                     resumed_sessions: sessions,
@@ -393,6 +457,10 @@ impl Application {
         self.launch_workflow_stage(saved.workflow_id, false)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "terminal reservations and launch failure cleanup stay paired"
+    )]
     fn prepare_workflow_stage(
         &self,
         run: &mut WorkflowRun,
@@ -403,25 +471,32 @@ impl Application {
         let active: Vec<_> = run
             .active_agents()
             .into_iter()
-            .filter(|agent| !run.completions.contains_key(&agent.agent_id))
+            .filter(|agent| {
+                !run.completions.contains_key(&agent.agent_id)
+                    && (run.graph.is_none() || agent.status == crate::RunAgentStatus::Waiting)
+            })
             .cloned()
             .collect();
         // Reserve every transcript outside application state locks; storage can wait on disk.
         let mut prepared = Vec::new();
         for agent in active {
+            processes.graph_submissions.remove(&AgentId(agent.agent_id));
             let Ok(inbox) = CompletionInbox::new() else {
                 run.finish(RunStatus::Failed, "Couldn't create the completion command.");
                 break;
             };
             if let Some(&terminal) = live_terminals.get(&AgentId(agent.agent_id)) {
                 let finished = self.harness_turn_finished(terminal).unwrap_or(false);
-                let prompt = processes.continuation_prompt(
+                let Ok(prompt) = processes.continuation_prompt(
                     run,
                     agent.agent_id,
                     &inbox,
                     user_follow_up,
                     finished,
-                );
+                ) else {
+                    run.finish(RunStatus::Failed, "Could not prepare the next assignment.");
+                    break;
+                };
                 prepared.push(PreparedAgent {
                     agent,
                     inbox,
@@ -437,7 +512,7 @@ impl Application {
                     let options = workflow_launch_options(&agent);
                     let (mut arguments, hooks) =
                         self.harness_arguments(agent.harness, reserved, options, "");
-                    let command = if hooks.is_some() {
+                    let command = if hooks.is_some() || run.graph.is_some() {
                         let Ok(command) = processes.command_for(AgentId(agent.agent_id), &inbox)
                         else {
                             let _ = self.terminals.cancel_reserved_terminal(reserved);
@@ -447,9 +522,19 @@ impl Application {
                             );
                             break;
                         };
-                        processes
-                            .completion_routing
-                            .remove(&AgentId(agent.agent_id));
+                        if run.graph.is_some() && run.needs_task() {
+                            processes.completion_commands[&AgentId(agent.agent_id)].deactivate();
+                            processes.completion_routing.insert(
+                                AgentId(agent.agent_id),
+                                CompletionRouting::AwaitingSubmission(
+                                    run.assignment_generation(agent.agent_id),
+                                ),
+                            );
+                        } else {
+                            processes
+                                .completion_routing
+                                .remove(&AgentId(agent.agent_id));
+                        }
                         command
                     } else {
                         processes
@@ -457,25 +542,31 @@ impl Application {
                             .remove(&AgentId(agent.agent_id));
                         inbox.command()
                     };
+                    if let Err(error) = crate::harness::instructions::append(
+                        agent.harness,
+                        &run.instructions(agent.agent_id, &command),
+                        &mut arguments,
+                        hooks.as_ref(),
+                        &processes.harnesses[&agent.harness],
+                        &processes.folder,
+                    ) {
+                        let _ = self.terminals.cancel_reserved_terminal(reserved);
+                        run.finish(
+                            RunStatus::Failed,
+                            &format!("Could not set role instructions: {error}"),
+                        );
+                        break;
+                    }
                     let session = processes.resumed_sessions.get(&AgentId(agent.agent_id));
                     if let Some(session) = session {
                         arguments.extend(
                             crate::harness::resume::arguments(agent.harness, session)
                                 .expect("resume handles validated before restarting a workflow"),
                         );
-                        arguments.extend(agent.harness.definition().arguments(&format!(
-                            "Resume this conversation and your current assignment. \
-                             Your completion command is now {}; keep using it for subsequent assignments.\n\n{}",
-                            command,
-                            run.follow_up_instructions(agent.agent_id),
-                        )));
-                    } else {
-                        arguments.extend(
-                            agent
-                                .harness
-                                .definition()
-                                .arguments(&run.instructions(agent.agent_id, &command)),
-                        );
+                    }
+                    let task = run.initial_task(agent.agent_id);
+                    if !task.is_empty() {
+                        arguments.extend(agent.harness.definition().arguments(&task));
                     }
                     prepared.push(PreparedAgent {
                         agent,
@@ -502,7 +593,7 @@ impl Application {
         clippy::too_many_lines,
         reason = "process, session, inbox, and trace cleanup stay paired during launch"
     )]
-    fn launch_workflow_stage(
+    pub(super) fn launch_workflow_stage(
         &self,
         workflow_id: WorkflowId,
         user_follow_up: bool,
@@ -588,9 +679,11 @@ impl Application {
                     ) {
                         replaced.push(previous);
                     }
-                    processes
-                        .inboxes
-                        .insert(AgentId(agent.agent_id), (run.generation, inbox));
+                    processes.inboxes.insert(
+                        AgentId(agent.agent_id),
+                        (run.assignment_generation(agent.agent_id), inbox),
+                    );
+                    run.graph_agent_launched(agent.agent_id);
                     run.trace(
                         if continued {
                             "agentContinued"
@@ -701,6 +794,76 @@ impl Application {
         Ok(())
     }
 
+    pub(super) fn submit_workflow_task(
+        &self,
+        workflow_id: WorkflowId,
+        generation: u64,
+        prompt: String,
+    ) -> Result<CommandDisposition, ApplicationError> {
+        {
+            let mut inner = self.lock_inner()?;
+            let Some(index) = inner
+                .workflows
+                .workflows
+                .iter()
+                .position(|workflow| workflow.workflow_id == workflow_id)
+            else {
+                return Ok(reject(
+                    "workflowNotFound",
+                    "The workflow is no longer open.",
+                ));
+            };
+            let mut workflow = inner.workflows.workflows[index].clone();
+            let Some(run) = workflow.run.as_mut() else {
+                return Ok(reject("notWorkflowRun", "This workflow has no graph."));
+            };
+            if run.generation != generation {
+                return Ok(reject("staleTask", "The workflow changed."));
+            }
+            if let Err(error) = run.start_graph_task(prompt) {
+                return Ok(super::rejection("invalidTask", &error));
+            }
+            inner.publish_run(index, workflow)?;
+        }
+        self.launch_workflow_stage(workflow_id, false)?;
+        Ok(CommandDisposition::Accepted)
+    }
+
+    pub(super) fn choose_workflow_result(
+        &self,
+        workflow_id: WorkflowId,
+        generation: u64,
+        agent_id: AgentId,
+    ) -> Result<CommandDisposition, ApplicationError> {
+        let mut inner = self.lock_inner()?;
+        let Some(index) = inner
+            .workflows
+            .workflows
+            .iter()
+            .position(|workflow| workflow.workflow_id == workflow_id)
+        else {
+            return Ok(reject(
+                "workflowNotFound",
+                "The workflow is no longer open.",
+            ));
+        };
+        let mut workflow = inner.workflows.workflows[index].clone();
+        let Some(run) = workflow.run.as_mut() else {
+            return Ok(reject("notWorkflowRun", "This workflow has no graph."));
+        };
+        if let Err(error) = run.choose_graph_result(agent_id.0, generation) {
+            return Ok(super::rejection("invalidResult", &error));
+        }
+        workflow.status = WorkflowStatus::Completed;
+        workflow.ended_at = Some(timestamp());
+        inner.publish_run(index, workflow)?;
+        Ok(CommandDisposition::Accepted)
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "completion persistence and mailbox receipts stay paired"
+    )]
     pub(super) fn complete_workflow_role(
         &self,
         workflow_id: WorkflowId,
@@ -709,7 +872,24 @@ impl Application {
         signal: CompletionSignal,
     ) -> Result<CommandDisposition, ApplicationError> {
         self.poll_harness_steps()?;
-        let (advance, running, feedback, generation, mode_revision) = {
+        let piece = signal.decision == crate::Decision::PieceReady;
+        let replacement = if piece {
+            match CompletionInbox::new() {
+                Ok(inbox) => Some(inbox),
+                Err(error) => return Ok(super::rejection("completionInboxFailed", &error)),
+            }
+        } else {
+            None
+        };
+        let (
+            advance,
+            running,
+            feedback,
+            generation,
+            mode_revision,
+            graph_run,
+            assignment_generation,
+        ) = {
             let mut inner = self.lock_inner()?;
             let Some(index) = inner
                 .workflows
@@ -768,12 +948,14 @@ impl Application {
             }
             let running = run.status == RunStatus::Running;
             let feedback = if advance && !running && run.is_reviewer(agent_id.0) {
-                final_review_feedback(&workflow.agents, run)
+                final_review_feedback(&workflow.agents, run, agent_id.0)
             } else {
                 Vec::new()
             };
             let generation = run.generation;
             let mode_revision = run.mode_revision;
+            let graph_run = run.graph.is_some();
+            let assignment_generation = run.assignment_generation(agent_id.0);
             workflow.status = workflow_status(run.status);
             if !running {
                 workflow.ended_at = Some(timestamp());
@@ -781,22 +963,77 @@ impl Application {
             if let Err(error) = inner.publish_run(index, workflow) {
                 return Ok(super::rejection("completionStoreFailed", &error));
             }
-            (advance, running, feedback, generation, mode_revision)
+            (
+                advance,
+                running,
+                feedback,
+                generation,
+                mode_revision,
+                graph_run,
+                assignment_generation,
+            )
         };
+        let mut renewal_failed = false;
         {
             let mut processes = self
                 .run_processes
                 .lock()
                 .map_err(|_| ApplicationError::Poisoned)?;
             if let Some(processes) = processes.get_mut(&workflow_id) {
-                processes.finish_assignment(agent_id, advance);
+                processes.finish_assignment(agent_id, if graph_run { !running } else { advance });
+                if piece && running {
+                    let inbox = replacement.expect("piece inbox prepared before persistence");
+                    if processes.command_for(agent_id, &inbox).is_err() {
+                        inbox.reject(
+                            "The workflow stopped because its signal command could not be renewed.",
+                        );
+                        renewal_failed = true;
+                    }
+                    if !renewal_failed {
+                        processes
+                            .inboxes
+                            .insert(agent_id, (assignment_generation, inbox));
+                    }
+                }
             }
+        }
+        if renewal_failed {
+            self.fail_graph_signals(workflow_id)?;
+            return Ok(CommandDisposition::Accepted);
         }
         if advance && running {
             self.launch_workflow_stage(workflow_id, false)?;
         }
         self.deliver_review_feedback(workflow_id, generation, mode_revision, feedback);
         Ok(CommandDisposition::Accepted)
+    }
+
+    fn fail_graph_signals(&self, workflow_id: WorkflowId) -> Result<(), ApplicationError> {
+        let terminals = {
+            let mut inner = self.lock_inner()?;
+            let Some(index) = inner
+                .workflows
+                .workflows
+                .iter()
+                .position(|workflow| workflow.workflow_id == workflow_id)
+            else {
+                return Ok(());
+            };
+            let mut workflow = inner.workflows.workflows[index].clone();
+            if let Some(run) = workflow.run.as_mut() {
+                run.finish(
+                    RunStatus::Failed,
+                    "Could not renew the agent signal command.",
+                );
+            }
+            workflow.status = WorkflowStatus::Failed;
+            workflow.ended_at = Some(timestamp());
+            let terminals = workflow.terminal_ids();
+            inner.publish_run_best_effort(index, workflow)?;
+            terminals
+        };
+        self.stop_run_terminals(&terminals, "Workflow signal command failed.");
+        Ok(())
     }
 
     fn deliver_review_feedback(
@@ -866,12 +1103,15 @@ impl Application {
         message: &str,
     ) -> Result<(), ApplicationError> {
         if let Some(input) = self.workflow_agent_input(terminal)? {
-            let submitted = input
-                .lock()
-                .map_err(|_| ApplicationError::Poisoned)?
-                .notify(&self.terminals, terminal, message)?;
-            if submitted {
-                self.note_workflow_submission(terminal)?;
+            let mut input = input.lock().map_err(|_| ApplicationError::Poisoned)?;
+            let submission = if input.notification_will_submit() {
+                self.note_workflow_submission(terminal)?
+            } else {
+                None
+            };
+            if let Err(error) = input.notify(&self.terminals, terminal, message) {
+                self.cancel_workflow_submission(submission)?;
+                return Err(error.into());
             }
         }
         Ok(())
@@ -880,7 +1120,7 @@ impl Application {
     pub(super) fn note_workflow_submission(
         &self,
         terminal: TerminalId,
-    ) -> Result<(), ApplicationError> {
+    ) -> Result<Option<WorkflowSubmission>, ApplicationError> {
         let owner = {
             let inner = self.lock_inner()?;
             inner.workflows.workflows.iter().find_map(|workflow| {
@@ -892,10 +1132,15 @@ impl Application {
                     .agents
                     .iter()
                     .find(|agent| agent.terminal_id == terminal)?;
-                Some((workflow.workflow_id, agent.agent_id, run.generation))
+                Some((
+                    workflow.workflow_id,
+                    agent.agent_id,
+                    run.assignment_generation(agent.agent_id.0),
+                    run.graph.is_some() && run.needs_task(),
+                ))
             })
         };
-        if let Some((workflow, agent, generation)) = owner {
+        if let Some((workflow, agent, generation, idle_graph)) = owner {
             let mut processes = self
                 .run_processes
                 .lock()
@@ -904,10 +1149,71 @@ impl Application {
                 && let Some(routing) = processes.completion_routing.get_mut(&agent)
                 && matches!(routing, CompletionRouting::AwaitingSubmission(assigned) if *assigned == generation)
             {
-                *routing = CompletionRouting::AwaitingPrompt(generation, Instant::now());
+                let since = Instant::now();
+                *routing = CompletionRouting::AwaitingPrompt(generation, since);
+                if idle_graph {
+                    processes
+                        .graph_submissions
+                        .insert(agent, (generation, since));
+                }
+                return Ok(Some(WorkflowSubmission {
+                    workflow,
+                    agent,
+                    generation,
+                    since,
+                }));
+            }
+        }
+        Ok(None)
+    }
+
+    pub(super) fn cancel_workflow_submission(
+        &self,
+        submission: Option<WorkflowSubmission>,
+    ) -> Result<(), ApplicationError> {
+        let Some(submission) = submission else {
+            return Ok(());
+        };
+        let mut registry = self
+            .run_processes
+            .lock()
+            .map_err(|_| ApplicationError::Poisoned)?;
+        if let Some(processes) = registry.get_mut(&submission.workflow) {
+            if matches!(processes.completion_routing.get(&submission.agent),
+                Some(CompletionRouting::AwaitingPrompt(generation, since))
+                    if *generation == submission.generation && *since == submission.since)
+            {
+                processes.completion_routing.insert(
+                    submission.agent,
+                    CompletionRouting::AwaitingSubmission(submission.generation),
+                );
+            }
+            if processes.graph_submissions.get(&submission.agent)
+                == Some(&(submission.generation, submission.since))
+            {
+                processes.graph_submissions.remove(&submission.agent);
             }
         }
         Ok(())
+    }
+
+    pub(super) fn graph_submissions(&self) -> Result<Option<GraphSubmissions>, ApplicationError> {
+        let registry = match self.run_processes.try_lock() {
+            Ok(registry) => registry,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
+            Err(std::sync::TryLockError::Poisoned(_)) => return Err(ApplicationError::Poisoned),
+        };
+        Ok(Some(
+            registry
+                .iter()
+                .flat_map(|(&workflow, processes)| {
+                    processes
+                        .graph_submissions
+                        .iter()
+                        .map(move |(&agent, &submission)| ((workflow, agent), submission))
+                })
+                .collect(),
+        ))
     }
 
     pub(super) fn activate_workflow_completion(
@@ -916,6 +1222,7 @@ impl Application {
         agent: AgentId,
         generation: u64,
         ready: bool,
+        received_at: Option<Instant>,
     ) -> Result<(), ApplicationError> {
         let mut processes = self
             .run_processes
@@ -928,7 +1235,13 @@ impl Application {
             && routing.generation() == Some(generation)
             && let Some(command) = processes.completion_commands.get(&agent)
         {
-            if ready {
+            if matches!(routing, CompletionRouting::AwaitingSubmission(_)) {
+                return Ok(());
+            }
+            if ready
+                && !matches!(routing, CompletionRouting::AwaitingPrompt(_, since)
+                if received_at.is_none_or(|received| received < *since))
+            {
                 if let Err(error) = command.bind(inbox) {
                     tracing::warn!(%error, "couldn't activate the new assignment's completion command");
                 } else {
@@ -1136,7 +1449,6 @@ impl Application {
     /// The bridge polls events off the UI thread. Polling also services bounded completion
     /// mailboxes, so terminal output (including an idle or exited process) cannot starve signals.
     pub(super) fn poll_workflow_signals(&self) -> Result<(), ApplicationError> {
-        self.poll_harness_steps()?;
         // Snapshot/event reads must stay available while a lifetime command waits on transcript
         // storage. The next idle poll will service these mailboxes.
         let _guard = match self.commands.try_lock() {
@@ -1144,7 +1456,29 @@ impl Application {
             Err(std::sync::TryLockError::WouldBlock) => return Ok(()),
             Err(std::sync::TryLockError::Poisoned(_)) => return Err(ApplicationError::Poisoned),
         };
+        self.poll_harness_steps()?;
         self.prune_run_processes()?;
+        let ready: Vec<_> = {
+            let inner = self.lock_inner()?;
+            inner
+                .workflows
+                .workflows
+                .iter()
+                .filter(|workflow| {
+                    workflow.run.as_ref().is_some_and(|run| {
+                        run.status == RunStatus::Running
+                            && run
+                                .graph
+                                .as_ref()
+                                .is_some_and(|graph| !graph.ready.is_empty())
+                    })
+                })
+                .map(|workflow| workflow.workflow_id)
+                .collect()
+        };
+        for workflow in ready {
+            self.launch_workflow_stage(workflow, false)?;
+        }
         let submissions: Vec<_> = {
             let processes = self
                 .run_processes
@@ -1209,6 +1543,10 @@ impl Application {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "route recovery and timeout notification stay paired"
+    )]
     fn recover_completion_routes(&self, now: Instant) -> Result<(), ApplicationError> {
         let candidates: Vec<_> = {
             let registry = self
@@ -1247,7 +1585,9 @@ impl Application {
                         .iter()
                         .find(|w| w.workflow_id == workflow)?;
                     let run = saved.run.as_ref()?;
-                    if run.status != RunStatus::Running || run.generation != generation {
+                    if run.status != RunStatus::Running
+                        || run.assignment_generation(agent.0) != generation
+                    {
                         return None;
                     }
                     let terminal = saved
@@ -1261,6 +1601,7 @@ impl Application {
                         generation,
                         terminal,
                         run.follow_up_instructions(agent.0),
+                        run.graph.is_some(),
                     ))
                 })
                 .collect()
@@ -1271,7 +1612,7 @@ impl Application {
                 .lock()
                 .map_err(|_| ApplicationError::Poisoned)?;
             let mut notifications = Vec::new();
-            for (workflow, agent, generation, terminal, instructions) in assignments {
+            for (workflow, agent, generation, terminal, instructions, graph) in assignments {
                 let Some(processes) = registry.get_mut(&workflow) else {
                     continue;
                 };
@@ -1291,12 +1632,22 @@ impl Application {
                 }
                 // Commit sticky private routing before any late hook can reactivate the wrapper.
                 *routing = CompletionRouting::Private;
-                if let Some(command) = processes.completion_commands.get(&agent) {
-                    command.deactivate();
-                }
-                notifications.push((terminal, format!(
-                    "Use this completion command for the current assignment: {}\n{instructions}", inbox.command(),
-                )));
+                let command = if graph {
+                    let command = processes
+                        .completion_commands
+                        .get(&agent)
+                        .ok_or(ApplicationError::Poisoned)?;
+                    command
+                        .bind(inbox)
+                        .map_err(ApplicationError::CompletionInbox)?;
+                    command.command()
+                } else {
+                    if let Some(command) = processes.completion_commands.get(&agent) {
+                        command.deactivate();
+                    }
+                    inbox.command()
+                };
+                notifications.push((terminal, format!("Use this completion command for the current assignment: {command}\n{instructions}")));
             }
             notifications
         };
@@ -1333,6 +1684,41 @@ impl Application {
 }
 
 impl super::Inner {
+    pub(super) fn adopt_graph_prompt(
+        &mut self,
+        workflow_id: WorkflowId,
+        terminal: TerminalId,
+        prompt: String,
+    ) -> Result<(), ApplicationError> {
+        let Some(index) = self
+            .workflows
+            .workflows
+            .iter()
+            .position(|w| w.workflow_id == workflow_id)
+        else {
+            return Ok(());
+        };
+        let mut workflow = self.workflows.workflows[index].clone();
+        let Some(agent) = workflow
+            .agents
+            .iter()
+            .find(|agent| agent.terminal_id == terminal)
+        else {
+            return Ok(());
+        };
+        let Some(run) = workflow.run.as_mut() else {
+            return Ok(());
+        };
+        match run.adopt_graph_task(agent.agent_id.0, prompt) {
+            Ok(true) => self.publish_run(index, workflow),
+            Ok(false) => Ok(()),
+            Err(error) => {
+                tracing::warn!(%error, "couldn't start the graph from its native prompt");
+                Ok(())
+            }
+        }
+    }
+
     fn record_agent_launch(
         &mut self,
         tabs: &mut [Agent],
@@ -1475,21 +1861,21 @@ mod tests {
         );
     }
 
-    fn launch(app: &Application, folder: &Path, builtin: BuiltinType) -> WorkflowId {
-        launch_with_size(app, folder, builtin, SIZE, "Test the workflow")
+    fn launch_legacy(app: &Application, folder: &Path, builtin: BuiltinType) -> WorkflowId {
+        launch_legacy_with_size(app, folder, builtin, SIZE, "Test the workflow")
     }
 
-    fn launch_with_size(
+    fn launch_legacy_with_size(
         app: &Application,
         folder: &Path,
         builtin: BuiltinType,
         run_size: TerminalSize,
         prompt: &str,
     ) -> WorkflowId {
-        launch_with_harness(app, folder, builtin, run_size, prompt, HarnessId::Pi)
+        launch_legacy_with_harness(app, folder, builtin, run_size, prompt, HarnessId::Pi)
     }
 
-    fn launch_with_harness(
+    fn launch_legacy_with_harness(
         app: &Application,
         folder: &Path,
         builtin: BuiltinType,
@@ -1515,8 +1901,34 @@ mod tests {
             .last()
             .unwrap()
             .workflow_id;
-        let roles = builtin
-            .definition()
+        let definition = builtin.legacy_definition();
+        let type_id = match builtin {
+            BuiltinType::Adversarial => 1,
+            BuiltinType::Coordinator => 2,
+        };
+        let directory = app
+            .lock_inner()
+            .unwrap()
+            .folders
+            .store()
+            .workflow_directory
+            .clone();
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut file = toml::Table::new();
+        file.insert("schema_version".into(), toml::Value::Integer(1));
+        file.insert("id".into(), toml::Value::Integer(type_id));
+        file.insert("version".into(), toml::Value::Integer(1));
+        file.insert(
+            "definition".into(),
+            toml::Value::try_from(&definition).unwrap(),
+        );
+        std::fs::write(
+            directory.join(format!("legacy-{type_id}.toml")),
+            toml::to_string(&file).unwrap(),
+        )
+        .unwrap();
+        let type_id = u64::try_from(type_id).unwrap();
+        let roles = definition
             .roles
             .iter()
             .flat_map(|r| {
@@ -1533,7 +1945,10 @@ mod tests {
             app,
             Command::StartWorkflowRun {
                 workflow_id: id,
-                workflow_type: WorkflowTypeRef::Builtin(builtin),
+                workflow_type: WorkflowTypeRef::User {
+                    type_id,
+                    version: 1,
+                },
                 prompt: prompt.into(),
                 roles,
                 size: run_size,
@@ -1542,7 +1957,11 @@ mod tests {
         id
     }
 
-    fn wait_for(app: &Application, id: WorkflowId, check: impl Fn(&Workflow) -> bool) -> Workflow {
+    fn wait_for(
+        app: &Application,
+        id: WorkflowId,
+        mut check: impl FnMut(&Workflow) -> bool,
+    ) -> Workflow {
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             let workflow = app
@@ -1565,16 +1984,293 @@ mod tests {
         }
     }
 
+    fn graph_definition(
+        edges: &[(&str, &str, crate::GraphEvent)],
+        finish: crate::GraphFinish,
+    ) -> crate::WorkflowTypeDefinition {
+        let mut definition = BuiltinType::Adversarial.definition();
+        definition.stages.clear();
+        definition.handoffs.clear();
+        definition.review_loops.clear();
+        definition.graph = Some(crate::AgentGraph {
+            edges: edges
+                .iter()
+                .enumerate()
+                .map(|(index, (from, to, event))| crate::GraphEdge {
+                    id: index.to_string(),
+                    from: (*from).into(),
+                    to: (*to).into(),
+                    event: *event,
+                })
+                .collect(),
+            receive: std::collections::BTreeMap::default(),
+            review_agents: std::collections::BTreeSet::default(),
+            positions: std::collections::BTreeMap::default(),
+            finish,
+            max_activations: 32,
+        });
+        definition
+    }
+
+    fn launch_graph(
+        app: &Application,
+        folder: &Path,
+        definition: &crate::WorkflowTypeDefinition,
+        prompt: &str,
+    ) -> WorkflowId {
+        let reference = WorkflowCatalog::new(app.lock_inner().unwrap().folders.store())
+            .create(definition)
+            .unwrap();
+        accepted(
+            app,
+            Command::CreateWorkflow {
+                folder: folder.into(),
+                session_id: None,
+                kind: WorkflowKind::Draft,
+                roles: vec![],
+                size: SIZE,
+            },
+        );
+        let id = app.snapshot().unwrap().workflows.workflows[0].workflow_id;
+        accepted(
+            app,
+            Command::StartWorkflowRun {
+                workflow_id: id,
+                workflow_type: reference,
+                prompt: prompt.into(),
+                roles: definition
+                    .roles
+                    .iter()
+                    .map(|role| RoleLaunch {
+                        role: role.id.0.clone(),
+                        harness: HarnessId::Pi,
+                        model: None,
+                        effort: None,
+                        yolo: false,
+                    })
+                    .collect(),
+                size: SIZE,
+            },
+        );
+        id
+    }
+
+    fn recover_graph(app: &Application, folder: &Path, saved: &Workflow) -> Workflow {
+        app.stop_run_terminals(&saved.terminal_ids(), "Simulate quit");
+        app.run_processes.lock().unwrap().remove(&saved.workflow_id);
+        let mut interrupted = saved.clone();
+        interrupted.status = WorkflowStatus::Interrupted;
+        interrupted.run.as_mut().unwrap().status = RunStatus::Interrupted;
+        app.lock_inner()
+            .unwrap()
+            .publish_run(0, interrupted.clone())
+            .unwrap();
+        app.resume_workflow_run(&interrupted, folder).unwrap();
+        app.snapshot().unwrap().workflows.workflows[0].clone()
+    }
+
+    #[test]
+    fn a_recovered_choose_graph_keeps_both_outputs_and_accepts_result_selection() {
+        use crate::{GraphEvent, GraphFinish};
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(
+            folder.path(),
+            bin.path(),
+            "stty -echo; while read line; do :; done",
+        );
+        let definition = graph_definition(
+            &[
+                ("task", "implementer", GraphEvent::Task),
+                ("task", "reviewer", GraphEvent::Task),
+                ("implementer", "finish", GraphEvent::Done),
+                ("reviewer", "finish", GraphEvent::Done),
+            ],
+            GraphFinish::Choose,
+        );
+        let id = launch_graph(&app, folder.path(), &definition, "The same task");
+        let current = app.snapshot().unwrap().workflows.workflows[0].clone();
+        for agent in &current.agents {
+            accepted(
+                &app,
+                Command::CompleteWorkflowRole {
+                    workflow_id: id,
+                    agent_id: agent.agent_id,
+                    generation: 1,
+                    signal: CompletionSignal {
+                        decision: Decision::Done,
+                        summary: agent.role.clone(),
+                        assignments: vec![],
+                        task: String::new(),
+                    },
+                },
+            );
+        }
+        let saved = app.snapshot().unwrap().workflows.workflows[0].clone();
+        assert!(saved.run.as_ref().unwrap().graph_choice_ready());
+        let resumed = recover_graph(&app, folder.path(), &saved);
+        let run = resumed.run.as_ref().unwrap();
+        assert!(run.graph_choice_ready());
+        assert_eq!(run.graph.as_ref().unwrap().outputs.len(), 2);
+        accepted(
+            &app,
+            Command::ChooseWorkflowResult {
+                workflow_id: id,
+                generation: run.generation,
+                agent_id: saved.agents[1].agent_id,
+            },
+        );
+        let selected = app.snapshot().unwrap().workflows.workflows[0].clone();
+        assert_eq!(selected.status, WorkflowStatus::Completed);
+        assert_eq!(
+            selected
+                .run
+                .as_ref()
+                .unwrap()
+                .graph
+                .as_ref()
+                .unwrap()
+                .outputs
+                .len(),
+            2
+        );
+    }
+
+    fn submit_completion_command(
+        app: &Application,
+        id: WorkflowId,
+        command: &str,
+        signal: &CompletionSignal,
+    ) {
+        use std::io::Write;
+        use std::process::{Command as ProcessCommand, Stdio};
+        let mut child = ProcessCommand::new("/bin/sh")
+            .args(["-c", command])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&serde_json::to_vec(signal).unwrap())
+            .unwrap();
+        wait_for(app, id, |_| {
+            app.poll_workflow_signals().unwrap();
+            child.try_wait().unwrap().is_some()
+        });
+        assert!(child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn an_idle_graph_streams_pieces_with_one_command_and_keeps_its_producer_live() {
+        use crate::{GraphEvent, GraphFinish};
+        let folder = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let app = application(
+            folder.path(),
+            bin.path(),
+            "stty -echo; while read line; do :; done",
+        );
+        let definition = graph_definition(
+            &[
+                ("task", "implementer", GraphEvent::Task),
+                ("implementer", "reviewer", GraphEvent::PieceReady),
+                ("reviewer", "finish", GraphEvent::Done),
+            ],
+            GraphFinish::All,
+        );
+        let id = launch_graph(&app, folder.path(), &definition, "");
+        let idle = app.snapshot().unwrap().workflows.workflows[0].clone();
+        assert_eq!(idle.terminal_ids().len(), 1);
+        assert!(idle.run.as_ref().unwrap().needs_task());
+        let resumed = recover_graph(&app, folder.path(), &idle);
+        assert_eq!(resumed.run.as_ref().unwrap().status, RunStatus::Running);
+        accepted(
+            &app,
+            Command::SubmitWorkflowTask {
+                workflow_id: id,
+                generation: 2,
+                prompt: "Process these pieces".into(),
+            },
+        );
+        let running = app.snapshot().unwrap().workflows.workflows[0].clone();
+        app.recover_completion_routes(Instant::now() + PROMPT_HOOK_TIMEOUT)
+            .unwrap();
+        let producer = running.agents[0].agent_id;
+        let receiver = running.agents[1].agent_id;
+        let producer_terminal = running.agents[0].terminal_id;
+        let command =
+            app.run_processes.lock().unwrap()[&id].completion_commands[&producer].command();
+        for (decision, summary) in [
+            (Decision::PieceReady, "Piece one"),
+            (Decision::PieceReady, "Piece two"),
+            (Decision::Done, "Producer done"),
+        ] {
+            submit_completion_command(
+                &app,
+                id,
+                &command,
+                &CompletionSignal {
+                    decision,
+                    summary: summary.into(),
+                    assignments: vec![],
+                    task: String::new(),
+                },
+            );
+            assert!(app.terminals.is_running(producer_terminal));
+        }
+        let streamed = app.snapshot().unwrap().workflows.workflows[0].clone();
+        let run = streamed.run.as_ref().unwrap();
+        assert_eq!(
+            run.graph.as_ref().unwrap().queues[&receiver.0]
+                .values()
+                .map(std::collections::VecDeque::len)
+                .sum::<usize>(),
+            1
+        );
+        assert!(run.incoming[&receiver.0].contains("Piece one"));
+        for generation in [1, 2] {
+            accepted(
+                &app,
+                Command::CompleteWorkflowRole {
+                    workflow_id: id,
+                    agent_id: receiver,
+                    generation,
+                    signal: CompletionSignal {
+                        decision: Decision::Done,
+                        summary: format!("Result {generation}"),
+                        assignments: vec![],
+                        task: String::new(),
+                    },
+                },
+            );
+        }
+        let completed = app.snapshot().unwrap().workflows.workflows[0].clone();
+        assert_eq!(completed.status, WorkflowStatus::Completed);
+        assert_eq!(completed.agents[0].terminal_id, producer_terminal);
+        assert!(app.terminals.is_running(producer_terminal));
+        accepted(&app, Command::CancelWorkflowRun { workflow_id: id });
+    }
+
     // A real PTY harness process invokes the same completion helper an installed harness uses.
     const FAKE: &str = r#"
     extension=''
+    instructions=''
     while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
-        if [ "$1" = --extension ]; then shift; extension=$1; fi
+        if [ "$1" = --extension ]; then shift; extension=$1;
+        elif [ "$1" = --append-system-prompt ]; then shift; instructions=$1; fi
         shift
     done
     prompt=$2
-    command=$(printf '%s\n' "$prompt" | sed -n "s/^'\(.*\/complete\)' <<.*/\1/p")
+    command=$(printf '%s\n' "$instructions" | sed -n "s/^'\(.*\/complete\)' <<.*/\1/p")
     socket=$(sed -n 's/.*const socketPath = "\(.*\)";/\1/p' "$extension")
+    if [ -n "$prompt" ]; then
+      case "$instructions" in 'You are Worker '*|*'Outgoing links:'*) prompt="$instructions
+$prompt" ;; esac
+    fi
     round=0
     paste_start=$(printf '\033[200~')
     paste_end=$(printf '\033[201~')
@@ -1633,7 +2329,7 @@ mod tests {
             bin.path(),
             "while read line; do echo \"$line\"; done",
         );
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let original = wait_for(&app, id, |w| !w.terminal_ids().is_empty());
         let old_terminal = original.agents[0].terminal_id;
         app.lock_inner()
@@ -1690,7 +2386,7 @@ mod tests {
                 std::fs::write(folder.path().join("request-changes"), "").unwrap();
             }
             let app = application(folder.path(), bin.path(), FAKE);
-            let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+            let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
             let result = wait_for(&app, id, |w| w.status != WorkflowStatus::Running);
             assert_eq!(
                 result.run.as_ref().unwrap().status,
@@ -1754,14 +2450,16 @@ mod tests {
 
     const RECORD_INPUT: &str = r#"
         extension=''
+        instructions=''
         while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
-            if [ "$1" = --extension ]; then shift; extension=$1; fi
+            if [ "$1" = --extension ]; then shift; extension=$1;
+            elif [ "$1" = --append-system-prompt ]; then shift; instructions=$1; fi
             shift
         done
         prompt=$2
-        case "$prompt" in 'You are Implementer '*) role=implement ;; *) role=review ;; esac
+        case "$instructions" in 'You are Implementer '*) role=implement ;; *) role=review ;; esac
         printf '%s' "$prompt" > "$role-launch"
-        printf '%s\n' "$prompt" | sed -n "s/^'\(.*\/complete\)' <<.*/\1/p" > "$role-command"
+        printf '%s\n' "$instructions" | sed -n "s/^'\(.*\/complete\)' <<.*/\1/p" > "$role-command"
         if [ -n "$extension" ]; then
             sed -n 's/.*const socketPath = "\(.*\)";/\1/p' "$extension" > "$role-socket"
         fi
@@ -1805,7 +2503,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let app = application(folder.path(), bin.path(), RECORD_INPUT);
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let initial = wait_for(&app, id, |_| folder.path().join("implement-ready").exists());
         let terminal = initial.agents[0].terminal_id;
         let command = std::fs::read_to_string(folder.path().join("implement-command")).unwrap();
@@ -1931,7 +2629,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let app = application(folder.path(), bin.path(), RECORD_INPUT);
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let first = wait_for(&app, id, |_| folder.path().join("implement-ready").exists());
         let terminal = first.agents[0].terminal_id;
         let remembered = std::fs::read_to_string(folder.path().join("implement-command")).unwrap();
@@ -1986,7 +2684,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let app = application(folder.path(), bin.path(), RECORD_INPUT);
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let reused = reuse_after_identified_response(&app, folder.path(), id, false);
         let terminal = reused.agents[0].terminal_id;
         let old = std::fs::read_to_string(folder.path().join("implement-command")).unwrap();
@@ -2043,7 +2741,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let app = application(folder.path(), bin.path(), RECORD_INPUT);
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let reused = reuse_after_identified_response(&app, folder.path(), id, true);
         let terminal = reused.agents[0].terminal_id;
         let command = private_command(&app, &reused);
@@ -2084,7 +2782,7 @@ mod tests {
             let folder = tempfile::tempdir().unwrap();
             let bin = tempfile::tempdir().unwrap();
             let app = application(folder.path(), bin.path(), RECORD_INPUT);
-            let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+            let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
             let reused = reuse_after_identified_response(&app, folder.path(), id, false);
             let command = private_command(&app, &reused);
             if cancelled {
@@ -2110,11 +2808,20 @@ mod tests {
         let wrapper = bin.path().join("opencode");
         std::fs::write(
             &wrapper,
-            "#!/bin/sh\nshift\nshift\nprompt=${1#--prompt=}\nexec pi -- \"$prompt\"\n",
+            r#"#!/usr/bin/python3
+import json, os, re, sys
+config = json.loads(os.environ['OPENCODE_CONFIG_CONTENT'])
+plugin = next(path.removeprefix('file://') for path in config['plugin'] if path.endswith('twine-observer.mjs'))
+with open(plugin) as source:
+    match = re.search(r'output.system.push\(("(?:\\.|[^"\\])*")\)', source.read())
+instructions = json.loads(match.group(1))
+prompt = next((arg.removeprefix('--prompt=') for arg in sys.argv if arg.startswith('--prompt=')), '')
+os.execvp('pi', ['pi', '--append-system-prompt', instructions, '--', prompt])
+"#,
         )
         .unwrap();
         std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let id = launch_with_harness(
+        let id = launch_legacy_with_harness(
             &app,
             folder.path(),
             BuiltinType::Adversarial,
@@ -2187,7 +2894,7 @@ mod tests {
             let folder = tempfile::tempdir().unwrap();
             let bin = tempfile::tempdir().unwrap();
             let app = Arc::new(application(folder.path(), bin.path(), RECORD_INPUT));
-            let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+            let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
             finish_remaining_stages(&app, id);
             let completed = app.snapshot().unwrap().workflows.workflows[0].clone();
             let generation = completed.run.as_ref().unwrap().generation;
@@ -2285,7 +2992,7 @@ mod tests {
             let folder = tempfile::tempdir().unwrap();
             let bin = tempfile::tempdir().unwrap();
             let app = application(folder.path(), bin.path(), RECORD_INPUT);
-            let id = launch(&app, folder.path(), builtin);
+            let id = launch_legacy(&app, folder.path(), builtin);
             finish_remaining_stages(&app, id);
             let completed = app.snapshot().unwrap().workflows.workflows[0].clone();
             let generation = completed.run.as_ref().unwrap().generation;
@@ -2359,7 +3066,7 @@ mod tests {
             let folder = tempfile::tempdir().unwrap();
             let bin = tempfile::tempdir().unwrap();
             let app = application(folder.path(), bin.path(), RECORD_INPUT);
-            let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+            let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
             let initial = wait_for(&app, id, |_| folder.path().join("implement-ready").exists());
             let terminal = initial.agents[0].terminal_id;
             let mut current = initial;
@@ -2465,7 +3172,7 @@ mod tests {
                 while IFS= read -r line; do printf '%s\n' "$line" >> "input-$$"; done
             "#,
             );
-            let id = launch(&app, folder.path(), builtin);
+            let id = launch_legacy(&app, folder.path(), builtin);
             let first = wait_for(&app, id, |w| !w.terminal_ids().is_empty());
             let first_agent = first.agents[0].agent_id;
             let first_terminal = first.agents[0].terminal_id;
@@ -2604,7 +3311,7 @@ mod tests {
             bin.path(),
             "while read line; do echo \"$line\"; done",
         );
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         loop {
             let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
             if workflow.status != WorkflowStatus::Running {
@@ -2708,16 +3415,11 @@ mod tests {
                 assert_eq!(span.started_at, start.timestamp);
             }
         }
-        for round in 1..=invocations / 2 {
-            for stage in ["Implement", "Review"] {
-                assert_eq!(
-                    page.spans
-                        .iter()
-                        .filter(|span| span.title == format!("{stage} · Round {round}"))
-                        .count(),
-                    1
-                );
-            }
+        for stage in ["Implement", "Review"] {
+            assert_eq!(
+                page.spans.iter().filter(|span| span.title == stage).count(),
+                usize::try_from(invocations / 2).unwrap()
+            );
         }
         // Saving the same accepted state again never duplicates events or invocation spans.
         // Hold the store lock so late harness hooks cannot change the revision between reads.
@@ -2744,7 +3446,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let app = application(folder.path(), bin.path(), FAKE);
-        let id = launch(&app, folder.path(), BuiltinType::Coordinator);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Coordinator);
         let result = wait_for(&app, id, |w| w.status == WorkflowStatus::Completed);
         let order = std::fs::read_to_string(folder.path().join("order")).unwrap();
         let order: Vec<_> = order.lines().collect();
@@ -2861,7 +3563,7 @@ mod tests {
     }
 
     fn launch_coordinator_workers(app: &Application, folder: &Path) -> WorkflowId {
-        let id = launch(app, folder, BuiltinType::Coordinator);
+        let id = launch_legacy(app, folder, BuiltinType::Coordinator);
         let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
         accepted(
             app,
@@ -3004,7 +3706,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let app = application(folder.path(), bin.path(), "sleep 60");
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
         let agent = &workflow.agents[0];
         app.lock_inner()
@@ -3058,7 +3760,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let app = application(folder.path(), bin.path(), "exit 0");
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         wait_for(&app, id, |_| {
             app.lock_inner()
                 .unwrap()
@@ -3095,7 +3797,7 @@ mod tests {
             bin.path(),
             "echo 'done approved requestChanges'; exit 0",
         );
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let first = wait_for(&app, id, |w| {
             app.lock_inner()
                 .unwrap()
@@ -3184,7 +3886,7 @@ mod tests {
                 path: folder.path().to_owned(),
             },
         );
-        let id = launch(&persistent, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&persistent, folder.path(), BuiltinType::Adversarial);
         let marker = persistent.terminals.reserve_terminal().unwrap();
         persistent
             .terminals
@@ -3206,7 +3908,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         let app = Arc::new(application(folder.path(), bin.path(), "sleep 60"));
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let workflow = app.snapshot().unwrap().workflows.workflows[0].clone();
         let stalled = app
             .terminal_output
@@ -3248,7 +3950,7 @@ mod tests {
         let span = page
             .spans
             .iter()
-            .find(|span| span.title == "Review · Round 1")
+            .find(|span| span.title == "Review")
             .unwrap();
         assert!(span.is_live && span.terminal_id.is_none() && span.ended_at.is_none());
         let span_id = span.span_id;
@@ -3366,7 +4068,7 @@ mod tests {
         let bin = tempfile::tempdir().unwrap();
         let app = application(folder.path(), bin.path(), "exit 0");
         // A rejected PTY size fails before the launcher can create a process.
-        let id = launch_with_size(
+        let id = launch_legacy_with_size(
             &app,
             folder.path(),
             BuiltinType::Adversarial,
@@ -3419,7 +4121,7 @@ mod tests {
             },
         );
         let _failure = fail_run_updates(data.path());
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let workflow = wait_for(&app, id, |w| {
             w.status == WorkflowStatus::Failed
                 && app
@@ -3441,7 +4143,7 @@ mod tests {
     }
 
     #[test]
-    fn a_run_without_a_prompt_asks_the_first_agent_and_passes_the_reported_task_on() {
+    fn a_run_without_a_prompt_waits_for_input_and_passes_the_reported_task_on() {
         let folder = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         // Each agent records its launch prompt, the last argument, in its own file, written whole.
@@ -3450,7 +4152,7 @@ mod tests {
             bin.path(),
             r#"for last; do :; done; printf '%s' "$last" > "p-$$.tmp"; mv "p-$$.tmp" "prompt-$$.txt"; sleep 60"#,
         );
-        let id = launch_with_size(&app, folder.path(), BuiltinType::Adversarial, SIZE, "");
+        let id = launch_legacy_with_size(&app, folder.path(), BuiltinType::Adversarial, SIZE, "");
         let prompts = |count: usize| {
             let deadline = Instant::now() + Duration::from_secs(15);
             loop {
@@ -3468,7 +4170,7 @@ mod tests {
                 thread::sleep(Duration::from_millis(10));
             }
         };
-        assert!(prompts(1)[0].contains("ask them what they want done"));
+        assert!(prompts(1)[0].contains("Wait for the user to give you a task"));
 
         // A completion without the task goes back to the agent to correct.
         submit_helper(&app, id);
@@ -3621,7 +4323,7 @@ mod tests {
                 path: folder.path().to_owned(),
             },
         );
-        let id = launch(&app, folder.path(), BuiltinType::Adversarial);
+        let id = launch_legacy(&app, folder.path(), BuiltinType::Adversarial);
         let failure = fail_run_updates(data.path());
         let before = app.workflow_trace(id, None, 200).unwrap();
         submit_helper(&app, id);

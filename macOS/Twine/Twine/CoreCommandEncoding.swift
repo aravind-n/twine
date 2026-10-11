@@ -18,8 +18,11 @@ nonisolated struct CommandEnvelope: Encodable {
 }
 
 nonisolated private struct CommandPayload: Encodable {
+    var expectedDefinition: CoreWorkflowType.Definition?
     var definition: CoreWorkflowType.Definition?
+    var prompt: String?
     var source: CoreWorkflowType.Reference?
+    var reference: CoreWorkflowType.Reference?
     var type: String
     var path: String?
     var folder: String?
@@ -45,7 +48,7 @@ nonisolated private struct CommandPayload: Encodable {
     var session: String?
 
     private enum CodingKeys: String, CodingKey {
-        case definition, source, session
+        case definition, source, reference, session, prompt, expectedDefinition
         case path, folder, kind, roles, size, type, workingDirectory, name, harness, model, effort, yolo
         case terminalID = "terminalId"
         case workflowID = "workflowId"
@@ -57,13 +60,9 @@ nonisolated private struct CommandPayload: Encodable {
 
     init(_ command: CoreCommand) {
         switch command {
-        case .validateWorkflowType(let definition):
-            type = "validateWorkflowType"
-            self.definition = definition
-        case .saveWorkflowType(let source, let definition):
-            type = "saveWorkflowType"
-            self.source = source
-            self.definition = definition
+        case .validateWorkflowType, .saveWorkflowType, .deleteWorkflowType:
+            type = ""
+            configureWorkflowType(command)
         case .ping:
             type = "ping"
         case .reloadConfig:
@@ -79,7 +78,7 @@ nonisolated private struct CommandPayload: Encodable {
             type = ""
             configureWorkflow(command)
         case .startWorkflowRun, .completeWorkflowRole, .continueWorkflowRun, .setWorkflowIndividualMode,
-            .cancelWorkflowRun:
+            .cancelWorkflowRun, .submitWorkflowTask, .chooseWorkflowResult:
             type = ""
             configureRun(command)
         case .startTerminal(let workingDirectory, let size):
@@ -89,6 +88,24 @@ nonisolated private struct CommandPayload: Encodable {
         case .closeTerminal(let terminalID):
             type = "closeTerminal"
             self.terminalID = terminalID
+        }
+    }
+
+    private mutating func configureWorkflowType(_ command: CoreCommand) {
+        switch command {
+        case .validateWorkflowType(let definition):
+            type = "validateWorkflowType"
+            self.definition = definition
+        case .saveWorkflowType(let source, let definition, let expectedDefinition):
+            type = "saveWorkflowType"
+            self.source = source
+            self.expectedDefinition = expectedDefinition
+            self.definition = definition
+        case .deleteWorkflowType(let reference, let expectedDefinition):
+            type = "deleteWorkflowType"
+            self.reference = reference
+            self.expectedDefinition = expectedDefinition
+        default: break
         }
     }
 
@@ -117,11 +134,12 @@ nonisolated private struct CommandPayload: Encodable {
 
     private mutating func configureRun(_ command: CoreCommand) {
         switch command {
-        case .startWorkflowRun(let workflowID, let workflowType, let roles, let size):
+        case .startWorkflowRun(let workflowID, let workflowType, let roles, let prompt, let size):
             type = "startWorkflowRun"
             self.workflowID = workflowID
             self.workflowType = workflowType
             self.roleLaunches = roles
+            if !prompt.isEmpty { self.prompt = prompt }
             self.size = size
         case .completeWorkflowRole(let workflowID, let agentID, let generation, let signal):
             type = "completeWorkflowRole"
@@ -141,6 +159,16 @@ nonisolated private struct CommandPayload: Encodable {
             self.generation = generation
             self.modeRevision = modeRevision
             self.individualMode = individualMode
+        case .submitWorkflowTask(let workflowID, let generation, let prompt):
+            type = "submitWorkflowTask"
+            self.workflowID = workflowID
+            self.generation = generation
+            self.prompt = prompt
+        case .chooseWorkflowResult(let workflowID, let generation, let agentID):
+            type = "chooseWorkflowResult"
+            self.workflowID = workflowID
+            self.generation = generation
+            self.agentID = agentID
         case .cancelWorkflowRun(let workflowID):
             type = "cancelWorkflowRun"
             self.workflowID = workflowID

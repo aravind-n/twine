@@ -285,6 +285,15 @@ pub(crate) struct StoredFolder {
 pub(crate) struct Store {
     connection: Connection,
     payloads: trace_payloads::TracePayloads,
+    pub(crate) workflow_directory: std::path::PathBuf,
+    _workflow_temp: Option<tempfile::TempDir>,
+}
+
+fn workflow_file_directory(config_path: Option<&Path>) -> PathBuf {
+    config_path.and_then(Path::parent).map_or_else(
+        || std::env::temp_dir().join("twine/workflows"),
+        |directory| directory.join("workflows"),
+    )
 }
 
 impl Store {
@@ -322,9 +331,31 @@ impl Store {
         connection.pragma_update(None, "foreign_keys", true)?;
         migrate(&mut connection)?;
         let payloads = trace_payloads::TracePayloads::new(connection.path())?;
+        let temporary = if connection.path().is_none() || connection.path() == Some("") {
+            Some(
+                tempfile::tempdir().map_err(|source| StoreError::CreateDirectory {
+                    path: std::env::temp_dir(),
+                    source,
+                })?,
+            )
+        } else {
+            None
+        };
+        let workflow_directory = if let Some(temporary) = &temporary {
+            temporary.path().join("workflows")
+        } else if cfg!(test) {
+            std::path::Path::new(connection.path().expect("disk store"))
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .join("workflows")
+        } else {
+            workflow_file_directory(crate::config::Config::user_path().as_deref())
+        };
         Ok(Self {
             connection,
             payloads,
+            workflow_directory,
+            _workflow_temp: temporary,
         })
     }
 
@@ -560,6 +591,20 @@ mod tests {
         connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("the schema version should be readable")
+    }
+
+    #[test]
+    fn workflows_follow_the_selected_config_directory() {
+        for directory in [
+            "/checkout/out/runtime/debug/config",
+            "/home/user/.config/twine",
+            "/custom/twine",
+        ] {
+            assert_eq!(
+                workflow_file_directory(Some(&Path::new(directory).join("config.toml"))),
+                Path::new(directory).join("workflows")
+            );
+        }
     }
 
     #[test]

@@ -12,6 +12,25 @@ struct WorkflowIndividualModeTests {
         #expect(run.modeRevision == 0)
     }
 
+    @Test(arguments: ["implementer", "reviewer"])
+    func graphInputContinuesOnlyAnInferredStartAgent(role: String) async throws {
+        var snapshot = Self.snapshot(individualMode: false, role: role)
+        var definition = try #require(snapshot.workflows.workflows[0].run?.workflowType?.definition)
+        definition.stages = []
+        var graph = CoreWorkflowType.Graph()
+        graph.edges = [.init(id: "work", from: "implementer", to: "reviewer", event: .done)]
+        definition.graph = graph
+        snapshot.workflows.workflows[0].run?.workflowType = .init(
+            reference: .init(builtin: "adversarial"), definition: definition)
+        let transport = WorkflowModeTransport(snapshot: snapshot)
+        let client = CoreClient(transport: transport)
+        client.start()
+        try await client.waitUntilRunning()
+        try await client.prepareWorkflowInput(workflowID: 3, agentID: 4)()
+        #expect(await transport.continuations == (role == "implementer" ? [0] : []))
+        await client.stop()
+    }
+
     @Test(arguments: [true, false])
     func modeCommandCarriesTheChoiceAndObservedRevisions(individualMode: Bool) throws {
         let envelope = CommandEnvelope(
@@ -120,7 +139,7 @@ struct WorkflowIndividualModeTests {
         #expect(client.snapshot?.workflows.workflows.first?.run?.individualMode == false)
     }
 
-    private static func snapshot(individualMode: Bool) -> CoreSnapshot {
+    private static func snapshot(individualMode: Bool, role: String = "implementer") -> CoreSnapshot {
         let type = CoreWorkflowType(
             reference: .init(builtin: "adversarial"),
             definition: .init(
@@ -135,7 +154,7 @@ struct WorkflowIndividualModeTests {
             agents: [
                 .init(
                     agentId: 4, active: false, done: true, reviewer: false, harness: .codex, targets: [],
-                    role: "implementer")
+                    role: role)
             ],
             workflowType: type, individualMode: individualMode)
         var snapshot = CoreSnapshot.testReady()

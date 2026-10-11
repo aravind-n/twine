@@ -23,38 +23,7 @@ pub(crate) fn prepare(position: Arc<ReplayPosition>) -> io::Result<(StepInbox, V
     let hook_script = inbox.directory.path().join("hook.sh");
     let hook_command = format!("\"{}\"", hook_script.to_string_lossy().replace('"', "\\\""));
 
-    let script_content = format!(
-        r#"#!/bin/sh
-set -e
-EVENT="$1"
-DIR="$(cd "$(dirname "$0")" && pwd)"
-SOCKET="{}"
-BODY=$(/usr/bin/mktemp "$DIR/record.XXXXXXXX")
-/bin/cat > "$BODY"
-
-if [ "$EVENT" = "PreInvocation" ]; then
-  INVOCATION=$(sed -n 's/.*"invocationNum":[ ]*\([0-9]*\).*/\1/p' "$BODY")
-  if [ -n "$INVOCATION" ]; then
-    printf '%s' "$INVOCATION" > "$DIR/current_turn"
-  fi
-fi
-
-TURN=""
-if [ -f "$DIR/current_turn" ]; then
-  TURN=$(/bin/cat "$DIR/current_turn" 2>/dev/null || true)
-fi
-
-printf '{{"event":"%s","turn":"%s","payload_file":"%s"}}' "$EVENT" "$TURN" "$BODY" | \
-  /usr/bin/curl --silent --max-time 1 --output /dev/null --header 'Expect:' --unix-socket "$SOCKET" --data-binary @- http://localhost/ >/dev/null 2>&1 || true
-
-if [ "$EVENT" = "PreToolUse" ]; then
-  printf '{{"decision":"allow"}}'
-else
-  printf '{{}}'
-fi
-"#,
-        inbox.socket_path.to_string_lossy().replace('"', "\\\"")
-    );
+    let script_content = hook_source(&inbox.socket_path);
 
     std::fs::write(&hook_script, script_content)?;
     #[cfg(unix)]
@@ -121,6 +90,48 @@ fi
 
     let add_dir = inbox.directory.path().as_os_str().to_owned();
     Ok((inbox, vec![OsString::from("--add-dir"), add_dir]))
+}
+
+fn hook_source(socket_path: &Path) -> String {
+    format!(
+        r#"#!/bin/sh
+set -e
+EVENT="$1"
+DIR="$(cd "$(dirname "$0")" && pwd)"
+SOCKET="{}"
+BODY=$(/usr/bin/mktemp "$DIR/record.XXXXXXXX")
+/bin/cat > "$BODY"
+
+if [ "$EVENT" = "PreInvocation" ]; then
+  INVOCATION=$(sed -n 's/.*"invocationNum":[ ]*\([0-9]*\).*/\1/p' "$BODY")
+  if [ -n "$INVOCATION" ]; then
+    printf '%s' "$INVOCATION" > "$DIR/current_turn"
+  fi
+fi
+
+TURN=""
+if [ -f "$DIR/current_turn" ]; then
+  TURN=$(/bin/cat "$DIR/current_turn" 2>/dev/null || true)
+fi
+
+CONVERSATION=$(sed -n 's/.*"conversationId":[ ]*"\([a-zA-Z0-9_-]*\)".*/\1/p' "$BODY")
+
+printf '{{"event":"%s","turn":"%s","payload_file":"%s"}}' "$EVENT" "$TURN" "$BODY" | \
+  /usr/bin/curl --silent --max-time 1 --output /dev/null --header 'Expect:' --unix-socket "$SOCKET" --data-binary @- http://localhost/ >/dev/null 2>&1 || true
+
+if [ "$EVENT" = "PreInvocation" ] && [ -n "$CONVERSATION" ]; then
+  (set -C; printf '%s' "$CONVERSATION" > "$DIR/root_conversation") 2>/dev/null || true
+fi
+if [ "$EVENT" = "PreInvocation" ] && [ -f "$DIR/role-context.json" ] && [ -f "$DIR/root_conversation" ] && [ "$CONVERSATION" = "$(cat "$DIR/root_conversation")" ]; then
+  cat "$DIR/role-context.json"
+elif [ "$EVENT" = "PreToolUse" ]; then
+  printf '{{"decision":"allow"}}'
+else
+  printf '{{}}'
+fi
+"#,
+        socket_path.to_string_lossy().replace('"', "\\\"")
+    )
 }
 
 fn preview(value: &Value) -> String {
@@ -257,6 +268,10 @@ fn parse_tool_step(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "observer events share session and turn correlation"
+)]
 fn parse(bytes: &[u8]) -> Option<HarnessStep> {
     let input: Value = serde_json::from_slice(bytes).ok()?;
     let event = input["event"].as_str()?;
@@ -297,7 +312,7 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
                         .as_str()
                         .and_then(|path| read_latest_user_prompt(Path::new(path)))
                 })
-                .unwrap_or_else(|| "Prompt".into());
+                .unwrap_or_default();
             Some(HarnessStep {
                 activity: Some(HarnessActivity {
                     id: format!(
@@ -316,7 +331,11 @@ fn parse(bytes: &[u8]) -> Option<HarnessStep> {
                 kind: StepKind::Prompt,
                 turn_id: turn,
                 tool_call_id: None,
-                title: truncate(&prompt_text, 160),
+                title: if prompt_text.is_empty() {
+                    "Prompt".into()
+                } else {
+                    truncate(&prompt_text, 160)
+                },
                 detail: prompt_text,
             })
         }
@@ -394,6 +413,19 @@ mod tests {
         assert_eq!(step.session_id.as_deref(), Some("conv-12345"));
         assert_eq!(step.turn_id.as_deref(), Some("turn:0"));
         assert_eq!(step.title, "Fix the bug in main.rs");
+    }
+
+    #[test]
+    fn unavailable_pre_invocation_prompt_is_not_a_task() {
+        for payload in [
+            json!({"event":"PreInvocation","turn":"1"}),
+            json!({"event":"PreInvocation","turn":"2", "payload":{"transcriptPath":"/missing/twine-transcript.jsonl"}}),
+        ] {
+            let step = parse(payload.to_string().as_bytes()).unwrap();
+            assert_eq!(step.title, "Prompt");
+            assert_eq!(step.detail, "");
+            assert!(step.workflow_prompt().unwrap().is_none());
+        }
     }
 
     #[test]

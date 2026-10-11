@@ -28,7 +28,7 @@ nonisolated struct CoreCompletionSignal: Codable, Equatable, Sendable {
     /// The user's task, restated in full, while the run still needs it.
     var task = ""
 
-    enum Decision: String, Codable, Sendable { case done, approve, requestChanges }
+    enum Decision: String, Codable, Sendable { case done, approve, requestChanges, pieceReady }
     struct Assignment: Codable, Equatable, Sendable {
         let role: String
         let instance: Int
@@ -45,6 +45,8 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
     /// The first stage still has to report the task the user gave it.
     let needsTask: Bool
     let agents: [Agent]
+    var outputs: [Output] = []
+    var selectedResult: UInt64?
     var stageID: String?
     var workflowType: CoreWorkflowType?
     var individualMode = false
@@ -53,11 +55,20 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
     var canChangeIndividualMode: Bool { status == .completed || status == .limitReached }
 
     private enum CodingKeys: String, CodingKey {
-        case generation, stage, status, message, needsTask, agents, workflowType, individualMode, modeRevision
+        case generation, stage, status, message, needsTask, agents, workflowType, individualMode, modeRevision, outputs,
+            selectedResult
         case stageID = "stageId"
     }
 
     enum Status: String, Decodable, Sendable { case running, completed, limitReached, cancelled, failed, interrupted }
+
+    struct Output: Decodable, Equatable, Identifiable, Sendable {
+        let agentId: UInt64
+        let label: String
+        let summary: String
+        let elapsedMs: UInt64
+        var id: UInt64 { agentId }
+    }
 
     struct Agent: Decodable, Equatable, Identifiable, Sendable {
         let agentId: UInt64
@@ -66,6 +77,7 @@ nonisolated struct CoreWorkflowRun: Decodable, Equatable, Sendable {
         let reviewer: Bool
         let harness: CoreHarness
         let targets: [Target]
+        var assignmentGeneration: UInt64?
         var role: String?
         var instance: Int?
         var status: AgentStatus?
@@ -103,6 +115,8 @@ extension CoreWorkflowRun {
         message = try values.decodeIfPresent(String.self, forKey: .message)
         needsTask = try values.decode(Bool.self, forKey: .needsTask)
         agents = try values.decode([Agent].self, forKey: .agents)
+        outputs = try values.decodeIfPresent([Output].self, forKey: .outputs) ?? []
+        selectedResult = try values.decodeIfPresent(UInt64.self, forKey: .selectedResult)
         stageID = try values.decodeIfPresent(String.self, forKey: .stageID)
         workflowType = try values.decodeIfPresent(CoreWorkflowType.self, forKey: .workflowType)
         individualMode = try values.decodeIfPresent(Bool.self, forKey: .individualMode) ?? false

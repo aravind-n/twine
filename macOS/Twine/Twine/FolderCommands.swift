@@ -66,7 +66,7 @@ struct FolderCommands: Commands {
             Button("New Workflow") { workflowActions?.create() }
                 .keyboardShortcut("t")
                 .disabled(workflowActions == nil || !isRunning)
-            Button("Create Workflow Type…") { newWorkflowType = true }
+            Button("New workflow graph…") { newWorkflowType = true }
                 .keyboardShortcut("n", modifiers: [.command, .option])
                 .disabled(newWorkflowType == nil || !isRunning)
             Button("Cancel Agent") { workflowActions?.cancelAgent?() }

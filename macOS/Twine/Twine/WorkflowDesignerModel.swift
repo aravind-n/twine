@@ -11,18 +11,31 @@ final class WorkflowDesignerModel {
     var definition: CoreWorkflowType.Definition
     private(set) var handoffIDs: [UUID] = []
     private(set) var loopIDs: [UUID] = []
+    let sourceDefinition: CoreWorkflowType.Definition?
     let source: CoreWorkflowType.Reference?
     private(set) var issues: [CoreWorkflowValidationIssue] = []
     private(set) var validatedDefinition: CoreWorkflowType.Definition?
     private(set) var isSaving = false
     private(set) var failure: String?
+    private var skipNextUndo = false
 
     init(type: CoreWorkflowType? = nil) {
         source = type?.reference
+        sourceDefinition = type?.definition
         definition = type?.definition ?? .init(name: "", description: "", roles: [])
         handoffIDs = definition.handoffs.map { _ in UUID() }
         loopIDs = definition.reviewLoops.map { _ in UUID() }
         if type?.reference.builtin != nil { definition.name += " copy" }
+    }
+
+    var conversionNotice: String? {
+        guard let original = sourceDefinition, definition.graph != nil,
+            original.handoffs.contains(where: { $0.content == .assignment })
+        else { return nil }
+        return """
+            This graph copy sends one shared plan to all workers. \
+            Split and Gather use separate agents. Each worker is a separate agent.
+            """
     }
 
     var canSave: Bool { validatedDefinition == definition && issues.isEmpty && !isSaving }
@@ -57,15 +70,20 @@ final class WorkflowDesignerModel {
         let candidate = definition
         do {
             let result = try await client.sendAndAwaitCompletion(
-                .saveWorkflowType(source: source, definition: candidate))
+                .saveWorkflowType(source: source, definition: candidate, expectedDefinition: sourceDefinition))
             switch result {
             case .workflowTypeSaved(let reference):
+                if let type = client.snapshot?.workflowTypes?.first(where: { $0.reference == reference }) {
+                    return type
+                }
                 return .init(reference: reference, definition: candidate)
             case .workflowTypeValidated(let issues):
                 self.issues = issues
                 validatedDefinition = candidate
             default: throw CoreFailure.unexpectedCommandResult
             }
+        } catch CoreFailure.commandRejected(_, let message) {
+            failure = message
         } catch { failure = error.localizedDescription }
         return nil
     }
@@ -73,7 +91,7 @@ final class WorkflowDesignerModel {
     func addRole() {
         definition.roles.append(
             .init(
-                id: UUID().uuidString, name: "New role", instances: .init(min: 1, max: 1)))
+                id: UUID().uuidString, name: "New agent", instances: .init(min: 1, max: 1)))
     }
 
     func removeRole(at index: Int) {
@@ -129,5 +147,27 @@ final class WorkflowDesignerModel {
         definition.reviewLoops.append(
             .init(
                 reviewStage: definition.stages.last?.id ?? "", backTo: definition.stages.first?.id ?? "", maxRounds: 3))
+    }
+}
+
+extension WorkflowDesignerModel {
+    func recordUndo(from previous: CoreWorkflowType.Definition, using manager: UndoManager?) {
+        if skipNextUndo {
+            skipNextUndo = false
+            return
+        }
+        guard let manager else { return }
+        registerUndo(to: previous, using: manager)
+    }
+
+    private func registerUndo(to previous: CoreWorkflowType.Definition, using manager: UndoManager) {
+        manager.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.registerUndo(to: target.definition, using: manager)
+                target.skipNextUndo = true
+                target.definition = previous
+            }
+        }
+        manager.setActionName("Edit workflow")
     }
 }

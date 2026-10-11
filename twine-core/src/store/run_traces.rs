@@ -77,7 +77,7 @@ fn record_starts(
         }
         let exists: bool = transaction.query_row(
             "SELECT EXISTS(SELECT 1 FROM trace_spans WHERE terminal_id = ?1 AND run_generation = ?2)",
-            params![sql_integer(agent.terminal_id.value())?, sql_integer(run.generation)?],
+            params![sql_integer(agent.terminal_id.value())?, sql_integer(run.assignment_generation(agent.agent_id.0))?],
             |row| row.get(0),
         )?;
         if exists {
@@ -89,8 +89,8 @@ fn record_starts(
             .find(|role| role.agent_id == agent.agent_id.0)
             .expect("run owns its agent tabs");
         // Waiting tabs retain their prior terminal while the next stage is prepared.
-        let Some(launch) = run.traces.iter().find(|event| {
-            event.generation == run.generation
+        let Some(launch) = run.traces.iter().rev().find(|event| {
+            event.generation == run.assignment_generation(role.agent_id)
                 && matches!(event.kind.as_str(), "agentStarted" | "agentContinued")
                 && event.agent_id == Some(role.agent_id)
         }) else {
@@ -101,14 +101,14 @@ fn record_starts(
             .iter()
             .rev()
             .find(|event| event.generation == run.generation && event.kind == "stageStarted")
-            .map_or(workflow.started_at, |event| event.timestamp);
+            .map_or(launch.timestamp, |event| event.timestamp);
         let span = work_span(
             transaction,
             workflow.workflow_id,
             run,
             role.agent_id,
-            run.generation,
-            &run.workflow_type.definition.stages[run.stage_index].name,
+            run.assignment_generation(role.agent_id),
+            run.stage_name(),
             started_at,
         )?;
         transaction.execute(
@@ -205,8 +205,12 @@ fn record_event(
             workflow_id,
             run,
             target,
-            event.generation + 1,
-            &run.workflow_type.definition.stages[run.stage_index].name,
+            if run.graph.is_some() {
+                run.assignment_generation(target)
+            } else {
+                event.generation + 1
+            },
+            run.stage_name(),
             event.timestamp,
         )?;
         return write_event(transaction, workflow_id, run, event, span);
@@ -400,7 +404,7 @@ mod tests {
     #[test]
     fn a_failure_without_prior_history_has_a_visible_non_process_span() {
         let mut store = Store::open_in_memory().unwrap();
-        let mut workflow = workflow(&mut store, BuiltinType::Adversarial.definition());
+        let mut workflow = workflow(&mut store, BuiltinType::Adversarial.legacy_definition());
         let workflow_id = workflow.workflow_id;
         let run = workflow.run.as_mut().unwrap();
         run.trace("stageStarted", None, None, "Stage started");
@@ -434,7 +438,7 @@ mod tests {
     #[test]
     fn a_review_decision_stops_an_uncompleted_helper_even_after_its_process_exits() {
         let mut store = Store::open_in_memory().unwrap();
-        let mut definition = BuiltinType::Adversarial.definition();
+        let mut definition = BuiltinType::Adversarial.legacy_definition();
         definition.stages[1]
             .roles
             .push(crate::RoleId("implementer".into()));

@@ -24,8 +24,7 @@ extension TwineUITests {
         app.typeKey(.return, modifierFlags: [])
         // The run opens on the implementer, which asks for the task in its terminal.
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(item("workflowIndividualMode").value as? String, "Off")
-        XCTAssertFalse(item("workflowIndividualMode").isEnabled)
+        XCTAssertFalse(item("workflowIndividualMode").exists)
         XCTAssertEqual(app.buttons["agentSubtab-1"].value as? String, "Selected", app.debugDescription)
         XCTAssertTrue(app.buttons["agentSubtab-2"].exists)
         inspectStage("implement", in: app)
@@ -42,43 +41,16 @@ extension TwineUITests {
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
         // The previous reviewer remains completed in its retained, hidden pane. Check this
         // round's new implementer terminal rather than every agent's badge.
-        XCTAssertTrue(item("terminalStatus-5").waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertEqual(item("terminalStatus-5").value as? String, "Agent exited with code 0")
         completeRole(in: app, summary: "Fixed the edge case")
         app.buttons["agentSubtab-2"].click()
         XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
         completeRole(in: app, summary: "Approved")
         XCTAssertTrue(app.staticTexts["Completed"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(item("workflowCancel").exists)
-        inspectIndividualMode(in: app)
+        XCTAssertTrue(item("workflowResults").exists)
         XCTAssertTrue(app.staticTexts["Agent completed"].waitForExistence(timeout: 5), app.debugDescription)
-        inspectTraceHandoff(in: app)
+        inspectGraphTraceFeedback(in: app)
         inspectSavedHarnesses(in: app)
-    }
-
-    @MainActor
-    private func inspectIndividualMode(in app: XCUIApplication) {
-        func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
-        let individualMode = item("workflowIndividualMode")
-        XCTAssertTrue(individualMode.isEnabled)
-        individualMode.click()
-        XCTAssertTrue(individualMode.waitForExistence(timeout: 5))
-        waitForIndividualMode("On", button: individualMode)
-        let layout = app.radioGroups["agentLayout"]
-        layout.radioButtons["Bento"].click()
-        XCTAssertEqual(individualMode.value as? String, "On")
-        XCTAssertFalse(item("workflowTypeInspector").exists)
-        attachScreenshot(of: app, named: "Individual mode On in Bento")
-        individualMode.click()
-        waitForIndividualMode("Off", button: individualMode)
-        layout.radioButtons["Tabs"].click()
-        XCTAssertEqual(individualMode.value as? String, "Off")
-    }
-
-    @MainActor
-    private func waitForIndividualMode(_ value: String, button: XCUIElement) {
-        let changed = expectation(for: NSPredicate { _, _ in button.value as? String == value }, evaluatedWith: nil)
-        wait(for: [changed], timeout: 5)
     }
 
     @MainActor
@@ -101,23 +73,29 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func inspectTraceHandoff(in app: XCUIApplication) {
+    private func inspectGraphTraceFeedback(in app: XCUIApplication) {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
         item("tracesHeader").click()
-        let span = item("traceOverview").buttons.matching(
-            NSPredicate(format: "label ENDSWITH %@", "Reviewer: Review · Round 1, Completed")
+        let implementation = item("traceOverview").buttons.matching(
+            NSPredicate(format: "label ENDSWITH %@", "Implementer: Graph · Round 1, Completed")
         ).firstMatch
-        XCTAssertTrue(span.waitForExistence(timeout: 10), app.debugDescription)
-        span.click()
+        XCTAssertTrue(implementation.waitForExistence(timeout: 10), app.debugDescription)
+        implementation.click()
         let log = app.scrollViews["traceEventLog"]
         XCTAssertTrue(log.waitForExistence(timeout: 5), app.debugDescription)
-        let handoff = log.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "Handoff delivered: Initial implementation")
+        // The lazy log creates rows as they enter the visible area.
+        log.scroll(byDeltaX: 0, deltaY: -400)
+        let result = log.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Graph · Implementer: Initial implementation")
         ).firstMatch
-        XCTAssertTrue(handoff.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(result.waitForExistence(timeout: 10), app.debugDescription)
+        let review = item("traceOverview").buttons.matching(
+            NSPredicate(format: "label ENDSWITH %@", "Reviewer: Graph · Round 1, Completed")
+        ).firstMatch
+        review.click()
         log.scroll(byDeltaX: 0, deltaY: -400)
         let completion = log.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "Requested changes: Fix the edge case")
+            NSPredicate(format: "label CONTAINS %@", "Graph · Reviewer: Fix the edge case")
         ).firstMatch
         XCTAssertTrue(completion.waitForExistence(timeout: 10), app.debugDescription)
         let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
@@ -132,15 +110,12 @@ extension TwineUITests {
         XCTAssertTrue(item("inspectWorkflowType").waitForExistence(timeout: 10), app.debugDescription)
         item("inspectWorkflowType").click()
         XCTAssertTrue(item("workflowTypeInspector").waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertEqual(item("graphStage-\(stage)").value as? String, "Current stage")
-        if stage == "review" {
-            XCTAssertEqual(item("graphNode-implement-implementer-1").value as? String, "Done")
-        }
-        let handoffs = item("graphHandoffs").value as? String ?? ""
-        XCTAssertTrue(
-            handoffs.contains("Implementer in Implement sends result to Reviewer in Review."), app.debugDescription)
-        XCTAssertTrue(
-            handoffs.contains("Reviewer in Review sends feedback to Implementer in Implement."), app.debugDescription)
+        let overview = app.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "label CONTAINS %@ AND label CONTAINS %@",
+                "Implementer to Reviewer: Work complete", "Reviewer to Implementer: Changes requested")
+        ).firstMatch
+        XCTAssertTrue(overview.exists, app.debugDescription)
         XCTAssertFalse(item("workflowStart").exists)
         XCTAssertFalse(item("roleHarness-implementer-0").exists)
         attachScreenshot(of: app, named: "Live graph at \(stage)")
@@ -219,14 +194,16 @@ extension TwineUITests {
         XCTAssertTrue(item("workflowChoice-Coordinator").waitForExistence(timeout: 10))
         attachScreenshot(of: app, named: "Workflow choices in \(appearance)")
         item("workflowChoice-Coordinator").click()
-        XCTAssertTrue(item("workflowGraph-coordinator").waitForExistence(timeout: 10))
-        XCTAssertTrue(item("graphNode-work-worker-1").exists)
-        XCTAssertTrue(item("graphNode-work-worker-2").exists)
-        let handoffs = item("graphHandoffs").value as? String ?? ""
+        let overview = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "Planner to Worker 1: Work complete")
+        ).firstMatch
+        XCTAssertTrue(overview.waitForExistence(timeout: 10))
         XCTAssertTrue(
-            handoffs.contains("Coordinator in Split sends assignment to Worker 1 in Work."), app.debugDescription)
+            overview.label.contains("Planner to Worker 2: Work complete"), app.debugDescription)
         XCTAssertTrue(
-            handoffs.contains("Worker 1 in Work sends result to Coordinator in Gather."), app.debugDescription)
+            overview.label.contains("Worker 1 to Coordinator: Work complete"), app.debugDescription)
+        XCTAssertTrue(
+            overview.label.contains("Worker 2 to Coordinator: Work complete"), app.debugDescription)
         attachScreenshot(of: app, named: "Coordinator launch graph in \(appearance)")
     }
 

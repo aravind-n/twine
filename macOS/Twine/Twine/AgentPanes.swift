@@ -146,9 +146,12 @@ private struct AgentPane: View {
                     idleTitle, systemImage: "terminal",
                     description: Text(
                         workflow.run != nil && workflow.status == .running
-                            ? "This role starts when its stage begins."
+                            ? (workflow.run?.workflowType?.definition.graph != nil
+                                ? "This agent starts when incoming work arrives."
+                                : "This agent starts when its stage begins.")
                             : "Open a new workflow to try again.")
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.windowBackground)
                 .onTapGesture(perform: focus)
             } else {

@@ -4,7 +4,10 @@ nonisolated enum CoreCommand: Sendable {
     case ping
     case reloadConfig
     case validateWorkflowType(definition: CoreWorkflowType.Definition)
-    case saveWorkflowType(source: CoreWorkflowType.Reference?, definition: CoreWorkflowType.Definition)
+    case saveWorkflowType(
+        source: CoreWorkflowType.Reference?, definition: CoreWorkflowType.Definition,
+        expectedDefinition: CoreWorkflowType.Definition? = nil)
+    case deleteWorkflowType(reference: CoreWorkflowType.Reference, expectedDefinition: CoreWorkflowType.Definition)
     case openFolder(path: String)
     case restoreFolder(path: String)
     /// Closes the open folder, so the window shows the start page.
@@ -30,10 +33,12 @@ nonisolated enum CoreCommand: Sendable {
     /// The first stage's agents ask the user for the task and report it when they finish.
     case startWorkflowRun(
         workflowID: UInt64, workflowType: CoreWorkflowType.Reference, roles: [CoreRoleLaunch],
-        size: CoreTerminalSize)
+        prompt: String = "", size: CoreTerminalSize)
     case completeWorkflowRole(workflowID: UInt64, agentID: UInt64, generation: UInt64, signal: CoreCompletionSignal)
     case continueWorkflowRun(workflowID: UInt64, agentID: UInt64, generation: UInt64, modeRevision: UInt64 = 0)
     case setWorkflowIndividualMode(workflowID: UInt64, generation: UInt64, modeRevision: UInt64, individualMode: Bool)
+    case submitWorkflowTask(workflowID: UInt64, generation: UInt64, prompt: String)
+    case chooseWorkflowResult(workflowID: UInt64, generation: UInt64, agentID: UInt64)
     case cancelWorkflowRun(workflowID: UInt64)
     case startTerminal(workingDirectory: String, size: CoreTerminalSize)
     case closeTerminal(terminalID: UInt64)
@@ -161,6 +166,7 @@ nonisolated struct CoreEvent: Decodable, Equatable, Sendable {
 nonisolated enum CoreCommandResult: Equatable, Sendable {
     case workflowTypeValidated(issues: [CoreWorkflowValidationIssue])
     case workflowTypeSaved(reference: CoreWorkflowType.Reference)
+    case workflowTypeDeleted(reference: CoreWorkflowType.Reference)
     case sessionCreated(sessionID: UInt64)
     case sessionRenamed(sessionID: UInt64)
     case sessionSelected(sessionID: UInt64)
@@ -280,7 +286,7 @@ nonisolated private struct CommandResultPayload: Decodable {
 
     private enum ResultType: String, Decodable {
         case sessionCreated, sessionRenamed, sessionSelected, sessionDeleted
-        case pong, workflowTypeValidated, workflowTypeSaved
+        case pong, workflowTypeValidated, workflowTypeSaved, workflowTypeDeleted
         case workflowCreated
         case workflowActivated
         case workflowClosed
@@ -303,6 +309,24 @@ nonisolated private struct CommandResultPayload: Decodable {
         }
     }
 
+    private static func workflowTypeResult(
+        _ type: ResultType, values: KeyedDecodingContainer<CodingKeys>
+    ) throws -> CoreCommandResult {
+        switch type {
+        case .workflowTypeValidated:
+            return .workflowTypeValidated(
+                issues: try values.decode([CoreWorkflowValidationIssue].self, forKey: .issues))
+        case .workflowTypeSaved:
+            return .workflowTypeSaved(reference: try values.decode(CoreWorkflowType.Reference.self, forKey: .reference))
+        case .workflowTypeDeleted:
+            return .workflowTypeDeleted(
+                reference: try values.decode(CoreWorkflowType.Reference.self, forKey: .reference))
+        default:
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "\(type) is not a workflow catalog result"))
+        }
+    }
+
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(ResultType.self, forKey: .type)
@@ -317,12 +341,8 @@ nonisolated private struct CommandResultPayload: Decodable {
             result = .sessionDeleted(sessionID: try container.decode(UInt64.self, forKey: .sessionID))
         case .workflowCreated, .workflowActivated, .workflowClosed, .agentStarted, .agentCancelled:
             result = try Self.workflowResult(type, workflowID: try container.decode(UInt64.self, forKey: .workflowID))
-        case .workflowTypeValidated:
-            result = .workflowTypeValidated(
-                issues: try container.decode([CoreWorkflowValidationIssue].self, forKey: .issues))
-        case .workflowTypeSaved:
-            result = .workflowTypeSaved(
-                reference: try container.decode(CoreWorkflowType.Reference.self, forKey: .reference))
+        case .workflowTypeValidated, .workflowTypeSaved, .workflowTypeDeleted:
+            result = try Self.workflowTypeResult(type, values: container)
         case .pong:
             result = .pong
         case .terminalStarted:

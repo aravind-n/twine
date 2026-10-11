@@ -6,54 +6,26 @@ import Testing
 
 @MainActor
 struct WorkflowGraphTests {
-    @Test func builtInGraphsDecodeStagesHandoffsAndReviewBounds() async throws {
+    @Test func builtInGraphsDecodeAgentLinksAndReviewBounds() async throws {
         let types = try await catalog()
         let adversarial = try #require(types.first { $0.reference.builtin == "adversarial" })
-        #expect(adversarial.definition.stages.map(\.id) == ["implement", "review"])
-        #expect(adversarial.definition.stages[1].completion.reviewer == "reviewer")
-        #expect(adversarial.definition.handoffs.map(\.content) == [.result, .feedback])
-        #expect(adversarial.definition.reviewLoops.first?.maxRounds == 3)
-        let layout = WorkflowGraphLayout(definition: adversarial.definition, width: 180)
-        #expect(layout.edges.count == 2)
-        #expect(layout.labels.map(\.text) == ["Result", "Feedback · up to 3 rounds"])
-        #expect(
-            layout.handoffDescriptions.last
-                == "Reviewer in Review sends feedback to Implementer in Implement. Up to 3 rounds.")
-        // Feedback runs back under the columns and ends at the implementer's bottom edge.
-        let implementer = try #require(layout.columns.first?.nodes.first)
-        let feedback = try #require(layout.connectors.last?.lines.first)
-        #expect(feedback.dropFirst().dropLast().allSatisfy { $0.y > implementer.frame.maxY })
-        #expect(feedback.last?.x == implementer.frame.midX)
-        #expect(layout.labels.last?.center.y ?? 0 < layout.size.height)
+        #expect(adversarial.definition.stages.isEmpty)
+        let graph = try #require(adversarial.definition.graph)
+        #expect(graph.edges.count == 2)
+        #expect(graph.startsAgent("implementer"))
+        #expect(graph.returnsResult("reviewer") && graph.reviewsWork("reviewer"))
+        #expect(graph.maxActivations == 4)
     }
 
-    @Test func coordinatorFanOutAndFanInFollowTheChosenInstanceCount() async throws {
+    @Test func coordinatorHasSeparateWorkerCardsAndWaitsForBothResults() async throws {
         let type = try #require(try await catalog().first { $0.reference.builtin == "coordinator" })
-        for count in 2...5 {
-            let layout = WorkflowGraphLayout(definition: type.definition, counts: ["worker": count], width: 568)
-            #expect(layout.columns.map { $0.nodes.count } == [1, count, 1])
-            #expect(layout.edges.filter { $0.content == .assignment }.count == count)
-            #expect(layout.edges.filter { $0.content == .result }.count == count)
-            #expect(layout.handoffDescriptions.contains("Coordinator in Split sends assignment to Worker 1 in Work."))
-            #expect(layout.handoffDescriptions.contains("Worker 1 in Work sends result to Coordinator in Gather."))
-            // Each fan turns at one shared trunk; a worker level with the coordinator gets a straight line.
-            for connector in layout.connectors {
-                #expect(connector.lines.count == count)
-                #expect(Set(connector.lines.filter { $0.count > 2 }.map { $0[1].x }).count == 1)
-            }
-            #expect(layout.labels.count == 2)
-            for column in layout.columns {
-                for node in column.nodes {
-                    // The running ring reaches just past a node's edges.
-                    #expect(CGRect(origin: .zero, size: layout.size).contains(node.frame.insetBy(dx: -1, dy: -1)))
-                }
-                for pair in zip(column.nodes, column.nodes.dropFirst()) {
-                    #expect(!pair.0.frame.intersects(pair.1.frame))
-                }
-            }
-            for pair in zip(layout.columns, layout.columns.dropFirst()) {
-                #expect(pair.0.nodes[0].frame.maxX < pair.1.nodes[0].frame.minX)
-            }
+        let graph = try #require(type.definition.graph)
+        #expect(type.definition.roles.map(\.id) == ["planner", "worker-1", "worker-2", "coordinator"])
+        #expect(type.definition.roles.allSatisfy { $0.instances.min == 1 && $0.instances.max == 1 })
+        #expect(graph.receive["coordinator"] == .all)
+        for worker in ["worker-1", "worker-2"] {
+            #expect(graph.edges.contains { $0.from == "planner" && $0.to == worker })
+            #expect(graph.edges.contains { $0.from == worker && $0.to == "coordinator" })
         }
     }
 
@@ -151,10 +123,11 @@ struct WorkflowGraphTests {
             definition.stages.map { WorkflowStageState.of($0.id, in: definition, run: nil) } == [.idle, .idle, .idle])
     }
 
-    @Test func moreParallelInstancesMakeTheGraphTaller() async throws {
-        let type = try #require(try await catalog().first { $0.reference.builtin == "coordinator" })
-        let two = WorkflowGraphLayout(definition: type.definition, width: 568)
-        let five = WorkflowGraphLayout(definition: type.definition, counts: ["worker": 5], width: 568)
+    @Test func legacyParallelInstancesMakeTheGraphTaller() {
+        let definition = definition(
+            roles: ["worker"], stages: [("work", ["worker"])], handoffs: [], maxInstances: ["worker": 5])
+        let two = WorkflowGraphLayout(definition: definition, counts: ["worker": 2], width: 568)
+        let five = WorkflowGraphLayout(definition: definition, counts: ["worker": 5], width: 568)
         #expect(five.size.height > two.size.height)
     }
 

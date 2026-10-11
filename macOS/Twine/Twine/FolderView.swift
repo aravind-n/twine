@@ -16,6 +16,7 @@ struct FolderView: View {
     @State private var files = FileBrowserModel()
     @State private var traceNavigation = TraceTerminalNavigation()
     @State private var isTracesExpanded = false
+    @State private var designerWorkflowIDs: Set<UInt64> = []
     @State private var memories = MemoryModel()
     private var scale: CGFloat { zoom?.scale ?? 1 }
 
@@ -54,8 +55,12 @@ struct FolderView: View {
                         )
                         .frame(
                             height: workspaceHeight(
-                                in: geometry.size.height / scale, chromeHeight: chromeHeight))
-                        if tabs.selected == nil {
+                                in: geometry.size.height / scale, chromeHeight: chromeHeight)
+                        )
+                        .onPreferenceChange(WorkflowDesignerVisibilityKey.self) {
+                            designerWorkflowIDs = $0
+                        }
+                        if showsTraces {
                             TracesPanel(workflows: traceWorkflows, isExpanded: $isTracesExpanded)
                         }
                         StatusFooter(
@@ -116,11 +121,17 @@ struct FolderView: View {
         return max(minimum, height - chromeHeight)
     }
 
+    private var showsTraces: Bool {
+        guard tabs.selected == nil else { return false }
+        guard let selectedID = selection.selectedID else { return true }
+        return !designerWorkflowIDs.contains(selectedID)
+    }
+
     private var workspaceChromeHeight: CGFloat {
         let traces: CGFloat =
-            tabs.selected == nil
+            showsTraces
             ? (isTracesExpanded ? traceNavigation.activity.viewMode.expandedHeight : TracesLayout.collapsedHeight) : 0
-        let gaps = Spacing.windowSections * (tabs.selected == nil ? 2 : 1)
+        let gaps = Spacing.windowSections * (showsTraces ? 2 : 1)
         return Spacing.windowMargins.top + Spacing.windowMargins.bottom + gaps + FooterLayout.height + traces
     }
 

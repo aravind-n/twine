@@ -34,6 +34,7 @@ pub enum StateEvent {
 pub enum CommandResult {
     WorkflowTypeValidated { issues: Vec<crate::ValidationIssue> },
     WorkflowTypeSaved { reference: crate::WorkflowTypeRef },
+    WorkflowTypeDeleted { reference: crate::WorkflowTypeRef },
     SessionCreated { session_id: SessionId },
     SessionRenamed { session_id: SessionId },
     SessionSelected { session_id: SessionId },

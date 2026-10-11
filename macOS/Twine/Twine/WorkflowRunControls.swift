@@ -11,6 +11,7 @@ struct WorkflowRunControls: View {
     let reportFailure: (String) -> Void
     @State private var showsCompletion = false
     @State private var showsGraph = false
+    @State private var showsResults = false
 
     private var agent: CoreWorkflowRun.Agent? { run.agents.first { $0.id == selectedAgentID } }
     private var hasLiveAgents: Bool {
@@ -21,7 +22,7 @@ struct WorkflowRunControls: View {
 
     var body: some View {
         HStack(spacing: AgentSubtabLayout.actionSpacing) {
-            if run.agents.count > 1 {
+            if run.agents.count > 1 && run.workflowType?.definition.graph == nil {
                 Button {
                     Task {
                         do {
@@ -65,6 +66,13 @@ struct WorkflowRunControls: View {
                         .appZoom()
                 }
             }
+            if !run.outputs.isEmpty {
+                Button("Results", systemImage: "checklist") { showsResults = true }
+                    .help("Show workflow results").accessibilityIdentifier("workflowResults")
+                    .popover(isPresented: $showsResults) {
+                        WorkflowResultsPopover(workflowID: workflowID, run: run, reportFailure: reportFailure).appZoom()
+                    }
+            }
             if let agent, agent.active && !agent.done {
                 Button {
                     showsCompletion = true
@@ -93,12 +101,16 @@ struct WorkflowRunControls: View {
         .sheet(isPresented: $showsCompletion) {
             if let agent {
                 WorkflowCompletionForm(
-                    workflowID: workflowID, generation: run.generation, agent: agent, needsTask: run.needsTask
+                    workflowID: workflowID, generation: agent.assignmentGeneration ?? run.generation, agent: agent,
+                    needsTask: run.needsTask
                 )
                 .appZoom()
             }
         }
         .onChange(of: run.generation) { showsCompletion = false }
+        .onChange(of: run.agents.first(where: { $0.id == selectedAgentID })?.assignmentGeneration) {
+            showsCompletion = false
+        }
         .onChange(of: run.status) { if run.status != .running { showsCompletion = false } }
         .onChange(of: selectedAgentID) { showsCompletion = false }
     }
