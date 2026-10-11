@@ -86,7 +86,7 @@ extension TwineUITests {
         // The lazy log creates rows as they enter the visible area.
         log.scroll(byDeltaX: 0, deltaY: -400)
         let result = log.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "Graph · Implementer: Initial implementation")
+            NSPredicate(format: "label CONTAINS %@", "Graph · Implementer → Reviewer: Initial implementation")
         ).firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 10), app.debugDescription)
         let review = item("traceOverview").buttons.matching(
@@ -95,7 +95,7 @@ extension TwineUITests {
         review.click()
         log.scroll(byDeltaX: 0, deltaY: -400)
         let completion = log.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "Graph · Reviewer: Fix the edge case")
+            NSPredicate(format: "label CONTAINS %@", "Graph · Reviewer → Implementer: Fix the edge case")
         ).firstMatch
         XCTAssertTrue(completion.waitForExistence(timeout: 10), app.debugDescription)
         let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
