@@ -145,7 +145,7 @@ extension TwineUITests {
         let traces = app.descendants(matching: .any).matching(identifier: "tracesHeader").firstMatch
         XCTAssertTrue(traces.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(traces.label, "Traces, collapsed")
-        XCTAssertEqual(traces.frame.height, 48, accuracy: 1)
+        XCTAssertEqual(traces.frame.height, 28, accuracy: 1)
 
         // The terminal takes typing on open; the subsequent checks also type without clicking it.
         app.typeText("exec /bin/sh\r")
@@ -185,7 +185,7 @@ extension TwineUITests {
         XCTAssertEqual(narrowSidebar.processID, initial.processID)
         XCTAssertGreaterThan(narrowSidebar.columns, 0)
         XCTAssertGreaterThan(narrowSidebar.rows, 0)
-        XCTAssertEqual(traces.frame.height, 48, accuracy: 1)
+        XCTAssertEqual(traces.frame.height, 28, accuracy: 1)
         attachWindow(in: app, name: "\(appearance), narrow window with sidebar")
         app.terminate()
     }

@@ -25,7 +25,8 @@ extension TwineUITests {
         XCTAssertTrue(disclosure.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertLessThanOrEqual(header.frame.maxX, mode.frame.minX)
         XCTAssertLessThanOrEqual(mode.frame.maxX, disclosure.frame.minX)
-        XCTAssertLessThan(mode.frame.height, header.frame.height / 2)
+        XCTAssertGreaterThanOrEqual(mode.frame.minY, header.frame.minY)
+        XCTAssertLessThanOrEqual(mode.frame.maxY, header.frame.maxY)
 
         selectTraceViewMode("In Depth", in: app)
         XCTAssertTrue(app.staticTexts["Select a step"].waitForExistence(timeout: 5))

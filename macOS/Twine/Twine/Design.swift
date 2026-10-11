@@ -9,8 +9,9 @@ import SwiftUI
 
 /// Corner radii, named for the components that use them.
 nonisolated enum CornerRadius {
-    /// All corners of the terminal panel, the Traces panel, and other rounded solid panels.
+    /// All corners of the terminal panel and other rounded solid panels.
     static let panel: CGFloat = 17
+    static let tracesPanel: CGFloat = 7
     static let choicesCard: CGFloat = 14
     static let emptyRecentsCard: CGFloat = 12
     static let graphNode: CGFloat = 12
@@ -31,9 +32,9 @@ nonisolated enum CornerRadius {
 
 nonisolated enum Spacing {
     /// Margins between the window's edges and its content.
-    static let windowMargins = EdgeInsets(top: 14, leading: 14, bottom: 11, trailing: 14)
+    static let windowMargins = EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14)
     /// Vertical space between the terminal block, the Traces panel, and the footer.
-    static let windowSections: CGFloat = 13
+    static let windowSections: CGFloat = 6
     static let terminalContent: CGFloat = 24
     /// Agents workflows' strip already frames the panel, so their terminals sit closer to it.
     static let agentTerminalContent: CGFloat = 14
@@ -54,8 +55,9 @@ nonisolated enum SidebarLayout {
 }
 
 nonisolated enum TracesLayout {
-    static let collapsedHeight: CGFloat = 48
-    static let expandedHeight: CGFloat = 272
+    static let collapsedHeight: CGFloat = 28
+    static let expandedHeight: CGFloat = collapsedHeight + 224
+    static let detailHeaderHeight: CGFloat = 48
     static let axisHeight: CGFloat = 14
     static let laneHeight: CGFloat = 18
     static let labelWidth: CGFloat = 126
@@ -68,8 +70,8 @@ nonisolated enum TracesLayout {
     static let hintHeight: CGFloat = 28
     static let detailMinimumWidth: CGFloat = 280
     static let detailMaximumWidth: CGFloat = 440
-    static let headerHorizontalPadding: CGFloat = 21
-    static let chevronSize: CGFloat = 26
+    static let headerHorizontalPadding: CGFloat = 12
+    static let chevronSize: CGFloat = 28
 }
 
 // MARK: - Surfaces and colors
@@ -144,7 +146,7 @@ nonisolated enum FooterLayout {
 }
 
 nonisolated enum WorkflowTabLayout {
-    static let height: CGFloat = 42
+    static let height: CGFloat = 32
 }
 
 nonisolated enum WorkflowSurfaceLayout {

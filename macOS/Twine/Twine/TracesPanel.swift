@@ -68,9 +68,9 @@ struct TracesPanel: View {
             }
         }
         .background(.windowBackground)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.panel))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.tracesPanel))
         .overlay {
-            RoundedRectangle(cornerRadius: CornerRadius.panel)
+            RoundedRectangle(cornerRadius: CornerRadius.tracesPanel)
                 .strokeBorder(.tracesPanelHairline, lineWidth: Surface.hairlineWidth)
                 .allowsHitTesting(false)
         }

@@ -10,6 +10,8 @@ struct TerminalSplitControls: View {
                 split(.right)
             } label: {
                 Image(systemName: "rectangle.split.2x1")
+                    .frame(width: 20, height: 20)
+                    .contentShape(.rect)
             }
             .help("Split Right (⌘D)")
             .accessibilityLabel("Split Right")
@@ -18,6 +20,8 @@ struct TerminalSplitControls: View {
                 split(.down)
             } label: {
                 Image(systemName: "rectangle.split.1x2")
+                    .frame(width: 20, height: 20)
+                    .contentShape(.rect)
             }
             .help("Split Down (⇧⌘D)")
             .accessibilityLabel("Split Down")
@@ -25,7 +29,7 @@ struct TerminalSplitControls: View {
         }
         .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(.secondary)
         .disabled(!isEnabled)
-        .padding(.horizontal, 10).padding(.bottom, 10)
+        .padding(.horizontal, 10).padding(.bottom, 7)
     }
 }
 

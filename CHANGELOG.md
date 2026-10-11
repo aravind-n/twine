@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside an opened folder. Click a badge for details; Git status is read-only and
   limited to primary checkouts for now.
 
+### Changed
+
+- Traces uses a compact header and tighter bottom spacing, giving terminals more
+  room above the separate status footer.
+- The folder name and path share one titlebar line, with a shorter workflow tab
+  row and less space above it to give terminals more room. The sidebar button
+  retains its standard native proportions, and the sidebar background continues
+  behind the toolbar in full screen.
+- Workflow creation and terminal split buttons have larger click targets within
+  the compact workflow row.
+
 ## [0.3.0] - 2026-10-11
 
 ### Added

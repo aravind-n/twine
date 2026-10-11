@@ -54,6 +54,7 @@ struct TwineApp: App {
                     terminationDelegate.attach(windows: windows, layouts: workflowLayouts, settings: settings)
                 }
         }
+        .windowToolbarStyle(.unified)
         .defaultWindowPlacement { _, context in
             let available = context.defaultDisplay.visibleRect.size
             let size = CGSize(width: available.width * 0.8, height: available.height * 0.85)

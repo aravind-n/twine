@@ -28,7 +28,7 @@ struct TracesHeader: View {
     private var titleButton: some View {
         Button(action: toggle) {
             HStack(spacing: 12) {
-                Text("Traces").panelTitleStyle().lineLimit(1)
+                Text("Traces").font(.system(size: 12, weight: .semibold)).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)

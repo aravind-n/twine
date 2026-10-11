@@ -12,11 +12,11 @@ struct WorkflowTabs: View {
     @State private var tabsWidth: CGFloat?
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 12) {
+        HStack(alignment: .bottom, spacing: 8) {
             Text("WORKFLOWS")
                 .sectionLabelStyle()
                 .fixedSize()
-                .padding(.bottom, 11)
+                .padding(.bottom, 10)
             scrollingTabs
                 .frame(maxWidth: tabsWidth)
                 .layoutPriority(1)
@@ -103,9 +103,9 @@ struct WorkflowTabs: View {
             .font(.system(size: 11, weight: .semibold))
             .buttonStyle(.glass)
             .buttonBorderShape(.roundedRectangle(radius: CornerRadius.glassIconButton))
-            .controlSize(.small)
-            .frame(width: 26, height: 26)
-            .padding(.bottom, 5)
+            .controlSize(.regular)
+            .frame(width: 28, height: 28)
+            .padding(.bottom, 2)
             .help("New Workflow (⌘T)")
             .accessibilityIdentifier("newWorkflow")
     }
@@ -146,7 +146,7 @@ private struct WorkspaceTab: View {
             }
             .tabTitleStyle(isSelected: isSelected, foreground: isSelected ? selectedForeground : nil)
             .padding(.horizontal, 12)
-            .frame(height: isSelected ? 35 : 29)
+            .frame(height: isSelected ? WorkflowTabLayout.height : 28)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

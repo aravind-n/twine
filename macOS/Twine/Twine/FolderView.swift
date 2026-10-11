@@ -75,7 +75,23 @@ struct FolderView: View {
             }
             .background(.windowBackground)
             .navigationTitle(URL(filePath: path).lastPathComponent)
-            .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
+            .toolbar(removing: .title)
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    HStack(spacing: 10) {
+                        Text(URL(filePath: path).lastPathComponent)
+                            .font(.system(size: 13, weight: .semibold))
+                            .layoutPriority(1)
+                        Text((path as NSString).abbreviatingWithTildeInPath)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .truncationMode(.middle)
+                    }
+                    .lineLimit(1)
+                    .help(path)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
         }
         .modifier(MemoryLoading(folder: path, model: memories))
         .environment(traceNavigation)
@@ -89,6 +105,7 @@ struct FolderView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .windowToolbarFullScreenVisibility(.visible)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .task(id: path) { await refreshGitBranch() }
         .task(id: files.request(folder: path, file: watchedEditor?.path)) {
             let editor = watchedEditor
