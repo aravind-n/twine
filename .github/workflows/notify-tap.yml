@@ -1,4 +1,4 @@
-name: Notify Homebrew tap
+name: Notify Homebrew taps
 
 on:
   release:
@@ -13,6 +13,17 @@ concurrency:
 jobs:
   notify:
     if: ${{ !github.event.release.prerelease }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - owner: standing-desks
+            client_id_variable: TAP_APP_CLIENT_ID
+            private_key_secret: TAP_APP_PRIVATE_KEY
+          - owner: TwineProject
+            client_id_variable: COMPAT_TAP_APP_CLIENT_ID
+            private_key_secret: COMPAT_TAP_APP_PRIVATE_KEY
+    name: Notify ${{ matrix.owner }} tap
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -20,14 +31,17 @@ jobs:
         id: tap-token
         uses: actions/create-github-app-token@v3.2.0
         with:
-          client-id: ${{ vars.TAP_APP_CLIENT_ID }}
-          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
-          owner: standing-desks
+          client-id: ${{ vars[matrix.client_id_variable] }}
+          private-key: ${{ secrets[matrix.private_key_secret] }}
+          owner: ${{ matrix.owner }}
           repositories: homebrew-tap
           permission-contents: write
       - name: Trigger the cask updater
         env:
           GH_TOKEN: ${{ steps.tap-token.outputs.token }}
+          TAP_REPOSITORY: ${{ matrix.owner }}/homebrew-tap
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: >-
-          gh api --method POST repos/standing-desks/homebrew-tap/dispatches
+          gh api --method POST "repos/$TAP_REPOSITORY/dispatches"
           -f event_type=twine-release-published
+          -f "client_payload[release_tag]=$RELEASE_TAG"

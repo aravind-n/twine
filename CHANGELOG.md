@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Homebrew installs now use the `standing-desks/tap` tap.
+- Homebrew installs now use the `standing-desks/tap` tap, while existing
+  Homebrew installations continue receiving release updates.
 
 ## [0.2.5] - 2026-10-11
 
