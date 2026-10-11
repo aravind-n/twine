@@ -36,7 +36,7 @@ extension TwineUITests {
             let start = item("workflowStart")
             XCTAssertTrue(start.waitForExistence(timeout: 10), app.debugDescription)
             start.click()
-            XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 20), app.debugDescription)
+            XCTAssertTrue(waitForWorkflowAction("workflowMarkDone", in: app), app.debugDescription)
         }
         app.typeText(fixture.prompt + "\r")
         try waitForLocalPiResult(fixture, result: result, in: app)

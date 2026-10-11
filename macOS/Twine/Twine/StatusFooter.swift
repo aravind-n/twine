@@ -3,6 +3,8 @@ import SwiftUI
 struct StatusFooter: View {
     let branch: String?
     let workflow: CoreWorkflow?
+    let folder: String
+    @State private var showsPath = false
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1, paused: workflow?.status != .running)) { context in
@@ -39,21 +41,44 @@ struct StatusFooter: View {
                     }
                 }
                 Spacer(minLength: 0)
-                #if DEBUG
-                    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-                    let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-                    if let version, let buildNumber {
-                        Text("\(version) (\(buildNumber))")
-                            .monospacedDigit()
-                            .accessibilityIdentifier("buildNumber")
-                            .fixedSize()
+                Button {
+                    showsPath.toggle()
+                } label: {
+                    Text((folder as NSString).abbreviatingWithTildeInPath)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                .buttonStyle(.plain)
+                .frame(height: FooterLayout.height)
+                .contentShape(Rectangle())
+                .help(folder)
+                .accessibilityLabel("Folder location")
+                .accessibilityValue(folder)
+                .accessibilityIdentifier("folderLocation")
+                .layoutPriority(-1)
+                .contextMenu { copyPath }
+                .popover(isPresented: $showsPath) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Folder location").font(.headline)
+                        Text(folder).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        copyPath
                     }
-                #endif
+                    .padding().frame(maxWidth: 440).appZoom()
+                }
             }
             .footerStyle()
             .padding(.horizontal, FooterLayout.horizontalPadding)
             .frame(height: FooterLayout.height)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("statusFooter")
         }
+    }
+
+    private var copyPath: some View {
+        Button("Copy Path", systemImage: "doc.on.doc") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(folder, forType: .string)
+        }
+        .accessibilityIdentifier("copyFolderPath")
     }
 
     private var separator: some View {

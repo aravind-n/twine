@@ -23,28 +23,20 @@ struct AgentWorkflowSurface: View {
         )
         let focused = layout.wrappedValue.focusedAgent(in: workflow.agents)
         VStack(spacing: 0) {
-            if workflow.showsTerminalStrip {
+            if workflow.showsAgentSubtabs && !panesAreTiled {
                 AgentSubtabs(
                     agents: workflow.agents, selectedID: focused?.id,
                     workingIDs: Set(workflow.run?.agents.filter(\.isWorking).map(\.id) ?? []),
-                    harnesses: workflow.run?.agents.reduce(into: [:]) { $0[$1.id] = $1.harness.displayName } ?? [:],
-                    mode: layout.mode, showsSubtabs: workflow.showsAgentSubtabs && !panesAreTiled,
-                    showsLayoutPicker: isSelected
+                    harnesses: workflow.run?.agents.reduce(into: [:]) { $0[$1.id] = $1.harness.displayName } ?? [:]
                 ) {
                     layout.wrappedValue.focus($0, in: workflow.agents)
                     navigation.target = nil
                     navigation.scrollTarget = nil
-                } actions: {
-                    if let run = workflow.run {
-                        WorkflowRunControls(
-                            workflowID: workflow.id, run: run, selectedAgentID: focused?.id,
-                            selectedRole: focused?.role, reportFailure: reportFailure)
-                    }
                 }
             }
             if workflow.restored {
                 RestoredWorkflowNotice(workflow: workflow)
-                    .background(workflow.showsTerminalStrip ? Color.workflowTint : .clear)
+                    .background(workflow.usesWorkflowTint ? Color.workflowTint : .clear)
             }
             AgentPanes(workflow: workflow, layout: layout, isSelected: isSelected) { panesAreTiled = $0 }
         }

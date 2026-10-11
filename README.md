@@ -229,3 +229,7 @@ opportunity to demo and premiere Twine. Twine's terminal emulation uses
 ## License
 
 Twine is available under the [MIT License](LICENSE).
+
+## Design decisions
+
+See the [architecture decision records](docs/adr/README.md) for accepted product and architecture choices, including the [compact folder layout specification](docs/design/compact-folder-chrome.html).

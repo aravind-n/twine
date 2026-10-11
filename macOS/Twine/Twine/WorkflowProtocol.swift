@@ -73,8 +73,8 @@ nonisolated struct CoreWorkflow: Decodable, Equatable, Identifiable, Sendable {
     /// Only workflows with more than one agent show agent subtabs.
     var showsAgentSubtabs: Bool { agents.count > 1 }
 
-    /// Agents workflows with subtabs or a run get the strip at the top of the terminal panel.
-    var showsTerminalStrip: Bool { kind == .agents && (showsAgentSubtabs || run != nil) }
+    /// Agents workflows with subtabs or a run use the workflow tint for restored notices.
+    var usesWorkflowTint: Bool { kind == .agents && (showsAgentSubtabs || run != nil) }
 
     /// The workflow's live shells: its agents' in an agents workflow, and otherwise its own.
     var terminalIDs: [UInt64] {

@@ -6,6 +6,8 @@ struct TracesHeader: View {
     @Binding var viewMode: TraceViewMode
     let toggle: () -> Void
 
+    private var height: CGFloat { isExpanded ? TracesLayout.expandedHeaderHeight : TracesLayout.collapsedHeight }
+
     var body: some View {
         HStack(spacing: 10) {
             titleButton
@@ -21,22 +23,22 @@ struct TracesHeader: View {
             }
             disclosureButton
         }
-        .padding(.horizontal, TracesLayout.headerHorizontalPadding)
-        .frame(height: TracesLayout.collapsedHeight)
+        .padding(.horizontal, isExpanded ? TracesLayout.headerHorizontalPadding : 14)
+        .frame(height: height)
     }
 
     private var titleButton: some View {
         Button(action: toggle) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Traces").panelTitleStyle()
+                    Text("Traces").font(.system(size: isExpanded ? 16 : 12, weight: .semibold))
                     if isExpanded { Text("Steps in start order").panelSubtitleStyle() }
                 }
                 .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: TracesLayout.collapsedHeight)
+            .frame(height: height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -60,7 +62,7 @@ struct TracesHeader: View {
                     .foregroundStyle(.secondary)
                     .frame(width: TracesLayout.chevronSize, height: TracesLayout.chevronSize)
             }
-            .frame(height: TracesLayout.collapsedHeight)
+            .frame(height: height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

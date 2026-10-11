@@ -136,7 +136,7 @@ extension TwineUITests {
         refreshedOutline.lifetime = .keepAlways
         add(refreshedOutline)
         app.buttons["sidebarSection-sessions"].click()
-        XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.toolbars.buttons["workflowTab-1"].waitForExistence(timeout: 5), app.debugDescription)
         app.terminate()
     }
 

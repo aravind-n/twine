@@ -23,11 +23,14 @@ extension TwineUITests {
         XCTAssertTrue(item("workflowStart").exists)
         app.typeKey(.return, modifierFlags: [])
         // The run opens on the implementer, which asks for the task in its terminal.
-        XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(item("workflowIndividualMode").value as? String, "Off")
-        XCTAssertFalse(item("workflowIndividualMode").isEnabled)
+        XCTAssertTrue(waitForWorkflowAction("workflowMarkDone", in: app), app.debugDescription)
+        let mode = workflowAction("workflowIndividualMode", in: app)
+        XCTAssertTrue(mode.title.contains("Off"), app.debugDescription)
+        XCTAssertFalse(mode.isEnabled)
+        app.typeKey(.escape, modifierFlags: [])
         XCTAssertEqual(app.buttons["agentSubtab-1"].value as? String, "Selected", app.debugDescription)
         XCTAssertTrue(app.buttons["agentSubtab-2"].exists)
+        verifyCompactRunToolbar(in: app)
         inspectStage("implement", in: app)
 
         completeRole(in: app, summary: "Initial implementation", task: "Build a small feature")
@@ -35,18 +38,18 @@ extension TwineUITests {
         XCTAssertTrue(app.staticTexts["Agent completed"].waitForExistence(timeout: 5), app.debugDescription)
         inspectStage("review", in: app)
         app.buttons["agentSubtab-2"].click()
-        XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForWorkflowAction("workflowMarkDone", in: app))
         completeRole(in: app, summary: "Fix the edge case", requestChanges: true)
         inspectStage("implement", in: app)
         app.buttons["agentSubtab-1"].click()
-        XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForWorkflowAction("workflowMarkDone", in: app))
         // The previous reviewer remains completed in its retained, hidden pane. Check this
         // round's new implementer terminal rather than every agent's badge.
         XCTAssertTrue(item("terminalStatus-5").waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(item("terminalStatus-5").value as? String, "Agent exited with code 0")
         completeRole(in: app, summary: "Fixed the edge case")
         app.buttons["agentSubtab-2"].click()
-        XCTAssertTrue(item("workflowMarkDone").waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForWorkflowAction("workflowMarkDone", in: app))
         completeRole(in: app, summary: "Approved")
         XCTAssertTrue(app.staticTexts["Completed"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(item("workflowCancel").exists)
@@ -58,27 +61,18 @@ extension TwineUITests {
 
     @MainActor
     private func inspectIndividualMode(in app: XCUIApplication) {
-        func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
-        let individualMode = item("workflowIndividualMode")
-        XCTAssertTrue(individualMode.isEnabled)
-        individualMode.click()
-        XCTAssertTrue(individualMode.waitForExistence(timeout: 5))
-        waitForIndividualMode("On", button: individualMode)
+        let mode = workflowAction("workflowIndividualMode", in: app)
+        XCTAssertTrue(mode.isEnabled)
+        mode.click()
         let layout = app.radioGroups["agentLayout"]
         layout.radioButtons["Bento"].click()
-        XCTAssertEqual(individualMode.value as? String, "On")
-        XCTAssertFalse(item("workflowTypeInspector").exists)
+        XCTAssertTrue(workflowAction("workflowIndividualMode", in: app).title.contains("On"))
+        app.typeKey(.escape, modifierFlags: [])
         attachScreenshot(of: app, named: "Individual mode On in Bento")
-        individualMode.click()
-        waitForIndividualMode("Off", button: individualMode)
+        workflowAction("workflowIndividualMode", in: app).click()
         layout.radioButtons["Tabs"].click()
-        XCTAssertEqual(individualMode.value as? String, "Off")
-    }
-
-    @MainActor
-    private func waitForIndividualMode(_ value: String, button: XCUIElement) {
-        let changed = expectation(for: NSPredicate { _, _ in button.value as? String == value }, evaluatedWith: nil)
-        wait(for: [changed], timeout: 5)
+        XCTAssertTrue(workflowAction("workflowIndividualMode", in: app).title.contains("Off"))
+        app.typeKey(.escape, modifierFlags: [])
     }
 
     @MainActor
@@ -129,8 +123,7 @@ extension TwineUITests {
     @MainActor
     private func inspectStage(_ stage: String, in app: XCUIApplication) {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
-        XCTAssertTrue(item("inspectWorkflowType").waitForExistence(timeout: 10), app.debugDescription)
-        item("inspectWorkflowType").click()
+        workflowAction("inspectWorkflowType", in: app).click()
         XCTAssertTrue(item("workflowTypeInspector").waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(item("graphStage-\(stage)").value as? String, "Current stage")
         if stage == "review" {
@@ -153,7 +146,7 @@ extension TwineUITests {
         in app: XCUIApplication, summary: String, requestChanges: Bool = false, task: String? = nil
     ) {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
-        item("workflowMarkDone").click()
+        workflowAction("workflowMarkDone", in: app).click()
         XCTAssertTrue(item("completionSummary").waitForExistence(timeout: 5), app.debugDescription)
         // Only the first stage's completion, before the task is known, asks for it.
         XCTAssertEqual(item("completionTask").exists, task != nil, app.debugDescription)

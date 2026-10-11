@@ -62,7 +62,7 @@ extension TwineUITests {
     }
 
     @MainActor
-    func testOverflowKeepsEachNewSelectedTabVisibleAndCanCloseDuringStartup() throws {
+    func testOverflowKeepsEachNewTabReachableAndCanCloseDuringStartup() throws {
         let folder = try workflowFolder()
         let app = try makeApp(lastOpenFolder: folder)
         app.launch()
@@ -71,10 +71,18 @@ extension TwineUITests {
         for id in 2...10 {
             app.buttons["newWorkflow"].click()
             let selected = app.buttons["workflowTab-\(id)"]
-            XCTAssertTrue(selected.waitForExistence(timeout: 5), app.debugDescription)
-            let visible = expectation(for: NSPredicate { _, _ in selected.isHittable }, evaluatedWith: nil)
-            wait(for: [visible], timeout: 5)
-            XCTAssertEqual(selected.value as? String, "Selected")
+            if selected.exists {
+                XCTAssertTrue(selected.isHittable, app.debugDescription)
+                XCTAssertEqual(selected.value as? String, "Selected")
+            } else {
+                let overflow = app.menuButtons["workspaceTabOverflow"]
+                XCTAssertTrue(overflow.waitForExistence(timeout: 5), app.debugDescription)
+                overflow.click()
+                let entry = app.menuItems["overflowWorkflow-\(id)"]
+                XCTAssertTrue(entry.waitForExistence(timeout: 5), app.debugDescription)
+                entry.click()
+                XCTAssertTrue(app.buttons["workflowChoice-Terminal"].waitForExistence(timeout: 5))
+            }
         }
         let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         screenshot.name = "Workflow overflow in a narrow window"

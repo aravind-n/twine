@@ -63,17 +63,19 @@ struct TracesPanel: View {
                         expandedContent(now: TraceFormatting.milliseconds(context.date))
                     }
                 }
-                .frame(height: state.viewMode.expandedHeight - TracesLayout.collapsedHeight)
+                .frame(height: state.viewMode.expandedHeight - TracesLayout.expandedHeaderHeight)
                 .clipped()
             }
         }
         .background(.windowBackground)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.panel))
+        .clipShape(RoundedRectangle(cornerRadius: isExpanded ? CornerRadius.panel : TracesLayout.collapsedHeight / 2))
         .overlay {
-            RoundedRectangle(cornerRadius: CornerRadius.panel)
+            RoundedRectangle(cornerRadius: isExpanded ? CornerRadius.panel : TracesLayout.collapsedHeight / 2)
                 .strokeBorder(.tracesPanelHairline, lineWidth: Surface.hairlineWidth)
                 .allowsHitTesting(false)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tracesPanel")
         .task(id: readKey) {
             await state.refresh(workflowIDs: workflowIDs, client: coreClient)
             if !Task.isCancelled { await navigation.minimap.refresh(activity: state, client: coreClient) }

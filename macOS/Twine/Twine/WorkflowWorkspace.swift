@@ -4,7 +4,7 @@ import SwiftUI
 private let workflowLogger = Logger(subsystem: "com.twineproject.Twine", category: "workflows")
 
 /// Every workflow stays mounted, including its output pump and terminal emulator, until it closes.
-struct WorkflowWorkspace: View {
+struct WorkflowWorkspace<Footer: View>: View {
     @TerminalTheme private var palette
     @Environment(CoreClient.self) private var coreClient
     @Environment(WorkflowLayouts.self) private var layouts
@@ -13,6 +13,12 @@ struct WorkflowWorkspace: View {
     @Binding var selection: WorkflowTabSelection
     let files: FileBrowserModel
     var isPresented = true
+    let height: CGFloat
+    let chromeHeight: CGFloat
+    let availableWidth: CGFloat
+    let showWorkspace: () -> Void
+    @ViewBuilder var footer: Footer
+    @Environment(\.appZoom) private var zoom
     @State private var failureMessage: String?
     @State private var isSplitting = false
 
@@ -38,66 +44,45 @@ struct WorkflowWorkspace: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .bottom, spacing: 0) {
+        WorkspaceViewport(contentHeight: (height + chromeHeight) * (zoom?.scale ?? 1)) {
+            VStack(spacing: 0) {
+                terminalPanel.frame(height: height)
+                footer
+            }
+            .padding(Spacing.windowMargins)
+            .appZoom()
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
                 WorkflowTabs(
                     workflows: tabWorkflows,
                     selectedID: isVisible ? selectedRoot : nil,
+                    availableWidth: tabsWidth,
                     select: {
+                        showWorkspace()
                         fileTabs.showWorkflows()
                         selection.selectedID = $0
                     },
-                    close: closeGroup,
-                    cancelAgent: cancelAgent,
-                    create: { Task { await create() } }
+                    close: closeGroup, cancelAgent: cancelAgent,
+                    create: {
+                        showWorkspace()
+                        Task { await create() }
+                    }
                 )
-                TerminalSplitControls(split: split, isEnabled: canSplit)
+                .appZoom()
             }
-            .zIndex(1)
-            ZStack {
-                if workflows.isEmpty && isVisible {
-                    ContentUnavailableView(
-                        "No Open Tabs", systemImage: "terminal",
-                        description: Text("Open a workflow with + or ⌘T.")
+            .sharedBackgroundVisibility(.hidden)
+            ToolbarSpacer(.flexible, placement: .primaryAction)
+            ToolbarItem(placement: .primaryAction) {
+                if isVisible, let workflow = selectedWorkflow {
+                    WorkspaceActions(
+                        folder: folder, workflow: workflow, canSplit: canSplit, compact: compactToolbar,
+                        split: split, cancelAgent: { cancelAgent(workflow.id) },
+                        reportFailure: { failureMessage = $0 }
                     )
-                    .background(.windowBackground)
-                }
-                WorkflowPaneCanvas(
-                    folder: folder, workflows: allWorkflows, sessionID: sessionID,
-                    selection: $selection, isVisible: isVisible, reportFailure: { failureMessage = $0 },
-                    closePane: close)
-                ForEach(fileTabs.editors) { editor in
-                    let shown = isPresented && editor.id == fileTabs.selectedID
-                    FileViewer(
-                        path: editor.path, folder: editor.folder, failure: files.failure, isVisible: shown,
-                        openFile: { url in
-                            if let request = editor.memoryRequest {
-                                Task {
-                                    do {
-                                        try await fileTabs.openMemoryLink(url, request: request, client: coreClient)
-                                    } catch { failureMessage = error.localizedDescription }
-                                }
-                            } else {
-                                fileTabs.open(path: url.path, folder: folder, navigationURL: url)
-                            }
-                        }
-                    )
-                    .environment(editor)
-                    .opacity(shown ? 1 : 0)
-                    .allowsHitTesting(shown)
-                    .accessibilityHidden(!shown)
-                    .disabled(!shown)
+                    .appZoom()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: palette.background))
-            .clipShape(panelShape)
-            .overlay {
-                panelShape.stroke(.hairline, lineWidth: Surface.hairlineWidth)
-                    .mask { Rectangle().padding(.top, Surface.hairlineWidth) }
-                    .allowsHitTesting(false)
-            }
-            .terminalPanelShadow()
         }
         .task {
             selection.reconcile(sessionID: sessionID, current: workflows.map(\.id))
@@ -122,6 +107,70 @@ struct WorkflowWorkspace: View {
         }
     }
 
+    private var tabsWidth: CGFloat {
+        // AppKit adds unscaled item insets and spacing around the two toolbar groups.
+        // Keep that space out of the tab budget so native overflow cannot hide Cancel.
+        let width = max(0, availableWidth - 48) / (zoom?.scale ?? 1)
+        return width < 280 ? 62 : max(62, width - toolbarActionsWidth)
+    }
+
+    private var compactToolbar: Bool { availableWidth / (zoom?.scale ?? 1) < 440 }
+
+    private var toolbarActionsWidth: CGFloat {
+        guard isVisible, let workflow = selectedWorkflow else { return 50 }
+        if compactToolbar { return 80 }
+        if workflow.run != nil { return workflow.showsAgentSubtabs ? 270 : 220 }
+        if workflow.isRunningAgent { return 240 }
+        return workflow.showsAgentSubtabs ? 180 : 100
+    }
+
+    private var terminalPanel: some View {
+        ZStack {
+            if workflows.isEmpty && isVisible {
+                ContentUnavailableView(
+                    "No Open Tabs", systemImage: "terminal",
+                    description: Text("Open a workflow with + or ⌘T.")
+                )
+                .background(.windowBackground)
+            }
+            WorkflowPaneCanvas(
+                folder: folder, workflows: allWorkflows, sessionID: sessionID,
+                selection: $selection, isVisible: isVisible, reportFailure: { failureMessage = $0 },
+                closePane: close)
+            ForEach(fileTabs.editors) { editor in
+                let shown = isPresented && editor.id == fileTabs.selectedID
+                FileViewer(
+                    path: editor.path, folder: editor.folder, failure: files.failure, isVisible: shown,
+                    openFile: { url in
+                        if let request = editor.memoryRequest {
+                            Task {
+                                do {
+                                    try await fileTabs.openMemoryLink(url, request: request, client: coreClient)
+                                } catch { failureMessage = error.localizedDescription }
+                            }
+                        } else {
+                            fileTabs.open(path: url.path, folder: folder, navigationURL: url)
+                        }
+                    }
+                )
+                .environment(editor)
+                .opacity(shown ? 1 : 0)
+                .allowsHitTesting(shown)
+                .accessibilityHidden(!shown)
+                .disabled(!shown)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: palette.background))
+        .clipShape(panelShape)
+        .overlay {
+            panelShape.stroke(.hairline, lineWidth: Surface.hairlineWidth)
+                .mask { Rectangle().padding(.top, Surface.hairlineWidth) }
+                .allowsHitTesting(false)
+        }
+        .terminalPanelShadow()
+    }
+
     private var actions: WorkflowActions {
         WorkflowActions(
             create: { Task { await create() } },
@@ -139,6 +188,9 @@ struct WorkflowWorkspace: View {
 
     private var selectedWorkflow: CoreWorkflow? { workflows.first { $0.id == selection.selectedID } }
 
+}
+
+extension WorkflowWorkspace {
     /// The workflow's layout mode, when it has agents to arrange.
     private func layoutMode(for workflow: CoreWorkflow) -> Binding<WorkflowLayout.Mode>? {
         guard workflow.showsAgentSubtabs else { return nil }

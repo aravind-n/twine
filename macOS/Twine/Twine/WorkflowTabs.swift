@@ -1,100 +1,112 @@
 import SwiftUI
 
 struct WorkflowTabs: View {
-    @TerminalTheme private var palette
     @Environment(FileTabsModel.self) private var fileTabs
     let workflows: [CoreWorkflow]
     let selectedID: UInt64?
+    let availableWidth: CGFloat
     let select: (UInt64) -> Void
     let close: (UInt64) -> Void
     let cancelAgent: (UInt64) -> Void
     let create: () -> Void
-    @State private var tabsWidth: CGFloat?
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            Text("WORKFLOWS")
-                .sectionLabelStyle()
-                .fixedSize()
-                .padding(.bottom, 11)
-            scrollingTabs
-                .frame(maxWidth: tabsWidth)
-                .layoutPriority(1)
-            createButton
-            Spacer(minLength: 0)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                tabs
+                createButton
+            }
+            .fixedSize()
+            HStack(spacing: 6) {
+                if availableWidth >= 170 {
+                    selectedTab.frame(maxWidth: max(60, availableWidth - 76))
+                }
+                overflowMenu
+                createButton
+            }
         }
-        .frame(height: WorkflowTabLayout.height, alignment: .bottom)
+        .frame(width: availableWidth, alignment: .leading)
+        .frame(height: 30)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("workspaceTabs")
+    }
+
+    @ViewBuilder
+    private var selectedTab: some View {
+        if let editor = fileTabs.selected {
+            fileTab(editor)
+        } else if let workflow = workflows.first(where: { $0.id == selectedID }) {
+            workflowTab(workflow)
+        }
+    }
+
+    private var overflowMenu: some View {
+        Menu {
+            ForEach(workflows) { workflow in
+                Button {
+                    select(workflow.id)
+                } label: {
+                    Label(workflow.name, systemImage: workflow.id == selectedID ? "checkmark" : workflow.tabSymbol)
+                }
+                .accessibilityIdentifier("overflowWorkflow-\(workflow.id)")
+            }
+            if !fileTabs.editors.isEmpty { Divider() }
+            ForEach(fileTabs.editors) { editor in
+                Button {
+                    fileTabs.select(editor.id)
+                } label: {
+                    Label(
+                        URL(filePath: editor.path).lastPathComponent + (editor.isDirty ? " •" : ""),
+                        systemImage: editor.id == fileTabs.selectedID ? "checkmark" : "doc.text")
+                }
+                .help(editor.path)
+                .accessibilityIdentifier("overflowFile-\(editor.path)")
+            }
+        } label: {
+            Label("Open tabs", systemImage: "rectangle.stack")
+        }
+        .labelStyle(.iconOnly)
+        .menuIndicator(.hidden)
+        .controlSize(.small)
+        .frame(width: 26)
+        .help("Open workflow and file tabs")
+        .accessibilityIdentifier("workspaceTabOverflow")
     }
 
     private var tabs: some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            ForEach(workflows) { workflow in
-                WorkspaceTab(
-                    name: workflow.name, symbol: workflow.tabSymbol,
-                    tabID: "workflowTab-\(workflow.id)", closeID: "closeWorkflow-\(workflow.id)",
-                    helpText: workflow.name,
-                    fill: workflow.showsTerminalStrip ? .workflowTint : Color(nsColor: palette.background),
-                    selectedForeground: workflow.showsTerminalStrip ? nil : Color(nsColor: palette.text),
-                    isSelected: workflow.id == selectedID,
-                    select: { select(workflow.id) },
-                    close: { close(workflow.id) }
-                )
-                .contextMenu {
-                    if workflow.isRunningAgent {
-                        Button("Cancel Agent", systemImage: "stop.circle") { cancelAgent(workflow.id) }
-                    }
-                    Button("Close Workflow", systemImage: "xmark") { close(workflow.id) }
-                }
-                .id(workflow.id)
-            }
-            ForEach(fileTabs.editors) { editor in
-                WorkspaceTab(
-                    name: URL(filePath: editor.path).lastPathComponent, symbol: "doc.text",
-                    tabID: "fileTab-\(editor.path)", closeID: "closeFile-\(editor.path)", helpText: editor.path,
-                    fill: Color(nsColor: .textBackgroundColor), isEdited: editor.isDirty,
-                    isSelected: editor.id == fileTabs.selectedID,
-                    select: { fileTabs.select(editor.id) }, close: { fileTabs.close(editor.id) }
-                )
-                .contextMenu {
-                    Button("Close File", systemImage: "xmark") { fileTabs.close(editor.id) }
-                }
-                .id(editor.id)
-            }
-        }
-        .padding(.horizontal, 1)
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }, action: { tabsWidth = $0 })
-    }
-
-    private var scrollingTabs: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) { tabs }
-                .scrollIndicators(.hidden)
-                .onChange(of: selectedTabID) {
-                    if let selectedTabID {
-                        withAnimation(Motion.scrollToSelectedTab) { proxy.scrollTo(selectedTabID) }
-                    }
-                }
-                .onChange(of: workflows.map(\.id)) {
-                    if let selectedTabID {
-                        withAnimation(Motion.scrollToSelectedTab) { proxy.scrollTo(selectedTabID) }
-                    }
-                }
-                .onChange(of: fileTabs.editors.map(\.id)) {
-                    if let selectedTabID {
-                        withAnimation(Motion.scrollToSelectedTab) { proxy.scrollTo(selectedTabID) }
-                    }
-                }
-                .onGeometryChange(
-                    for: CGFloat.self, of: { $0.size.width },
-                    action: { _ in
-                        if let selectedTabID { proxy.scrollTo(selectedTabID) }
-                    })
+        HStack(spacing: 6) {
+            ForEach(workflows) { workflow in workflowTab(workflow) }
+            ForEach(fileTabs.editors) { editor in fileTab(editor) }
         }
     }
 
-    private var selectedTabID: AnyHashable? {
-        if let id = fileTabs.selectedID { return AnyHashable(id) }
-        return selectedID.map { AnyHashable($0) }
+    private func workflowTab(_ workflow: CoreWorkflow) -> some View {
+        WorkspaceTab(
+            name: workflow.name, symbol: workflow.tabSymbol,
+            tabID: "workflowTab-\(workflow.id)", closeID: "closeWorkflow-\(workflow.id)",
+            helpText: workflow.name, fill: .workflowTint,
+            isSelected: workflow.id == selectedID,
+            select: { select(workflow.id) }, close: { close(workflow.id) }
+        )
+        .contextMenu {
+            if workflow.isRunningAgent {
+                Button("Cancel Agent", systemImage: "stop.circle") { cancelAgent(workflow.id) }
+            }
+            Button("Close Workflow", systemImage: "xmark") { close(workflow.id) }
+        }
+    }
+
+    private func fileTab(_ editor: FileEditorModel) -> some View {
+        WorkspaceTab(
+            name: URL(filePath: editor.path).lastPathComponent, symbol: "doc.text",
+            tabID: "fileTab-\(editor.path)", closeID: "closeFile-\(editor.path)", helpText: editor.path,
+            fill: .workflowTint, isEdited: editor.isDirty,
+            isSelected: editor.id == fileTabs.selectedID,
+            select: { fileTabs.select(editor.id) }, close: { fileTabs.close(editor.id) }
+        )
+        .contextMenu {
+            Button("Close File", systemImage: "xmark") { fileTabs.close(editor.id) }
+        }
     }
 
     private var createButton: some View {
@@ -105,7 +117,6 @@ struct WorkflowTabs: View {
             .buttonBorderShape(.roundedRectangle(radius: CornerRadius.glassIconButton))
             .controlSize(.small)
             .frame(width: 26, height: 26)
-            .padding(.bottom, 5)
             .help("New Workflow (⌘T)")
             .accessibilityIdentifier("newWorkflow")
     }
@@ -118,7 +129,6 @@ private struct WorkspaceTab: View {
     let closeID: String
     let helpText: String
     let fill: Color
-    var selectedForeground: Color?
     var isEdited = false
     let isSelected: Bool
     let select: () -> Void
@@ -144,9 +154,9 @@ private struct WorkspaceTab: View {
                     Circle().fill(.secondary).frame(width: 5, height: 5).accessibilityHidden(true)
                 }
             }
-            .tabTitleStyle(isSelected: isSelected, foreground: isSelected ? selectedForeground : nil)
+            .tabTitleStyle(isSelected: isSelected)
             .padding(.horizontal, 12)
-            .frame(height: isSelected ? 35 : 29)
+            .frame(height: 28)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -161,14 +171,13 @@ private struct WorkspaceTab: View {
                 tabShape.fill(fill)
                     .overlay {
                         tabShape.strokeBorder(.hairline, lineWidth: Surface.hairlineWidth)
-                            .mask { Rectangle().padding(.bottom, Surface.hairlineWidth) }
                     }
             }
         }
         .overlay(alignment: .leading) {
             Button("Close \(name)", systemImage: "xmark", action: close)
                 .labelStyle(.iconOnly)
-                .foregroundStyle(isSelected ? selectedForeground ?? .primary : .primary)
+                .foregroundStyle(.primary)
                 .font(.system(size: 9, weight: .semibold))
                 .frame(width: 20, height: 23)
                 .buttonStyle(.plain)
@@ -184,7 +193,7 @@ private struct WorkspaceTab: View {
         .help(helpText)
     }
 
-    private var tabShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(topLeadingRadius: CornerRadius.selectedTab, topTrailingRadius: CornerRadius.selectedTab)
+    private var tabShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: CornerRadius.selectedTab)
     }
 }

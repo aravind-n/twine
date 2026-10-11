@@ -11,6 +11,7 @@ struct FolderView: View {
     @Environment(FileTabsModel.self) private var tabs
     @Environment(\.appZoom) private var zoom
     let path: String
+    @State private var windowWidth: CGFloat = 0
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var selection = WorkflowTabSelection()
     @State private var files = FileBrowserModel()
@@ -46,35 +47,27 @@ struct FolderView: View {
         } detail: {
             ZStack {
                 GeometryReader { geometry in
-                    WorkspaceViewport(
-                        contentHeight: (workspaceHeight(in: geometry.size.height / scale, chromeHeight: chromeHeight)
-                            + chromeHeight)
-                            * scale
-                    ) {
-                        VStack(spacing: Spacing.windowSections) {
-                            WorkflowWorkspace(
-                                folder: path, selection: $selection, files: files,
-                                isPresented: !showsMemories
-                            )
-                            .frame(
-                                height: workspaceHeight(
-                                    in: geometry.size.height / scale, chromeHeight: chromeHeight))
+                    WorkflowWorkspace(
+                        folder: path, selection: $selection, files: files,
+                        isPresented: !showsMemories,
+                        height: workspaceHeight(in: geometry.size.height / scale, chromeHeight: chromeHeight),
+                        chromeHeight: chromeHeight, availableWidth: min(geometry.size.width, max(0, windowWidth - 130)),
+                        showWorkspace: { showsMemories = false },
+                        footer: {
                             if tabs.selected == nil {
                                 TracesPanel(workflows: traceWorkflows, isExpanded: $isTracesExpanded)
+                                    .padding(.top, Spacing.windowSections)
                             }
                             StatusFooter(
                                 branch: coreClient.snapshot?.folders.currentBranch,
-                                workflow: selectedWorkflow
+                                workflow: selectedWorkflow, folder: path
                             )
-                        }
-                        .padding(Spacing.windowMargins)
-                        .appZoom()
-                    }
-                    .accessibilityIdentifier("workspaceViewport")
+                            .padding(.top, Spacing.footerGap)
+                        })
                 }
                 .background(.windowBackground)
                 .navigationTitle(URL(filePath: path).lastPathComponent)
-                .navigationSubtitle((path as NSString).abbreviatingWithTildeInPath)
+                .toolbar(removing: .title)
                 .opacity(!showsMemories ? 1 : 0)
                 .allowsHitTesting(!showsMemories)
                 .accessibilityHidden(showsMemories)
@@ -95,6 +88,7 @@ struct FolderView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }, action: { windowWidth = $0 })
         .windowToolbarFullScreenVisibility(.visible)
         .onChange(of: tabs.selectedID) { if tabs.selectedID != nil { showsMemories = false } }
         .task(id: path) { await refreshGitBranch() }
@@ -103,6 +97,7 @@ struct FolderView: View {
             await files.watch(files.request(folder: path, file: editor?.path), client: coreClient, editor: editor)
         }
         .focusedSceneValue(\.openFilePath, tabs.selected?.path)
+        .focusedSceneValue(\.tracesExpanded, !showsMemories && tabs.selected == nil ? $isTracesExpanded : nil)
     }
 
     private var watchedEditor: FileEditorModel? {
@@ -114,7 +109,7 @@ struct FolderView: View {
     /// The workspace scrolls in that case, retaining the window's physical size.
     private func workspaceHeight(in height: CGFloat, chromeHeight: CGFloat) -> CGFloat {
         let font = coreClient.terminalFont
-        var minimum = WorkflowTabLayout.height + WorkflowSurfaceLayout.minimumHeight(for: selectedWorkflow, font: font)
+        var minimum = WorkflowSurfaceLayout.minimumHeight(for: selectedWorkflow, font: font)
         if let selectedWorkflow {
             let root = layouts.splitRoot(
                 for: selectedWorkflow.id, in: path, workflows: coreClient.snapshot?.workflows.workflows ?? [])
@@ -123,7 +118,7 @@ struct FolderView: View {
                 let paneHeight = BentoLayout.minimumTerminalPaneHeight(
                     for: font, includesNotice: traceWorkflows.contains(where: \.showsRestoredNotice))
                 minimum =
-                    WorkflowTabLayout.height + 2 * BentoLayout.gutter + split.minimumHeight(paneHeight: paneHeight)
+                    2 * BentoLayout.gutter + split.minimumHeight(paneHeight: paneHeight)
             }
         }
         return max(minimum, height - chromeHeight)
@@ -133,7 +128,7 @@ struct FolderView: View {
         let traces: CGFloat =
             tabs.selected == nil
             ? (isTracesExpanded ? traceNavigation.activity.viewMode.expandedHeight : TracesLayout.collapsedHeight) : 0
-        let gaps = Spacing.windowSections * (tabs.selected == nil ? 2 : 1)
+        let gaps = Spacing.footerGap + (tabs.selected == nil ? Spacing.windowSections : 0)
         return Spacing.windowMargins.top + Spacing.windowMargins.bottom + gaps + FooterLayout.height + traces
     }
 

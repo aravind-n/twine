@@ -145,3 +145,25 @@ extension TwineUITests {
 
     private func processIsRunning(_ processID: pid_t) -> Bool { kill(processID, 0) == 0 || errno != ESRCH }
 }
+
+// Workflow commands are menu items in the native titlebar; exercise their public entry point.
+extension TwineUITests {
+    @MainActor
+    func workflowAction(_ id: String, in app: XCUIApplication) -> XCUIElement {
+        let item = app.menuItems[id]
+        let menu = app.menuButtons["workflowActionsMenu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10), app.debugDescription)
+        menu.click()
+        XCTAssertTrue(item.waitForExistence(timeout: 10), app.debugDescription)
+        return item
+    }
+
+    @MainActor
+    func waitForWorkflowAction(_ id: String, in app: XCUIApplication) -> Bool {
+        let item = workflowAction(id, in: app)
+        let exists = item.exists
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(item.waitForNonExistence(timeout: 5))
+        return exists
+    }
+}

@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The strip at the top of an agents workflow's terminal panel: a subtab for each agent in tab mode,
-/// then the run's actions and a picker between tab mode and Bento mode, whose panes name their agents.
-struct AgentSubtabs<Actions: View>: View {
+/// while tiled Bento panes identify their agents in their own headers.
+struct AgentSubtabs: View {
     let agents: [CoreAgent]
     /// The agent with the keyboard: the one tab mode shows, or the focused Bento pane's.
     let selectedID: UInt64?
@@ -10,29 +10,14 @@ struct AgentSubtabs<Actions: View>: View {
     var workingIDs: Set<UInt64> = []
     /// Each agent's harness, named in its subtab's tooltip.
     var harnesses: [UInt64: String] = [:]
-    @Binding var mode: WorkflowLayout.Mode
-    /// Tiled Bento panes name their agents in their headers, so the strip leaves the subtabs out.
-    let showsSubtabs: Bool
-    /// A hidden workflow leaves out the picker: accessibility would still list its AppKit control.
-    let showsLayoutPicker: Bool
     let select: (UInt64) -> Void
-    @ViewBuilder var actions: Actions
 
     var body: some View {
-        HStack(spacing: AgentSubtabLayout.labelSpacing) {
-            Text("TERMINAL")
-                .sectionLabelStyle()
-                .fixedSize()
-            if showsSubtabs { subtabs } else { Spacer(minLength: 0) }
-            HStack(spacing: AgentSubtabLayout.actionSpacing) {
-                actions
-                if showsLayoutPicker && agents.count > 1 { layoutPicker }
-            }
-            .fixedSize()
-        }
-        .padding(.horizontal, AgentSubtabLayout.horizontalPadding)
-        .frame(height: AgentSubtabLayout.height)
-        .background(.workflowTint)
+        subtabs
+            .padding(.horizontal, AgentSubtabLayout.horizontalPadding)
+            .frame(height: AgentSubtabLayout.height)
+            .background(.workflowTint)
+            .accessibilityIdentifier("agentSubtabStrip")
     }
 
     private var subtabs: some View {
@@ -65,19 +50,6 @@ struct AgentSubtabs<Actions: View>: View {
         }
     }
 
-    private var layoutPicker: some View {
-        Picker("Layout", selection: $mode) {
-            Label("Tabs", systemImage: "rectangle.topthird.inset.filled").tag(WorkflowLayout.Mode.tabs)
-            Label("Bento", systemImage: "square.grid.2x2").tag(WorkflowLayout.Mode.bento)
-        }
-        .pickerStyle(.segmented)
-        .labelStyle(.iconOnly)
-        .labelsHidden()
-        .controlSize(.small)
-        .fixedSize()
-        .help("Show one agent at a time, or up to four side by side")
-        .accessibilityIdentifier("agentLayout")
-    }
 }
 
 private struct AgentSubtab: View {
