@@ -80,6 +80,7 @@ extension TwineUITests {
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-2"].waitForExistence(timeout: 10))
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 820, height: 576))
         app.buttons["workflowTab-2"].click()
         app.buttons["tracesHeader"].click()
         XCTAssertTrue(app.buttons[stepID].waitForExistence(timeout: 10))
@@ -93,6 +94,18 @@ extension TwineUITests {
         app.buttons[callID].click()
         let fullOutput = app.buttons["traceFullOutput"]
         XCTAssertTrue(fullOutput.waitForExistence(timeout: 5))
+        // Relaunch may restore a smaller window. Opening the inspector grows the workspace,
+        // so expose its controls using the outer scroll view before XCTest scrolls the inspector.
+        let viewport = app.scrollViews["workspaceViewport"]
+        let inspector = app.scrollViews["traceActivityInspector"]
+        for _ in 0..<6 where !viewport.frame.contains(inspector.frame) {
+            viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5))
+                .scroll(byDeltaX: 0, deltaY: -300)
+        }
+        for _ in 0..<8 where !fullOutput.isHittable {
+            inspector.scroll(byDeltaX: 0, deltaY: -400)
+        }
+        XCTAssertTrue(fullOutput.isHittable, app.debugDescription)
         fullOutput.click()
         XCTAssertTrue(
             app.staticTexts.matching(
