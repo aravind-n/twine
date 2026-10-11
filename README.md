@@ -38,7 +38,7 @@ Twine requires **macOS 26 or later** on **Apple Silicon**.
 Install it with [Homebrew](https://brew.sh):
 
 ```sh
-brew install --cask standing-desks/tap/twine-app
+brew install --cask standing-desks/tap/twine-ade
 ```
 
 Then open Twine from Applications.
