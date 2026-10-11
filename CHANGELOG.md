@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-11
+
+### Changed
+
+- Restore workflow and file tabs below the titlebar, the terminal toolbar in Tabs
+  and Bento, and the previous terminal split, Traces, and status footer controls.
+- Restore the previous trace-filter scrolling and Save-command activation behavior
+  along with the folder layout.
+
+### Removed
+
+- The selectable folder path in the status footer and the View menu action for
+  showing or hiding Traces introduced in 0.2.3.
+
 ## [0.2.3] - 2026-10-10
 
 ### Added
@@ -32,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Workflow and file tabs now share the native titlebar, with workflow actions and tab overflow nearby. Bento removes its redundant terminal strip. A slimmer closed Traces capsule and status footer give more room to content while opened Traces keeps its full size; the footer shows a selectable, copyable folder path, and the View menu can show or hide Traces.
+
 - File edits save automatically after a short typing pause, including in background
   tabs. Disable autosave or change its delay in Settings. Keep typing while saving,
   or press ⌘S to save immediately, regardless of the autosave setting. Autosave
@@ -41,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Trace activity stays visible when filtering after scrolling in a compact window.
+- File → Save and ⌘S become available when a workflow designer or session form is valid,
+  without needing to move keyboard focus.
 - HTML and Markdown previews fill their pane at every global zoom level, with
   correctly scaled content and clickable links, including after resizing the window.
 - Open Folder remains available after closing the last window and opens a new
@@ -137,7 +156,8 @@ Initial release of Twine, a native macOS workspace for coordinating coding agent
 - The app is ad hoc signed and not notarized. Follow the included install instructions
   to approve the first launch in macOS Privacy & Security settings.
 
-[unreleased]: https://github.com/aravind-n/twine/compare/v0.2.3...HEAD
+[unreleased]: https://github.com/aravind-n/twine/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/aravind-n/twine/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/aravind-n/twine/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/aravind-n/twine/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/aravind-n/twine/compare/v0.2.0...v0.2.1
