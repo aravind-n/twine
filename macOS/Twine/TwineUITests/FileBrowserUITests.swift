@@ -122,20 +122,4 @@ extension TwineUITests {
         app.buttons.matching(NSPredicate(format: "identifier == %@", "fileTab-\(path.path)")).firstMatch
     }
 
-    @MainActor
-    func selectFileTab(_ path: URL, in app: XCUIApplication) {
-        let tab = fileTab(path, in: app)
-        if tab.exists && tab.isHittable {
-            tab.click()
-        } else {
-            let overflow = app.menuButtons["workspaceTabOverflow"]
-            XCTAssertTrue(overflow.waitForExistence(timeout: 5), app.debugDescription)
-            overflow.click()
-            let entry = app.menuItems.matching(NSPredicate(format: "identifier == %@", "overflowFile-\(path.path)"))
-                .firstMatch
-            XCTAssertTrue(entry.waitForExistence(timeout: 5), app.debugDescription)
-            entry.click()
-        }
-    }
-
 }

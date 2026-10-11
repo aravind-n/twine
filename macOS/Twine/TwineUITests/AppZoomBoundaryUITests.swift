@@ -23,7 +23,7 @@ extension TwineUITests {
         app.typeKey("0", modifierFlags: .command)
         app.buttons["closeTerminalPane-2"].click()
         XCTAssertTrue(app.buttons["closeTerminalPane-2"].waitForNonExistence(timeout: 5), app.debugDescription)
-        workflowAction("splitTerminalDown", in: app).click()
+        app.buttons["splitTerminalDown"].click()
         XCTAssertTrue(app.buttons["closeTerminalPane-3"].waitForExistence(timeout: 5))
         // A tall window's bottom edge can be covered by the Dock. Shrink from the top first.
         let window = app.windows.firstMatch

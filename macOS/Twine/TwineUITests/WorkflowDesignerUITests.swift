@@ -35,7 +35,10 @@ extension TwineUITests {
         XCTAssertEqual(item("designerName").value as? String, "Adversarial copy")
         app.typeKey("a", modifierFlags: .command)
         app.typeText("Keyboard review")
-        waitForDesignerSave(in: app)
+        let ready = expectation(
+            for: NSPredicate { _, _ in staticTextValue(item("designerValidation")) == "Ready to save with ⌘S" },
+            evaluatedWith: nil)
+        wait(for: [ready], timeout: 10)
         attachScreenshot(of: app, named: "Workflow designer with roles and instructions")
         app.typeKey("s", modifierFlags: .command)
         XCTAssertTrue(item("designerName").waitForNonExistence(timeout: 10), app.debugDescription)
@@ -52,15 +55,5 @@ extension TwineUITests {
         app.menuBars.menuBarItems["File"].click()
         XCTAssertFalse(app.menuItems["Create Workflow Type…"].isEnabled)
         app.typeKey(.escape, modifierFlags: [])
-    }
-
-    @MainActor
-    private func waitForDesignerSave(in app: XCUIApplication) {
-        let validation = app.descendants(matching: .any).matching(identifier: "designerValidation").firstMatch
-        let ready = expectation(
-            for: NSPredicate { _, _ in
-                staticTextValue(validation) == "Ready to save with ⌘S" && app.menuBars.menuItems["Save"].isEnabled
-            }, evaluatedWith: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, app.debugDescription)
     }
 }

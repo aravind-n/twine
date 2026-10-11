@@ -6,7 +6,6 @@ extension FocusedValues {
     /// Whether the focused window shows the folder picker.
     @Entry var isChoosingFolder: Binding<Bool>?
     @Entry var workflowActions: WorkflowActions?
-    @Entry var tracesExpanded: Binding<Bool>?
     @Entry var newWorkflowType: Binding<Bool>?
     /// The path of the file open in the focused window.
     @Entry var openFilePath: String?
@@ -14,8 +13,7 @@ extension FocusedValues {
 }
 
 struct SaveAction {
-    // Read current form state when commands update, rather than snapshotting it at a focus change.
-    let isEnabled: () -> Bool
+    let isEnabled: Bool
     let perform: () -> Void
 }
 
@@ -45,7 +43,6 @@ struct FolderCommands: Commands {
     @FocusedBinding(\.isChoosingFolder) private var isChoosingFolder
     @FocusedBinding(\.newWorkflowType) private var newWorkflowType
     @FocusedValue(\.workflowActions) private var workflowActions
-    @FocusedBinding(\.tracesExpanded) private var tracesExpanded
     @FocusedValue(\.openFilePath) private var openFilePath
     @FocusedValue(\.saveAction) private var saveAction
 
@@ -98,9 +95,6 @@ struct FolderCommands: Commands {
             .disabled(!isRunning || session?.coreClient.snapshot?.folders.openFolder == nil)
         }
         CommandGroup(after: .sidebar) {
-            Button(tracesExpanded == true ? "Hide Traces" : "Show Traces") { tracesExpanded?.toggle() }
-                .disabled(tracesExpanded == nil || showsSettings)
-            Divider()
             Button("Split Right") { workflowActions?.splitTerminal?(.right) }
                 .keyboardShortcut("d")
                 .disabled(workflowActions?.splitTerminal == nil)
@@ -127,7 +121,7 @@ struct FolderCommands: Commands {
                 if let formSave { formSave.perform() } else { editor?.requestSave() }
             }
             .keyboardShortcut("s")
-            .disabled(formSave.map { !$0.isEnabled() } ?? (editor?.canSave != true || (!showsSettings && !isRunning)))
+            .disabled(formSave.map { !$0.isEnabled } ?? (editor?.canSave != true || (!showsSettings && !isRunning)))
             Button(closeTitle) {
                 if showsSettings {
                     settings?.close()

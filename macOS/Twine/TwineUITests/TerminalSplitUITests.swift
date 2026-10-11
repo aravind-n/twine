@@ -27,7 +27,7 @@ extension TwineUITests {
         let fullColumns = try XCTUnwrap(full.last.flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) })
         let splitColumns = try XCTUnwrap(split.last.flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) })
         XCTAssertLessThan(splitColumns, fullColumns)
-        workflowAction("splitTerminalDown", in: app).click()
+        app.buttons["splitTerminalDown"].click()
         XCTAssertTrue(app.buttons["closeTerminalPane-4"].waitForExistence(timeout: 5))
         app.typeText("echo bottom > bottom-ready\r")
         waitForFile(folder.appending(path: "bottom-ready"), containing: "bottom", in: app)

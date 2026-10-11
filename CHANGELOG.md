@@ -32,8 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Workflow and file tabs now share the native titlebar, with workflow actions and tab overflow nearby. Bento removes its redundant terminal strip. A slimmer closed Traces capsule and status footer give more room to content while opened Traces keeps its full size; the footer shows a selectable, copyable folder path, and the View menu can show or hide Traces.
-
 - File edits save automatically after a short typing pause, including in background
   tabs. Disable autosave or change its delay in Settings. Keep typing while saving,
   or press ⌘S to save immediately, regardless of the autosave setting. Autosave
@@ -43,9 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Trace activity stays visible when filtering after scrolling in a compact window.
-- File → Save and ⌘S become available when a workflow designer or session form is valid,
-  without needing to move keyboard focus.
 - HTML and Markdown previews fill their pane at every global zoom level, with
   correctly scaled content and clickable links, including after resizing the window.
 - Open Folder remains available after closing the last window and opens a new

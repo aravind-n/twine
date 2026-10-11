@@ -23,14 +23,14 @@ struct MultiAgentWorkflowTests {
             ])
         #expect(workflow.terminalIDs == [8])
         #expect(workflow.showsAgentSubtabs)
-        #expect(workflow.usesWorkflowTint)
+        #expect(workflow.showsTerminalStrip)
         workflow.agents.removeLast()
         #expect(!workflow.showsAgentSubtabs)
-        #expect(!workflow.usesWorkflowTint, "One agent without a run keeps the terminal background")
+        #expect(!workflow.showsTerminalStrip, "One agent without a run has nothing for the strip")
         workflow.run = try JSONDecoder().decode(
             CoreWorkflowRun.self,
             from: Data(#"{"generation":1,"stage":"Work","status":"running","needsTask":false,"agents":[]}"#.utf8))
-        #expect(workflow.usesWorkflowTint, "A one-agent run keeps the workflow tint")
+        #expect(workflow.showsTerminalStrip, "A one-agent run still needs its actions")
         workflow.agents.removeAll()
         #expect(!workflow.showsAgentSubtabs)
     }

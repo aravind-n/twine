@@ -7,7 +7,6 @@ struct TraceActivityChart: View {
     let color: Color
     let now: UInt64
     private let labelWidth: CGFloat = 160
-    @State private var scrollPosition = ScrollPosition(edge: .top)
 
     var body: some View {
         GeometryReader { geometry in
@@ -23,10 +22,6 @@ struct TraceActivityChart: View {
                 .frame(width: width)
                 .padding(.horizontal, 12).padding(.bottom, 8)
             }
-            .scrollPosition($scrollPosition)
-            // Shorter filtered results must not inherit a scroll offset beyond their content.
-            .onChange(of: state.search) { scrollPosition.scrollTo(edge: .top) }
-            .onChange(of: state.failuresOnly) { scrollPosition.scrollTo(edge: .top) }
             .accessibilityIdentifier("traceActivityTimeline")
         }
     }

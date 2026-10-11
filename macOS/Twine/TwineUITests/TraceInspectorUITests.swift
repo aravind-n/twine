@@ -244,7 +244,6 @@ extension TwineUITests {
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
         app.launch()
         XCTAssertTrue(app.buttons["workflowTab-2"].waitForExistence(timeout: 10))
-        resizeWindow(app.windows.firstMatch, to: CGSize(width: 820, height: 576))
         app.buttons["workflowTab-2"].click()
         app.buttons["tracesHeader"].click()
         let originalStep = app.buttons[stepID]
@@ -258,8 +257,6 @@ extension TwineUITests {
         // Restored windows may be shorter; reveal the deep panel through the outer viewport.
         app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
             .scroll(byDeltaX: 0, deltaY: -800)
-        // Shrink a scrolled lazy timeline to a few matching rows without losing its content extent.
-        app.scrollViews["traceActivityTimeline"].scroll(byDeltaX: 0, deltaY: -700)
         let search = app.textFields["traceActivitySearch"]
         search.click()
         search.typeText("cargo test")

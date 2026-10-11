@@ -14,7 +14,7 @@ nonisolated enum CornerRadius {
     static let choicesCard: CGFloat = 14
     static let emptyRecentsCard: CGFloat = 12
     static let graphNode: CGFloat = 12
-    /// All corners of a selected titlebar tab.
+    /// The selected workflow tab's top corners.
     static let selectedTab: CGFloat = 10
     static let recentFolderCard: CGFloat = 10
     /// The terminal panel's radius less the Bento gutter, so each pane's corners follow the panel's.
@@ -31,10 +31,9 @@ nonisolated enum CornerRadius {
 
 nonisolated enum Spacing {
     /// Margins between the window's edges and its content.
-    static let windowMargins = EdgeInsets(top: 4, leading: 10, bottom: 6, trailing: 10)
-    /// Vertical space between the terminal block and the Traces panel.
-    static let windowSections: CGFloat = 6
-    static let footerGap: CGFloat = 4
+    static let windowMargins = EdgeInsets(top: 14, leading: 14, bottom: 11, trailing: 14)
+    /// Vertical space between the terminal block, the Traces panel, and the footer.
+    static let windowSections: CGFloat = 13
     static let terminalContent: CGFloat = 24
     /// Agents workflows' strip already frames the panel, so their terminals sit closer to it.
     static let agentTerminalContent: CGFloat = 14
@@ -55,8 +54,7 @@ nonisolated enum SidebarLayout {
 }
 
 nonisolated enum TracesLayout {
-    static let collapsedHeight: CGFloat = 32
-    static let expandedHeaderHeight: CGFloat = 48
+    static let collapsedHeight: CGFloat = 48
     static let expandedHeight: CGFloat = 272
     static let axisHeight: CGFloat = 14
     static let laneHeight: CGFloat = 18
@@ -97,11 +95,13 @@ nonisolated enum NewTabLayout {
 
 /// The subtab strip at the top of a multi-agent workflow's terminal panel.
 nonisolated enum AgentSubtabLayout {
-    static let height: CGFloat = 30
+    static let height: CGFloat = 34
     static let horizontalPadding: CGFloat = 18
+    /// Between the "TERMINAL" label and the first subtab.
+    static let labelSpacing: CGFloat = 13
     static let spacing: CGFloat = 5
     static let subtabHeight: CGFloat = 26
-    /// Between controls in the native workflow toolbar.
+    /// Between the run's actions and the layout picker at the strip's trailing edge.
     static let actionSpacing: CGFloat = 6
     static let workingDotSize: CGFloat = 6
     static let subtabPadding: CGFloat = 10
@@ -137,16 +137,20 @@ nonisolated enum RestoredNoticeLayout {
 }
 
 nonisolated enum FooterLayout {
-    static let height: CGFloat = 20
+    static let height: CGFloat = 22
     static let horizontalPadding: CGFloat = 4
     static let spacing: CGFloat = 8
     static let dividerHeight: CGFloat = 10
 }
 
+nonisolated enum WorkflowTabLayout {
+    static let height: CGFloat = 42
+}
+
 nonisolated enum WorkflowSurfaceLayout {
     @MainActor static func minimumHeight(for workflow: CoreWorkflow?, font: NSFont) -> CGFloat {
         let padding = workflow?.kind == .agents ? Spacing.agentTerminalContent : Spacing.terminalContent
-        let strip = workflow?.showsAgentSubtabs == true ? AgentSubtabLayout.height : 0
+        let strip = workflow?.showsTerminalStrip == true ? AgentSubtabLayout.height : 0
         let notice = workflow?.showsRestoredNotice == true ? RestoredNoticeLayout.height : 0
         let terminal = strip + notice + 2 * padding + 2 * (font.ascender - font.descender + font.leading).rounded(.up)
         return workflow?.kind == .draft

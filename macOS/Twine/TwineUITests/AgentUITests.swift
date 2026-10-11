@@ -263,8 +263,7 @@ extension TwineUITests {
             FileManager.default.fileExists(atPath: folder.appending(path: "agent-args.txt").path),
             "The agent starts without a prompt")
 
-        XCTAssertTrue(app.toolbars.buttons["cancelAgent"].isHittable, app.debugDescription)
-        app.buttons["cancelAgent"].click()
+        app.typeKey(".", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["Cancelled"].waitForExistence(timeout: 10), app.debugDescription)
         let stopped = expectation(for: NSPredicate { _, _ in kill(pid, 0) != 0 }, evaluatedWith: nil)
         wait(for: [stopped], timeout: 10)

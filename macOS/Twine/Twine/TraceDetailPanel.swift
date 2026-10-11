@@ -111,7 +111,7 @@ struct TraceDetailPanel: View {
                 .accessibilityIdentifier("closeTraceDetails")
         }
         .padding(.horizontal, 12)
-        .frame(height: TracesLayout.expandedHeaderHeight)
+        .frame(height: TracesLayout.collapsedHeight)
     }
 
     private func logRow(_ event: CoreTraceEvent) -> some View {

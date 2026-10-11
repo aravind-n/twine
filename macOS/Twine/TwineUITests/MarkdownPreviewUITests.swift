@@ -50,15 +50,13 @@ extension TwineUITests {
         text.typeKey("a", modifierFlags: .command)
         let saved = "# Saved edits\n\n[Next page](next.MARKDOWN)"
         text.typeText(saved)
-        // Preview renders disk contents. Let autosave settle before clicking the mode control,
-        // whose position changes when the Edited indicator disappears.
-        let clean = expectation(for: NSPredicate { _, _ in !app.staticTexts["fileEdited"].exists }, evaluatedWith: nil)
-        wait(for: [clean], timeout: 3)
-        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), saved)
         app.radioButtons["Preview"].click()
         XCTAssertTrue(app.staticTexts["Saved edits"].waitForExistence(timeout: 5))
         app.radioButtons["Source"].click()
         XCTAssertEqual(text.value as? String, saved)
+        let clean = expectation(for: NSPredicate { _, _ in !app.staticTexts["fileEdited"].exists }, evaluatedWith: nil)
+        wait(for: [clean], timeout: 3)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), saved)
         app.radioButtons["Preview"].click()
         XCTAssertTrue(app.staticTexts["Saved edits"].waitForExistence(timeout: 5))
     }

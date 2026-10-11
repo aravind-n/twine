@@ -35,8 +35,7 @@ extension TwineUITests {
         XCTAssertTrue(root.waitForNonExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(toggle.isHittable, "The show button must remain available in full screen")
         XCTAssertGreaterThan(viewport.frame.width, sidebarWidth)
-        XCTAssertLessThanOrEqual(app.buttons["newWorkflow"].frame.maxY, viewport.frame.minY)
-        XCTAssertTrue(app.toolbars.buttons["newWorkflow"].isHittable)
+        XCTAssertGreaterThanOrEqual(app.buttons["newWorkflow"].frame.minY, toggle.frame.maxY)
 
         app.typeKey("s", modifierFlags: [.command, .control])
         XCTAssertTrue(root.waitForExistence(timeout: 5), app.debugDescription)
@@ -54,8 +53,7 @@ extension TwineUITests {
         XCTAssertEqual(sidebarToggleButtons(in: app).count, 1)
         XCTAssertTrue(toggle.isHittable, app.debugDescription)
         XCTAssertLessThanOrEqual(toggle.frame.maxX, viewport.frame.minX, "Keep the toggle over its sidebar")
-        XCTAssertLessThanOrEqual(app.buttons["newWorkflow"].frame.maxY, viewport.frame.minY)
-        XCTAssertTrue(app.toolbars.buttons["newWorkflow"].isHittable)
+        XCTAssertGreaterThanOrEqual(app.buttons["newWorkflow"].frame.minY, toggle.frame.maxY)
     }
 
     @MainActor
@@ -194,10 +192,10 @@ extension TwineUITests {
 
     @MainActor
     func resizeWindow(_ window: XCUIElement, to size: CGSize) {
-        // Keep tall resize edges on-screen and titlebar controls clear of top-right notifications.
+        // Keep a tall restored window's bottom resize edge on-screen.
         let titleBar = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
             .withOffset(CGVector(dx: 0, dy: 20))
-        let positionTarget = titleBar.withOffset(CGVector(dx: 40 - window.frame.minX, dy: 30 - window.frame.minY))
+        let positionTarget = titleBar.withOffset(CGVector(dx: 0, dy: 30 - window.frame.minY))
         titleBar.click(forDuration: 0.2, thenDragTo: positionTarget)
         // Use straight edges: the extreme corner falls outside macOS's rounded window shape.
         let rightEdge = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
