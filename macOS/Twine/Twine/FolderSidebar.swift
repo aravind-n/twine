@@ -223,7 +223,7 @@ private struct SessionNameForm: View {
         .onAppear { isFocused = true }
         .focusedSceneValue(
             \.saveAction,
-            SaveAction(isEnabled: !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, perform: submit))
+            SaveAction(isEnabled: { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }, perform: submit))
     }
 
     private func submit() {

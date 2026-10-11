@@ -45,7 +45,7 @@ extension TwineUITests {
                 let corner = app.links["Bottom corner"]
                 corner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
                 XCTAssertTrue(app.staticTexts["Corner link opened"].firstMatch.waitForExistence(timeout: 5))
-                fileTab(file, in: app).click()
+                selectFileTab(file, in: app)
                 assertHTMLViewport(in: app, percent: percent, originalHeight: originalHeight)
             }
         }

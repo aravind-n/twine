@@ -79,7 +79,7 @@ struct WorkflowDesigner: View {
         .interactiveDismissDisabled(model.isSaving)
         .task(id: model.definition) { await model.validate(using: client) }
         .onAppear { nameFocused = true }
-        .focusedSceneValue(\.saveAction, SaveAction(isEnabled: model.canSave, perform: save))
+        .focusedSceneValue(\.saveAction, SaveAction(isEnabled: { model.canSave }, perform: save))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workflowDesigner")
     }
