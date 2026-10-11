@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import OSLog
 import SwiftUI
@@ -69,7 +68,6 @@ struct FolderSidebar: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background { SidebarMaterial().ignoresSafeArea() }
         .sheet(item: $editor) { editor in
             SessionNameForm(editor: editor) { name in
                 run {
@@ -175,18 +173,6 @@ struct FolderSidebar: View {
             }
         }
     }
-}
-
-private struct SidebarMaterial: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .sidebar
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 private struct SessionEditor: Identifiable {

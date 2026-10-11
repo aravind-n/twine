@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   room above the separate status footer.
 - The folder name and path share one titlebar line, with a shorter workflow tab
   row and less space above it to give terminals more room. The sidebar button
-  retains its standard native proportions, and the sidebar background continues
-  behind the toolbar in full screen.
+  retains its standard native proportions, and the sidebar uses the native
+  translucent material.
 - Workflow creation and terminal split buttons have larger click targets within
   the compact workflow row.
 
