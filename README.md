@@ -43,6 +43,11 @@ brew install --cask standing-desks/tap/twine-app
 
 Then open Twine from Applications.
 
+To update a Homebrew install, quit Twine and run
+`brew upgrade --cask standing-desks/tap/twine-app`. Use the full name: Homebrew
+also has an unrelated app named `twine-app`. If you installed from the previous
+`twineproject/tap`, see the [tap recovery notes](https://github.com/standing-desks/homebrew-tap#migrating-from-twineproject).
+
 To install manually instead, download the `.dmg` from the
 [latest release](https://github.com/aravind-n/twine/releases/latest), open it,
 and drag **Twine** onto **Applications**.

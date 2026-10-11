@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Homebrew installs now use the `standing-desks/tap` tap.
+- Homebrew installs now use the `standing-desks/tap` tap. Install and upgrade
+  instructions use the full cask name to avoid the unrelated Homebrew app named
+  `twine-app`, with recovery notes for installations from the previous tap.
 
 ## [0.2.5] - 2026-10-11
 
