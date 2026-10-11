@@ -1,4 +1,7 @@
-//! Reads the current branch without changing the repository.
+//! Reads branch and local status without changing repositories.
+
+pub(crate) mod status;
+pub(crate) mod watcher;
 
 use std::ffi::OsStr;
 use std::io::{Read, Seek};

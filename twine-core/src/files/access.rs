@@ -36,7 +36,7 @@ pub(crate) fn open_file(folder: &Path, path: &Path, directory: bool) -> io::Resu
     Ok(File::from(fd))
 }
 
-pub(super) fn entries(folder: &Path, path: &Path) -> io::Result<Vec<FileEntry>> {
+pub(crate) fn entries(folder: &Path, path: &Path) -> io::Result<Vec<FileEntry>> {
     let file = open_file(folder, path, true)?;
     let directory = Dir::read_from(&file).map_err(io::Error::from)?;
     let mut entries = Vec::new();
@@ -60,6 +60,7 @@ pub(super) fn entries(folder: &Path, path: &Path) -> io::Result<Vec<FileEntry>> 
             kind => kind,
         };
         entries.push(FileEntry {
+            git: None,
             path: path.join(name),
             name: name.to_owned(),
             kind: match kind {

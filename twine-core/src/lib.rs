@@ -7,6 +7,7 @@ mod event;
 mod files;
 mod folder;
 mod git;
+pub use git::status::{GitChange, GitChangeKind, GitDecoration, GitRepository, GitSnapshot};
 mod harness;
 pub mod memories;
 mod process;

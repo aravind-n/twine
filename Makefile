@@ -38,6 +38,8 @@ needs = $(if $(PREBUILT),,$(1))
 # Tests outside this list are retired from default runs, but remain available with ONLY or ALL=1.
 # Add a test here to re-enable it in local and CI default runs.
 UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
+	testGitFileTreeShowsPrimaryCheckoutChangesAcrossRepositories \
+	testGitFileTreeRefreshesConflictsAndUnavailableRepositories \
 	testFileMenuCanOpenWindowsAndFoldersAfterClosingLastWindow \
 	testSettingsPopupLoadsSavesAndProtectsUnsavedChanges \
 	testSavingSettingsReflowsExistingTerminalsInAllFolderWindows \
@@ -172,7 +174,7 @@ check-app: lint-app test-app ## Lint and unit-test the app
 .PHONY: ui-test
 ui-test: $(call needs,build-tests) ## Run UI tests (ONLY="testA testB", ALL=1 or SHARD=n/N)
 	@test -n "$(strip $(UI_TEST_ARGS))" || { echo 'usage: make ui-test [ONLY="testA testB" | ALL=1 | SHARD=n/N]' >&2; exit 2; }
-	$(TEST_ENV) $(TEST_RUN) $(UI_TEST_ARGS)
+	TEST_RUNNER_TWINE_TEST_GIT="$$(xcrun --find git)" $(TEST_ENV) $(TEST_RUN) $(UI_TEST_ARGS)
 
 .PHONY: ui-test-visual
 ui-test-visual: ## Run the visual UI tests

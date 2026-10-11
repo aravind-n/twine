@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Show Git changes directly in Files, including staged and unstaged edits,
+  untracked files, renames, deletions, and conflicts. Repository folders show
+  their branch and change count, with independent status for multiple repositories
+  inside an opened folder. Click a badge for details; Git status is read-only and
+  limited to primary checkouts for now.
+
 ## [0.3.0] - 2026-10-11
 
 ### Added

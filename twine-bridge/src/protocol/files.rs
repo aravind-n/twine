@@ -98,7 +98,7 @@ pub(crate) fn encode_files(snapshot: &FileSnapshot) -> Result<Vec<u8>, serde_jso
                 .iter()
                 .map(|entry| {
                     json!({
-                        "path": entry.path, "name": entry.name,
+                        "path": entry.path, "name": entry.name, "git": entry.git.as_ref().map(encode_decoration),
                         "kind": match entry.kind {
                             FileKind::Directory => "directory", FileKind::File => "file",
                             FileKind::Symlink => "symlink", FileKind::Other => "other",
@@ -113,5 +113,31 @@ pub(crate) fn encode_files(snapshot: &FileSnapshot) -> Result<Vec<u8>, serde_jso
     serde_json::to_vec(&json!({
         "revision": snapshot.revision, "folder": snapshot.folder,
         "directories": directories, "file": file, "textLimit": TEXT_LIMIT,
+        "git": {
+            "scanning": snapshot.git.scanning, "error": snapshot.git.error,
+            "repositories": snapshot.git.repositories.iter().map(|repository| json!({
+                "root": repository.root, "branch": repository.branch, "upstream": repository.upstream,
+                "ahead": repository.ahead, "behind": repository.behind, "error": repository.error,
+                "loading": repository.loading,
+                "changes": repository.changes.iter().map(encode_change).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+        },
     }))
+}
+
+fn encode_change(change: &twine_core::GitChange) -> Value {
+    json!({
+        "path": change.path, "originalPath": change.original_path,
+        "staged": change.staged.map(twine_core::GitChangeKind::symbol),
+        "unstaged": change.unstaged.map(twine_core::GitChangeKind::symbol),
+        "conflicted": change.conflicted, "untracked": change.untracked,
+    })
+}
+
+fn encode_decoration(decoration: &twine_core::GitDecoration) -> Value {
+    json!({
+        "change": decoration.change.as_ref().map(encode_change),
+        "containsChanges": decoration.contains_changes, "containsConflicts": decoration.contains_conflicts,
+        "deleted": decoration.deleted,
+    })
 }

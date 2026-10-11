@@ -11,7 +11,7 @@ Preserve the distinction between a role in a workflow type and the harness assig
 - **Workflows:** Workflows advance only on an explicit completion signal or a user action, never by parsing terminal text. A process exiting doesn't mean its work succeeded. Loops and parallelism stay within the workflow type's limits.
 - **Processes:** Every child process and PTY reader is terminated on shutdown. PTY reads, supervision, and persistence stay off the UI thread. Queues and transcript storage are bounded, and heavy output never starves input.
 - **Persistence:** SQLite schema changes go through migrations. After a crash, previously active work is marked interrupted, never complete.
-- **Git:** Read only the current branch name. Don't run any other Git operations.
+- **Git:** Read branch and local status for primary checkouts only. Keep discovery and bounded, read-only Git processes off application and file-reading threads. Never stage, commit, switch branches, manage worktrees, or modify the index while reading status.
 
 ## Rust conventions
 

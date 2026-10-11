@@ -83,6 +83,17 @@ editors, previews, and dialogs, and is remembered between launches.</p>
 <p>The sidebar starts open. Toggle it with the toolbar button or <strong>⌃⌘S</strong> to browse the folder or make more room for terminals. Expanding a directory loads only its children;
 empty directories remain visible. Twine refreshes expanded directories and the selected file
 when they change, including changes made by shells and agents.</p>
+<p>Files also shows Git status for each repository’s primary checkout, including repositories
+inside a non-Git folder. Repository rows show the checked-out branch and changed-file count.
+Badges mark modified (<strong>M</strong>), added (<strong>A</strong>), deleted (<strong>D</strong>),
+renamed (<strong>R</strong>), copied (<strong>C</strong>), type-changed (<strong>T</strong>), untracked
+(<strong>?</strong>), and conflicted (<strong>!</strong>) paths. Filled badges indicate staged changes;
+a file can have both staged and unstaged badges. Click a badge for details. Deleted tracked paths
+remain visible with a strikethrough; folders with changed descendants have a dot.</p>
+<p>Git status refreshes automatically and is read-only. A clean checkout can still have commits
+ahead of its upstream; a failed scan shows unavailable status. Additional linked worktrees are
+not included yet. Discovery skips Git internals and common dependency/build directories; if
+discovery reaches a limit, open a smaller folder to inspect the remaining repositories.</p>
 <p>Select a file to make small edits to UTF-8 text up to <strong>2 MiB</strong>. Use <strong>⌘Z</strong> to undo, <strong>⇧⌘Z</strong> to
 redo, and <strong>⌘L</strong> to go to a line. Edits save automatically after a short typing pause, including
 in background tabs. You can keep typing during saves or press <strong>⌘S</strong> to save immediately,

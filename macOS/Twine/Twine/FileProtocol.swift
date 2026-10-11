@@ -13,6 +13,7 @@ nonisolated struct FileBrowserSnapshot: Decodable, Equatable, Sendable {
     let directories: [FileDirectory]
     let file: FilePreview?
     let textLimit: UInt64
+    var git: FileGitSnapshot?
 }
 
 nonisolated struct FileDirectory: Decodable, Equatable, Sendable {
@@ -25,6 +26,7 @@ nonisolated struct FileEntry: Decodable, Equatable, Identifiable, Sendable {
     let path: String
     let name: String
     let kind: Kind
+    var git: FileGitDecoration?
     var id: String { path }
 
     func relativePath(in folder: String) -> String {

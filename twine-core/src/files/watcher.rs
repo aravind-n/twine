@@ -31,13 +31,16 @@ impl FileWatcher {
     pub(crate) fn new() -> Result<Self, FileError> {
         let state = Arc::new((Mutex::new(State::default()), Condvar::new()));
         let shared = Arc::clone(&state);
+        let git = crate::git::watcher::GitWatcher::new().map_err(FileError::StartWatcher)?;
         let thread = crate::blocking_worker::spawn("twine-files".into(), move || {
             let mut browser = FileBrowser::default();
             watch(&shared, |request| {
                 let Some(request) = request else {
+                    git.poll(None);
                     browser.clear();
                     return None;
                 };
+                browser.git = git.poll(Some(&request.folder));
                 match browser.poll(
                     &request.folder,
                     &request.directories,
@@ -191,6 +194,7 @@ mod tests {
                     folder: request.folder.clone(),
                     directories: Vec::new(),
                     file: None,
+                    git: crate::git::status::GitSnapshot::default(),
                 })
             });
             stopped_tx.send(()).unwrap();

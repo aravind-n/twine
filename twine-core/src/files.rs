@@ -7,6 +7,7 @@ use thiserror::Error;
 
 pub(crate) mod access;
 mod editing;
+mod git;
 mod text;
 mod watcher;
 pub(crate) use editing::save;
@@ -21,6 +22,7 @@ pub struct FileEntry {
     pub path: PathBuf,
     pub name: String,
     pub kind: FileKind,
+    pub git: Option<crate::git::status::GitDecoration>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,12 +69,14 @@ pub struct FileSnapshot {
     pub folder: PathBuf,
     pub directories: Vec<DirectoryListing>,
     pub file: Option<FilePreview>,
+    pub git: crate::git::status::GitSnapshot,
 }
 
 #[derive(Default)]
 pub(crate) struct FileBrowser {
     snapshot: Option<FileSnapshot>,
     revision: u64,
+    pub(super) git: crate::git::status::GitSnapshot,
 }
 
 impl FileBrowser {
@@ -92,7 +96,7 @@ impl FileBrowser {
         paths.push(folder.to_owned());
         paths.sort();
         paths.dedup();
-        let next = FileSnapshot {
+        let mut next = FileSnapshot {
             revision: self.revision,
             folder: folder.to_owned(),
             directories: paths
@@ -100,7 +104,9 @@ impl FileBrowser {
                 .map(|path| list_directory(folder, path))
                 .collect(),
             file: file.map(|path| read_preview(folder, path)),
+            git: self.git.clone(),
         };
+        git::decorate(folder, &mut next.directories, &next.git);
         if self.snapshot.as_ref() != Some(&next) {
             self.revision = self
                 .revision
