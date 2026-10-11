@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-11
+
 ### Added
 
 - Create workflow graphs in a native editor that fills the tab. Agent cards have
@@ -238,7 +240,8 @@ Initial release of Twine, a native macOS workspace for coordinating coding agent
 - The app is ad hoc signed and not notarized. Follow the included install instructions
   to approve the first launch in macOS Privacy & Security settings.
 
-[unreleased]: https://github.com/aravind-n/twine/compare/v0.2.5...HEAD
+[unreleased]: https://github.com/standing-desks/twine/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/standing-desks/twine/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/aravind-n/twine/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/aravind-n/twine/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/aravind-n/twine/compare/v0.2.2...v0.2.3
