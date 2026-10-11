@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Trace activity stays visible when filtering after scrolling in a compact window.
 - File → Save and ⌘S become available when a workflow designer or session form is valid,
   without needing to move keyboard focus.
 - HTML and Markdown previews fill their pane at every global zoom level, with
