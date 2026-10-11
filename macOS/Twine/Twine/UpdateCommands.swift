@@ -27,7 +27,7 @@ struct UpdateCommands: Commands {
                 alert.addButton(withTitle: "Open Releases Page")
                 alert.addButton(withTitle: "Cancel")
                 guard alert.runModal() == .alertFirstButtonReturn else { return }
-                if let url = URL(string: "https://github.com/aravind-n/twine/releases") {
+                if let url = URL(string: "https://github.com/standing-desks/twine/releases") {
                     NSWorkspace.shared.open(url)
                 }
                 return
@@ -46,7 +46,7 @@ struct UpdateCommands: Commands {
 
 enum ReleaseUpdateCheck {
     static func availableVersion(currentVersion: String) async throws -> String? {
-        guard let url = URL(string: "https://api.github.com/repos/aravind-n/twine/releases/latest") else {
+        guard let url = URL(string: "https://api.github.com/repos/standing-desks/twine/releases/latest") else {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)

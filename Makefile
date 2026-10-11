@@ -282,5 +282,5 @@ docs-app: $(call needs,deps-debug) ## Build the app API reference
 		--fallback-display-name Twine --fallback-bundle-identifier com.twineproject.Twine \
 		--fallback-default-module-kind Application --hosting-base-path twine/documentation/swift \
 		--transform-for-static-hosting --warnings-as-errors \
-		--source-service github --source-service-base-url https://github.com/aravind-n/twine/blob/main \
+		--source-service github --source-service-base-url https://github.com/standing-desks/twine/blob/main \
 		--checkout-path "$(CURDIR)"

@@ -16,5 +16,5 @@ The JSON protocol is experimental. Its command and response definitions
 are in twine-bridge/src/protocol in the matching source archive. Pin a
 matching library/header release.
 
-Source and license: https://github.com/aravind-n/twine
-Release notes: https://github.com/aravind-n/twine/releases/tag/@RELEASE_TAG@
+Source and license: https://github.com/standing-desks/twine
+Release notes: https://github.com/standing-desks/twine/releases/tag/@RELEASE_TAG@

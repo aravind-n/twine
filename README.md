@@ -7,24 +7,24 @@
 <p align="center">A native macOS workspace for coordinating coding agents.</p>
 
 <p align="center">
-  <a href="https://github.com/aravind-n/twine/releases/latest">
-    <img src="https://img.shields.io/github/v/release/aravind-n/twine" alt="Latest release">
+  <a href="https://github.com/standing-desks/twine/releases/latest">
+    <img src="https://img.shields.io/github/v/release/standing-desks/twine" alt="Latest release">
   </a>
-  <a href="https://github.com/aravind-n/twine/actions/workflows/ci.yml">
-    <img src="https://github.com/aravind-n/twine/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI status on main">
+  <a href="https://github.com/standing-desks/twine/actions/workflows/ci.yml">
+    <img src="https://github.com/standing-desks/twine/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI status on main">
   </a>
   <a href="#install">
     <img src="https://img.shields.io/badge/macOS-26%2B-blue" alt="macOS 26 or later">
   </a>
   <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/aravind-n/twine" alt="MIT license">
+    <img src="https://img.shields.io/github/license/standing-desks/twine" alt="MIT license">
   </a>
 </p>
 
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="https://aravind-n.github.io/twine/documentation/guide/">User guide</a> ·
+  <a href="https://standing-desks.github.io/twine/documentation/guide/">User guide</a> ·
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -44,11 +44,11 @@ brew install --cask standing-desks/tap/twine-ade
 Then open Twine from Applications.
 
 To install manually instead, download the `.dmg` from the
-[latest release](https://github.com/aravind-n/twine/releases/latest), open it,
+[latest release](https://github.com/standing-desks/twine/releases/latest), open it,
 and drag **Twine** onto **Applications**.
 
 To update a manual install, see the
-[install notes](https://aravind-n.github.io/twine/documentation/guide/#install).
+[install notes](https://standing-desks.github.io/twine/documentation/guide/#install).
 
 Agent workflows also need at least one [supported harness](#supported-harnesses)
 installed and signed in. Terminal workflows need nothing else.
@@ -85,19 +85,19 @@ session is a **workflow**, created from a **workflow type**:
 | Custom | Your own roles, stages, handoffs, and review loops, built in the visual designer. |
 
 Common tasks, each covered in the
-[user guide](https://aravind-n.github.io/twine/documentation/guide/):
+[user guide](https://standing-desks.github.io/twine/documentation/guide/):
 
 - **Advance a workflow yourself.** Use **Mark done…** to submit a completion,
   review decision, or assignment on an agent's behalf. See
-  [agent workflows](https://aravind-n.github.io/twine/documentation/guide/#agent-workflows).
+  [agent workflows](https://standing-desks.github.io/twine/documentation/guide/#agent-workflows).
 - **Split a terminal** into up to four panes, and paste images or drop files
   into a pane as paths. See
-  [terminal panes](https://aravind-n.github.io/twine/documentation/guide/#terminal-panes).
+  [terminal panes](https://standing-desks.github.io/twine/documentation/guide/#terminal-panes).
 - **Browse and edit files** in the open folder with syntax highlighting. See
-  [files](https://aravind-n.github.io/twine/documentation/guide/#files).
+  [files](https://standing-desks.github.io/twine/documentation/guide/#files).
 - **Change the terminal font** in **Twine → Settings…** (⌘,), which edits
   `~/.config/twine/config.toml` and applies changes on save. See
-  [configuration](https://aravind-n.github.io/twine/documentation/guide/#configuration).
+  [configuration](https://standing-desks.github.io/twine/documentation/guide/#configuration).
 
   ```toml
   [terminal]
@@ -166,7 +166,7 @@ Known limitations:
 ## Contributing
 
 Bug reports and feedback on real workflows are welcome in
-[GitHub Issues](https://github.com/aravind-n/twine/issues). Include your macOS,
+[GitHub Issues](https://github.com/standing-desks/twine/issues). Include your macOS,
 Twine, and harness versions, what you expected, and what happened. For larger
 changes, open an issue to discuss the idea before you start. Changes reach
 `main` through pull requests.
@@ -181,7 +181,7 @@ You will need:
 - **Stable Rust**, installed through [rustup](https://rustup.rs).
 
 ```sh
-git clone https://github.com/aravind-n/twine.git
+git clone https://github.com/standing-desks/twine.git
 cd twine
 make debug
 open out/debug/Build/Products/Debug/Twine.app
@@ -207,9 +207,9 @@ make          # list every target
 | `macOS/` | The SwiftUI and AppKit front end. |
 | `twine-core/` | The Rust application library that owns behavior and saved state. |
 | `twine-bridge/` | The C ABI adapter between the two. |
-| `docs/` | Source for the [website and guides](https://aravind-n.github.io/twine/). |
+| `docs/` | Source for the [website and guides](https://standing-desks.github.io/twine/). |
 
-The [development guide](https://aravind-n.github.io/twine/documentation/development/)
+The [development guide](https://standing-desks.github.io/twine/documentation/development/)
 covers setup, harness integration, and releases.
 [CONTEXT.md](CONTEXT.md) defines the terms used in the code and UI, and
 [AGENTS.md](AGENTS.md) holds the repository conventions.
@@ -217,7 +217,7 @@ covers setup, harness integration, and releases.
 ## Security
 
 Please report vulnerabilities privately through
-[GitHub security advisories](https://github.com/aravind-n/twine/security/advisories/new)
+[GitHub security advisories](https://github.com/standing-desks/twine/security/advisories/new)
 instead of a public issue.
 
 ## Acknowledgments

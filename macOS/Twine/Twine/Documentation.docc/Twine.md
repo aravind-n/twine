@@ -12,9 +12,9 @@ published across the C ABI.
 This reference includes internal app symbols. It describes the implementation
 for contributors; these symbols are not a stable library API.
 
-For installation and usage, see the [Twine user guide](https://aravind-n.github.io/twine/documentation/guide/).
+For installation and usage, see the [Twine user guide](https://standing-desks.github.io/twine/documentation/guide/).
 For the reusable application library and its C interface, see the
-[twine-core reference](https://aravind-n.github.io/twine/documentation/rust/).
+[twine-core reference](https://standing-desks.github.io/twine/documentation/rust/).
 
 ## Topics
 

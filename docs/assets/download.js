@@ -23,7 +23,7 @@ for (const button of downloadButtons) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch("https://api.github.com/repos/aravind-n/twine/releases/latest", {
+      const response = await fetch("https://api.github.com/repos/standing-desks/twine/releases/latest", {
         headers: { Accept: "application/vnd.github+json" },
         cache: "no-store",
         signal: controller.signal,

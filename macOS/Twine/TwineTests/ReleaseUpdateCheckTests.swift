@@ -54,7 +54,7 @@ struct ReleaseUpdateCheckTests {
     }
 
     private func httpResponse(status: Int) throws -> HTTPURLResponse {
-        let url = try #require(URL(string: "https://api.github.com/repos/aravind-n/twine/releases/latest"))
+        let url = try #require(URL(string: "https://api.github.com/repos/standing-desks/twine/releases/latest"))
         return try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
     }
 }
