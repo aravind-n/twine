@@ -2,6 +2,7 @@ import Foundation
 import TwineCore
 
 actor CoreWorker: CoreTransport {
+    let memoryWorker = MemoryWorker()
     /// The directory where the core keeps its database.
     private let dataDirectory: URL
     private let windowMode: Bool

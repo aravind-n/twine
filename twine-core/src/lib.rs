@@ -8,6 +8,7 @@ mod files;
 mod folder;
 mod git;
 mod harness;
+pub mod memories;
 mod process;
 mod store;
 mod terminal;

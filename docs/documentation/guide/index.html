@@ -25,6 +25,7 @@
 <li><a href="#run-your-first-workflow">Run your first workflow</a></li>
 <li><a href="#folder-windows">Folder windows</a></li>
 <li><a href="#files">Files</a></li>
+<li><a href="#memories">Memories</a></li>
 <li><a href="#agent-workflows">Agent workflows</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#terminal-panes">Terminal panes</a></li>
@@ -105,6 +106,36 @@ Unknown languages and files that exceed the highlighting work budget remain edit
 text. Shell highlighting uses the Bash grammar; embedded languages in HTML
 <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code> blocks, strings, or Markdown code fences
 are not highlighted separately.</p>
+<h2 id="memories">Memories<a class="headerlink" href="#memories" title="Permanent link">#</a></h2>
+<p>Choose <strong>Memories</strong> at the bottom of the sidebar to inspect local Codex and
+Claude Code memory. It expands below compact Files and Sessions headers; clicking Memories
+again collapses its navigation while leaving the reader open. Click Files or Sessions to
+restore the normal sidebar lists.</p>
+<p>Switch between <strong>This workspace</strong>, <strong>Global</strong>, and
+<strong>Other workspaces</strong>. Each location remembers its selected source, search,
+harness and kind filters, and source-list position, including after relaunch. Other workspaces
+has a store picker for memories from other checkouts or stores that cannot be associated with
+the open folder. Rows identify their harness and, for other workspaces, their store.
+Search filenames and paths, filter by harness or kind, and use the refresh arrow to rescan disk.
+The reader's info button shows the full path, provenance, type, and modification date.</p>
+<p>Markdown opens rendered, with headings, lists, tables, and links. Switch to
+<strong>Markdown</strong> to inspect the original text, including any frontmatter.
+Choose <strong>Edit</strong> to open a local Markdown file in Twine's editor.
+Memory edits follow the same autosave setting and delay as other file edits.
+Use <strong>File → Save</strong> or <strong>⌘S</strong> to save immediately, or to save manually when autosave is disabled.
+If the harness changes the file, Twine offers Reload or Overwrite before replacing it.
+Unsaved edits remain in their file tab when you return to Memories.</p>
+<p>SQLite records, settings summaries, and other non-Markdown sources remain read-only.
+The viewer includes generated memory, instructions, rules, agent memory, skills, and extension
+resources. A file existing on disk does not prove that a running harness has loaded it.
+Folder-associated files can live outside the opened folder. Rendered memories do not load remote
+images or scripts; clicking an external link opens your browser.</p>
+<p>Memory viewing uses local files without starting a harness or requesting cloud memory.
+Known synchronized Claude mirrors are excluded. Missing, unreadable, binary, or oversized sources
+show an explanation. Text reads are limited to 2 MiB; discovery is bounded to 1,024 sources and
+directory entries, 32 databases, and 256 recent extraction records per database. Memory trees are
+scanned eight levels deep and folder instructions six levels deep. The checked-locations menu
+shows discovery diagnostics. Return to workflows by clicking the Sessions header.</p>
 <h2 id="agent-workflows">Agent workflows<a class="headerlink" href="#agent-workflows" title="Permanent link">#</a></h2>
 <p>Choose <strong>Adversarial</strong>, <strong>Coordinator</strong>, or a stored custom workflow type from a new tab.
 Pick a harness for each role instance, and optionally its model and effort level, then start it.

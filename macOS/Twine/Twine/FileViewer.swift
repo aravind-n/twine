@@ -78,7 +78,8 @@ struct FileViewer: View {
                             if diskFile.status == .text, let format = previewFormat {
                                 HTMLPreview(
                                     file: diskFile, folder: folder, navigationURL: editor.navigationURL,
-                                    isVisible: isVisible, openFile: openFile, format: format
+                                    isVisible: isVisible, openFile: openFile, format: format,
+                                    localResourcesOnly: editor.memoryRequest != nil
                                 )
                                 .id(editor.navigationID)
                             } else {
@@ -99,6 +100,9 @@ struct FileViewer: View {
         .background(Color(nsColor: .textBackgroundColor))
         .clipShape(.rect(cornerRadius: CornerRadius.panel))
         .onChange(of: editor.navigationID) { mode = .preview }
+        .onChange(of: editor.sourceRequestID, initial: true) {
+            if editor.sourceRequestID != nil { mode = .source }
+        }
         .onChange(of: editorSettings, initial: true) { editor.configureAutosave(editorSettings) }
         .task(id: editor.autosaveID) { await editor.autosave() }
         .task(id: editor.saveID) { await editor.savePending(client: coreClient, didSave: didSave) }

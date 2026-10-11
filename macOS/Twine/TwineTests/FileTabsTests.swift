@@ -5,6 +5,32 @@ import Testing
 
 @MainActor
 struct FileTabsTests {
+    @Test func memoriesAndFilesShareOneAutosavingBufferInBothDirections() async throws {
+        for memoryFirst in [true, false] {
+            let tabs = FileTabsModel()
+            let file = preview(path: "/folder/.claude/rules/topic.md", text: "original")
+            let request = CoreMemoryRequest(folder: "/folder", sourceID: "memory")
+            if memoryFirst {
+                tabs.openMemory(file, request: request)
+            } else {
+                tabs.open(path: file.path, folder: "/folder").receive(file)
+            }
+            let first = try #require(tabs.selected)
+            first.text = "unsaved"
+            if memoryFirst {
+                tabs.open(path: file.path, folder: "/folder")
+            } else {
+                tabs.openMemory(file, request: request)
+            }
+            #expect(tabs.selected === first)
+            #expect(tabs.editors.count == 1)
+            #expect(first.text == "unsaved")
+            #expect(first.canAutosave)
+            await first.autosave(after: .zero)
+            #expect(first.isSaving)
+        }
+    }
+
     @Test func switchingAndReopeningKeepIndependentUnsavedBuffers() {
         let tabs = FileTabsModel()
         let first = tabs.open(path: "/folder/first.txt", folder: "/folder")

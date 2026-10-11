@@ -12,10 +12,11 @@ struct WorkflowWorkspace: View {
     let folder: String
     @Binding var selection: WorkflowTabSelection
     let files: FileBrowserModel
+    var isPresented = true
     @State private var failureMessage: String?
     @State private var isSplitting = false
 
-    private var isVisible: Bool { fileTabs.selected == nil }
+    private var isVisible: Bool { isPresented && fileTabs.selected == nil }
 
     private var allWorkflows: [CoreWorkflow] {
         guard coreClient.snapshot?.folders.openFolder == folder else { return [] }
@@ -66,10 +67,20 @@ struct WorkflowWorkspace: View {
                     selection: $selection, isVisible: isVisible, reportFailure: { failureMessage = $0 },
                     closePane: close)
                 ForEach(fileTabs.editors) { editor in
-                    let shown = editor.id == fileTabs.selectedID
+                    let shown = isPresented && editor.id == fileTabs.selectedID
                     FileViewer(
-                        path: editor.path, folder: folder, failure: files.failure, isVisible: shown,
-                        openFile: { fileTabs.open(path: $0.path, folder: folder, navigationURL: $0) }
+                        path: editor.path, folder: editor.folder, failure: files.failure, isVisible: shown,
+                        openFile: { url in
+                            if let request = editor.memoryRequest {
+                                Task {
+                                    do {
+                                        try await fileTabs.openMemoryLink(url, request: request, client: coreClient)
+                                    } catch { failureMessage = error.localizedDescription }
+                                }
+                            } else {
+                                fileTabs.open(path: url.path, folder: folder, navigationURL: url)
+                            }
+                        }
                     )
                     .environment(editor)
                     .opacity(shown ? 1 : 0)
@@ -98,7 +109,7 @@ struct WorkflowWorkspace: View {
         .onChange(of: allWorkflows.map(\.id), initial: true) {
             layouts.removeClosedWorkflows(in: folder, state: coreClient.snapshot?.workflows)
         }
-        .focusedSceneValue(\.workflowActions, actions)
+        .focusedSceneValue(\.workflowActions, isPresented ? actions : nil)
         .alert(
             "Workflow Error",
             isPresented: Binding(

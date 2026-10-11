@@ -10,6 +10,8 @@ struct FolderSidebar: View {
     @Environment(FileTabsModel.self) private var fileTabs
     let path: String
     @Bindable var files: FileBrowserModel
+    @Binding var showsMemories: Bool
+    @Bindable var memories: MemoryModel
     @State private var editor: SessionEditor?
     @State private var pendingDeletion: CoreSession?
     @State private var failureMessage: String?
@@ -25,6 +27,8 @@ struct FolderSidebar: View {
                 Button("Collapse All", systemImage: "arrow.up.left.and.arrow.down.right", action: files.collapseAll)
             }
             FileTree(folder: path, model: files)
+                .frame(maxHeight: memories.isExpanded ? 0 : .infinity)
+                .clipped().allowsHitTesting(!memories.isExpanded).accessibilityHidden(memories.isExpanded)
             Divider().padding(.horizontal, SidebarLayout.contentInset)
             sectionHeader("Sessions") {
                 Button("New Session", systemImage: "plus") { create() }
@@ -51,6 +55,13 @@ struct FolderSidebar: View {
                     }
                 }
                 .padding(.horizontal, SidebarLayout.contentInset)
+            }
+            .frame(maxHeight: memories.isExpanded ? 0 : .infinity)
+            .clipped().allowsHitTesting(!memories.isExpanded).accessibilityHidden(memories.isExpanded)
+            Divider().padding(.horizontal, SidebarLayout.contentInset)
+            MemorySidebar(model: memories, folder: path, isPresented: showsMemories) {
+                fileTabs.showWorkflows()
+                showsMemories = true
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -92,8 +103,21 @@ struct FolderSidebar: View {
 
     private func sectionHeader<Actions: View>(_ title: String, @ViewBuilder actions: () -> Actions) -> some View {
         HStack {
-            Text(title).sidebarSectionLabelStyle()
-            Spacer()
+            Button {
+                memories.isExpanded = false
+                if title == "Sessions" {
+                    showsMemories = false
+                    fileTabs.showWorkflows()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: memories.isExpanded ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold)).frame(width: 10)
+                    Text(title).sidebarSectionLabelStyle()
+                    Spacer(minLength: 0)
+                }.contentShape(.rect)
+            }.buttonStyle(.plain).accessibilityIdentifier("sidebarSection-\(title.lowercased())")
+                .help(memories.isExpanded ? "Show \(title)" : title)
             Menu(content: actions) {
                 Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold)).frame(width: 26, height: 26)
             }
@@ -104,13 +128,14 @@ struct FolderSidebar: View {
             .accessibilityLabel("\(title) Actions")
             .accessibilityIdentifier("\(title.lowercased())Actions")
         }
-        .frame(height: SidebarLayout.sectionHeaderHeight)
+        .frame(height: memories.isExpanded ? 36 : SidebarLayout.sectionHeaderHeight)
         .padding(.horizontal, SidebarLayout.sectionHeaderPadding)
     }
 
     private func sessionRow(_ session: CoreSession) -> some View {
-        let selected = selectedSession?.id == session.id
+        let selected = !showsMemories && selectedSession?.id == session.id
         return Button {
+            showsMemories = false
             fileTabs.showWorkflows()
             run { try await coreClient.selectSession(sessionID: session.id) }
         } label: {

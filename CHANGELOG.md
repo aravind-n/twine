@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Browse local Codex and Claude Code memories from a bottom-docked sidebar section
+  that expands to fill the sidebar. Switch between This workspace, Global, and Other
+  workspaces with remembered selections, filters, and scroll positions. Read Markdown
+  and SQLite contents with a compact toolbar and source information popover.
+  Edit Markdown files with the normal autosave settings, ⌘S, and protection against
+  changes on disk.
+
 - Right-click sidebar items to open files in Twine or their default app, open or
   reveal items in Finder, copy paths or names, and expand or collapse folders.
 - Inspect recorded LLM calls, public response and reasoning summaries, model

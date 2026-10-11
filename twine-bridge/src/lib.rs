@@ -4,6 +4,7 @@ mod client;
 mod error;
 mod ffi;
 mod logging;
+mod memories;
 mod protocol;
 #[cfg(test)]
 mod test_support;

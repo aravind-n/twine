@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 use thiserror::Error;
 
-mod access;
+pub(crate) mod access;
 mod editing;
 mod text;
 mod watcher;

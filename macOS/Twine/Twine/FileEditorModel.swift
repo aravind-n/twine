@@ -11,6 +11,8 @@ final class FileEditorModel: Identifiable {
     let path: String
     let folder: String
     let isConfigFile: Bool
+    private(set) var memoryRequest: CoreMemoryRequest?
+    private(set) var sourceRequestID: UUID?
     private(set) var baseline: FilePreview?
     private(set) var diskFile: FilePreview?
     private(set) var navigationURL: URL?
@@ -42,10 +44,18 @@ final class FileEditorModel: Identifiable {
             && conflict == nil && failure == nil && canSave
     }
 
-    init(path: String, folder: String, isConfigFile: Bool = false) {
+    init(path: String, folder: String, isConfigFile: Bool = false, memoryRequest: CoreMemoryRequest? = nil) {
         self.path = path
         self.folder = folder
         self.isConfigFile = isConfigFile
+        self.memoryRequest = memoryRequest
+    }
+
+    func editSource() { sourceRequestID = UUID() }
+
+    func useMemorySource(_ request: CoreMemoryRequest) {
+        memoryRequest = request
+        autosaveID = UUID()
     }
 
     func navigate(to url: URL) {
@@ -103,7 +113,7 @@ final class FileEditorModel: Identifiable {
     func savePending(client: CoreClient, didSave: (() async throws -> Void)? = nil) async {
         guard let request = pendingSave else { return }
         do {
-            let result = try await (isConfigFile ? client.saveConfigFile(request) : client.saveFile(request))
+            let result = try await save(request, client: client)
             switch result.status {
             case .saved:
                 guard let file = result.file, file.path == path, file.version != nil else {
@@ -143,6 +153,16 @@ final class FileEditorModel: Identifiable {
         self.conflict = nil
         failure = nil
         generation = UUID()
+    }
+
+    private func save(_ request: FileSaveRequest, client: CoreClient) async throws -> FileSaveResult {
+        if let memoryRequest {
+            return try await client.memorySave(
+                .init(
+                    source: memoryRequest, text: request.text,
+                    expectedVersion: request.expectedVersion, overwrite: request.overwrite))
+        }
+        return try await (isConfigFile ? client.saveConfigFile(request) : client.saveFile(request))
     }
 
     /// Used by navigation, folder/window close, and quit so none can silently discard this buffer.
