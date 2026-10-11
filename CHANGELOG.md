@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Memories open in file tabs with the app's standard Markdown preview and editor.
+  Switch to Source to edit Markdown files directly; rendered memories still hide
+  YAML frontmatter, and SQLite records remain read-only. The Memories sidebar
+  header is clickable across its full strip.
+
+### Removed
+
+- The brain icon beside the Memories sidebar heading.
+- The “Steps in start order” subtitle beneath the Traces heading.
+
 ### Fixed
 
 - Restore File → Save and ⌘S activation as workflow designs and session names become

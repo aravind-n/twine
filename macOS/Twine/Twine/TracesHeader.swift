@@ -28,11 +28,7 @@ struct TracesHeader: View {
     private var titleButton: some View {
         Button(action: toggle) {
             HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Traces").panelTitleStyle()
-                    if isExpanded { Text("Steps in start order").panelSubtitleStyle() }
-                }
-                .lineLimit(1)
+                Text("Traces").panelTitleStyle().lineLimit(1)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)

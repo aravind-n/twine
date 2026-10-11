@@ -4,10 +4,9 @@ import cmark_gfm
 import cmark_gfm_extensions
 
 nonisolated enum MarkdownRenderer {
-    enum Style: Sendable { case document, memory }
     /// Parse away from the main actor; each render owns its parser and frees all C allocations.
     @concurrent static func render(
-        _ source: String, baseURL: URL? = nil, localResourcesOnly: Bool = false, style: Style = .document
+        _ source: String, baseURL: URL? = nil, localResourcesOnly: Bool = false, hidesFrontmatter: Bool = false
     ) async throws -> String {
         cmark_gfm_core_extensions_ensure_registered()
         let options = CMARK_OPT_UNSAFE | CMARK_OPT_VALIDATE_UTF8
@@ -18,7 +17,7 @@ nonisolated enum MarkdownRenderer {
                 cmark_parser_attach_syntax_extension(parser, syntax) != 0
             else { throw RenderFailure.extensionUnavailable }
         }
-        let markdown = style == .memory ? withoutFrontmatter(source) : source
+        let markdown = hidesFrontmatter ? withoutFrontmatter(source) : source
         markdown.withCString { cmark_parser_feed(parser, $0, markdown.utf8.count) }
         guard let document = cmark_parser_finish(parser) else { throw RenderFailure.allocation }
         defer { cmark_node_free(document) }
@@ -26,10 +25,10 @@ nonisolated enum MarkdownRenderer {
             throw RenderFailure.allocation
         }
         defer { free(html) }
-        return page(body: String(cString: html), baseURL: baseURL, localResourcesOnly: localResourcesOnly, style: style)
+        return page(body: String(cString: html), baseURL: baseURL, localResourcesOnly: localResourcesOnly)
     }
 
-    private static func page(body: String, baseURL: URL?, localResourcesOnly: Bool, style: Style) -> String {
+    private static func page(body: String, baseURL: URL?, localResourcesOnly: Bool) -> String {
         let resourcePolicy =
             localResourcesOnly
             ? "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; "
@@ -71,24 +70,9 @@ nonisolated enum MarkdownRenderer {
             tr:nth-child(even) { background: color-mix(in srgb, CanvasText 4%, Canvas); }
             hr { border: 0; border-top: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); }
             input[type="checkbox"] { margin-right: .5em; }
-            \(style == .memory ? memoryStyle : "")
             </style></head><body><main>\(body)</main></body></html>
             """
     }
-
-    private static let memoryStyle = """
-        body { padding: 18px; font-size: 13px; line-height: 1.8; background: #faf9f5; color: #28302f; }
-        main { max-width: none; }
-        h1 { font-size: 18px; border: 0; padding: 0; }
-        h2 { font-size: 15px; border: 0; padding: 0; }
-        h3, h4, h5, h6 { font-size: 14px; }
-        p { margin: .6em 0; }
-        a { color: #4b6f9e; }
-        @media (prefers-color-scheme: dark) {
-            body { background: #272b2d; color: #e5e6df; }
-            a { color: #93b5e4; }
-        }
-        """
 
     private static func withoutFrontmatter(_ source: String) -> String {
         let lines = source.components(separatedBy: "\n")

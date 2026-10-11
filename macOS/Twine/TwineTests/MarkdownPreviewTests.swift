@@ -9,14 +9,14 @@ import WebKit
 struct MarkdownPreviewTests {
     @Test func memoryRenderingHidesFrontmatterAndRestrictsRemoteResources() async throws {
         let source = "---\nname: hidden metadata\n---\n# Readable memory\n\n**Useful** advice.\n"
-        let html = try await MarkdownRenderer.render(source, localResourcesOnly: true, style: .memory)
+        let html = try await MarkdownRenderer.render(source, localResourcesOnly: true, hidesFrontmatter: true)
         #expect(html.contains("<h1>Readable memory</h1>"))
         #expect(html.contains("<strong>Useful</strong>"))
         #expect(!html.contains("hidden metadata"))
         #expect(html.contains("default-src 'none'"))
         #expect(html.contains("img-src twine-markdown: data:"))
         #expect(try await MarkdownRenderer.render(source).contains("hidden metadata"))
-        #expect(try await MarkdownRenderer.render("---\nunclosed", style: .memory).contains("unclosed"))
+        #expect(try await MarkdownRenderer.render("---\nunclosed", hidesFrontmatter: true).contains("unclosed"))
     }
 
     @Test func rendersBlocksInlineFormattingAndGitHubExtensions() async throws {

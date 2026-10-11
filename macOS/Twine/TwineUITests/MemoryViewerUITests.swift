@@ -34,7 +34,8 @@ extension TwineUITests {
         waitForFile(folder.appending(path: "workflow-ready"), containing: "ready", in: app)
         if !app.buttons["memoryEntry-outline"].exists { sidebarToggle(in: app).click() }
         app.buttons["memoryEntry-outline"].click()
-        let contents = app.textViews["memoryText"]
+        let contents = app.textViews["fileText"]
+        openMemorySource("MEMORY.md", in: app)
         XCTAssertTrue(app.staticTexts["Claude folder auto-memory index"].waitForExistence(timeout: 10))
         app.typeText("touch memory-leaked-command\r")
         app.buttons["sidebarSection-sessions"].click()
@@ -42,7 +43,8 @@ extension TwineUITests {
         waitForFile(folder.appending(path: "workflow-returned"), containing: "returned", in: app)
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appending(path: "memory-leaked-command").path))
         app.buttons["memoryEntry-outline"].click()
-        app.radioButtons["Markdown"].click()
+        openMemorySource("MEMORY.md", in: app)
+        app.radioButtons["Source"].click()
         verifyClaudeMemoryFiltersAndNarrowNavigation(in: app, contents: contents)
         for (file, original) in files { XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), original) }
     }
@@ -54,17 +56,25 @@ extension TwineUITests {
         app.buttons["memoryScope-global"].click()
         app.popUpButtons["memoryHarness"].click()
         app.menuItems["Claude Code"].click()
+        openMemorySource("CLAUDE.md", in: app)
+        app.radioButtons["Source"].click()
         waitForMemory("Claude global instructions", in: contents)
         app.buttons["memoryScope-folder"].click()
         XCTAssertTrue(app.popUpButtons["memoryHarness"].value as? String == "Claude Code")
+        openMemorySource("MEMORY.md", in: app)
+        app.radioButtons["Source"].click()
         waitForMemory("Claude folder auto-memory index", in: contents)
         app.popUpButtons["memoryKind"].click()
         app.menuItems["Learned memory"].click()
+        openMemorySource("topic.md", in: app)
+        app.radioButtons["Source"].click()
         waitForMemory("Claude learned topic", in: contents)
         app.buttons["memoryScope-otherFolder"].click()
         XCTAssertTrue(app.popUpButtons["memoryWorkspace"].exists)
         XCTAssertTrue(app.staticTexts["No matching sources"].exists)
         app.buttons["memoryScope-folder"].click()
+        openMemorySource("topic.md", in: app)
+        app.radioButtons["Source"].click()
         waitForMemory("Claude learned topic", in: contents)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         app.typeKey("=", modifierFlags: .command)
@@ -109,9 +119,10 @@ extension TwineUITests {
         if !app.buttons["memoryEntry-outline"].waitForExistence(timeout: 10) { sidebarToggle(in: app).click() }
         app.buttons["memoryEntry-outline"].click()
         app.buttons["memoryScope-global"].click()
+        openMemorySource("MEMORY.md", in: app)
         XCTAssertTrue(app.staticTexts["Local memory"].waitForExistence(timeout: 10))
-        let contents = app.textViews["memoryText"]
-        try verifyReadOnlyMemory(in: app, file: memory)
+        let contents = app.textViews["fileText"]
+        try verifyMemorySource(in: app, file: memory)
         app.buttons["memoryEntry-outline"].click()
         XCTAssertFalse(app.buttons["memoryScope-global"].exists)
         XCTAssertEqual(app.buttons["memoryEntry-outline"].value as? String, "Collapsed")
@@ -141,18 +152,12 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func verifyReadOnlyMemory(in app: XCUIApplication, file: URL) throws {
-        let toolbar = app.descendants(matching: .any).matching(identifier: "memoryReaderToolbar").firstMatch
-        XCTAssertGreaterThan(toolbar.frame.height, 0)
-        XCTAssertLessThanOrEqual(toolbar.frame.height, 46)
+    private func verifyMemorySource(in app: XCUIApplication, file: URL) throws {
         XCTAssertTrue(app.buttons["memorySourceInfo"].exists)
-        app.radioButtons["Markdown"].click()
-        let contents = app.textViews["memoryText"]
+        app.radioButtons["Source"].click()
+        let contents = app.textViews["fileText"]
         XCTAssertTrue(contents.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue((contents.value as? String)?.contains("Original memory marker") == true)
-        contents.click()
-        app.typeText("should not edit")
-        app.typeKey("s", modifierFlags: .command)
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "# Local memory\nOriginal memory marker\n")
     }
 }

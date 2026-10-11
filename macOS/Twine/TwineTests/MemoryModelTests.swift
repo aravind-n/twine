@@ -1,34 +1,73 @@
-import AppKit
 import Foundation
-import SwiftUI
 import Testing
 
 @testable import Twine
 
 @MainActor
 struct MemoryModelTests {
-    @Test func editOnlyUsesTheFileForTheCurrentSelection() async throws {
-        let transport = DeferredMemoryTransport()
-        let client = CoreClient(transport: transport)
-        let model = MemoryModel()
-        let first = memorySource(id: "first.md")
-        let second = memorySource(id: "second.md")
-        let catalog = Task { await model.load(client: client, folder: nil) }
-        try await transport.waitForCatalogs(1)
-        await transport.completeCatalog(0, result: .success(.init(sources: [first, second], diagnostics: [])))
-        await catalog.value
-        model.select(first)
-        let read = Task { await model.read(client: client, folder: nil) }
-        try await transport.waitForReads(1)
+    @Test func openingMemoriesKeepsExistingTabsAndDatabaseRecordsReadOnly() throws {
+        let tabs = FileTabsModel()
+        let existing = tabs.open(path: "/folder/note.txt", folder: "/folder")
+        let source = memorySource(id: "topic.md")
         let file = FilePreview(
-            path: first.location, status: .text, text: "first", message: nil,
-            version: .init(fingerprint: "first", utf8BOM: false))
-        await transport.completeRead(0, result: .success(.init(source: first, text: "first", message: nil, file: file)))
-        await read.value
-        #expect(model.editableFile == file)
-        model.select(second)
-        #expect(model.contents?.source.id == first.id)
-        #expect(model.editableFile == nil)
+            path: source.location, status: .text, text: "---\nname: hidden\n---\n# Topic",
+            message: nil, version: .init(fingerprint: "first", utf8BOM: false))
+        let request = CoreMemoryRequest(folder: "/folder", sourceID: source.id)
+        tabs.openMemory(.init(source: source, text: file.text, message: nil, file: file), request: request)
+        let memory = try #require(tabs.selected)
+        #expect(tabs.editors.count == 2)
+        #expect(tabs.editors.first === existing)
+        #expect(memory.isEditable)
+        #expect(memory.text == file.text)
+        memory.text += "\nEdited"
+        tabs.openMemory(.init(source: source, text: file.text, message: nil, file: file), request: request)
+        #expect(tabs.editors.count == 2)
+        #expect(tabs.selected === memory)
+        #expect(memory.text.hasSuffix("Edited"))
+        #expect(memory.canSave)
+        let record = memorySource(id: "store.sqlite#stage1_outputs/thread/raw_memory")
+        tabs.openMemory(
+            .init(source: record, text: "# Read-only record", message: nil),
+            request: .init(folder: "/folder", sourceID: record.id))
+        let reader = try #require(tabs.selected)
+        #expect(tabs.editors.count == 3)
+        #expect(reader.previewFormat == .markdown)
+        #expect(!reader.isEditable)
+        reader.text = "This must never be saved"
+        #expect(!reader.canSave)
+        #expect(!reader.isDirty)
+        reader.requestSave()
+        #expect(!reader.isSaving)
+        tabs.select(existing.id)
+        #expect(tabs.selected === existing)
+    }
+
+    @Test func pendingMemoryReadsCannotStealSelectionAndNewestClickWins() async throws {
+        for switchToWorkflows in [true, false] {
+            let transport = DeferredMemoryTransport()
+            let client = CoreClient(transport: transport)
+            let tabs = FileTabsModel()
+            let first = memorySource(id: "first.md")
+            let second = memorySource(id: "second.md")
+            let old = Task {
+                try await tabs.openMemory(request: .init(folder: nil, sourceID: first.id), client: client)
+            }
+            try await transport.waitForReads(1)
+            if switchToWorkflows {
+                tabs.showWorkflows()
+            } else {
+                let current = Task {
+                    try await tabs.openMemory(request: .init(folder: nil, sourceID: second.id), client: client)
+                }
+                try await transport.waitForReads(2)
+                await transport.completeRead(1, result: .success(.init(source: second, text: "second", message: nil)))
+                try await current.value
+            }
+            await transport.completeRead(0, result: .success(.init(source: first, text: "first", message: nil)))
+            try await old.value
+            #expect(tabs.editors.count == (switchToWorkflows ? 0 : 1))
+            #expect(tabs.selected?.path == (switchToWorkflows ? nil : second.location))
+        }
     }
 
     @Test func staleMemoryLinkFailuresDoNotInterruptTheCurrentView() async throws {
@@ -87,24 +126,7 @@ struct MemoryModelTests {
         }
     }
 
-    @Test func nativeMemoryTextIsSelectableAndNeverEditable() {
-        let view = MemoryTextView(text: "read-only memory")
-        let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
-        host.layoutSubtreeIfNeeded()
-        let text = findTextView(host)
-        #expect(text != nil)
-        #expect(text?.isEditable == false)
-        #expect(text?.isSelectable == true)
-        #expect(text?.allowsUndo == false)
-    }
-
-    private func findTextView(_ view: NSView) -> NSTextView? {
-        if let text = view as? NSTextView { return text }
-        for child in view.subviews { if let text = findTextView(child) { return text } }
-        return nil
-    }
-    @Test func canceledCatalogAndSameSourceReadFailuresCannotReplaceNewResults() async throws {
+    @Test func canceledCatalogFailuresCannotReplaceNewResults() async throws {
         let transport = DeferredMemoryTransport()
         let client = CoreClient(transport: transport)
         let model = MemoryModel()
@@ -122,17 +144,6 @@ struct MemoryModelTests {
         #expect(model.state == .available)
         #expect(model.selectedID == source.id)
         #expect(model.scope == source.scope)
-        let oldRead = Task { await model.read(client: client, folder: nil) }
-        try await transport.waitForReads(1)
-        oldRead.cancel()
-        let currentRead = Task { await model.read(client: client, folder: nil) }
-        try await transport.waitForReads(2)
-        await transport.completeRead(1, result: .success(.init(source: source, text: "current", message: nil)))
-        await currentRead.value
-        await transport.completeRead(0, result: .failure(CoreFailure.invalidArgument))
-        await oldRead.value
-        #expect(model.readState == .available)
-        #expect(model.contents?.text == "current")
     }
 
     @Test func filtersReconcileSelectionWithinTheCurrentLocation() async throws {

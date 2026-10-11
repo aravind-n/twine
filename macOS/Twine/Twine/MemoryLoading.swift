@@ -1,38 +1,44 @@
 import SwiftUI
 
-/// Keep discovery attached to the folder, so opening an editor doesn't discard sidebar state.
+/// Keep discovery attached to the folder while memories use the normal file tabs.
 struct MemoryLoading: ViewModifier {
     @Environment(CoreClient.self) private var client
+    @Environment(FileTabsModel.self) private var tabs
     let folder: String
     let model: MemoryModel
-    let isPresented: Bool
 
     func body(content: Content) -> some View {
         content
-            .task(id: CatalogKey(folder: folder, refresh: model.refreshID, active: model.isExpanded || isPresented)) {
-                guard model.isExpanded || isPresented else { return }
+            .task(id: CatalogKey(folder: folder, refresh: model.refreshID, active: model.isExpanded)) {
+                guard model.isExpanded else { return }
                 await model.load(client: client, folder: folder)
+                guard !Task.isCancelled, model.state == .available, let editor = tabs.selected,
+                    let request = editor.memoryRequest,
+                    request.folder == folder
+                else { return }
+                do {
+                    let read = try await client.memoryRead(request)
+                    guard !Task.isCancelled, tabs.editors.contains(where: { $0 === editor }) else { return }
+                    editor.useMemorySource(request, source: read.source)
+                    editor.receive(read.preview)
+                } catch {
+                    guard !Task.isCancelled, tabs.selected === editor else { return }
+                    model.openFailure = error.localizedDescription
+                }
             }
-            .task(id: SelectionKey(id: model.selectedID, generation: model.generation, active: isPresented)) {
-                guard isPresented else { return }
-                await model.read(client: client, folder: folder)
+            .alert(
+                "Couldn't Open Memory",
+                isPresented: Binding(get: { model.openFailure != nil }, set: { if !$0 { model.openFailure = nil } })
+            ) {
+                Button("OK") { model.openFailure = nil }
+            } message: {
+                Text(model.openFailure ?? "")
             }
-            .onChange(of: isPresented) {
-                // Returning from the normal editor must show its latest saved contents.
-                if isPresented, model.catalog != nil { model.refresh() }
-            }
-            .onChange(of: model.selectedID) { model.revealSelection() }
     }
 }
 
 private struct CatalogKey: Equatable {
     let folder: String
     let refresh: UUID
-    let active: Bool
-}
-
-private struct SelectionKey: Equatable {
-    let id: String?
-    let generation: UUID
     let active: Bool
 }

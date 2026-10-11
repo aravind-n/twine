@@ -24,6 +24,10 @@ struct MemorySourceList: View {
             if model.state == .loading && model.catalog == nil {
                 ProgressView("Finding memories…").controlSize(.small)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if case .failed(let message) = model.state {
+                ContentUnavailableView(
+                    "Couldn't Discover Memories", systemImage: "exclamationmark.triangle",
+                    description: Text(message))
             } else if model.filteredSources.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "brain").font(.title2)

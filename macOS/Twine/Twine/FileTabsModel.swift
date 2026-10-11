@@ -33,7 +33,9 @@ final class FileTabsModel {
         selectedID = id
     }
 
-    func openMemory(_ file: FilePreview, request: CoreMemoryRequest, editing: Bool = true) {
+    func openMemory(
+        _ file: FilePreview, request: CoreMemoryRequest, source: CoreMemorySource? = nil
+    ) {
         let editor: FileEditorModel
         if let existing = editors.first(where: { $0.path == file.path }) {
             editor = existing
@@ -43,10 +45,27 @@ final class FileTabsModel {
                 memoryRequest: request)
             editors.append(editor)
         }
-        editor.useMemorySource(request)
+        editor.useMemorySource(request, source: source)
         editor.receive(file)
-        if editing { editor.editSource() }
         selectedID = editor.id
+    }
+
+    func openMemory(_ read: CoreMemoryRead, request: CoreMemoryRequest) {
+        openMemory(read.preview, request: request, source: read.source)
+    }
+
+    func openMemory(request: CoreMemoryRequest, client: CoreClient) async throws {
+        let origin = selectedID
+        let linkID = UUID()
+        memoryLinkID = linkID
+        do {
+            let read = try await client.memoryRead(request)
+            guard isCurrentMemoryLink(linkID, origin: origin) else { return }
+            openMemory(read, request: request)
+        } catch {
+            guard isCurrentMemoryLink(linkID, origin: origin) else { return }
+            throw error
+        }
     }
 
     func openMemoryLink(_ url: URL, request: CoreMemoryRequest, client: CoreClient) async throws {
@@ -65,8 +84,7 @@ final class FileTabsModel {
             next.sourceID = source.id
             let read = try await client.memoryRead(next)
             guard isCurrentMemoryLink(linkID, origin: origin) else { return }
-            guard let file = read.file else { throw CoreFailure.unexpectedCommandResult }
-            openMemory(file, request: next, editing: false)
+            openMemory(read, request: next)
             selected?.navigate(to: url)
         } catch {
             guard isCurrentMemoryLink(linkID, origin: origin) else { return }
@@ -74,9 +92,9 @@ final class FileTabsModel {
         }
     }
 
-    private func isCurrentMemoryLink(_ linkID: UUID, origin: UUID) -> Bool {
+    private func isCurrentMemoryLink(_ linkID: UUID, origin: UUID?) -> Bool {
         !Task.isCancelled && memoryLinkID == linkID && selectedID == origin
-            && editors.contains(where: { $0.id == origin })
+            && (origin == nil || editors.contains(where: { $0.id == origin }))
     }
 
     func showWorkflows() { selectedID = nil }

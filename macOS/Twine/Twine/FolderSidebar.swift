@@ -10,7 +10,6 @@ struct FolderSidebar: View {
     @Environment(FileTabsModel.self) private var fileTabs
     let path: String
     @Bindable var files: FileBrowserModel
-    @Binding var showsMemories: Bool
     @Bindable var memories: MemoryModel
     @State private var editor: SessionEditor?
     @State private var pendingDeletion: CoreSession?
@@ -59,9 +58,14 @@ struct FolderSidebar: View {
             .frame(maxHeight: memories.isExpanded ? 0 : .infinity)
             .clipped().allowsHitTesting(!memories.isExpanded).accessibilityHidden(memories.isExpanded)
             Divider().padding(.horizontal, SidebarLayout.contentInset)
-            MemorySidebar(model: memories, folder: path, isPresented: showsMemories) {
-                fileTabs.showWorkflows()
-                showsMemories = true
+            MemorySidebar(model: memories, folder: path) {
+                guard let source = memories.selected else { return }
+                let request = memories.request(folder: path, sourceID: source.id)
+                Task {
+                    do { try await fileTabs.openMemory(request: request, client: coreClient) } catch {
+                        memories.openFailure = error.localizedDescription
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -106,7 +110,6 @@ struct FolderSidebar: View {
             Button {
                 memories.isExpanded = false
                 if title == "Sessions" {
-                    showsMemories = false
                     fileTabs.showWorkflows()
                 }
             } label: {
@@ -133,9 +136,8 @@ struct FolderSidebar: View {
     }
 
     private func sessionRow(_ session: CoreSession) -> some View {
-        let selected = !showsMemories && selectedSession?.id == session.id
+        let selected = fileTabs.selected == nil && selectedSession?.id == session.id
         return Button {
-            showsMemories = false
             fileTabs.showWorkflows()
             run { try await coreClient.selectSession(sessionID: session.id) }
         } label: {

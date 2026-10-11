@@ -49,7 +49,7 @@ struct WorkflowTabs: View {
             }
             ForEach(fileTabs.editors) { editor in
                 WorkspaceTab(
-                    name: URL(filePath: editor.path).lastPathComponent, symbol: "doc.text",
+                    name: editor.displayName, symbol: "doc.text",
                     tabID: "fileTab-\(editor.path)", closeID: "closeFile-\(editor.path)", helpText: editor.path,
                     fill: Color(nsColor: .textBackgroundColor), isEdited: editor.isDirty,
                     isSelected: editor.id == fileTabs.selectedID,

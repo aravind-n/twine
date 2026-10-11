@@ -65,22 +65,6 @@ struct MemoryNavigationTests {
         #expect(model.selectedID == nil)
     }
 
-    @Test func aCrossLocationLinkRevealsItsDestinationWithoutChangingOriginFilters() async throws {
-        let model = MemoryModel()
-        try await load(model, sources: sources)
-        model.query = "topic"
-        model.harness = .claudeCode
-        model.openLink(URL(filePath: sources[2].location))
-        #expect(model.scope == .global)
-        #expect(model.selectedID == sources[2].id)
-        #expect(model.filteredSources.contains { $0.id == sources[2].id })
-        #expect(model.navigationURL?.path == sources[2].location)
-        model.scope = .folder
-        #expect(model.query == "topic")
-        #expect(model.harness == .claudeCode)
-        #expect(model.navigationURL == nil)
-    }
-
     private var sources: [CoreMemorySource] {
         [
             source("index", scope: .folder), source("topic", scope: .folder),

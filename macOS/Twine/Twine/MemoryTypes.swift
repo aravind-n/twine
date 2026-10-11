@@ -86,6 +86,12 @@ nonisolated struct CoreMemoryRead: Decodable, Sendable {
     let text: String?
     let message: String?
     var file: FilePreview?
+    var preview: FilePreview {
+        file
+            ?? FilePreview(
+                path: source.location, status: text == nil ? .unavailable : .text,
+                text: text, message: message, version: nil)
+    }
 }
 
 nonisolated struct CoreMemorySaveRequest: Encodable, Sendable {
@@ -93,11 +99,6 @@ nonisolated struct CoreMemorySaveRequest: Encodable, Sendable {
     let text: String
     let expectedVersion: FileVersion
     let overwrite: Bool
-}
-
-enum MemoryDisplay: String, CaseIterable {
-    case rendered = "Preview"
-    case markdown = "Markdown"
 }
 
 nonisolated enum MemoryLoadState: Equatable {

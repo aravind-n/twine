@@ -12,7 +12,7 @@ final class FileEditorModel: Identifiable {
     let folder: String
     let isConfigFile: Bool
     private(set) var memoryRequest: CoreMemoryRequest?
-    private(set) var sourceRequestID: UUID?
+    private(set) var memorySource: CoreMemorySource?
     private(set) var baseline: FilePreview?
     private(set) var diskFile: FilePreview?
     private(set) var navigationURL: URL?
@@ -34,10 +34,19 @@ final class FileEditorModel: Identifiable {
     var conflict: FilePreview?
     var failure: String?
 
-    var isDirty: Bool { baseline?.status == .text && text != baseline?.text }
+    var displayName: String { memorySource?.title ?? URL(filePath: path).lastPathComponent }
+    var previewFormat: FilePreviewFormat? {
+        if let memorySource { return memorySource.isMarkdown ? .markdown : nil }
+        return FilePreviewFormat(path: path)
+    }
+    var isEditable: Bool {
+        baseline?.status == .text && (memoryRequest == nil || (previewFormat == .markdown && baseline?.version != nil))
+    }
+
+    var isDirty: Bool { isEditable && text != baseline?.text }
     var isSaving: Bool { pendingSave != nil }
     var canSave: Bool {
-        baseline?.version != nil && (isSaving ? text != (queuedSave?.text ?? pendingSave?.text) : isDirty)
+        isEditable && baseline?.version != nil && (isSaving ? text != (queuedSave?.text ?? pendingSave?.text) : isDirty)
     }
     var canAutosave: Bool {
         autosaveSettings.autosave && !isConfigFile && !isSaving && !autosavePaused
@@ -51,10 +60,9 @@ final class FileEditorModel: Identifiable {
         self.memoryRequest = memoryRequest
     }
 
-    func editSource() { sourceRequestID = UUID() }
-
-    func useMemorySource(_ request: CoreMemoryRequest) {
+    func useMemorySource(_ request: CoreMemoryRequest, source: CoreMemorySource? = nil) {
         memoryRequest = request
+        memorySource = source
         autosaveID = UUID()
     }
 
@@ -177,7 +185,7 @@ final class FileEditorModel: Identifiable {
         guard isDirty else { return true }
         let alert = NSAlert()
         alert.messageText = "Discard unsaved changes?"
-        let name = URL(filePath: path).lastPathComponent
+        let name = displayName
         alert.informativeText = "Changes to “\(name)” will be lost. Cancel to keep editing or save with ⌘S."
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Discard Changes")

@@ -3,13 +3,12 @@ import SwiftUI
 struct MemorySidebar: View {
     @Bindable var model: MemoryModel
     let folder: String
-    let isPresented: Bool
     let open: () -> Void
     @FocusState private var scopesHaveFocus: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            MemoryHeader(model: model, isPresented: isPresented, open: open)
+            MemoryHeader(model: model)
             if model.isExpanded {
                 scopeTabs
                 MemoryFilters(model: model)
@@ -26,7 +25,6 @@ struct MemorySidebar: View {
                 Button {
                     model.scope = scope
                     scopesHaveFocus = true
-                    open()
                 } label: {
                     Text(scope.title.replacingOccurrences(of: " ", with: "\n"))
                         .font(.system(size: 10, weight: .medium)).multilineTextAlignment(.center)
@@ -57,7 +55,6 @@ struct MemorySidebar: View {
     private func moveScope(_ delta: Int) {
         guard let index = MemoryScope.allCases.firstIndex(of: model.scope) else { return }
         model.scope = MemoryScope.allCases[(index + delta + MemoryScope.allCases.count) % MemoryScope.allCases.count]
-        open()
     }
 
     private var footer: some View {

@@ -97,10 +97,7 @@
                     }
                     .tabTitleStyle(isSelected: false)
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "Traces").panelTitleStyle()
-                    Text(verbatim: "Steps in start order").panelSubtitleStyle()
-                }
+                Text(verbatim: "Traces").panelTitleStyle()
             }
         }
     }

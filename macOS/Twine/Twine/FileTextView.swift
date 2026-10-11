@@ -14,6 +14,7 @@ struct FileTextView: NSViewRepresentable {
     let isVisible: Bool
     let lineRequest: FileLineRequest?
     var language: SyntaxLanguage?
+    var focusesOnShow = true
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
@@ -50,6 +51,7 @@ struct FileTextView: NSViewRepresentable {
         guard let view = scroll.documentView as? NSTextView else { return }
         context.coordinator.text = $text
         view.isEditable = isEditable
+        host.focusesOnShow = focusesOnShow
         host.setVisible(isVisible)
         if context.coordinator.loadID != loadID {
             view.undoManager?.removeAllActions()

@@ -4,7 +4,6 @@ import Observation
 @Observable
 final class MemoryModel {
     @ObservationIgnored private var catalogRequest = UUID()
-    @ObservationIgnored private var readRequest = UUID()
     @ObservationIgnored private let examplesRoot: String
     @ObservationIgnored private let preferences: MemoryPreferences
     private var navigation: MemoryNavigation { didSet { preferences.save(navigation) } }
@@ -12,14 +11,9 @@ final class MemoryModel {
         get { navigation.isExpanded }
         set { navigation.isExpanded = newValue }
     }
-    var display = MemoryDisplay.rendered
-    var navigationURL: URL?
-    var linkFailure: String?
+    var openFailure: String?
     private(set) var catalog: CoreMemoryCatalog?
-    private(set) var contents: CoreMemoryRead?
     private(set) var state = MemoryLoadState.idle
-    private(set) var readState = MemoryLoadState.idle
-    private(set) var generation = UUID()
     var scope: MemoryScope {
         get { navigation.scope }
         set {
@@ -96,15 +90,7 @@ final class MemoryModel {
 
     var selected: CoreMemorySource? { catalog?.sources.first { $0.id == selectedID } }
 
-    var editableFile: FilePreview? {
-        guard selected?.isMarkdown == true, selectedID == contents?.source.id,
-            let file = contents?.file, file.status == .text, file.version != nil
-        else { return nil }
-        return file
-    }
-
     func reconcileSelection() {
-        defer { revealSelection() }
         guard catalog != nil else { return }
         if let group, !groups.contains(where: { $0.group == group }) { navigation[scope].group = nil }
         guard !filteredSources.contains(where: { $0.id == selectedID }) else { return }
@@ -120,26 +106,6 @@ final class MemoryModel {
     func select(_ source: CoreMemorySource) {
         if scope != source.scope { scope = source.scope }
         selectedID = source.id
-        navigationURL = nil
-    }
-
-    func openLink(_ url: URL) {
-        guard
-            let source = catalog?.sources.first(where: {
-                URL(filePath: $0.location).standardizedFileURL.path == url.standardizedFileURL.path
-            })
-        else {
-            linkFailure = "This link is not a discovered local memory source."
-            return
-        }
-        scope = source.scope
-        query = ""
-        harness = nil
-        group = nil
-        kind = nil
-        select(source)
-        navigationURL = url
-        display = .rendered
     }
 
     private func selectionRank(_ source: CoreMemorySource) -> Int {
@@ -153,14 +119,6 @@ final class MemoryModel {
         return scopeRank + kindRank
     }
 
-    func revealSelection() {
-        if let source = selected {
-            if navigationURL?.standardizedFileURL.path != URL(filePath: source.location).standardizedFileURL.path {
-                navigationURL = nil
-            }
-        }
-    }
-
     func load(client: CoreClient, folder: String?) async {
         let token = UUID()
         catalogRequest = token
@@ -171,7 +129,6 @@ final class MemoryModel {
             try Task.checkCancellation()
             guard catalogRequest == token else { return }
             self.catalog = catalog
-            generation = UUID()
             reconcileSelection()
             state = .available
         } catch is CancellationError {
@@ -179,32 +136,6 @@ final class MemoryModel {
         } catch {
             guard !Task.isCancelled, catalogRequest == token else { return }
             state = .failed(error.localizedDescription)
-        }
-    }
-
-    func read(client: CoreClient, folder: String?) async {
-        let token = UUID()
-        readRequest = token
-        guard let sourceID = selectedID else {
-            contents = nil
-            readState = .idle
-            return
-        }
-        readState = .loading
-        contents = nil
-        let request = CoreMemoryRequest(
-            folder: folder, sourceID: sourceID, examplesRoot: includeExamples ? examplesRoot : nil)
-        do {
-            let contents = try await client.memoryRead(request)
-            try Task.checkCancellation()
-            guard selectedID == sourceID, readRequest == token else { return }
-            self.contents = contents
-            readState = .available
-        } catch is CancellationError {
-            return
-        } catch {
-            guard !Task.isCancelled, selectedID == sourceID, readRequest == token else { return }
-            readState = .failed(error.localizedDescription)
         }
     }
 }

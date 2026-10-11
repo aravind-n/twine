@@ -9,12 +9,12 @@ extension TwineUITests {
         app.buttons["memoryEntry-outline"].click()
         app.buttons["memoryScope-folder"].click()
         app.typeKey(.rightArrow, modifierFlags: [])
-        XCTAssertTrue(app.staticTexts["Global Codex memory"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["memoryScope-global"].isHittable)
         app.typeKey(.rightArrow, modifierFlags: [])
         XCTAssertTrue(app.popUpButtons["memoryWorkspace"].waitForExistence(timeout: 5))
         app.popUpButtons["memoryWorkspace"].click()
         app.menuItems["project-b"].click()
-        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "topic-00.md")).firstMatch.click()
+        openMemorySource("topic-00.md", in: app)
         XCTAssertTrue(app.staticTexts["Project B topic 0"].waitForExistence(timeout: 5))
         app.typeKey(.downArrow, modifierFlags: [])
         XCTAssertTrue(app.staticTexts["Project B topic 1"].waitForExistence(timeout: 5))
@@ -35,7 +35,9 @@ extension TwineUITests {
         app.menuItems["project-b"].click()
         app.popUpButtons["memoryHarness"].click()
         app.menuItems["Claude Code"].click()
-        let topic = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "topic-20.md")).firstMatch
+        let topic = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "memorySource-", "topic-20.md")
+        ).firstMatch
         let list = app.descendants(matching: .any).matching(identifier: "memorySources").firstMatch
         for _ in 0..<12 {
             if topic.exists && topic.isHittable { break }
@@ -46,8 +48,10 @@ extension TwineUITests {
         XCTAssertTrue(app.staticTexts["Project B topic 20"].waitForExistence(timeout: 5))
         for _ in 0..<2 {
             app.buttons["memoryScope-global"].click()
+            openMemorySource("MEMORY.md", in: app)
             XCTAssertTrue(app.staticTexts["Global Codex memory"].waitForExistence(timeout: 5))
             app.buttons["memoryScope-otherFolder"].click()
+            topic.click()
             XCTAssertTrue(app.staticTexts["Project B topic 20"].waitForExistence(timeout: 5))
             XCTAssertTrue(topic.isHittable, "Returning to a location must restore its source-list position")
         }
@@ -56,6 +60,8 @@ extension TwineUITests {
         search.typeText("topic-2")
         app.terminate()
         app.launch()
+        XCTAssertTrue(topic.waitForExistence(timeout: 10))
+        topic.click()
         XCTAssertTrue(app.staticTexts["Project B topic 20"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.popUpButtons["memoryWorkspace"].value as? String, "project-b")
         XCTAssertEqual(app.popUpButtons["memoryHarness"].value as? String, "Claude Code")
