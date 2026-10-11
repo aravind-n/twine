@@ -74,6 +74,13 @@ UI_DEFAULT_TESTS := testFirstLaunchShowsStartPage \
 	testSyntaxLanguageOverridesStayWithTheirFileTabs \
 	testHTMLSyntaxHighlightingPreservesSourceEditingAndCSSDetection \
 	testMarkdownPreviewSourceSaveReloadAndLocalLinks \
+	testMemoryDockReadRefreshAndLeaveSourcesUnchanged \
+	testMemoryDockClaudeScopesNarrowNavigationAndHiddenTerminal \
+	testMemoryDockOtherWorkspacesRememberNavigationAcrossRelaunch \
+	testMemoryDockArrowNavigationKeepsFocusAfterRendering \
+	testCodexMemoryMarkdownRenderingLinksEditingAndConflict \
+	testClaudeMemoryMarkdownRenderingLinksEditingAndConflict \
+	testSQLiteMemoryMarkdownRendersWithoutAnEditAction \
 	testClearedTraceOpensSavedInputAndOutputWithoutAScrollbackWarning
 UI_VISUAL_TESTS := testFolderWindowInDarkAppearance \
 	testDraftAndFooterAtMinimumWindowSizeInDarkAppearance \

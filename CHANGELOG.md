@@ -9,8 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Browse local Codex and Claude Code memories in a compact source outline with
-  scope shortcuts, search, filters, rendered Markdown, and file or SQLite contents.
+- Browse local Codex and Claude Code memories from a bottom-docked sidebar section
+  that expands to fill the sidebar. Switch between This workspace, Global, and Other
+  workspaces with remembered selections, filters, and scroll positions. Read Markdown
+  and SQLite contents with a compact toolbar and source information popover.
   Edit Markdown files with the normal autosave settings, ⌘S, and protection against
   changes on disk.
 

@@ -7,13 +7,13 @@ nonisolated enum MemoryHarness: String, Codable, CaseIterable, Identifiable {
 }
 
 nonisolated enum MemoryScope: String, Codable, CaseIterable, Identifiable {
-    case global, folder, otherFolder
+    case folder, global, otherFolder
     var id: Self { self }
     var title: String {
         switch self {
         case .global: "Global"
-        case .folder: "This folder"
-        case .otherFolder: "Other folders"
+        case .folder: "This workspace"
+        case .otherFolder: "Other workspaces"
         }
     }
 }
@@ -65,6 +65,15 @@ nonisolated struct CoreMemorySource: Decodable, Identifiable, Sendable {
     let association: String?
     var shortPath: String { (location as NSString).abbreviatingWithTildeInPath }
     var isMarkdown: Bool { ["md", "markdown"].contains(format.lowercased()) }
+    var groupTitle: String {
+        if group.hasPrefix("Claude folder: ") {
+            let key = String(group.dropFirst("Claude folder: ".count))
+            let homeKey = NSHomeDirectory().replacingOccurrences(of: "/", with: "-") + "-workspaces-"
+            return key.hasPrefix(homeKey) ? String(key.dropFirst(homeKey.count)) : key
+        }
+        return group.replacingOccurrences(of: "Codex SQLite: ", with: "SQLite · ")
+            .replacingOccurrences(of: "Codex ", with: "").replacingOccurrences(of: "Claude ", with: "")
+    }
 }
 
 nonisolated struct CoreMemoryCatalog: Decodable, Sendable {
@@ -87,7 +96,7 @@ nonisolated struct CoreMemorySaveRequest: Encodable, Sendable {
 }
 
 enum MemoryDisplay: String, CaseIterable {
-    case rendered = "Rendered"
+    case rendered = "Preview"
     case markdown = "Markdown"
 }
 
@@ -95,8 +104,6 @@ nonisolated enum MemoryLoadState: Equatable {
     case idle, loading, available
     case failed(String)
 }
-
-enum MemoryPane { case sources, reader }
 
 nonisolated enum MemoryExamples {
     static var root: String {

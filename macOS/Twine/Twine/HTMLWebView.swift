@@ -14,6 +14,7 @@ struct HTMLWebView: NSViewRepresentable {
     let openFile: (HTMLPreviewLocation) -> Void
     var format: FilePreviewFormat = .html
     var html: String?
+    var focusesOnShow = true
 
     func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(location: location, failure: $failure, openFile: openFile)
@@ -56,6 +57,7 @@ struct HTMLWebView: NSViewRepresentable {
         coordinator.failure = $failure
         coordinator.openFile = openFile
         coordinator.isVisible = isVisible
+        host.focusesOnShow = focusesOnShow
         host.setVisible(isVisible)
         guard !coordinator.hasLoaded || coordinator.version != version || coordinator.location != location else {
             return

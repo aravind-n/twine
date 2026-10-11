@@ -20,18 +20,6 @@ struct MemoryReader: View {
                 Divider()
             }
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let source = model.selected {
-                Divider()
-                DisclosureGroup("Source details") {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(source.location).textSelection(.enabled)
-                        Text("\(source.kind.title) · \(source.format.uppercased())")
-                        if let modified = source.modifiedAt {
-                            Text(Date(timeIntervalSince1970: TimeInterval(modified)), format: .dateTime)
-                        }
-                    }.font(.caption.monospaced()).frame(maxWidth: .infinity, alignment: .leading)
-                }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 18).padding(.vertical, 9)
-            }
         }.background(MemoryPalette.document)
             .accessibilityElement(children: .contain).accessibilityIdentifier("memoryReader")
     }
@@ -58,7 +46,8 @@ struct MemoryReader: View {
                     HTMLPreview(
                         file: file, folder: URL(filePath: file.path).deletingLastPathComponent().path,
                         navigationURL: model.navigationURL, isVisible: true,
-                        openFile: model.openLink, format: .markdown, localResourcesOnly: true, markdownStyle: .memory
+                        openFile: model.openLink, format: .markdown, localResourcesOnly: true, markdownStyle: .memory,
+                        focusesOnShow: false
                     )
                     .id(file.path)
                 } else {

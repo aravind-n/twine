@@ -20,6 +20,13 @@ struct FolderView: View {
     @State private var memories = MemoryModel()
     private var scale: CGFloat { zoom?.scale ?? 1 }
 
+    init(path: String) {
+        self.path = path
+        let model = MemoryModel(folder: path)
+        _memories = State(initialValue: model)
+        _showsMemories = State(initialValue: model.isExpanded || MemoryInspection.opensOnLaunch)
+    }
+
     var body: some View {
         // Read the selected trace mode here so its height also updates the native scroll document.
         let chromeHeight = workspaceChromeHeight
@@ -72,10 +79,11 @@ struct FolderView: View {
                 .allowsHitTesting(!showsMemories)
                 .accessibilityHidden(showsMemories)
                 if showsMemories {
-                    MemoryViewer(folder: path, close: { showsMemories = false }, model: memories).appZoom()
+                    MemoryViewer(folder: path, model: memories).appZoom()
                 }
             }
         }
+        .modifier(MemoryLoading(folder: path, model: memories, isPresented: showsMemories))
         .environment(traceNavigation)
         .environment(\.traceLaneColors, traceNavigation.laneColors)
         .onChange(of: traceNavigation.activity.lanes) { traceNavigation.updateLaneColors() }

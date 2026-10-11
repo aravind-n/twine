@@ -9,6 +9,7 @@ struct HTMLPreview: View {
     var format: FilePreviewFormat = .html
     var localResourcesOnly = false
     var markdownStyle = MarkdownRenderer.Style.document
+    var focusesOnShow = true
     @State private var load: Load?
     @State private var failure: String?
 
@@ -20,7 +21,7 @@ struct HTMLPreview: View {
                     isVisible: isVisible, failure: $failure,
                     openFile: { destination in
                         if let url = destination.fileURL(in: folder) { openFile(url) }
-                    }, format: format, html: load.html
+                    }, format: format, html: load.html, focusesOnShow: focusesOnShow
                 )
             }
             if let failure {

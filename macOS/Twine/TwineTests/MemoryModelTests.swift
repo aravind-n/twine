@@ -108,6 +108,7 @@ struct MemoryModelTests {
         let transport = DeferredMemoryTransport()
         let client = CoreClient(transport: transport)
         let model = MemoryModel()
+        model.scope = .global
         let old = Task { await model.load(client: client, folder: nil) }
         try await transport.waitForCatalogs(1)
         old.cancel()
@@ -120,7 +121,7 @@ struct MemoryModelTests {
         await old.value
         #expect(model.state == .available)
         #expect(model.selectedID == source.id)
-        #expect(model.expandedScopes.contains(source.scope))
+        #expect(model.scope == source.scope)
         let oldRead = Task { await model.read(client: client, folder: nil) }
         try await transport.waitForReads(1)
         oldRead.cancel()
@@ -134,7 +135,7 @@ struct MemoryModelTests {
         #expect(model.contents?.text == "current")
     }
 
-    @Test func filtersReconcileSelectionAndRevealItsOutlineGroup() async throws {
+    @Test func filtersReconcileSelectionWithinTheCurrentLocation() async throws {
         let transport = DeferredMemoryTransport()
         let model = MemoryModel()
         let task = Task { await model.load(client: CoreClient(transport: transport), folder: nil) }
@@ -147,8 +148,7 @@ struct MemoryModelTests {
         model.reconcileSelection()
         #expect(model.filteredSources.map(\.id) == [folder.id])
         #expect(model.selectedID == folder.id)
-        #expect(model.expandedScopes.contains(.folder))
-        #expect(!model.expandedScopes.contains(.otherFolder))
+        #expect(model.scope == .folder)
         model.query = "does-not-exist"
         model.reconcileSelection()
         #expect(model.selectedID == nil)

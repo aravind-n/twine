@@ -2,90 +2,108 @@ import SwiftUI
 
 struct MemorySourceList: View {
     @Bindable var model: MemoryModel
-    var folder: String?
+    let scope: MemoryScope
+    let folder: String
+    let open: () -> Void
+    @State private var scrollID: String?
+    @State private var restorationID: String?
+    @State private var isRestoring = true
+    @FocusState private var hasFocus: Bool
+
+    init(model: MemoryModel, scope: MemoryScope, folder: String, open: @escaping () -> Void) {
+        self.model = model
+        self.scope = scope
+        self.folder = folder
+        self.open = open
+        _scrollID = State(initialValue: model.scrollID(for: scope) ?? model.selectedID)
+        _restorationID = State(initialValue: model.scrollID(for: scope) ?? model.selectedID)
+    }
 
     var body: some View {
-        if model.state == .loading && model.catalog == nil {
-            ProgressView("Discovering local memories…").frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if model.filteredSources.isEmpty {
-            ContentUnavailableView(
-                "No Matching Sources", systemImage: "brain",
-                description: Text("Choose another filter or inspect the checked locations."))
-        } else {
-            ScrollViewReader { proxy in
-                List(selection: $model.selectedID) {
-                    ForEach(MemoryScope.allCases) { scope in
-                        let sources = model.filteredSources.filter { $0.scope == scope }
-                        if !sources.isEmpty { scopeGroup(scope, sources: sources) }
-                    }
-                }.listStyle(.inset).scrollContentBackground(.hidden)
-                    .background(MemoryPalette.surface)
-                    .accessibilityIdentifier("memorySources")
-                    .onKeyPress(.return) {
-                        model.pane = .reader
-                        return .handled
-                    }
-                    .onChange(of: model.selectedID, initial: true) {
-                        if let selected = model.selectedID { proxy.scrollTo(selected, anchor: .center) }
-                    }
+        Group {
+            if model.state == .loading && model.catalog == nil {
+                ProgressView("Finding memories…").controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.filteredSources.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "brain").font(.title2)
+                    Text("No matching sources").fontWeight(.medium)
+                    Text("Try another location or filter.").foregroundStyle(.secondary)
+                }.font(.caption).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                sources
             }
-        }
+        }.accessibilityElement(children: .contain).accessibilityIdentifier("memorySources")
     }
 
-    private func scopeGroup(_ scope: MemoryScope, sources: [CoreMemorySource]) -> some View {
-        DisclosureGroup(isExpanded: expansion(scope)) {
-            ForEach(MemoryHarness.allCases) { harness in
-                let items = sources.filter { $0.harness == harness }
-                if !items.isEmpty {
-                    Text(harness.title.uppercased())
-                        .font(.system(size: 9, weight: .semibold)).tracking(1)
-                        .foregroundStyle(.secondary).padding(.top, 5)
-                        .listRowSeparator(.hidden)
-                    if scope == .otherFolder {
-                        ForEach(Array(Set(items.map(\.group))).sorted(), id: \.self) { group in
-                            Text(storageTitle(group)).font(.caption).foregroundStyle(.secondary)
-                                .listRowSeparator(.hidden).help(group)
-                            rows(items.filter { $0.group == group })
-                        }
-                    } else {
-                        rows(items)
+    private var sources: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(model.filteredSources) { source in
+                        Button {
+                            model.select(source)
+                            hasFocus = true
+                            open()
+                        } label: {
+                            MemorySourceRow(source: source, folder: folder)
+                                .background(
+                                    model.selectedID == source.id ? Color.fileSelection : .clear,
+                                    in: .rect(cornerRadius: 6))
+                        }.buttonStyle(.plain).id(source.id)
+                            .accessibilityIdentifier("memorySource-\(source.id)")
+                            .accessibilityAddTraits(model.selectedID == source.id ? [.isSelected] : [])
                     }
+                }.scrollTargetLayout().padding(.horizontal, 8)
+            }
+            .scrollPosition(id: $scrollID, anchor: .top)
+            .onChange(of: scrollID) {
+                if !isRestoring, model.scope == scope, let scrollID {
+                    model.rememberScroll(scrollID, for: scope)
                 }
             }
-        } label: {
-            HStack(spacing: 5) {
-                Text(scope.title).fontWeight(.semibold)
-                Text("· \(sources.count)").foregroundStyle(.secondary)
-            }.font(.system(size: 12))
+            .task {
+                // Lazy rows need a layout pass before an offscreen target can be restored.
+                let selection = model.selectedID
+                let sources = model.filteredSources.map(\.id)
+                let target = sources.contains { $0 == restorationID } ? restorationID : selection
+                defer { isRestoring = false }
+                await Task.yield()
+                guard !Task.isCancelled, model.scope == scope, model.selectedID == selection,
+                    model.filteredSources.map(\.id) == sources, let target
+                else { return }
+                proxy.scrollTo(target, anchor: .top)
+            }
+            .onChange(of: model.selectedID) {
+                if model.scope == scope, let selected = model.selectedID { proxy.scrollTo(selected) }
+            }
+            .focusable(interactions: .edit).focused($hasFocus).focusEffectDisabled()
+            .onKeyPress(.upArrow) {
+                moveSelection(-1)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                moveSelection(1)
+                return .handled
+            }
+            .onKeyPress(.space) {
+                open()
+                return .handled
+            }
+            .onKeyPress(.return) {
+                open()
+                return .handled
+            }
         }
-        .listRowSeparator(.hidden)
+    }
+    private func moveSelection(_ delta: Int) {
+        let items = model.filteredSources
+        guard !items.isEmpty else { return }
+        let index = items.firstIndex { $0.id == model.selectedID } ?? 0
+        model.select(items[max(0, min(items.count - 1, index + delta))])
+        open()
     }
 
-    private func rows(_ sources: [CoreMemorySource]) -> some View {
-        ForEach(sources) { source in
-            MemorySourceRow(source: source, folder: folder).tag(source.id).id(source.id)
-                .listRowSeparator(.hidden)
-                .onTapGesture { model.select(source) }
-        }
-    }
-
-    private func expansion(_ scope: MemoryScope) -> Binding<Bool> {
-        Binding(
-            get: { model.expandedScopes.contains(scope) },
-            set: {
-                if $0 { model.expandedScopes.insert(scope) } else { model.expandedScopes.remove(scope) }
-            })
-    }
-
-    private func storageTitle(_ group: String) -> String {
-        if group.hasPrefix("Claude folder: ") {
-            let key = String(group.dropFirst("Claude folder: ".count))
-            let homeKey = NSHomeDirectory().replacingOccurrences(of: "/", with: "-") + "-workspaces-"
-            return key.hasPrefix(homeKey) ? String(key.dropFirst(homeKey.count)) : key
-        }
-        return group.replacingOccurrences(of: "Codex SQLite: ", with: "SQLite · ")
-            .replacingOccurrences(of: "Codex ", with: "").replacingOccurrences(of: "Claude ", with: "")
-    }
 }
 
 #Preview { MemoryViewPreview() }

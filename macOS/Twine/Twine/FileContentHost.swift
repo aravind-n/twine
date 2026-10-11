@@ -3,6 +3,7 @@ import AppKit
 /// SwiftUI controls this host; the retained document's visibility belongs to AppKit.
 final class FileContentHost<Content: NSView>: NSView {
     let content: Content
+    var focusesOnShow = true
     /// WebKit uses native page zoom and a physical viewport, cancelling the ancestor's scale.
     var viewportScale: CGFloat = 1 {
         didSet {
@@ -83,7 +84,9 @@ final class FileContentHost<Content: NSView>: NSView {
                 if current === content || current.isDescendant(of: content) { window?.makeFirstResponder(nil) }
             }
             content.isHidden = !visible
-            if visible, !responder.isHiddenOrHasHiddenAncestor { window?.makeFirstResponder(responder) }
+            if visible, focusesOnShow, !responder.isHiddenOrHasHiddenAncestor {
+                window?.makeFirstResponder(responder)
+            }
         }
     }
 

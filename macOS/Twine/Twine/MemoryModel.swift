@@ -6,8 +6,12 @@ final class MemoryModel {
     @ObservationIgnored private var catalogRequest = UUID()
     @ObservationIgnored private var readRequest = UUID()
     @ObservationIgnored private let examplesRoot: String
-    var expandedScopes: Set<MemoryScope> = [.folder]
-    var pane = MemoryPane.reader
+    @ObservationIgnored private let preferences: MemoryPreferences
+    private var navigation: MemoryNavigation { didSet { preferences.save(navigation) } }
+    var isExpanded: Bool {
+        get { navigation.isExpanded }
+        set { navigation.isExpanded = newValue }
+    }
     var display = MemoryDisplay.rendered
     var navigationURL: URL?
     var linkFailure: String?
@@ -16,20 +20,73 @@ final class MemoryModel {
     private(set) var state = MemoryLoadState.idle
     private(set) var readState = MemoryLoadState.idle
     private(set) var generation = UUID()
-    var selectedID: String?
-    var query = ""
-    var harness: MemoryHarness? = MemoryInspection.harness
-    var scope: MemoryScope? = MemoryInspection.scope
-    var kind: MemoryKind? = MemoryInspection.kind
+    var scope: MemoryScope {
+        get { navigation.scope }
+        set {
+            navigation.scope = newValue
+            if catalog != nil { reconcileSelection() }
+        }
+    }
+    var selectedID: String? {
+        get { navigation[scope].selectedID }
+        set { navigation[scope].selectedID = newValue }
+    }
+    var query: String {
+        get { navigation[scope].query }
+        set {
+            navigation[scope].query = newValue
+            reconcileSelection()
+        }
+    }
+    var harness: MemoryHarness? {
+        get { navigation[scope].harness }
+        set {
+            navigation[scope].harness = newValue
+            reconcileSelection()
+        }
+    }
+    var kind: MemoryKind? {
+        get { navigation[scope].kind }
+        set {
+            navigation[scope].kind = newValue
+            reconcileSelection()
+        }
+    }
+    var group: String? {
+        get { navigation[scope].group }
+        set {
+            navigation[scope].group = newValue
+            reconcileSelection()
+        }
+    }
     var includeExamples = false
     var refreshID = UUID()
 
-    init(examplesRoot: String = MemoryExamples.root) { self.examplesRoot = examplesRoot }
+    init(folder: String? = nil, defaults: UserDefaults? = nil, examplesRoot: String = MemoryExamples.root) {
+        self.examplesRoot = examplesRoot
+        preferences = MemoryPreferences(folder: folder, defaults: defaults)
+        var saved = preferences.load()
+        if MemoryInspection.opensOnLaunch { saved.isExpanded = true }
+        if let scope = MemoryInspection.scope { saved.scope = scope }
+        if let harness = MemoryInspection.harness { saved[saved.scope].harness = harness }
+        if let kind = MemoryInspection.kind { saved[saved.scope].kind = kind }
+        navigation = saved
+    }
+
+    func scrollID(for scope: MemoryScope) -> String? { navigation[scope].scrollID }
+    func rememberScroll(_ id: String?, for scope: MemoryScope) { navigation[scope].scrollID = id }
+
+    var groups: [CoreMemorySource] {
+        var seen: Set<String> = []
+        return (catalog?.sources ?? []).filter { $0.scope == scope && seen.insert($0.group).inserted }
+            .sorted { $0.groupTitle.localizedStandardCompare($1.groupTitle) == .orderedAscending }
+    }
 
     var filteredSources: [CoreMemorySource] {
         (catalog?.sources ?? []).filter { source in
             (harness == nil || source.harness == harness)
-                && (scope == nil || source.scope == scope)
+                && source.scope == scope
+                && (scope != .otherFolder || group == nil || source.group == group)
                 && (kind == nil || source.kind == kind)
                 && (query.isEmpty
                     || "\(source.title) \(source.location) \(source.kind.title)"
@@ -48,6 +105,8 @@ final class MemoryModel {
 
     func reconcileSelection() {
         defer { revealSelection() }
+        guard catalog != nil else { return }
+        if let group, !groups.contains(where: { $0.group == group }) { navigation[scope].group = nil }
         guard !filteredSources.contains(where: { $0.id == selectedID }) else { return }
         selectedID = filteredSources.min { selectionRank($0) < selectionRank($1) }?.id
     }
@@ -59,9 +118,9 @@ final class MemoryModel {
     }
 
     func select(_ source: CoreMemorySource) {
+        if scope != source.scope { scope = source.scope }
         selectedID = source.id
         navigationURL = nil
-        pane = .reader
     }
 
     func openLink(_ url: URL) {
@@ -73,9 +132,10 @@ final class MemoryModel {
             linkFailure = "This link is not a discovered local memory source."
             return
         }
+        scope = source.scope
         query = ""
         harness = nil
-        scope = nil
+        group = nil
         kind = nil
         select(source)
         navigationURL = url
@@ -98,7 +158,6 @@ final class MemoryModel {
             if navigationURL?.standardizedFileURL.path != URL(filePath: source.location).standardizedFileURL.path {
                 navigationURL = nil
             }
-            expandedScopes.insert(source.scope)
         }
     }
 

@@ -29,6 +29,7 @@ extension TwineUITests {
         app.launchEnvironment["CODEX_SQLITE_HOME"] = codex.path
         app.launchEnvironment["CLAUDE_CONFIG_DIR"] = fixture.appending(path: "claude").path
         app.launchEnvironment["TWINE_MEMORY_INSPECTION_KIND"] = "rawMemory"
+        app.launchEnvironment["TWINE_MEMORY_INSPECTION_SCOPE"] = "global"
         app.launch()
         defer { app.terminate() }
         if !app.buttons["memoryEntry-outline"].waitForExistence(timeout: 10) { sidebarToggle(in: app).click() }
@@ -64,7 +65,7 @@ extension TwineUITests {
         app.radioButtons["Markdown"].click()
         XCTAssertTrue(app.textViews["memoryText"].waitForExistence(timeout: 5))
         XCTAssertTrue((app.textViews["memoryText"].value as? String)?.contains("**Useful advice**") == true)
-        app.radioButtons["Rendered"].click()
+        app.radioButtons["Preview"].click()
         XCTAssertTrue(app.links["Related note"].waitForExistence(timeout: 5))
         app.links["Related note"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         XCTAssertTrue(app.staticTexts["Linked memory"].waitForExistence(timeout: 5))
@@ -128,6 +129,7 @@ extension TwineUITests {
         app.launch()
         if !app.buttons["memoryEntry-outline"].waitForExistence(timeout: 10) { sidebarToggle(in: app).click() }
         app.buttons["memoryEntry-outline"].click()
+        if !claude { app.buttons["memoryScope-global"].click() }
         return MemoryEditingFixture(app: app, topic: topic, original: original)
     }
 }

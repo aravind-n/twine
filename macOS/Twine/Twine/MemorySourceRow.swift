@@ -12,23 +12,23 @@ struct MemorySourceRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Circle().fill(source.harness == .codex ? Color.blue : .orange).frame(width: 5, height: 5)
-                Text(filename).font(.system(size: 11, design: .monospaced))
-                    .lineLimit(1).truncationMode(.middle)
-            }
-            HStack(spacing: 4) {
-                MemoryBadge(source.harness.title, tint: source.harness == .codex ? .blue : .orange)
-                MemoryBadge(source.scope.title)
-                if source.example { MemoryBadge("Example", tint: .orange) }
-            }
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: source.isMarkdown ? "doc.text" : "doc")
+                .font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 2)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(filename).font(.system(size: 11, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 4) {
+                    Circle().fill(source.harness == .codex ? Color.blue : .orange).frame(width: 4, height: 4)
+                    Text(source.harness.title)
+                    if source.scope == .otherFolder { Text("· \(source.groupTitle)") }
+                    if source.example { Text("· Example") }
+                }.font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+            }.frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle()).help(source.location)
+        .padding(.horizontal, 9).padding(.vertical, 8)
+        .contentShape(.rect).help(source.location)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(filename), \(source.harness.title), \(source.scope.title)")
-        .accessibilityIdentifier("memorySource-\(source.id)")
+        .accessibilityLabel("\(filename), \(source.harness.title), \(source.scope.title), \(source.groupTitle)")
     }
 }
 

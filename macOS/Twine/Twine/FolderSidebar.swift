@@ -27,6 +27,8 @@ struct FolderSidebar: View {
                 Button("Collapse All", systemImage: "arrow.up.left.and.arrow.down.right", action: files.collapseAll)
             }
             FileTree(folder: path, model: files)
+                .frame(maxHeight: memories.isExpanded ? 0 : .infinity)
+                .clipped().allowsHitTesting(!memories.isExpanded).accessibilityHidden(memories.isExpanded)
             Divider().padding(.horizontal, SidebarLayout.contentInset)
             sectionHeader("Sessions") {
                 Button("New Session", systemImage: "plus") { create() }
@@ -54,18 +56,13 @@ struct FolderSidebar: View {
                 }
                 .padding(.horizontal, SidebarLayout.contentInset)
             }
+            .frame(maxHeight: memories.isExpanded ? 0 : .infinity)
+            .clipped().allowsHitTesting(!memories.isExpanded).accessibilityHidden(memories.isExpanded)
             Divider().padding(.horizontal, SidebarLayout.contentInset)
-            Text("Memories").sidebarSectionLabelStyle()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, SidebarLayout.sectionHeaderPadding)
-                .frame(height: SidebarLayout.sectionHeaderHeight)
-            memoryEntry("All sources", systemImage: "list.bullet.indent", scope: nil)
-                .accessibilityIdentifier("memoryEntry-outline")
-            ForEach(MemoryScope.allCases) { scope in
-                memoryEntry(scope.title, systemImage: scope == .global ? "globe" : "folder", scope: scope)
-                    .accessibilityIdentifier("memoryScopeEntry-\(scope.rawValue)")
+            MemorySidebar(model: memories, folder: path, isPresented: showsMemories) {
+                fileTabs.showWorkflows()
+                showsMemories = true
             }
-            Spacer().frame(height: 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background { SidebarMaterial().ignoresSafeArea() }
@@ -104,26 +101,23 @@ struct FolderSidebar: View {
         }
     }
 
-    private func memoryEntry(_ title: String, systemImage: String, scope: MemoryScope?) -> some View {
-        Button {
-            fileTabs.showWorkflows()
-            memories.scope = scope
-            showsMemories = true
-        } label: {
-            Label(title, systemImage: systemImage)
-                .font(.caption).frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, scope == nil ? 0 : 14)
-                .padding(.horizontal, SidebarLayout.rowInset).frame(height: SidebarLayout.rowHeight)
-                .background(
-                    showsMemories && memories.scope == scope ? Color.fileSelection : .clear,
-                    in: .rect(cornerRadius: CornerRadius.fileRowSelection))
-        }.buttonStyle(.plain).padding(.horizontal, SidebarLayout.contentInset)
-    }
-
     private func sectionHeader<Actions: View>(_ title: String, @ViewBuilder actions: () -> Actions) -> some View {
         HStack {
-            Text(title).sidebarSectionLabelStyle()
-            Spacer()
+            Button {
+                memories.isExpanded = false
+                if title == "Sessions" {
+                    showsMemories = false
+                    fileTabs.showWorkflows()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: memories.isExpanded ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold)).frame(width: 10)
+                    Text(title).sidebarSectionLabelStyle()
+                    Spacer(minLength: 0)
+                }.contentShape(.rect)
+            }.buttonStyle(.plain).accessibilityIdentifier("sidebarSection-\(title.lowercased())")
+                .help(memories.isExpanded ? "Show \(title)" : title)
             Menu(content: actions) {
                 Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold)).frame(width: 26, height: 26)
             }
@@ -134,7 +128,7 @@ struct FolderSidebar: View {
             .accessibilityLabel("\(title) Actions")
             .accessibilityIdentifier("\(title.lowercased())Actions")
         }
-        .frame(height: SidebarLayout.sectionHeaderHeight)
+        .frame(height: memories.isExpanded ? 36 : SidebarLayout.sectionHeaderHeight)
         .padding(.horizontal, SidebarLayout.sectionHeaderPadding)
     }
 
