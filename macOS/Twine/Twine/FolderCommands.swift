@@ -13,7 +13,8 @@ extension FocusedValues {
 }
 
 struct SaveAction {
-    let isEnabled: Bool
+    // Read current form state when commands update, rather than snapshotting it at a focus change.
+    let isEnabled: () -> Bool
     let perform: () -> Void
 }
 
@@ -121,7 +122,7 @@ struct FolderCommands: Commands {
                 if let formSave { formSave.perform() } else { editor?.requestSave() }
             }
             .keyboardShortcut("s")
-            .disabled(formSave.map { !$0.isEnabled } ?? (editor?.canSave != true || (!showsSettings && !isRunning)))
+            .disabled(formSave.map { !$0.isEnabled() } ?? (editor?.canSave != true || (!showsSettings && !isRunning)))
             Button(closeTitle) {
                 if showsSettings {
                     settings?.close()
