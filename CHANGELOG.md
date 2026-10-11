@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Homebrew installs now use the `standing-desks/tap` tap.
+
 ## [0.2.5] - 2026-10-11
 
 ### Changed
