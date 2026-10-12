@@ -107,7 +107,10 @@ struct FileBrowserTests {
         _ worker: CoreWorker, request: FileBrowserRequest
     ) async throws -> FileBrowserSnapshot? {
         for _ in 0..<200 {
-            if let snapshot = try await worker.pollFiles(request) { return snapshot }
+            // Initial Git discovery also advances the file-browser revision.
+            if let snapshot = try await worker.pollFiles(request), snapshot.git?.scanning == false {
+                return snapshot
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
         return nil
