@@ -32,11 +32,11 @@ struct TraceSequence: View {
 
     private func focusHeader(layout: TraceSequenceLayout, range: Range<Int>) -> some View {
         HStack(spacing: 6) {
-            Text("FOCUS").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            Text("FOCUS").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: true, vertical: false)
             if !range.isEmpty {
                 Text("\(range.lowerBound + 1)–\(range.upperBound) of \(layout.steps.count)")
-                    .font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                     .lineLimit(1)
                     .accessibilityIdentifier("traceFocusRange")
             }

@@ -13,7 +13,7 @@ struct TraceActivityInspector: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Label(activity.kind.label.uppercased(), systemImage: activity.kind.symbol)
-                        .font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
+                        .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                     Button("Close activity", systemImage: "xmark", action: close)
                         .labelStyle(.iconOnly).buttonStyle(.plain).font(.caption2)
@@ -52,7 +52,7 @@ struct TraceActivityInspector: View {
                 }
                 if let start = activity.startedAt {
                     Text("Started \(TraceFormatting.timestamp(start))")
-                        .font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 }
                 TraceDetailText(
                     activityID: activity.id, output: false,
@@ -92,7 +92,7 @@ struct TraceActivityInspector: View {
 
     private func preview(_ title: String, text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
+            Text(title).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
             Text(text.isEmpty ? "Not recorded" : text)
                 .font(.system(size: 10, design: .monospaced))
                 .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
@@ -120,7 +120,7 @@ private struct TraceDetailText: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
+            Text(title).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
             Text(text ?? (preview.isEmpty ? "Not recorded" : preview))
                 .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(7).background(.primary.opacity(0.035))

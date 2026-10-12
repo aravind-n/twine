@@ -18,11 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Traces uses a compact header and tighter bottom spacing, giving terminals more
-  room above the separate status footer.
-- The folder name and path share one titlebar line, with a shorter workflow tab
-  row and less space above it to give terminals more room. The sidebar button
-  retains its standard native proportions, and the sidebar uses the native
-  translucent material.
+  room above the separate status footer. Small trace labels use 10-point text
+  for better readability.
+- The folder name and path share one titlebar line aligned with the workflow
+  strip. A shorter workflow tab row and less space above it give terminals more
+  room. The sidebar button retains its standard native proportions, and the
+  sidebar uses the native translucent material.
 - Workflow creation and terminal split buttons have larger click targets within
   the compact workflow row.
 

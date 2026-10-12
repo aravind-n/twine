@@ -248,7 +248,7 @@ extension View {
 
     /// Tick labels on trace time axes.
     func timeAxisStyle() -> some View {
-        font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(.tertiary)
+        font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(.tertiary)
     }
 
     /// Log timestamps and kinds.

@@ -53,11 +53,11 @@ struct TraceFocusRail: View {
                     .font(.system(size: 10, weight: selected ? .semibold : .medium))
                     .lineLimit(2).frame(height: 27, alignment: .top)
                     .frame(maxWidth: .infinity).padding(.horizontal, 4)
-                Text(lane.name).font(.system(size: 9)).foregroundStyle(
+                Text(lane.name).font(.system(size: 10)).foregroundStyle(
                     TraceLaneStyle.color(for: lane, colors: laneColors)
                 )
                 .lineLimit(1).padding(.horizontal, 4)
-                Text(durationLabel(step.span)).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                Text(durationLabel(step.span)).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 3)

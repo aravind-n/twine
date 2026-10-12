@@ -28,13 +28,13 @@ struct TraceActivityChart: View {
 
     private func axis(width: CGFloat) -> some View {
         HStack(spacing: 0) {
-            Text("Elapsed within step").font(.system(size: 9)).foregroundStyle(.secondary)
+            Text("Elapsed within step").font(.system(size: 10)).foregroundStyle(.secondary)
                 .frame(width: labelWidth, alignment: .leading)
             HStack(spacing: 0) {
                 ForEach(0..<5) { tick in
                     if tick != 0 { Spacer(minLength: 0) }
                     Text("+\(TraceActivityTimeline.duration((timeline.end - timeline.start) / 4 * UInt64(tick)))")
-                        .font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 }
             }
             .frame(width: width)
@@ -124,13 +124,13 @@ struct TraceActivityChart: View {
                     .overlay {
                         if length > 58 {
                             Text(activity.durationLabel(at: now))
-                                .font(.system(size: 9)).foregroundStyle(color).lineLimit(1).padding(.horizontal, 4)
+                                .font(.system(size: 10)).foregroundStyle(color).lineLimit(1).padding(.horizontal, 4)
                         }
                     }
                     .frame(width: length, height: activity.kind == .subagent ? 20 : 16)
                     .offset(x: offset)
             } else {
-                Text("Start not recorded").font(.system(size: 9)).foregroundStyle(.secondary).padding(.leading, 6)
+                Text("Start not recorded").font(.system(size: 10)).foregroundStyle(.secondary).padding(.leading, 6)
             }
         }
         .frame(width: width, height: 29)

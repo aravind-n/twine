@@ -88,6 +88,7 @@ struct FolderView: View {
                             .truncationMode(.middle)
                     }
                     .lineLimit(1)
+                    .padding(.leading, 6)
                     .help(path)
                 }
                 .sharedBackgroundVisibility(.hidden)
