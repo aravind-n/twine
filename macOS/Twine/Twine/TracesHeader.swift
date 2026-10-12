@@ -1,38 +1,79 @@
 import SwiftUI
 
 struct TracesHeader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isExpanded: Bool
     let summary: CoreTraceSummary?
     @Binding var viewMode: TraceViewMode
+    var height: CGFloat = TracesLayout.collapsedHeight
     let toggle: () -> Void
 
+    private var expansion: CGFloat {
+        min(
+            1,
+            max(
+                0,
+                (height - TracesLayout.collapsedHeight)
+                    / (TracesLayout.expandedHeaderHeight - TracesLayout.collapsedHeight)))
+    }
+
     var body: some View {
-        HStack(spacing: 10) {
+        ViewThatFits(in: .horizontal) {
+            headerRow(compact: false)
+            headerRow(compact: true)
+        }
+        .padding(
+            .horizontal,
+            TracesLayout.headerHorizontalPadding
+                + (TracesLayout.expandedHeaderHorizontalPadding - TracesLayout.headerHorizontalPadding) * expansion
+        )
+        .frame(height: height)
+    }
+
+    private func headerRow(compact: Bool) -> some View {
+        HStack(spacing: compact ? 6 : 10) {
             titleButton
             if isExpanded, (summary?.spanCount ?? 0) > 0 {
-                Picker("Trace view", selection: $viewMode) {
-                    ForEach(TraceViewMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+                if compact {
+                    Menu {
+                        viewPicker.pickerStyle(.inline)
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .frame(width: TracesLayout.chevronSize, height: TracesLayout.chevronSize)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .help("Trace view")
+                    .accessibilityLabel("Trace view")
+                    .accessibilityValue(viewMode.rawValue)
+                    .accessibilityIdentifier("traceViewMode")
+                } else {
+                    viewPicker.pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
-                .accessibilityIdentifier("traceViewMode")
             }
-            disclosureButton
+            disclosureButton(showsCount: !compact)
         }
-        .padding(.horizontal, TracesLayout.headerHorizontalPadding)
-        .frame(height: TracesLayout.collapsedHeight)
+    }
+
+    private var viewPicker: some View {
+        Picker("Trace view", selection: $viewMode) {
+            ForEach(TraceViewMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+        }
+        .labelsHidden()
+        .controlSize(.small)
+        .fixedSize()
+        .accessibilityIdentifier("traceViewMode")
     }
 
     private var titleButton: some View {
         Button(action: toggle) {
-            HStack(spacing: 12) {
-                Text("Traces").font(.system(size: 12, weight: .semibold)).lineLimit(1)
+            HStack(spacing: 0) {
+                Text("Traces").font(.system(size: 12 + 4 * expansion, weight: .semibold)).lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: TracesLayout.collapsedHeight)
+            .frame(height: height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -43,20 +84,26 @@ struct TracesHeader: View {
         .accessibilityIdentifier("tracesHeader")
     }
 
-    private var disclosureButton: some View {
+    private func disclosureButton(showsCount: Bool) -> some View {
         Button(action: toggle) {
             HStack(spacing: 12) {
-                if summary != nil {
+                if showsCount, summary != nil {
                     Text(countLabel)
                         .font(.caption2).foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                Image(systemName: "chevron.up")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: TracesLayout.chevronSize, height: TracesLayout.chevronSize)
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                    .animation(reduceMotion ? nil : Motion.sectionToggle, value: isExpanded)
+                    .frame(
+                        width: TracesLayout.chevronSize + (TracesLayout.expandedChevronSize - TracesLayout.chevronSize)
+                            * expansion,
+                        height: TracesLayout.chevronSize + (TracesLayout.expandedChevronSize - TracesLayout.chevronSize)
+                            * expansion)
             }
-            .frame(height: TracesLayout.collapsedHeight)
+            .frame(height: height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

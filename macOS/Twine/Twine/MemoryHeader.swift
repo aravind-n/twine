@@ -1,22 +1,22 @@
 import SwiftUI
 
 struct MemoryHeader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var model: MemoryModel
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack {
             Button {
-                model.isExpanded.toggle()
+                withAnimation(reduceMotion ? nil : Motion.sectionToggle) { model.isExpanded.toggle() }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: model.isExpanded ? "chevron.down" : "chevron.right")
+                    Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold)).frame(width: 10)
-                    Text("Memories").fontWeight(.semibold)
+                        .rotationEffect(.degrees(model.isExpanded ? 90 : 0))
+                    Text("Memories").sidebarSectionLabelStyle()
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, 14)
-                .padding(.trailing, model.isExpanded ? 6 : 14)
-                .frame(height: 42)
+                .frame(height: SidebarLayout.sectionHeaderHeight)
                 .contentShape(.rect)
             }.buttonStyle(.plain).accessibilityIdentifier("memoryEntry-outline")
                 .accessibilityValue(model.isExpanded ? "Expanded" : "Collapsed")
@@ -24,14 +24,17 @@ struct MemoryHeader: View {
             if model.isExpanded {
                 Button(action: model.refresh) {
                     Image(systemName: "arrow.clockwise")
-                        .frame(width: 40, height: 42)
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 26, height: 26)
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain).help("Rescan local memory sources")
                 .accessibilityLabel("Refresh memories")
                 .accessibilityIdentifier("refreshMemories")
             }
-        }.font(.system(size: 12))
+        }
+        .frame(height: SidebarLayout.sectionHeaderHeight)
+        .padding(.horizontal, SidebarLayout.sectionHeaderPadding)
     }
 }
 

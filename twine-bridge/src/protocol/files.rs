@@ -116,9 +116,7 @@ pub(crate) fn encode_files(snapshot: &FileSnapshot) -> Result<Vec<u8>, serde_jso
         "git": {
             "scanning": snapshot.git.scanning, "error": snapshot.git.error,
             "repositories": snapshot.git.repositories.iter().map(|repository| json!({
-                "root": repository.root, "branch": repository.branch, "upstream": repository.upstream,
-                "ahead": repository.ahead, "behind": repository.behind, "error": repository.error,
-                "loading": repository.loading,
+                "root": repository.root, "error": repository.error,
                 "changes": repository.changes.iter().map(encode_change).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         },
@@ -140,4 +138,36 @@ fn encode_decoration(decoration: &twine_core::GitDecoration) -> Value {
         "containsChanges": decoration.contains_changes, "containsConflicts": decoration.contains_conflicts,
         "deleted": decoration.deleted,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use twine_core::{GitRepository, GitSnapshot};
+
+    #[test]
+    fn file_response_preserves_repository_status_errors() {
+        let snapshot = FileSnapshot {
+            revision: 1,
+            folder: PathBuf::from("/folder"),
+            directories: Vec::new(),
+            file: None,
+            git: GitSnapshot {
+                repositories: vec![GitRepository {
+                    root: PathBuf::from("/folder"),
+                    changes: Vec::new(),
+                    error: Some("Git status timed out. It will retry automatically.".into()),
+                    loading: false,
+                }],
+                scanning: false,
+                error: None,
+            },
+        };
+        let response: Value = serde_json::from_slice(&encode_files(&snapshot).unwrap()).unwrap();
+        assert_eq!(
+            response["git"]["repositories"][0]["error"],
+            "Git status timed out. It will retry automatically."
+        );
+        assert!(response["git"]["error"].is_null());
+    }
 }

@@ -6,35 +6,10 @@ nonisolated struct FileGitSnapshot: Decodable, Equatable, Sendable {
     let error: String?
 }
 
-nonisolated struct FileGitRepository: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct FileGitRepository: Decodable, Equatable, Sendable {
     let root: String
-    let branch: String?
-    let upstream: String?
-    let ahead: UInt64?
-    let behind: UInt64?
     let changes: [FileGitChange]
     let error: String?
-    let loading: Bool
-    var id: String { root }
-
-    var branchLabel: String {
-        branch ?? (loading ? "Reading branch…" : (error == nil ? "Detached HEAD" : "Branch unavailable"))
-    }
-
-    var summary: String {
-        if loading { return "Reading…" }
-        if error != nil { return "Unavailable" }
-        return changes.isEmpty ? "Clean" : "\(changes.count) changed"
-    }
-
-    var history: String {
-        if loading { return "Reading upstream…" }
-        if error != nil { return "Upstream unavailable" }
-        guard let upstream else { return "No upstream configured" }
-        guard let ahead, let behind else { return "Comparison with \(upstream) unavailable" }
-        if ahead == 0 && behind == 0 { return "Up to date with \(upstream)" }
-        return "\(ahead) ahead · \(behind) behind \(upstream)"
-    }
 }
 
 nonisolated struct FileGitDecoration: Decodable, Equatable, Sendable {
@@ -44,14 +19,13 @@ nonisolated struct FileGitDecoration: Decodable, Equatable, Sendable {
     let deleted: Bool
 }
 
-nonisolated struct FileGitChange: Decodable, Equatable, Identifiable, Sendable {
+nonisolated struct FileGitChange: Decodable, Equatable, Sendable {
     let path: String
     let originalPath: String?
     let staged: FileGitChangeKind?
     let unstaged: FileGitChangeKind?
     let conflicted: Bool
     let untracked: Bool
-    var id: String { path }
 
     var summary: String {
         if conflicted { return "Merge conflict" }

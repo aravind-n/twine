@@ -50,21 +50,67 @@ extension TwineUITests {
             .split(whereSeparator: \.isWhitespace).first.flatMap { Int($0) }
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(otherRows), 2)
         attachScreenshot(of: app, named: "Minimum window at 200 percent")
-        verifySmallViewportScrolling(in: app, windowHeight: size.height)
+        verifySmallTracePane(in: app, windowHeight: size.height)
+        verifySmallSidebar(in: app)
     }
 
     @MainActor
-    private func verifySmallViewportScrolling(in app: XCUIApplication, windowHeight: CGFloat) {
+    private func verifySmallSidebar(in app: XCUIApplication) {
+        app.typeKey("0", modifierFlags: .command)
+        resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 302))
+        sidebarToggle(in: app).click()
+        for _ in 0..<5 { app.typeKey("=", modifierFlags: .command) }
+        let sidebar = app.scrollViews["sidebarViewport"]
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["sidebarSection-files"].isHittable)
+        sidebar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .scroll(byDeltaX: 0, deltaY: -800)
+        let memories = app.buttons["memoryEntry-outline"]
+        XCTAssertTrue(memories.isHittable, app.debugDescription)
+        memories.click()
+        sidebar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .scroll(byDeltaX: 0, deltaY: -800)
+        let search = app.textFields["memorySearch"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5), app.debugDescription)
+        for _ in 0..<8 {
+            if search.isHittable, sidebar.frame.contains(search.frame) { break }
+            sidebar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .scroll(byDeltaX: 0, deltaY: 100)
+        }
+        XCTAssertTrue(sidebar.frame.contains(search.frame), app.debugDescription)
+        XCTAssertTrue(search.isHittable, app.debugDescription)
+        search.click()
+        search.typeText("memory")
+        attachScreenshot(of: app, named: "Scrollable sidebar at minimum height and 200 percent")
+    }
+
+    @MainActor
+    private func verifySmallTracePane(in app: XCUIApplication, windowHeight: CGFloat) {
         let viewport = app.scrollViews["workspaceViewport"]
         XCTAssertTrue(viewport.exists, app.debugDescription)
         let traces = app.buttons["tracesHeader"]
-        XCTAssertFalse(traces.isHittable)
-        // Scroll in the window margin, where a terminal won't consume the wheel event.
+        XCTAssertTrue(traces.isHittable)
+        // Workflow scrolling keeps the separate Traces header and footer accessible.
         viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5))
             .scroll(byDeltaX: 0, deltaY: -800)
         XCTAssertTrue(traces.isHittable)
         XCTAssertTrue(app.staticTexts["workflowStatus"].isHittable)
-        attachScreenshot(of: app, named: "Minimum window scrolled to its footer")
+        traces.click()
+        let body = app.scrollViews["tracesBody"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(body.isHittable, app.debugDescription)
+        XCTAssertTrue(traces.isHittable)
+        XCTAssertTrue(app.buttons["tracesDisclosure"].isHittable, app.debugDescription)
+        let viewMode = app.menuButtons["traceViewMode"]
+        XCTAssertTrue(viewMode.isHittable, app.debugDescription)
+        viewMode.click()
+        app.menuItems["In Depth"].click()
+        viewMode.click()
+        app.menuItems["Overview"].click()
+        XCTAssertTrue(app.staticTexts["workflowStatus"].isHittable)
+        attachScreenshot(of: app, named: "Minimum window with Traces open at 200 percent")
+        traces.click()
+        XCTAssertTrue(body.waitForNonExistence(timeout: 5), app.debugDescription)
         for _ in 0..<10 { app.typeKey("-", modifierFlags: .command) }
         XCTAssertTrue(app.buttons["newWorkflow"].isHittable)
         XCTAssertEqual(app.windows.firstMatch.frame.height, windowHeight, accuracy: 2)

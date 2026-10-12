@@ -3,20 +3,24 @@ import SwiftUI
 struct MemorySidebar: View {
     @Bindable var model: MemoryModel
     let folder: String
+    let contentHeight: CGFloat
     let open: () -> Void
     @FocusState private var scopesHaveFocus: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             MemoryHeader(model: model)
-            if model.isExpanded {
-                scopeTabs
-                MemoryFilters(model: model)
-                MemorySourceList(model: model, scope: model.scope, folder: folder, open: open)
-                    .id(model.scope)
-                footer
+            SectionViewport(isExpanded: model.isExpanded, height: contentHeight) {
+                VStack(spacing: 0) {
+                    scopeTabs
+                    MemoryFilters(model: model)
+                    MemorySourceList(model: model, scope: model.scope, folder: folder, open: open)
+                        .id(model.scope)
+                    footer
+                }
             }
-        }.frame(maxHeight: model.isExpanded ? .infinity : nil, alignment: .top)
+        }
+        .onChange(of: model.isExpanded) { if !model.isExpanded { scopesHaveFocus = false } }
     }
 
     private var scopeTabs: some View {
@@ -38,7 +42,7 @@ struct MemorySidebar: View {
 
             }
         }
-        .focusable(interactions: .edit).focused($scopesHaveFocus).focusEffectDisabled()
+        .focusable(model.isExpanded, interactions: .edit).focused($scopesHaveFocus).focusEffectDisabled()
         .onKeyPress(.leftArrow) {
             moveScope(-1)
             return .handled

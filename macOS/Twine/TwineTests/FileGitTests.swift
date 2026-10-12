@@ -5,17 +5,6 @@ import Testing
 
 @MainActor
 struct FileGitTests {
-    @Test(arguments: [true, false])
-    func unavailableRepositoryDoesNotClaimCleanOrMissingUpstream(loading: Bool) throws {
-        let json = """
-            {"root":"/repo","changes":[],"error":"Status pending or unavailable","loading":\(loading)}
-            """
-        let repository = try JSONDecoder().decode(FileGitRepository.self, from: Data(json.utf8))
-        #expect(repository.summary != "Clean")
-        #expect(repository.branchLabel != "Detached HEAD")
-        #expect(repository.history != "No upstream configured")
-    }
-
     @Test func coreBridgePublishesGitStatusWithoutChangingFileContent() async throws {
         let data = TemporaryPath()
         let folder = TemporaryPath()
@@ -45,9 +34,7 @@ struct FileGitTests {
         let snapshot = try #require(observed)
         let repository = try #require(snapshot.git?.repositories.first)
         #expect(repository.root == folder.url.path)
-        #expect(repository.branch == "main")
-        #expect(repository.summary == "1 changed")
-        #expect(repository.history == "No upstream configured")
+        #expect(repository.changes.count == 1)
         let entry = try #require(snapshot.directories.first?.entries.first { $0.path == file.path })
         #expect(entry.git?.change?.staged == .modified)
         #expect(entry.git?.change?.unstaged == .modified)

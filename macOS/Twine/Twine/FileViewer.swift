@@ -182,7 +182,7 @@ struct FileViewer: View {
                 text: Binding(get: { editor.text }, set: { editor.text = $0 }),
                 loadID: editor.loadID, isEditable: editor.isEditable && !showsPreview,
                 isVisible: isVisible && !showsPreview, lineRequest: lineRequest, language: syntaxLanguage,
-                focusesOnShow: editor.memoryRequest == nil || previewFormat != nil)
+                focusesOnShow: !showsGoToLine && (editor.memoryRequest == nil || previewFormat != nil))
         case .binary:
             unavailable("Binary File", "Only UTF-8 text files can be displayed.")
         case .tooLarge:

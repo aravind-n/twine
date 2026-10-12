@@ -28,7 +28,9 @@ extension TwineUITests {
             for: NSPredicate { _, _ in viewport.frame.height > windowedHeight + 100 }, evaluatedWith: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [entered], timeout: 10), .completed, app.debugDescription)
         assertSidebarToolbar(in: app, viewport: viewport)
-        XCTAssertTrue(viewport.frame.contains(app.staticTexts["workflowStatus"].frame), app.debugDescription)
+        let status = app.staticTexts["workflowStatus"]
+        XCTAssertTrue(status.isHittable, app.debugDescription)
+        XCTAssertGreaterThanOrEqual(status.frame.minY, viewport.frame.maxY, app.debugDescription)
 
         let sidebarWidth = viewport.frame.width
         toggle.click()

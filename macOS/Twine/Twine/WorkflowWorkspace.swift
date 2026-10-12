@@ -9,12 +9,16 @@ struct WorkflowWorkspace: View {
     @Environment(CoreClient.self) private var coreClient
     @Environment(WorkflowLayouts.self) private var layouts
     @Environment(FileTabsModel.self) private var fileTabs
+    @Environment(\.appZoom) private var zoom
     let folder: String
     @Binding var selection: WorkflowTabSelection
     let files: FileBrowserModel
+    let contentHeight: CGFloat
+    let designerVisibilityChanged: (Set<UInt64>) -> Void
     var isPresented = true
     @State private var failureMessage: String?
     @State private var isSplitting = false
+    private var scale: CGFloat { zoom?.scale ?? 1 }
 
     private var isVisible: Bool { isPresented && fileTabs.selected == nil }
 
@@ -53,41 +57,13 @@ struct WorkflowWorkspace: View {
                 )
                 TerminalSplitControls(split: split, isEnabled: canSplit)
             }
+            .appZoom()
             .zIndex(1)
-            ZStack {
-                if workflows.isEmpty && isVisible {
-                    ContentUnavailableView(
-                        "No Open Tabs", systemImage: "terminal",
-                        description: Text("Open a workflow with + or ⌘T.")
-                    )
-                    .background(.windowBackground)
-                }
-                WorkflowPaneCanvas(
-                    folder: folder, workflows: allWorkflows, sessionID: sessionID,
-                    selection: $selection, isVisible: isVisible, reportFailure: { failureMessage = $0 },
-                    closePane: close)
-                ForEach(fileTabs.editors) { editor in
-                    let shown = isPresented && editor.id == fileTabs.selectedID
-                    FileViewer(
-                        path: editor.path, folder: editor.folder, failure: files.failure, isVisible: shown,
-                        openFile: { url in
-                            if let request = editor.memoryRequest {
-                                Task {
-                                    do {
-                                        try await fileTabs.openMemoryLink(url, request: request, client: coreClient)
-                                    } catch { failureMessage = error.localizedDescription }
-                                }
-                            } else {
-                                fileTabs.open(path: url.path, folder: folder, navigationURL: url)
-                            }
-                        }
-                    )
-                    .environment(editor)
-                    .opacity(shown ? 1 : 0)
-                    .allowsHitTesting(shown)
-                    .accessibilityHidden(!shown)
-                    .disabled(!shown)
-                }
+            WorkspaceViewport(contentHeight: max(0, contentHeight - WorkflowTabLayout.height) * scale) {
+                workspaceContent
+                    .frame(height: max(0, contentHeight - WorkflowTabLayout.height))
+                    .onPreferenceChange(WorkflowDesignerVisibilityKey.self, perform: designerVisibilityChanged)
+                    .appZoom()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: palette.background))
@@ -98,6 +74,7 @@ struct WorkflowWorkspace: View {
                     .allowsHitTesting(false)
             }
             .terminalPanelShadow()
+            .accessibilityIdentifier("workspaceViewport")
         }
         .task {
             selection.reconcile(sessionID: sessionID, current: workflows.map(\.id))
@@ -122,6 +99,45 @@ struct WorkflowWorkspace: View {
         }
     }
 
+    private var workspaceContent: some View {
+        ZStack {
+            if workflows.isEmpty && isVisible {
+                ContentUnavailableView(
+                    "No Open Tabs", systemImage: "terminal",
+                    description: Text("Open a workflow with + or ⌘T.")
+                )
+                .background(.windowBackground)
+            }
+            WorkflowPaneCanvas(
+                folder: folder, workflows: allWorkflows, sessionID: sessionID,
+                selection: $selection, isVisible: isVisible, reportFailure: { failureMessage = $0 },
+                closePane: close)
+            ForEach(fileTabs.editors) { editor in
+                let shown = isPresented && editor.id == fileTabs.selectedID
+                FileViewer(
+                    path: editor.path, folder: editor.folder, failure: files.failure, isVisible: shown,
+                    openFile: { url in
+                        if let request = editor.memoryRequest {
+                            Task {
+                                do {
+                                    try await fileTabs.openMemoryLink(url, request: request, client: coreClient)
+                                } catch { failureMessage = error.localizedDescription }
+                            }
+                        } else {
+                            fileTabs.open(path: url.path, folder: folder, navigationURL: url)
+                        }
+                    }
+                )
+                .environment(editor)
+                .opacity(shown ? 1 : 0)
+                .allowsHitTesting(shown)
+                .accessibilityHidden(!shown)
+                .disabled(!shown)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var actions: WorkflowActions {
         WorkflowActions(
             create: { Task { await create() } },
@@ -135,7 +151,7 @@ struct WorkflowWorkspace: View {
         )
     }
 
-    private var panelShape: RoundedRectangle { RoundedRectangle(cornerRadius: CornerRadius.panel) }
+    private var panelShape: RoundedRectangle { RoundedRectangle(cornerRadius: CornerRadius.panel * scale) }
 
     private var selectedWorkflow: CoreWorkflow? { workflows.first { $0.id == selection.selectedID } }
 

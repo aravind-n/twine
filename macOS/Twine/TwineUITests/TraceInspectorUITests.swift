@@ -86,8 +86,7 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons[stepID].waitForExistence(timeout: 10))
         app.buttons[stepID].click()
         selectTraceViewMode("In Depth", in: app)
-        app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
-            .scroll(byDeltaX: 0, deltaY: -800)
+        revealInspectorControl(app.textFields["traceActivitySearch"], in: app)
         app.textFields["traceActivitySearch"].click()
         app.textFields["traceActivitySearch"].typeText("LLM call")
         XCTAssertTrue(app.buttons[callID].waitForExistence(timeout: 10))
@@ -96,7 +95,7 @@ extension TwineUITests {
         XCTAssertTrue(fullOutput.waitForExistence(timeout: 5))
         // Relaunch may restore a smaller window. Opening the inspector grows the workspace,
         // so expose its controls using the outer scroll view before XCTest scrolls the inspector.
-        let viewport = app.scrollViews["workspaceViewport"]
+        let viewport = app.scrollViews["tracesBody"]
         let inspector = app.scrollViews["traceActivityInspector"]
         for _ in 0..<6 where !viewport.frame.contains(inspector.frame) {
             viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5))
@@ -113,7 +112,9 @@ extension TwineUITests {
                     format: "value CONTAINS 'END-OF-FULL-RESPONSE'"
                 )
             ).firstMatch.waitForExistence(timeout: 5))
-        app.buttons["traceStorage"].click()
+        let storage = app.buttons["traceStorage"]
+        revealInspectorControl(storage, in: app)
+        storage.click()
         waitForInspectorPin(in: app)
         app.typeKey(.escape, modifierFlags: [])
     }
@@ -123,47 +124,9 @@ extension TwineUITests {
         let pin = inspectorElement("pinTraceDetails", in: app)
         let pinned = expectation(
             for: NSPredicate { _, _ in
-                String(describing: pin.value ?? "") == "1" && pin.isEnabled
+                pin.exists && String(describing: pin.value ?? "") == "1" && pin.isEnabled
             }, evaluatedWith: nil)
         wait(for: [pinned], timeout: 10)
-    }
-
-    private func writeInspectorNativeHistory(in folder: URL) throws {
-        let project = folder.appending(path: "native/projects/fixture")
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        let records: [[String: Any]] = [
-            [
-                "type": "assistant", "uuid": "block-a", "sessionId": "inspector-fixture", "promptId": "inspect",
-                "requestId": "native-response", "timestamp": "2026-10-08T10:00:00.000Z",
-                "message": [
-                    "id": "message", "model": "fixture-model",
-                    "content": [
-                        [
-                            "type": "text",
-                            "text": "Public summary\n" + String(repeating: "☃ Full recorded response\n", count: 300),
-                        ]
-                    ], "usage": ["input_tokens": 120, "output_tokens": 30],
-                ],
-            ],
-            [
-                "type": "assistant", "uuid": "block-b", "sessionId": "inspector-fixture", "promptId": "inspect",
-                "requestId": "native-response", "timestamp": "2026-10-08T10:00:01.000Z",
-                "message": [
-                    "id": "message", "model": "fixture-model",
-                    "content": [["type": "text", "text": "END-OF-FULL-RESPONSE"]], "usage": ["output_tokens": 32],
-                ],
-            ],
-            [
-                "type": "system", "uuid": "compact", "sessionId": "inspector-fixture", "promptId": "inspect",
-                "subtype": "compact_boundary", "timestamp": "2026-10-08T10:00:02.000Z",
-                "compactMetadata": ["trigger": "auto"],
-            ],
-        ]
-        let lines =
-            try records.map { record in
-                try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: record), encoding: .utf8))
-            }.joined(separator: "\n") + "\n"
-        try lines.write(to: project.appending(path: "inspector-fixture.jsonl"), atomically: true, encoding: .utf8)
     }
 
     @MainActor
@@ -245,7 +208,13 @@ extension TwineUITests {
         chart.scroll(byDeltaX: 0, deltaY: -700)
         XCTAssertTrue(final.isHittable, app.debugDescription)
         attachWindow(in: app, name: "Scrollable deep timeline reaches the last tool")
-
+        search.click()
+        search.typeText("cargo test")
+        XCTAssertTrue(call.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(call.isHittable, app.debugDescription)
+        search.click()
+        search.typeKey("a", modifierFlags: .command)
+        search.typeKey(.delete, modifierFlags: [])
     }
 
     @MainActor
@@ -267,9 +236,7 @@ extension TwineUITests {
         returnToLive.click()
         XCTAssertTrue(returnToLive.waitForNonExistence(timeout: 5), app.debugDescription)
         selectTraceViewMode("In Depth", in: app)
-        // Restored windows may be shorter; reveal the deep panel through the outer viewport.
-        app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
-            .scroll(byDeltaX: 0, deltaY: -800)
+        revealInspectorControl(app.textFields["traceActivitySearch"], in: app)
         let search = app.textFields["traceActivitySearch"]
         search.click()
         search.typeText("cargo test")
@@ -280,8 +247,8 @@ extension TwineUITests {
             app.staticTexts.matching(NSPredicate(format: "value CONTAINS 'fixture test failure'")).firstMatch.exists)
         let inspector = app.scrollViews["traceActivityInspector"]
         inspector.scroll(byDeltaX: 0, deltaY: -600)
-        // The inspector adds height after selection; reveal its bottom in the outer viewport too.
-        app.scrollViews["workspaceViewport"].coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        // Reveal the inspector's bottom within the Traces body too.
+        app.scrollViews["tracesBody"].coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
             .scroll(byDeltaX: 0, deltaY: -800)
         XCTAssertTrue(app.buttons["traceActivityJump"].isHittable, app.debugDescription)
         XCTAssertFalse(returnToLive.exists, app.debugDescription)
@@ -290,6 +257,22 @@ extension TwineUITests {
         XCTAssertTrue(returnToLive.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.textViews["terminalHistoryText"].exists, app.debugDescription)
         attachWindow(in: app, name: "Recorded tool details survive relaunch")
+    }
+
+    @MainActor
+    private func revealInspectorControl(_ control: XCUIElement, in app: XCUIApplication) {
+        let viewport = app.scrollViews["tracesBody"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5), app.debugDescription)
+        for _ in 0..<8 {
+            if control.isHittable, viewport.frame.contains(control.frame) { break }
+            let isAbove = control.frame.minY < viewport.frame.minY
+            let delta: CGFloat = isAbove ? 100 : -100
+            // The middle can be covered by a nested chart or inspector scroll view.
+            viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: isAbove ? 0.01 : 0.99))
+                .scroll(byDeltaX: 0, deltaY: delta)
+        }
+        XCTAssertTrue(viewport.frame.contains(control.frame), app.debugDescription)
+        XCTAssertTrue(control.isHittable, app.debugDescription)
     }
 
     @MainActor
@@ -308,84 +291,4 @@ extension TwineUITests {
         model.click()
     }
 
-    private func inspectorFolder() throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appending(
-            path: "TwineInspectorUITests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
-        return folder
-    }
-
-    private func inspectorEvents() -> [[String: Any]] {
-        var events: [[String: Any]] = [
-            ["hook_event_name": "UserPromptSubmit", "prompt": "Inspect parallel coding work"],
-            ["hook_event_name": "SubagentStart", "agent_id": "review", "agent_type": "Reviewer"],
-            ["hook_event_name": "SubagentStart", "agent_id": "tests", "agent_type": "Test runner"],
-            [
-                "hook_event_name": "PreToolUse", "agent_id": "review", "tool_use_id": "read", "tool_name": "Read",
-                "tool_input": ["file_path": "src/main.rs"],
-            ],
-            [
-                "hook_event_name": "PreToolUse", "agent_id": "tests", "tool_use_id": "test", "tool_name": "Bash",
-                "tool_input": ["command": "cargo test"],
-            ],
-            [
-                "hook_event_name": "PostToolUse", "agent_id": "review", "tool_use_id": "read", "tool_name": "Read",
-                "tool_input": ["file_path": "src/main.rs"], "tool_response": "fn main() {}",
-            ],
-            [
-                "hook_event_name": "PostToolUseFailure", "agent_id": "tests", "tool_use_id": "test",
-                "tool_name": "Bash", "tool_input": ["command": "cargo test"], "error": "fixture test failure",
-            ],
-            [
-                "hook_event_name": "SubagentStop", "agent_id": "review", "agent_type": "Reviewer",
-                "last_assistant_message": "Review complete",
-            ],
-            [
-                "hook_event_name": "SubagentStop", "agent_id": "tests", "agent_type": "Test runner",
-                "last_assistant_message": "Failure reported",
-            ],
-        ]
-        for index in 0..<24 {
-            let command = index == 23 ? "printf final-tool" : "printf tool-\(index)"
-            for event in ["PreToolUse", "PostToolUse"] {
-                events.append([
-                    "hook_event_name": event, "tool_use_id": "tool-\(index)", "tool_name": "Bash",
-                    "tool_input": ["command": command], "tool_response": "recorded output \(index)",
-                ])
-            }
-        }
-        events.append(["hook_event_name": "Stop", "last_assistant_message": "Inspection complete"])
-        return events
-    }
-
-    private func writeInspectorAgent(in folder: URL) throws {
-        let lines =
-            try inspectorEvents().map { event in
-                var event = event
-                event["session_id"] = "inspector-fixture"
-                event["prompt_id"] = "inspect"
-                return try XCTUnwrap(
-                    String(
-                        data: JSONSerialization.data(withJSONObject: event, options: [.sortedKeys]), encoding: .utf8))
-            }.joined(separator: "\n") + "\n"
-        try lines.write(to: folder.appending(path: "inspector-events.jsonl"), atomically: true, encoding: .utf8)
-        try #"""
-        case "$1" in --help) exit 0 ;; esac
-        if [ -f inspector-ready ]; then while :; do sleep 1; done; fi
-        while [ "$#" -gt 0 ]; do
-            if [ "$1" = --settings ]; then settings="$2"; break; fi
-            shift
-        done
-        hook=$(/usr/bin/plutil -extract hooks.UserPromptSubmit.0.hooks.0.command raw -o - "$settings")
-        stty -echo
-        printf '❯ Inspect parallel coding work\n'
-        while IFS= read -r event; do
-            printf '%s' "$event" | /bin/sh -c "$hook"
-            printf 'recorded native hook\n'
-        done < inspector-events.jsonl
-        printf 'ready\n' > inspector-ready
-        while :; do sleep 1; done
-        """#.write(to: folder.appending(path: "inspector-stub.txt"), atomically: true, encoding: .utf8)
-    }
 }

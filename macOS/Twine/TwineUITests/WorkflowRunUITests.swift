@@ -76,8 +76,10 @@ extension TwineUITests {
     private func inspectGraphTraceFeedback(in app: XCUIApplication) {
         func item(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
         item("tracesHeader").click()
-        let implementation = item("traceOverview").buttons.matching(
-            NSPredicate(format: "label ENDSWITH %@", "Implementer: Graph · Round 1, Completed")
+        let implementation = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label ENDSWITH %@",
+                "traceSpan-", "Implementer: Graph · Round 1, Completed")
         ).firstMatch
         XCTAssertTrue(implementation.waitForExistence(timeout: 10), app.debugDescription)
         implementation.click()
@@ -89,8 +91,10 @@ extension TwineUITests {
             NSPredicate(format: "label CONTAINS %@", "Graph · Implementer → Reviewer: Initial implementation")
         ).firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 10), app.debugDescription)
-        let review = item("traceOverview").buttons.matching(
-            NSPredicate(format: "label ENDSWITH %@", "Reviewer: Graph · Round 1, Completed")
+        let review = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label ENDSWITH %@",
+                "traceSpan-", "Reviewer: Graph · Round 1, Completed")
         ).firstMatch
         review.click()
         log.scroll(byDeltaX: 0, deltaY: -400)

@@ -9,9 +9,8 @@ import SwiftUI
 
 /// Corner radii, named for the components that use them.
 nonisolated enum CornerRadius {
-    /// All corners of the terminal panel and other rounded solid panels.
+    /// All corners of the terminal panel, the Traces panel, and other rounded solid panels.
     static let panel: CGFloat = 17
-    static let tracesPanel: CGFloat = 7
     static let choicesCard: CGFloat = 14
     static let emptyRecentsCard: CGFloat = 12
     static let graphNode: CGFloat = 12
@@ -43,6 +42,8 @@ nonisolated enum Spacing {
 // MARK: - Folder window layout
 
 nonisolated enum SidebarLayout {
+    /// Keep section headers and memory controls reachable by scrolling in short windows.
+    static let minimumContentHeight: CGFloat = 400
     static let minimumWidth: CGFloat = 245
     static let idealWidth: CGFloat = 285
     static let maximumWidth: CGFloat = 325
@@ -56,7 +57,8 @@ nonisolated enum SidebarLayout {
 
 nonisolated enum TracesLayout {
     static let collapsedHeight: CGFloat = 28
-    static let expandedHeight: CGFloat = collapsedHeight + 224
+    static let expandedHeaderHeight: CGFloat = 48
+    static let expandedHeight: CGFloat = expandedHeaderHeight + 224
     static let detailHeaderHeight: CGFloat = 48
     static let axisHeight: CGFloat = 14
     static let laneHeight: CGFloat = 18
@@ -66,12 +68,15 @@ nonisolated enum TracesLayout {
     static let timelineMinimumViewport: CGFloat = 100
     static let timelineTrailingInset: CGFloat = 14
     static let focusHeaderHeight: CGFloat = 24
-    static let focusRailHeight: CGFloat = 102
+    /// Room for the 10-point tick, lane, and duration labels within the focus cards.
+    static let focusRailHeight: CGFloat = 112
     static let hintHeight: CGFloat = 28
     static let detailMinimumWidth: CGFloat = 280
     static let detailMaximumWidth: CGFloat = 440
     static let headerHorizontalPadding: CGFloat = 12
+    static let expandedHeaderHorizontalPadding: CGFloat = 21
     static let chevronSize: CGFloat = 28
+    static let expandedChevronSize: CGFloat = 26
 }
 
 // MARK: - Surfaces and colors
@@ -280,8 +285,8 @@ nonisolated enum Motion {
     /// The close button fading in over a tab's icon on hover.
     static let tabCloseButton = Animation.easeInOut(duration: 0.12)
     static let scrollToSelectedTab = Animation.easeInOut(duration: 0.18)
-    /// The Traces panel collapsing and expanding.
-    static let tracesToggle = Animation.easeInOut(duration: 0.18)
+    /// Sidebar sections and the Traces panel collapsing and expanding.
+    static let sectionToggle = Animation.smooth(duration: 0.2)
     /// The trace detail panel sliding in from the trailing edge with a fade.
     static let traceDetailPanel = Animation.easeInOut(duration: 0.22)
     /// Typing in a draft tab turns it into a Terminal while the choices card fades out in place.

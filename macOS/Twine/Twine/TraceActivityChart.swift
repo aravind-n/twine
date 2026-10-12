@@ -6,6 +6,7 @@ struct TraceActivityChart: View {
     @Bindable var state: TraceActivityState
     let color: Color
     let now: UInt64
+    @State private var scrollPosition = ScrollPosition(edge: .top)
     private let labelWidth: CGFloat = 160
 
     var body: some View {
@@ -22,6 +23,9 @@ struct TraceActivityChart: View {
                 .frame(width: width)
                 .padding(.horizontal, 12).padding(.bottom, 8)
             }
+            .scrollPosition($scrollPosition)
+            .onChange(of: state.search) { scrollPosition.scrollTo(edge: .top) }
+            .onChange(of: state.failuresOnly) { scrollPosition.scrollTo(edge: .top) }
             .accessibilityIdentifier("traceActivityTimeline")
         }
     }

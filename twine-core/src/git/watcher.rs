@@ -300,7 +300,6 @@ mod tests {
                     }
                     let mut repository = GitRepository::unavailable(path.to_owned(), String::new());
                     repository.error = None;
-                    repository.branch = Some("main".into());
                     Ok(repository)
                 },
                 |snapshot| {
@@ -313,7 +312,8 @@ mod tests {
         assert_eq!(initial.repositories.len(), 2);
         assert!(initial.repositories.iter().all(|repo| repo.loading));
         let ready = published_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        assert_eq!(ready.repositories[0].branch.as_deref(), Some("main"));
+        assert!(!ready.repositories[0].loading);
+        assert!(ready.repositories[0].error.is_none());
         assert!(ready.repositories[1].loading);
         assert!(published_rx.try_recv().is_err());
         release_tx.send(()).unwrap();

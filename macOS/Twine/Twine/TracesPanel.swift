@@ -8,6 +8,8 @@ struct TracesPanel: View {
     let workflows: [CoreWorkflow]
     private var workflowIDs: [UInt64] { workflows.map(\.id) }
     @Binding var isExpanded: Bool
+    let bodyHeight: CGFloat
+    let expandedHeaderHeight: CGFloat
     private var state: TracePanelState { navigation.activity }
     @State private var loadOlderRequested = false
 
@@ -51,26 +53,50 @@ struct TracesPanel: View {
 
     var body: some View {
         @Bindable var state = state
-        return VStack(spacing: 0) {
-            TracesHeader(isExpanded: isExpanded, summary: summary, viewMode: $state.viewMode) {
-                withAnimation(reduceMotion ? nil : Motion.tracesToggle) { isExpanded.toggle() }
-            }
-            if isExpanded {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    if state.viewMode == .inDepth {
-                        inDepthContent(now: TraceFormatting.milliseconds(context.date))
-                    } else {
-                        expandedContent(now: TraceFormatting.milliseconds(context.date))
+        return GeometryReader { geometry in
+            let headerExpansion = expandedHeaderHeight - TracesLayout.collapsedHeight
+            let fullRevealHeight = headerExpansion + bodyHeight
+            let progress =
+                fullRevealHeight > 0
+                ? min(1, max(0, (geometry.size.height - TracesLayout.collapsedHeight) / fullRevealHeight)) : 0
+            let headerHeight = TracesLayout.collapsedHeight + headerExpansion * progress
+            let visibleHeight = max(0, geometry.size.height - headerHeight)
+            VStack(spacing: 0) {
+                TracesHeader(
+                    isExpanded: isExpanded, summary: summary, viewMode: $state.viewMode, height: headerHeight,
+                    toggle: { isExpanded.toggle() })
+                ScrollView {
+                    TimelineView(.animation(minimumInterval: 1, paused: !isExpanded)) { context in
+                        if state.spans.isEmpty {
+                            sequenceContent(now: TraceFormatting.milliseconds(context.date), labelWidth: 0)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(minHeight: bodyHeight)
+                        } else if state.viewMode == .inDepth {
+                            inDepthContent(now: TraceFormatting.milliseconds(context.date))
+                        } else {
+                            expandedContent(now: TraceFormatting.milliseconds(context.date))
+                        }
                     }
+                    .frame(
+                        height: state.spans.isEmpty
+                            ? nil : state.viewMode.expandedHeight - TracesLayout.expandedHeaderHeight)
                 }
-                .frame(height: state.viewMode.expandedHeight - TracesLayout.collapsedHeight)
+                .scrollBounceBehavior(.basedOnSize)
+                .accessibilityIdentifier("tracesBody")
+                .frame(height: bodyHeight)
+                .offset(y: visibleHeight - bodyHeight)
+                .frame(height: visibleHeight, alignment: .top)
                 .clipped()
+                .disabled(visibleHeight <= 0)
+                .allowsHitTesting(isExpanded && visibleHeight > 0)
+                .accessibilityHidden(!isExpanded || visibleHeight <= 0)
             }
+            .frame(width: geometry.size.width, alignment: .leading)
         }
         .background(.windowBackground)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.tracesPanel))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.panel))
         .overlay {
-            RoundedRectangle(cornerRadius: CornerRadius.tracesPanel)
+            RoundedRectangle(cornerRadius: CornerRadius.panel)
                 .strokeBorder(.tracesPanelHairline, lineWidth: Surface.hairlineWidth)
                 .allowsHitTesting(false)
         }
@@ -101,7 +127,7 @@ struct TracesPanel: View {
             navigation.requestedSpanID = nil
         }
         .onChange(of: navigation.selectionRevision) {
-            withAnimation(reduceMotion ? nil : Motion.tracesToggle) { isExpanded = true }
+            isExpanded = true
         }
     }
 
@@ -161,12 +187,16 @@ struct TracesPanel: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if let span = state.selectedSpan, let lane = state.selectedLane {
                     TraceDetailPanel(span: span, lane: lane, state: state, now: now) {
-                        withAnimation(reduceMotion ? nil : Motion.traceDetailPanel) { state.selectedSpanID = nil }
+                        state.selectedSpanID = nil
                     }
+                    .transaction { $0.animation = nil }
                     .frame(width: layout.detailWidth)
+                    .geometryGroup()
+                    .clipped()
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
+            .animation(reduceMotion ? nil : Motion.traceDetailPanel, value: state.selectedSpan != nil)
         }
     }
 
@@ -193,7 +223,7 @@ struct TracesPanel: View {
                     selectedSpanID: state.selectedSpanID, now: now,
                     labelWidth: labelWidth
                 ) { id in
-                    withAnimation(reduceMotion ? nil : Motion.traceDetailPanel) { navigation.selectSpan(id) }
+                    navigation.selectSpan(id)
                 }
                 if navigation.failureMessage != nil || state.failureMessage != nil || state.nextBefore != nil {
                     HStack {

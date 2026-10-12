@@ -15,18 +15,16 @@ extension TwineUITests {
         }
         XCTAssertTrue(app.scrollViews["fileTree"].waitForExistence(timeout: 5))
         let firstSession = app.buttons["sessionRow-1"]
-        XCTAssertTrue(firstSession.exists)
-        sessionAction("Rename Session", app: app)
-        saveSessionName("First", app: app)
-        let renamed = expectation(for: NSPredicate { _, _ in firstSession.label == "First" }, evaluatedWith: nil)
-        wait(for: [renamed], timeout: 5)
+        verifySessionControls(firstSession: firstSession, app: app)
 
         app.buttons["newWorkflow"].click()
         XCTAssertTrue(app.buttons["workflowTab-2"].waitForExistence(timeout: 5))
-        sessionAction("New Session", app: app)
-        saveSessionName("Second", app: app)
+        app.buttons["newSession"].click()
         let secondSession = app.buttons["sessionRow-2"]
         XCTAssertTrue(secondSession.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.textFields["sessionName"].exists)
+        sessionAction("Rename Session", session: secondSession, app: app)
+        saveSessionName("Second", app: app)
         XCTAssertTrue(app.staticTexts["No Open Tabs"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["workflowTab-1"].exists)
         app.buttons["newWorkflow"].click()
@@ -58,6 +56,22 @@ extension TwineUITests {
     }
 
     @MainActor
+    private func verifySessionControls(firstSession: XCUIElement, app: XCUIApplication) {
+        XCTAssertTrue(firstSession.exists)
+        app.buttons["sidebarSection-sessions"].click()
+        XCTAssertTrue(firstSession.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.scrollViews["fileTree"].exists)
+        app.buttons["sidebarSection-sessions"].click()
+        XCTAssertTrue(firstSession.waitForExistence(timeout: 5))
+        firstSession.hover()
+        app.menuButtons["sessionActions-1"].click()
+        app.menuItems["Rename Session"].click()
+        saveSessionName("First", app: app)
+        let renamed = expectation(for: NSPredicate { _, _ in firstSession.label == "First" }, evaluatedWith: nil)
+        wait(for: [renamed], timeout: 5)
+    }
+
+    @MainActor
     private func startSessionShell(app: XCUIApplication, folder: URL) {
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
         app.typeText("exec /bin/sh\r")
@@ -83,12 +97,12 @@ extension TwineUITests {
 
     @MainActor
     private func deleteSessions(app: XCUIApplication) {
-        sessionAction("Delete Session", app: app)
+        sessionAction("Delete Session", session: app.buttons["sessionRow-2"], app: app)
         confirmDeleteSession(app: app)
         XCTAssertTrue(app.buttons["sessionRow-2"].waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["workflowTab-2"].exists)
-        sessionAction("Delete Session", app: app)
+        sessionAction("Delete Session", session: app.buttons["sessionRow-1"], app: app)
         confirmDeleteSession(app: app)
         XCTAssertTrue(app.buttons["sessionRow-1"].waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["No Open Tabs"].waitForExistence(timeout: 5))
@@ -109,8 +123,8 @@ extension TwineUITests {
     }
 
     @MainActor
-    private func sessionAction(_ title: String, app: XCUIApplication) {
-        app.descendants(matching: .any).matching(identifier: "sessionsActions").firstMatch.click()
+    private func sessionAction(_ title: String, session: XCUIElement, app: XCUIApplication) {
+        session.rightClick()
         app.menuItems[title].click()
     }
 

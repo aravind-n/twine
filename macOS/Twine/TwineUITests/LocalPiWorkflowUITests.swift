@@ -49,7 +49,8 @@ extension TwineUITests {
             _ = try livePiProcesses(fixture)
         }
         item("tracesHeader").click()
-        XCTAssertTrue(item("traceOverview").waitForExistence(timeout: 10), app.debugDescription)
+        let steps = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "traceSpan-"))
+        XCTAssertTrue(steps.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         attachScreenshot(of: app, named: "Real Pi completed workflow and traces")
     }
 

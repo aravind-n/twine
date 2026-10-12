@@ -69,19 +69,25 @@ extension TwineUITests {
         app.buttons["goToLine"].click()
         let line = app.textFields["lineNumber"]
         XCTAssertTrue(line.waitForExistence(timeout: 5))
-        let lineHeight = line.frame.height
         line.click()
+        line.typeText("2")
+        line.typeKey("a", modifierFlags: .command)
+        line.typeText("1")
+        XCTAssertEqual(line.value as? String, "1")
+        let lineHeight = line.frame.height
+        line.typeKey("a", modifierFlags: .command)
         app.typeKey("=", modifierFlags: .command)
         app.typeKey("=", modifierFlags: .command)
         waitForZoomHeight(lineHeight * 1.25, of: line)
         line.typeText("2")
+        XCTAssertEqual(line.value as? String, "2")
         app.buttons["confirmGoToLine"].click()
-        app.descendants(matching: .any).matching(identifier: "sessionsActions").firstMatch.click()
-        app.menuItems["New Session"].click()
+        app.buttons["sessionRow-1"].rightClick()
+        app.menuItems["Rename Session"].click()
         let sessionName = app.textFields["sessionName"]
         XCTAssertTrue(sessionName.waitForExistence(timeout: 5))
-        let sheetHeight = sessionName.frame.height
         sessionName.click()
+        let sheetHeight = sessionName.frame.height
         app.typeKey("0", modifierFlags: .command)
         waitForZoomHeight(sheetHeight / 1.25, of: sessionName)
         attachScreenshot(of: app, named: "Session sheet follows interface zoom")

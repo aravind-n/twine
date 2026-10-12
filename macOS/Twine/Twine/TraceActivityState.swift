@@ -1,15 +1,6 @@
 import Foundation
 import Observation
 
-nonisolated enum TraceViewMode: String, CaseIterable, Identifiable {
-    case overview = "Overview"
-    case inDepth = "In Depth"
-    var id: Self { self }
-    var expandedHeight: CGFloat {
-        self == .overview ? TracesLayout.expandedHeight : TracesLayout.collapsedHeight + 384
-    }
-}
-
 @MainActor
 @Observable
 final class TraceActivityState {

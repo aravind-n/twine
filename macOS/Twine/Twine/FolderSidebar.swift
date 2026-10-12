@@ -7,10 +7,13 @@ private let sessionLogger = Logger(subsystem: "com.twineproject.Twine", category
 struct FolderSidebar: View {
     @Environment(CoreClient.self) private var coreClient
     @Environment(FileTabsModel.self) private var fileTabs
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let path: String
     @Bindable var files: FileBrowserModel
     @Bindable var memories: MemoryModel
-    @State private var editor: SessionEditor?
+    @State private var isFilesExpanded = true
+    @State private var isSessionsExpanded = true
+    @State private var sessionToRename: CoreSession?
     @State private var pendingDeletion: CoreSession?
     @State private var failureMessage: String?
 
@@ -20,63 +23,64 @@ struct FolderSidebar: View {
     private var selectedSession: CoreSession? { coreClient.snapshot?.workflows.session }
 
     var body: some View {
-        VStack(spacing: 0) {
-            sectionHeader("Files") {
-                Button("Collapse All", systemImage: "arrow.up.left.and.arrow.down.right", action: files.collapseAll)
-            }
-            FileTree(folder: path, model: files)
-                .frame(maxHeight: memories.isExpanded ? 0 : .infinity)
-                .clipped().allowsHitTesting(!memories.isExpanded).accessibilityHidden(memories.isExpanded)
-            Divider().padding(.horizontal, SidebarLayout.contentInset)
-            sectionHeader("Sessions") {
-                Button("New Session", systemImage: "plus") { create() }
-                    .accessibilityIdentifier("newSession")
-                if let selectedSession {
-                    Divider()
-                    Button("Rename Session", systemImage: "pencil") { rename(selectedSession) }
-                    Button("Delete Session", systemImage: "trash", role: .destructive) {
-                        pendingDeletion = selectedSession
-                    }
-                }
-            }
+        GeometryReader { geometry in
+            let contentHeight = max(geometry.size.height, SidebarLayout.minimumContentHeight)
+            let availableHeight = contentHeight - 3 * SidebarLayout.sectionHeaderHeight - 2
+            let expandedCount = (isFilesExpanded ? 1 : 0) + (isSessionsExpanded ? 1 : 0)
+            let sectionHeight = availableHeight / CGFloat(max(1, expandedCount))
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(sessions) { session in sessionRow(session) }
-                    if sessions.isEmpty {
-                        Button("New Session", systemImage: "plus") { create() }
-                            .buttonStyle(.plain)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, SidebarLayout.rowInset)
-                            .frame(height: SidebarLayout.rowHeight)
+                VStack(spacing: 0) {
+                    sectionHeader("Files", isExpanded: $isFilesExpanded) { EmptyView() }
+                    SectionViewport(isExpanded: isFilesExpanded && !memories.isExpanded, height: sectionHeight) {
+                        FileTree(folder: path, model: files)
+                    }
+                    Divider().frame(height: 1).padding(.horizontal, SidebarLayout.contentInset)
+                    sectionHeader("Sessions", isExpanded: $isSessionsExpanded) {
+                        Button(action: create) {
+                            Image(systemName: "plus").font(.system(size: 11, weight: .semibold))
+                                .frame(width: 26, height: 26)
+                        }
+                        .buttonStyle(.plain).help("New Session")
+                        .accessibilityLabel("New Session").accessibilityIdentifier("newSession")
+                    }
+                    SectionViewport(isExpanded: isSessionsExpanded && !memories.isExpanded, height: sectionHeight) {
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(sessions) { session in
+                                    SessionRow(
+                                        session: session,
+                                        isSelected: fileTabs.selected == nil && selectedSession?.id == session.id,
+                                        select: {
+                                            fileTabs.showWorkflows()
+                                            run { try await coreClient.selectSession(sessionID: session.id) }
+                                        },
+                                        rename: { sessionToRename = session }, delete: { pendingDeletion = session })
+                                }
+                            }
+                            .padding(.horizontal, SidebarLayout.contentInset)
+                        }
+                    }
+                    Divider().frame(height: 1).padding(.horizontal, SidebarLayout.contentInset)
+                    MemorySidebar(model: memories, folder: path, contentHeight: availableHeight) {
+                        guard let source = memories.selected else { return }
+                        let request = memories.request(folder: path, sourceID: source.id)
+                        Task {
+                            do { try await fileTabs.openMemory(request: request, client: coreClient) } catch {
+                                memories.openFailure = error.localizedDescription
+                            }
+                        }
                     }
                 }
-                .padding(.horizontal, SidebarLayout.contentInset)
+                .frame(height: contentHeight, alignment: .top)
             }
-            .frame(maxHeight: memories.isExpanded ? 0 : .infinity)
-            .clipped().allowsHitTesting(!memories.isExpanded).accessibilityHidden(memories.isExpanded)
-            Divider().padding(.horizontal, SidebarLayout.contentInset)
-            MemorySidebar(model: memories, folder: path) {
-                guard let source = memories.selected else { return }
-                let request = memories.request(folder: path, sourceID: source.id)
-                Task {
-                    do { try await fileTabs.openMemory(request: request, client: coreClient) } catch {
-                        memories.openFailure = error.localizedDescription
-                    }
-                }
-            }
+            .scrollBounceBehavior(.basedOnSize)
+            .accessibilityIdentifier("sidebarViewport")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .sheet(item: $editor) { editor in
-            SessionNameForm(editor: editor) { name in
-                run {
-                    if let sessionID = editor.sessionID {
-                        try await coreClient.renameSession(sessionID: sessionID, name: name)
-                    } else {
-                        _ = try await coreClient.createSession(folder: path, name: name)
-                    }
-                }
+        .clipped()
+        .sheet(item: $sessionToRename) { session in
+            SessionNameForm(name: session.name) { name in
+                run { try await coreClient.renameSession(sessionID: session.id, name: name) }
             }
             .appZoom()
         }
@@ -103,67 +107,49 @@ struct FolderSidebar: View {
         }
     }
 
-    private func sectionHeader<Actions: View>(_ title: String, @ViewBuilder actions: () -> Actions) -> some View {
-        HStack {
+    private func sectionHeader<Actions: View>(
+        _ title: String, isExpanded: Binding<Bool>, @ViewBuilder actions: () -> Actions
+    ) -> some View {
+        let expanded = isExpanded.wrappedValue && !memories.isExpanded
+        return HStack {
             Button {
-                memories.isExpanded = false
-                if title == "Sessions" {
-                    fileTabs.showWorkflows()
+                withAnimation(reduceMotion ? nil : Motion.sectionToggle) {
+                    if memories.isExpanded {
+                        memories.isExpanded = false
+                        isExpanded.wrappedValue = true
+                    } else {
+                        isExpanded.wrappedValue.toggle()
+                    }
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: memories.isExpanded ? "chevron.right" : "chevron.down")
+                    Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold)).frame(width: 10)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
                     Text(title).sidebarSectionLabelStyle()
                     Spacer(minLength: 0)
-                }.contentShape(.rect)
+                }
+                .frame(height: SidebarLayout.sectionHeaderHeight).contentShape(.rect)
             }.buttonStyle(.plain).accessibilityIdentifier("sidebarSection-\(title.lowercased())")
-                .help(memories.isExpanded ? "Show \(title)" : title)
-            Menu(content: actions) {
-                Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold)).frame(width: 26, height: 26)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .frame(width: 26, height: 26)
-            .accessibilityLabel("\(title) Actions")
-            .accessibilityIdentifier("\(title.lowercased())Actions")
+                .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+                .help("\(expanded ? "Collapse" : "Expand") \(title)")
+            actions()
         }
-        .frame(height: memories.isExpanded ? 36 : SidebarLayout.sectionHeaderHeight)
+        .frame(height: SidebarLayout.sectionHeaderHeight)
         .padding(.horizontal, SidebarLayout.sectionHeaderPadding)
     }
 
-    private func sessionRow(_ session: CoreSession) -> some View {
-        let selected = fileTabs.selected == nil && selectedSession?.id == session.id
-        return Button {
-            fileTabs.showWorkflows()
-            run { try await coreClient.selectSession(sessionID: session.id) }
-        } label: {
-            HStack(spacing: 4) {
-                Color.clear.frame(width: 11)
-                Image(systemName: "rectangle.stack").frame(width: 16).foregroundStyle(.secondary).accessibilityHidden(
-                    true)
-                Text(session.name).lineLimit(1).truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private func create() {
+        let name = "Session \(sessions.count + 1)"
+        run {
+            _ = try await coreClient.createSession(folder: path, name: name)
+            withAnimation(reduceMotion ? nil : Motion.sectionToggle) {
+                isSessionsExpanded = true
+                memories.isExpanded = false
             }
-            .font(.system(size: SidebarLayout.rowFontSize, weight: selected ? .medium : .regular))
-            .padding(.horizontal, SidebarLayout.rowInset)
-            .frame(height: SidebarLayout.rowHeight)
-            .contentShape(.rect)
-            .background(selected ? Color.fileSelection : .clear, in: .rect(cornerRadius: CornerRadius.fileRowSelection))
-        }
-        .buttonStyle(.plain)
-        .help(session.name)
-        .accessibilityIdentifier("sessionRow-\(session.id)")
-        .accessibilityValue(selected ? "Selected" : "")
-        .contextMenu {
-            Button("Rename Session", systemImage: "pencil") { rename(session) }
-            Button("Delete Session", systemImage: "trash", role: .destructive) { pendingDeletion = session }
+            fileTabs.showWorkflows()
         }
     }
-
-    private func create() { editor = SessionEditor(sessionID: nil, name: "Session \(sessions.count + 1)") }
-    private func rename(_ session: CoreSession) { editor = SessionEditor(sessionID: session.id, name: session.name) }
 
     private func run(_ operation: @escaping @MainActor () async throws -> Void) {
         Task {
@@ -172,51 +158,5 @@ struct FolderSidebar: View {
                 sessionLogger.error("Could not update session: \(error.localizedDescription, privacy: .public)")
             }
         }
-    }
-}
-
-private struct SessionEditor: Identifiable {
-    let id = UUID()
-    let sessionID: UInt64?
-    let name: String
-}
-
-private struct SessionNameForm: View {
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var isFocused: Bool
-    let editor: SessionEditor
-    let save: (String) -> Void
-    @State private var name: String
-
-    init(editor: SessionEditor, save: @escaping (String) -> Void) {
-        self.editor = editor
-        self.save = save
-        _name = State(initialValue: editor.name)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(editor.sessionID == nil ? "New Session" : "Rename Session").font(.headline)
-            TextField("Session name", text: $name).focused($isFocused).accessibilityIdentifier("sessionName")
-                .onSubmit(submit)
-            Text("Press Return or ⌘S to \(editor.sessionID == nil ? "create" : "rename") the session.")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-            }
-        }
-        .padding(24)
-        .frame(width: 340)
-        .onAppear { isFocused = true }
-        .focusedSceneValue(
-            \.saveAction,
-            SaveAction(isEnabled: { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }, perform: submit))
-    }
-
-    private func submit() {
-        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        save(name)
-        dismiss()
     }
 }

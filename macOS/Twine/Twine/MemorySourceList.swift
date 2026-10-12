@@ -81,7 +81,8 @@ struct MemorySourceList: View {
             .onChange(of: model.selectedID) {
                 if model.scope == scope, let selected = model.selectedID { proxy.scrollTo(selected) }
             }
-            .focusable(interactions: .edit).focused($hasFocus).focusEffectDisabled()
+            .focusable(model.isExpanded, interactions: .edit).focused($hasFocus).focusEffectDisabled()
+            .onChange(of: model.isExpanded) { if !model.isExpanded { hasFocus = false } }
             .onKeyPress(.upArrow) {
                 moveSelection(-1)
                 return .handled

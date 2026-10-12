@@ -17,10 +17,6 @@ pub struct GitSnapshot {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GitRepository {
     pub root: PathBuf,
-    pub branch: Option<String>,
-    pub upstream: Option<String>,
-    pub ahead: Option<u64>,
-    pub behind: Option<u64>,
     pub changes: Vec<GitChange>,
     pub error: Option<String>,
     pub loading: bool,
@@ -30,10 +26,6 @@ impl GitRepository {
     pub(crate) fn unavailable(root: PathBuf, message: String) -> Self {
         Self {
             root,
-            branch: None,
-            upstream: None,
-            ahead: None,
-            behind: None,
             changes: Vec::new(),
             error: Some(message),
             loading: false,
@@ -111,28 +103,19 @@ pub(crate) enum StatusError {
 }
 
 pub(crate) fn read(root: &Path) -> Result<GitRepository, StatusError> {
-    let mut command = Command::new("git");
-    command.args([
-        "--no-optional-locks",
-        "-c",
-        "core.fsmonitor=false",
-        "-c",
-        "core.untrackedCache=false",
-        "-c",
-        "status.renames=true",
-        "status",
-        "--porcelain=v2",
-        "-z",
-        "--branch",
-        "--untracked-files=all",
-        "--ignore-submodules=none",
-    ]);
-    for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("GIT_") {
-            command.env_remove(key);
-        }
-    }
-    command.env("GIT_OPTIONAL_LOCKS", "0");
+    read_command(root, Command::new("git"))
+}
+
+fn read_command(root: &Path, mut command: Command) -> Result<GitRepository, StatusError> {
+    command
+        .args(["status", "--porcelain=v2", "-z"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES");
     parse(root, &run(root, command, Duration::from_secs(2))?)
 }
 
@@ -204,35 +187,23 @@ fn path(root: &Path, value: &str) -> Result<PathBuf, StatusError> {
 
 fn parse(root: &Path, bytes: &[u8]) -> Result<GitRepository, StatusError> {
     let text = std::str::from_utf8(bytes).map_err(|_| StatusError::InvalidOutput)?;
-    let mut repository = GitRepository::unavailable(root.to_owned(), String::new());
-    repository.error = None;
     let mut records = text.split_terminator('\0');
     let mut changes = BTreeMap::<PathBuf, GitChange>::new();
-    for_record(&mut records, &mut repository, &mut changes)?;
-    repository.changes = changes.into_values().collect();
-    Ok(repository)
+    for_record(&mut records, root, &mut changes)?;
+    Ok(GitRepository {
+        root: root.to_owned(),
+        changes: changes.into_values().collect(),
+        error: None,
+        loading: false,
+    })
 }
 
 fn for_record<'a>(
     records: &mut impl Iterator<Item = &'a str>,
-    repository: &mut GitRepository,
+    root: &Path,
     changes: &mut BTreeMap<PathBuf, GitChange>,
 ) -> Result<(), StatusError> {
     while let Some(record) = records.next() {
-        if let Some(head) = record.strip_prefix("# branch.head ") {
-            repository.branch = (head != "(detached)").then(|| head.to_owned());
-            continue;
-        }
-        if let Some(upstream) = record.strip_prefix("# branch.upstream ") {
-            repository.upstream = Some(upstream.to_owned());
-            continue;
-        }
-        if let Some(ab) = record.strip_prefix("# branch.ab ") {
-            let (ahead, behind) = ab.split_once(' ').ok_or(StatusError::InvalidOutput)?;
-            repository.ahead = ahead.strip_prefix('+').and_then(|n| n.parse().ok());
-            repository.behind = behind.strip_prefix('-').and_then(|n| n.parse().ok());
-            continue;
-        }
         if record.starts_with('#') {
             continue;
         }
@@ -262,7 +233,7 @@ fn for_record<'a>(
         if fields.len() != expected {
             return Err(StatusError::InvalidOutput);
         }
-        let file = path(&repository.root, fields[expected - 1])?;
+        let file = path(root, fields[expected - 1])?;
         let change = changes.entry(file.clone()).or_insert(GitChange {
             path: file,
             original_path: None,
@@ -290,7 +261,7 @@ fn for_record<'a>(
         }
         if tag == b'2' {
             change.original_path = Some(path(
-                &repository.root,
+                root,
                 records.next().ok_or(StatusError::InvalidOutput)?,
             )?);
         }
@@ -348,8 +319,6 @@ pub(crate) mod tests {
         fs::write(root.join("ignored"), "ignored").unwrap();
         let index = fs::read(root.join(".git/index")).unwrap();
         let snapshot = read(root).unwrap();
-        assert_eq!(snapshot.branch.as_deref(), Some("main"));
-        assert_eq!(snapshot.upstream, None);
         let change = snapshot
             .changes
             .iter()
@@ -392,23 +361,126 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn clean_ahead_detached_unborn_and_conflicted_are_distinct() {
+    fn ignores_inherited_repository_storage_but_preserves_configuration() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        init(root);
+        let alternate = root.join(".git/alternate-index");
+        fs::copy(root.join(".git/index"), &alternate).unwrap();
+        fs::write(root.join("README.md"), "changed\n").unwrap();
+        fs::write(root.join("new.txt"), "untracked\n").unwrap();
+        let output = Command::new("git")
+            .env("GIT_INDEX_FILE", &alternate)
+            .args(["add", "README.md"])
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let index = fs::read(root.join(".git/index")).unwrap();
+        let mut command = Command::new("git");
+        command
+            .env("GIT_DIR", root.join("missing"))
+            .env("GIT_WORK_TREE", root.join("missing"))
+            .env("GIT_COMMON_DIR", root.join("missing"))
+            .env("GIT_INDEX_FILE", &alternate)
+            .env("GIT_OBJECT_DIRECTORY", root.join("missing"))
+            .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", root.join("missing"))
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "status.showUntrackedFiles")
+            .env("GIT_CONFIG_VALUE_0", "no");
+        let snapshot = read_command(root, command).unwrap();
+        assert_eq!(snapshot.changes.len(), 1);
+        assert_eq!(snapshot.changes[0].path, root.join("README.md"));
+        assert_eq!(snapshot.changes[0].staged, None);
+        assert_eq!(snapshot.changes[0].unstaged, Some(GitChangeKind::Modified));
+        assert_eq!(fs::read(root.join(".git/index")).unwrap(), index);
+    }
+
+    #[test]
+    fn follows_repository_rename_and_untracked_settings() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        init(root);
+        git(root, &["mv", "README.md", "renamed.md"]);
+        git(root, &["config", "status.renames", "true"]);
+        assert_eq!(
+            read(root).unwrap().changes[0].staged,
+            Some(GitChangeKind::Renamed)
+        );
+        git(root, &["config", "status.renames", "false"]);
+        let snapshot = read(root).unwrap();
+        assert_eq!(snapshot.changes.len(), 2);
+        assert!(
+            snapshot
+                .changes
+                .iter()
+                .any(|c| c.staged == Some(GitChangeKind::Added))
+        );
+        assert!(
+            snapshot
+                .changes
+                .iter()
+                .any(|c| c.staged == Some(GitChangeKind::Deleted))
+        );
+        git(root, &["reset", "--hard", "HEAD"]);
+        fs::create_dir(root.join("new-directory")).unwrap();
+        fs::write(root.join("new-directory/file.txt"), "new\n").unwrap();
+        git(root, &["config", "status.showUntrackedFiles", "no"]);
+        assert_eq!(read(root).unwrap().changes, []);
+        git(root, &["config", "status.showUntrackedFiles", "normal"]);
+        assert_eq!(
+            read(root).unwrap().changes[0].path,
+            root.join("new-directory")
+        );
+        git(root, &["config", "status.showUntrackedFiles", "all"]);
+        assert_eq!(
+            read(root).unwrap().changes[0].path,
+            root.join("new-directory/file.txt")
+        );
+    }
+
+    #[test]
+    fn follows_repository_submodule_ignore_settings() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        init(root);
+        init(source.path());
+        git(
+            root,
+            &[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                source.path().to_str().unwrap(),
+                "module",
+            ],
+        );
+        git(root, &["commit", "-am", "add module"]);
+        fs::write(root.join("module/README.md"), "dirty\n").unwrap();
+        git(root, &["config", "submodule.module.ignore", "none"]);
+        assert_eq!(read(root).unwrap().changes[0].path, root.join("module"));
+        git(root, &["config", "submodule.module.ignore", "all"]);
+        assert_eq!(read(root).unwrap().changes, []);
+    }
+
+    #[test]
+    fn reads_changes_in_unborn_detached_and_conflicted_checkouts() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
         git(root, &["init", "-b", "main"]);
-        assert_eq!(read(root).unwrap().branch.as_deref(), Some("main"));
+        assert_eq!(read(root).unwrap().changes, []);
         fs::write(root.join("file"), "base\n").unwrap();
         git(root, &["add", "."]);
         git(root, &["commit", "-m", "base"]);
         git(root, &["branch", "upstream"]);
-        git(root, &["branch", "--set-upstream-to=upstream"]);
         fs::write(root.join("file"), "main\n").unwrap();
         git(root, &["commit", "-am", "main"]);
         let clean = read(root).unwrap();
         assert_eq!(clean.changes, []);
-        assert_eq!(clean.ahead, Some(1));
         git(root, &["checkout", "--detach"]);
-        assert_eq!(read(root).unwrap().branch, None);
+        assert_eq!(read(root).unwrap().changes, []);
         git(root, &["checkout", "upstream"]);
         fs::write(root.join("file"), "other\n").unwrap();
         git(root, &["commit", "-am", "other"]);

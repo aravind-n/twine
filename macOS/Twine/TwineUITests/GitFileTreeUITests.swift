@@ -25,10 +25,8 @@ extension TwineUITests {
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 1100, height: 850))
-        waitForGit("3 changed", at: desktop, in: app)
-        XCTAssertFalse(gitBadge(folder, in: app).exists)
-        XCTAssertFalse(app.segmentedControls["File navigation"].exists)
-        XCTAssertTrue((gitBadge(desktop, in: app).value as? String ?? "").contains("feature/sidebar"))
+        waitForGit("Contains Git changes", at: desktop, in: app)
+        verifyGitDirectoryPresentation(repository: desktop, folder: folder, app: app)
         fileRow(desktop, in: app).click()
         waitForGit("Staged: Modified; Unstaged: Modified", at: readme, in: app)
         waitForGit("Untracked", at: desktop.appending(path: "new.txt"), in: app)
@@ -36,7 +34,7 @@ extension TwineUITests {
         waitForGit("Unstaged: Deleted", at: deleted, in: app)
         verifyGitFileDetails(readme: readme, deleted: deleted, app: app)
         fileRow(services, in: app).click()
-        waitForGit("1 changed", at: api, in: app)
+        waitForGit("Contains Git changes", at: api, in: app)
         fileRow(api, in: app).click()
         let apiReadme = api.appending(path: "README.txt")
         waitForGit("Unstaged: Modified", at: apiReadme, in: app)
@@ -49,10 +47,10 @@ extension TwineUITests {
         attachWindow(in: app, name: "Git status in Files across repositories")
         try runGit(desktop, ["add", "-A"])
         try runGit(desktop, ["commit", "-m", "changes"])
-        waitForGit("Clean", at: desktop, in: app)
+        XCTAssertTrue(gitBadge(desktop, in: app).waitForNonExistence(timeout: 8))
         XCTAssertTrue(gitBadge(readme, in: app).waitForNonExistence(timeout: 8))
         XCTAssertTrue(fileRow(deleted, in: app).waitForNonExistence(timeout: 8))
-        waitForGit("1 changed", at: api, in: app)
+        waitForGit("Contains Git changes", at: api, in: app)
         app.terminate()
     }
 
@@ -79,17 +77,41 @@ extension TwineUITests {
         XCTAssertTrue(gitBadge(readme, in: app).isHittable)
         attachWindow(in: app, name: "Git conflict in a narrow light window")
         try runGit(folder, ["merge", "--abort"])
-        waitForGit("Clean", at: folder, in: app)
+        XCTAssertTrue(gitBadge(folder, in: app).waitForNonExistence(timeout: 8))
+        try "working tree change\n".write(to: readme, atomically: true, encoding: .utf8)
+        waitForGit("Contains Git changes", at: folder, in: app)
         let head = folder.appending(path: ".git/HEAD")
         let savedHead = try Data(contentsOf: head)
         try FileManager.default.removeItem(at: head)
-        waitForGit("Unavailable", at: folder, in: app)
+        XCTAssertTrue(gitBadge(folder, in: app).waitForNonExistence(timeout: 8))
+        let statusError = app.staticTexts.matching(
+            NSPredicate(format: "identifier == %@", "gitStatusError-\(folder.path)")
+        ).firstMatch
+        XCTAssertTrue(statusError.waitForExistence(timeout: 8))
         XCTAssertTrue(fileRow(readme, in: app).exists)
         try savedHead.write(to: head)
-        waitForGit("Clean", at: folder, in: app)
+        waitForGit("Contains Git changes", at: folder, in: app)
+        waitForGit("Unstaged: Modified", at: readme, in: app)
+        XCTAssertTrue(statusError.waitForNonExistence(timeout: 8))
         try runGit(folder, ["checkout", "-b", "fresh-branch"])
-        waitForGit("fresh-branch", at: folder, in: app)
+        waitForGit("Contains Git changes", at: folder, in: app)
+        XCTAssertFalse(app.scrollViews["fileTree"].staticTexts["fresh-branch"].exists)
         app.terminate()
+    }
+
+    @MainActor
+    private func verifyGitDirectoryPresentation(repository: URL, folder: URL, app: XCUIApplication) {
+        app.buttons["sidebarSection-files"].click()
+        XCTAssertTrue(fileRow(repository, in: app).waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["sessionRow-1"].exists)
+        app.buttons["sidebarSection-files"].click()
+        XCTAssertTrue(fileRow(repository, in: app).waitForExistence(timeout: 5))
+        XCTAssertFalse(gitBadge(folder, in: app).exists)
+        XCTAssertFalse(app.segmentedControls["File navigation"].exists)
+        XCTAssertNotEqual(gitBadge(repository, in: app).elementType, .button)
+        XCTAssertFalse(app.scrollViews["fileTree"].staticTexts["feature/sidebar"].exists)
+        gitBadge(repository, in: app).click()
+        XCTAssertFalse(app.staticTexts["Repository status"].exists)
     }
 
     @MainActor
@@ -109,14 +131,18 @@ extension TwineUITests {
 
     @MainActor
     private func gitBadge(_ path: URL, in app: XCUIApplication) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "identifier == %@", "gitStatus-\(path.path)")).firstMatch
+        app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@", "gitStatus-\(path.path)")
+        ).firstMatch
     }
 
     @MainActor
     private func waitForGit(_ value: String, at path: URL, in app: XCUIApplication) {
         let badge = gitBadge(path, in: app)
         let ready = expectation(
-            for: NSPredicate { _, _ in badge.exists && (badge.value as? String ?? "").contains(value) },
+            for: NSPredicate { _, _ in
+                badge.exists && (badge.label + (badge.value as? String ?? "")).contains(value)
+            },
             evaluatedWith: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 12), .completed, app.debugDescription)
     }

@@ -7,7 +7,9 @@ struct MemoryViewPreview: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            MemorySidebar(model: model, folder: NSHomeDirectory()) {
+            MemorySidebar(
+                model: model, folder: NSHomeDirectory(), contentHeight: 650 - SidebarLayout.sectionHeaderHeight
+            ) {
                 guard let source = model.selected else { return }
                 Task {
                     try? await tabs.openMemory(

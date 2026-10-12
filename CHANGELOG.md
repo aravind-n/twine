@@ -9,78 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Show Git changes directly in Files, including staged and unstaged edits,
-  untracked files, renames, deletions, and conflicts. Repository folders show
-  their branch and change count, with independent status for multiple repositories
-  inside an opened folder. Click a badge for details; Git status is read-only and
-  limited to primary checkouts for now.
+- Show Git status beside files and dots beside folders with changes.
 
 ### Changed
 
-- Traces uses a compact header and tighter bottom spacing, giving terminals more
-  room above the separate status footer. Small trace labels use 10-point text
-  for better readability.
-- The folder name and path share one titlebar line aligned with the workflow
-  strip. A shorter workflow tab row and less space above it give terminals more
-  room. The sidebar button retains its standard native proportions, and the
-  sidebar uses the native translucent material.
-- Workflow creation and terminal split buttons have larger click targets within
-  the compact workflow row.
+- Use a compact closed Traces header and larger trace labels.
+- Show the folder name and path on one titlebar line. A shorter workflow strip
+  and tighter spacing give terminals more room.
+- Make workflow creation and terminal split buttons easier to click.
+
+### Removed
+
+- The Collapse All menu in the Files header.
+
+### Fixed
+
+- Fix incorrect session controls in the sidebar.
+- Fix Files and Sessions collapsing, with matching sidebar headings and smooth
+  section animations.
+- Improve Traces opening, closing, and detail-panel animations.
+- Keep sidebar and Traces controls reachable in small windows.
+- Keep matching trace activities visible when filtering.
+- Fix Go to Line losing focus when zooming.
 
 ## [0.3.0] - 2026-10-11
 
 ### Added
 
-- Create workflow graphs in a native editor that fills the tab. Agent cards have
-  system colors and badges that show where work starts and results return. The
-  dotted canvas has zoom, Fit, and undo. Fit includes feedback links and event labels.
-- Double-click empty canvas space to add an agent. Right-click for canvas tools
-  or to duplicate an agent. Click an agent or link to edit its settings beside it;
-  press Delete to remove the selected agent and its links. Draw connections from
-  either end, between an output and an input. Graph previews support screen readers.
+- Create workflow graphs in a native editor that fills the tab using intuitive controls.
 - Connect agents to work in parallel, send pieces while work continues, collect
-  results, select a result, or compare completion times. Forward links determine
-  which agents start and return results. Feedback links send changes back.
+  results, select a result, or compare completion times.
 - Set instructions, work rules, and an optional color for each agent. Save optional
-  default harness, model, effort, and permission settings. These defaults fill the
-  launch form and can be changed before starting.
-- Hover over a saved workflow to show its delete button. Confirm deletion in a
-  native dialog. Existing runs keep their saved graph.
-- Identify debug builds with a DEBUG badge on the app icon.
+  default harness, model, effort, and permission settings.
 
 ### Changed
 
 - Twine source, releases, and update checks now use `standing-desks/twine`.
   The website and guides are at `https://standing-desks.github.io/twine/`.
-
-- Homebrew installs now use `standing-desks/tap/twine-ade` (agent development
-  environment). Existing installations migrate to the `twine-ade` cask.
-- New tabs show separate grids for built-in and user workflows. Create your own
-  opens the graph editor in that tab. Commands use New workflow graph and Edit
-  Workflow. The designer hides Traces and the restored session bar.
+- Identify debug builds with a DEBUG badge on the app icon.
+- Fully overhauled the new workflow menu.
 - Store user workflows as versioned TOML files beside the selected config file.
-  The default location is `$XDG_CONFIG_HOME/twine/workflows` (or
-  `~/.config/twine/workflows`). Debug builds use their own config directory. Share
-  files or keep them in version control. Existing saved workflows move from SQLite
-  to files; saved runs keep their original definitions. Older definitions with
+  Existing saved workflows move from SQLite to files. Older definitions with
   duplicate names or names unsuitable for files remain readable in SQLite.
-- Name workflow files from the workflow name: lowercase, trim whitespace, and
-  replace spaces with underscores. Keep macOS-valid symbols. Empty names use
-  `untitled.toml`, `untitled-1.toml`, and so on. Rename the file when the workflow
-  name changes and reject duplicate names with a clear message.
 - Adversarial and Coordinator ship as TOML agent graphs and use the same editor
-  and runtime as user graphs. Coordinator has a planner, two separate workers,
-  and a coordinator that waits for both results. Edits to a built-in save as a user
-  workflow. Each card represents one agent.
-- New saves use file format version 2 and require agent graphs. Older stage
-  definitions and version 1 files remain readable. Copying an older Coordinator
-  into a graph explains the changes to shared plans, planning and result agents,
-  and worker counts.
-- Start graph workflows in the agent terminal and enter the task there. Parallel
-  start agents receive the same task. After completion or the review limit, enter
-  a new task in the same agent conversations. Incoming results identify the agent
-  that sent them.
-- Restore a Save button in the workflow designer, with File → Save and ⌘S available.
+  and runtime as user graphs.
 
 ### Fixed
 

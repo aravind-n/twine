@@ -39,6 +39,7 @@ extension TwineUITests {
         XCTAssertTrue(app.staticTexts["Claude folder auto-memory index"].waitForExistence(timeout: 10))
         app.typeText("touch memory-leaked-command\r")
         app.buttons["sidebarSection-sessions"].click()
+        app.buttons["sessionRow-1"].click()
         app.typeText("printf returned > workflow-returned\r")
         waitForFile(folder.appending(path: "workflow-returned"), containing: "returned", in: app)
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appending(path: "memory-leaked-command").path))
@@ -120,6 +121,7 @@ extension TwineUITests {
         app.launch()
         if !app.buttons["memoryEntry-outline"].waitForExistence(timeout: 10) { sidebarToggle(in: app).click() }
         app.buttons["memoryEntry-outline"].click()
+        waitForMemoryDock(expanded: true, in: app)
         app.buttons["memoryScope-global"].click()
         openMemorySource("MEMORY.md", in: app)
         XCTAssertTrue(app.staticTexts["Local memory"].waitForExistence(timeout: 10))
@@ -128,7 +130,7 @@ extension TwineUITests {
         app.buttons["memoryEntry-outline"].click()
         XCTAssertFalse(app.buttons["memoryScope-global"].exists)
         XCTAssertEqual(app.buttons["memoryEntry-outline"].value as? String, "Collapsed")
-        XCTAssertGreaterThan(app.buttons["memoryEntry-outline"].frame.minY, app.windows.firstMatch.frame.maxY - 65)
+        waitForMemoryDock(expanded: false, in: app)
         XCTAssertTrue((contents.value as? String)?.contains("Original memory marker") == true)
         let outline = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         outline.name = "Collapsed memories keep the Codex reader open"
@@ -136,7 +138,7 @@ extension TwineUITests {
         add(outline)
         try "# Local memory\nUpdated memory marker\n".write(to: memory, atomically: true, encoding: .utf8)
         app.buttons["memoryEntry-outline"].click()
-        XCTAssertLessThan(app.buttons["memoryEntry-outline"].frame.minY, app.windows.firstMatch.frame.minY + 200)
+        waitForMemoryDock(expanded: true, in: app)
         app.buttons["refreshMemories"].click()
         let refreshed = expectation(
             for: NSPredicate { _, _ in
@@ -144,13 +146,29 @@ extension TwineUITests {
             }, evaluatedWith: nil)
         wait(for: [refreshed], timeout: 5)
         app.buttons["memoryEntry-outline"].click()
+        waitForMemoryDock(expanded: false, in: app)
         let refreshedOutline = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         refreshedOutline.name = "Refreshed memory dock"
         refreshedOutline.lifetime = .keepAlways
         add(refreshedOutline)
-        app.buttons["sidebarSection-sessions"].click()
+        app.buttons["sessionRow-1"].click()
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 5))
         app.terminate()
+    }
+
+    @MainActor
+    private func waitForMemoryDock(expanded: Bool, in app: XCUIApplication) {
+        let header = app.buttons["memoryEntry-outline"]
+        let settled = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard header.exists, header.value as? String == (expanded ? "Expanded" : "Collapsed") else {
+                    return false
+                }
+                return expanded
+                    ? header.frame.minY < app.windows.firstMatch.frame.minY + 200
+                    : header.frame.minY > app.windows.firstMatch.frame.maxY - 65
+            }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed, app.debugDescription)
     }
 
     @MainActor

@@ -10,13 +10,22 @@ struct FileTree: View {
                 FileTreeRow(
                     entry: FileEntry(path: folder, name: URL(filePath: folder).lastPathComponent, kind: .directory),
                     folder: folder, depth: 0, isExpanded: model.isRootExpanded,
-                    repository: model.snapshot?.git?.repositories.first { $0.root == folder }, action: model.toggleRoot)
+                    containsChanges: model.snapshot?.git?.repositories.contains {
+                        $0.root == folder && !$0.changes.isEmpty
+                    }
+                        == true,
+                    action: model.toggleRoot)
                 if model.isRootExpanded {
                     if let failure = model.failure {
                         Text(failure).font(.caption).foregroundStyle(.secondary).padding(12)
                     }
                     FileTreeDirectory(folder: folder, path: folder, depth: 1, model: model)
                     if let git = model.snapshot?.git {
+                        ForEach(git.repositories.filter { $0.error != nil }, id: \.root) { repository in
+                            Text("\(URL(filePath: repository.root).lastPathComponent): \(repository.error ?? "")")
+                                .font(.caption2).foregroundStyle(.secondary).padding(8)
+                                .accessibilityIdentifier("gitStatusError-\(repository.root)")
+                        }
                         if let error = git.error {
                             Text(error).font(.caption2).foregroundStyle(.secondary).padding(8)
                                 .accessibilityIdentifier("gitDiscoveryError")
@@ -70,8 +79,7 @@ private struct FileTreeDirectory: View {
     private func row(_ entry: FileEntry) -> some View {
         FileTreeRow(
             entry: entry, folder: folder, depth: depth, isExpanded: model.expanded.contains(entry.path),
-            isSelected: tabs.selected?.path == entry.path,
-            repository: model.snapshot?.git?.repositories.first { $0.root == entry.path }
+            isSelected: tabs.selected?.path == entry.path
         ) {
             if entry.kind == .directory {
                 model.toggle(entry.path)
@@ -88,7 +96,7 @@ private struct FileTreeRow: View {
     let depth: Int
     let isExpanded: Bool
     var isSelected = false
-    var repository: FileGitRepository?
+    var containsChanges = false
     let action: () -> Void
 
     private var isDirectory: Bool { entry.kind == .directory }
@@ -100,12 +108,9 @@ private struct FileTreeRow: View {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9)).foregroundStyle(.tertiary)
                         .frame(width: 11).opacity(isDirectory ? 1 : 0)
-                    Image(
-                        systemName: repository != nil
-                            ? "shippingbox" : (isDirectory ? "folder" : (entry.kind == .symlink ? "link" : "doc"))
-                    )
-                    .font(.system(size: 12)).frame(width: 16)
-                    .foregroundStyle(isDirectory ? Color.accentColor.opacity(0.8) : .secondary)
+                    Image(systemName: isDirectory ? "folder" : (entry.kind == .symlink ? "link" : "doc"))
+                        .font(.system(size: 12)).frame(width: 16)
+                        .foregroundStyle(isDirectory ? Color.accentColor.opacity(0.8) : .secondary)
                     Text(entry.name).lineLimit(1).truncationMode(.middle)
                         .strikethrough(entry.git?.deleted == true)
                         .foregroundStyle(entry.git?.deleted == true ? .secondary : .primary)
@@ -121,7 +126,8 @@ private struct FileTreeRow: View {
                 isDirectory ? (isExpanded ? "Expanded" : "Collapsed") : (isSelected ? "Selected" : "")
             )
             .accessibilityIdentifier("fileRow-\(entry.path)")
-            FileGitBadge(path: entry.path, decoration: entry.git, repository: repository)
+            FileGitBadge(
+                path: entry.path, isDirectory: isDirectory, decoration: entry.git, containsChanges: containsChanges)
         }
         .font(.system(size: SidebarLayout.rowFontSize))
         .padding(.trailing, 6)
