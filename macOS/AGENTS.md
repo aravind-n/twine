@@ -1,12 +1,35 @@
 # macOS app
 
-Build the presentation layer with SwiftUI and AppKit. Keep workflow orchestration, PTYs, Git state, and persistence in `twine-core`. Send it commands and render the state, trace events, and terminal bytes it publishes.
+Build new presentation code with SwiftUI, using AppKit adapters for capabilities SwiftUI cannot provide. Keep native integrations with their owning subsystem's SwiftUI surface. Keep workflow orchestration, PTYs, Git state, and persistence in `twine-core`. Send it commands and render the state, trace events, and terminal bytes it publishes.
 
 Use SwiftTerm in an AppKit view for the primary terminal surface, with its Metal renderer enabled. Embed that view in SwiftUI and keep terminal I/O off the main actor.
 
 Get `twine-core` state and send commands only through `CoreClient`; build the `twine-core` side of a feature alongside its UI rather than mocking it.
 
 The app links `twine-core` as the `TwineCore` XCFramework from the local `TwineCorePackage` binary Swift package. `make debug` and `make test-app` build the Debug framework first, and `make release` builds the Release framework first. Link only the package: keep build tooling, header paths, and direct static-library linkage out of the Xcode project.
+
+## File placement
+
+Organize Swift sources by subsystem ownership within the existing app target. Group each subsystem's views, presentation models, and native adapters together where they share behavior or invariants.
+
+Keep `TwineApp.swift` as the only Swift source at the app source root, `Twine/Twine/`. Place every other app Swift file under its owning subsystem:
+
+- `Windows/` owns folder-window composition, lifecycle, sidebar, and window layout; `Commands/` owns app menu commands.
+- `Core/Client/` owns the Swift facade and event application, `Core/Transport/` owns worker actors and C ABI calls, and `Core/Protocol/` owns command, state, and wire representations.
+- `Workflows/` owns workspace presentation, launch, designer, graph, and run controls. `Harnesses/` owns harness selection and model catalogs shared by workflow surfaces.
+- `Terminal/`, `Files/`, `Traces/`, and `Memories/` own their respective surfaces, presentation state, and native adapters. `Settings/` owns the app settings presentation.
+- `Design/` owns shared visual values, typography, and components; `Zoom/` owns app-wide zoom behavior. `Development/` owns checkout paths, inspection controls, and previews.
+
+Apply these rules to every Swift change:
+
+- Before adding, moving, or splitting a file, identify the responsibility it implements and reuse that owner's directory. Add a subsystem only for a distinct responsibility that existing owners do not cover.
+- Add subdirectories when the current code has distinct internal responsibilities. Let each subsystem's needs determine its structure.
+- Split files by independent responsibilities. Closely related types, representables and their coordinators, and small private helpers may share a file.
+- Keep stored state and its private mutation helpers together. Group extensions by cohesive operations and preserve access control when splitting files.
+- Put shared code in a directory named for the responsibility it provides when multiple subsystems use it. Keep subsystem-specific layout, formatting, and style values with their owner.
+- Name files for their principal type or cohesive responsibility. Include destination directories and the types they will own in split or move proposals.
+- Mirror ownership in the unit-test and UI-test targets based on the code under test. Core commands and wire contracts belong under `Core/`; window presentation checks belong under `Windows/`. Separate independent checks for different owners and put shared fixtures and doubles under `Support/`.
+- When relocating files, preserve target membership, resource lookup, and development paths. Inspect source-relative paths such as `#filePath` and configured project references. Keep asset catalogs, documentation resources, and entitlements in their configured locations.
 
 ## Swift conventions
 
@@ -26,4 +49,4 @@ The app links `twine-core` as the `TwineCore` XCFramework from the local `TwineC
 
 ## Review
 
-After changing Swift code, have the Swift reviewer agent (`swift-reviewer` in Claude Code, `swift_reviewer` in Codex) review the change, and address its findings before committing.
+After changing Swift code, have the Swift reviewer agent (`swift-reviewer` in Claude Code, `swift_reviewer` in Codex) review the change. Include ownership and placement of every added, moved, or split Swift file in the review, and address its findings before finishing the work.
