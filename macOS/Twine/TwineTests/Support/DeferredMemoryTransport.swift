@@ -2,7 +2,7 @@ import Foundation
 
 @testable import Twine
 
-actor DeferredMemoryTransport: CoreTransport {
+actor DeferredMemoryTransport {
     private var catalogs: [CheckedContinuation<CoreMemoryCatalog, any Error>] = []
     private var saveResult: FileSaveResult?
     private var reads: [CheckedContinuation<CoreMemoryRead, any Error>] = []
@@ -51,3 +51,6 @@ actor DeferredMemoryTransport: CoreTransport {
     func writeTerminalInput(terminalID: UInt64, bytes: Data) throws { throw CoreFailure.unexpectedCommandResult }
     func resizeTerminal(terminalID: UInt64, size: CoreTerminalSize) throws { throw CoreFailure.unexpectedCommandResult }
 }
+
+// Declaring this conformance on the actor fails to compile in batch mode in Xcode 27.0.
+extension DeferredMemoryTransport: CoreTransport {}
