@@ -195,7 +195,13 @@ mod tests {
         let FileContent::Text(source) = file.content else {
             panic!("expected text")
         };
-        assert!(source.contains("# brblue ="));
+        assert!(source.contains("[theme]"));
+        assert!(
+            source.contains(
+                "https://standing-desks.github.io/twine/documentation/guide/#configuration"
+            )
+        );
+        assert!(!source.contains("[terminal.colors]"));
         fs::write(&path, "# Keep my comments\ninvalid = @\n").unwrap();
         assert_eq!(
             read_file(&path).unwrap().content,

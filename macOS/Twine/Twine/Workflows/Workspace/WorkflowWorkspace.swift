@@ -105,8 +105,9 @@ struct WorkflowWorkspace: View {
                 ContentUnavailableView(
                     "No Open Tabs", systemImage: "terminal",
                     description: Text("Open a workflow with + or ⌘T.")
+                        .foregroundStyle(Color(nsColor: palette.text).secondary)
                 )
-                .background(.windowBackground)
+                .foregroundStyle(Color(nsColor: palette.text))
             }
             WorkflowPaneCanvas(
                 folder: folder, workflows: allWorkflows, sessionID: sessionID,

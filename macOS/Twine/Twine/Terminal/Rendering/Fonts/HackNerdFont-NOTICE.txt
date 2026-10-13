@@ -1,0 +1,38 @@
+Hack Nerd Font bundled privately with Twine
+
+Nerd Fonts version: 3.4.0
+Hack version: 3.003
+Source: https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/Hack.zip
+
+The four standard HackNerdFont faces (not Mono or Propo) are redistributed
+with metadata-only name changes so Twine's private fallback does not shadow
+fonts installed by the user. The private family is "Twine Terminal Nerd Font";
+PostScript names are TwineHackNF-Regular, -Bold, -Italic, and -BoldItalic.
+Glyph outlines, advances, hinting, kerning, character maps, and style flags
+are unchanged. Only the naming table and checksum adjustment were modified.
+
+Name-table transformation (FontTools 4.60.1):
+- Read upstream faces with TTFont(recalcBBoxes=False, recalcTimestamp=False).
+- Change existing records 1, 16, 21 to "Twine Terminal Nerd Font".
+- Change record 3 to "3.003;TWNE;TwineHackNF-<style>".
+- Change records 4 and 18 to the private family plus the existing subfamily.
+- Change record 6 to "TwineHackNF-<style>" and record 25 to "TwineHackNF".
+- Preserve all other records, including subfamilies, copyright, and licenses.
+- Save with reorderTables=False; verify every table except name/head is
+  byte-identical and head differs only at its checksum-adjustment bytes.
+
+Hack copyright and licenses: HackNerdFont-LICENSE.txt
+Nerd Fonts copyright and licenses: NerdFonts-LICENSE.txt
+Additional icon notices: NerdFonts-Icons-LICENSE.txt
+
+Upstream SHA-256:
+7e6b5d86baee613984b10cef14c8d6aee86c976a3d1cbd87abffd424d6ec4c64  HackNerdFont-Regular.ttf
+7fb835cbd3273d509868dcd4e03eab3dc98679ac0bdffd52ef23411244396082  HackNerdFont-Bold.ttf
+b65edfcbdce25a6f359b6ad129f51fc0b7c59e4893676fc3b75a4f49e3a12b18  HackNerdFont-Italic.ttf
+1a6fdc79f82beb3ca3a0bc2088568a24b094b55f0f93cbf9731bf8e1ede85d6b  HackNerdFont-BoldItalic.ttf
+
+Bundled resource SHA-256:
+ed8ac3a28354b4011d9b86bb0f87b1175f9e8578d697050c193bddb8fd15896b  HackNerdFont-Regular.ttf
+09693bac38955db39184467349f8bafe0a18086d3e77b0db278902e609a071ed  HackNerdFont-Bold.ttf
+277bce36c20aba89b977ad7355dac1d95104d0e42c9cd2310b3f064eda27894e  HackNerdFont-Italic.ttf
+ec6d598072ef7df6d0524511d52263b285eed895d305d2b218c057a7ee1430fe  HackNerdFont-BoldItalic.ttf

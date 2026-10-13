@@ -12,6 +12,52 @@ mod bundled;
 
 const SILICA_LIGHT: &str = include_str!("themes/silica_light.toml");
 const SILICA_DARK: &str = include_str!("themes/silica_dark.toml");
+const TWINE_LIGHT: &str = include_str!("themes/twine_light.toml");
+const TWINE_DARK: &str = include_str!("themes/twine_dark.toml");
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct ThemeConfig {
+    pub light: ThemeName,
+    pub dark: ThemeName,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            light: ThemeName("twine_light".to_owned()),
+            dark: ThemeName("twine_dark".to_owned()),
+        }
+    }
+}
+
+/// A theme file's basename, resolved beneath the user config's themes directory.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ThemeName(String);
+
+impl ThemeName {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for ThemeName {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = String::deserialize(deserializer)?;
+        if name.trim().is_empty()
+            || matches!(name.as_str(), "." | "..")
+            || name.contains(['/', '\\', '\0'])
+        {
+            return Err(serde::de::Error::custom(
+                "theme name must be a single file basename",
+            ));
+        }
+        Ok(Self(name))
+    }
+}
+
 pub(super) const ANSI_COLOR_NAMES: [&str; 16] = [
     "black",
     "red",
@@ -183,8 +229,8 @@ pub struct TerminalPalettes {
 impl Default for TerminalPalettes {
     fn default() -> Self {
         Self {
-            light: embedded_palette(SILICA_LIGHT),
-            dark: embedded_palette(SILICA_DARK),
+            light: embedded_palette(TWINE_LIGHT),
+            dark: embedded_palette(TWINE_DARK),
         }
     }
 }
@@ -214,45 +260,91 @@ fn embedded_palette(source: &str) -> TerminalPalette {
     }
 }
 
-pub(super) fn default_color_settings() -> &'static str {
-    &SILICA_DARK[SILICA_DARK
-        .find("cursor =")
-        .expect("embedded cursor setting")..]
-}
-
-pub(super) fn load(config_path: &Path) -> (TerminalPalettes, Vec<ConfigDiagnostic>) {
+pub(super) fn publish(config_path: &Path) -> Vec<(&'static str, ConfigDiagnostic)> {
     let directory = config_path.parent().unwrap_or(Path::new("."));
     bundled::publish(directory);
-    let mut palettes = TerminalPalettes::default();
-    let mut diagnostics = Vec::new();
-    let mut files = Vec::new();
-    // Publish both defaults before resolving imports, so either theme can import the other.
-    for (name, source) in [
-        ("silica_light.toml", SILICA_LIGHT),
-        ("silica_dark.toml", SILICA_DARK),
+    let mut failures = Vec::new();
+    // Publish defaults before resolving either global imports or appearance selectors.
+    for (name, source, legacy_name, legacy_source) in [
+        (
+            "twine_light.toml",
+            TWINE_LIGHT,
+            "silica_light.toml",
+            SILICA_LIGHT,
+        ),
+        (
+            "twine_dark.toml",
+            TWINE_DARK,
+            "silica_dark.toml",
+            SILICA_DARK,
+        ),
     ] {
         let path = directory.join("themes").join(name);
-        let result = match fs::read_to_string(&path) {
-            Ok(source) => Ok(source),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => write_default(&path, source),
+        let result = match fs::symlink_metadata(&path) {
+            Ok(_) => continue,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                // Carry customized defaults forward once; untouched Silica files stay optional.
+                let legacy_path = directory.join("themes").join(legacy_name);
+                let source = match fs::read_to_string(&legacy_path) {
+                    Ok(legacy) => {
+                        if legacy == legacy_source {
+                            source.to_owned()
+                        } else {
+                            legacy
+                        }
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => source.to_owned(),
+                    Err(error) => {
+                        let diagnostic =
+                            file_diagnostic(&legacy_path, &super::ConfigFileError::Read(error));
+                        tracing::warn!(%diagnostic, "cannot migrate default theme file");
+                        failures.push((name, diagnostic));
+                        continue;
+                    }
+                };
+                write_default(&path, &source).map(|_| ())
+            }
             Err(error) => Err(super::ConfigFileError::Read(error)),
         };
-        match result {
-            Ok(source) => files.push((path, source)),
-            Err(error) => diagnostics.push(file_diagnostic(&path, &error)),
+        if let Err(error) = result {
+            let diagnostic = file_diagnostic(&path, &error);
+            tracing::warn!(%diagnostic, "cannot publish default theme file");
+            failures.push((name, diagnostic));
         }
     }
-    for (path, source) in files {
+    failures
+}
+
+pub(super) fn load(
+    config_path: &Path,
+    selection: &ThemeConfig,
+    publication_failures: &[(&str, ConfigDiagnostic)],
+) -> (TerminalPalettes, Vec<ConfigDiagnostic>) {
+    let directory = config_path.parent().unwrap_or(Path::new("."));
+    let mut palettes = TerminalPalettes::default();
+    let mut diagnostics = Vec::new();
+    for (name, palette) in [
+        (&selection.light, &mut palettes.light),
+        (&selection.dark, &mut palettes.dark),
+    ] {
+        let filename = format!("{}.toml", name.as_str());
+        if let Some((_, diagnostic)) = publication_failures
+            .iter()
+            .find(|(failed, _)| *failed == filename)
+        {
+            diagnostics.push(diagnostic.clone());
+            continue;
+        }
+        let path = directory.join("themes").join(filename);
+        let source = match fs::read_to_string(&path) {
+            Ok(source) => source,
+            Err(error) => {
+                diagnostics.push(file_diagnostic(&path, &super::ConfigFileError::Read(error)));
+                continue;
+            }
+        };
         let loaded = imports::load(&path, &source);
         diagnostics.extend(loaded.diagnostics);
-        let palette = if path
-            .file_name()
-            .is_some_and(|name| name == "silica_light.toml")
-        {
-            &mut palettes.light
-        } else {
-            &mut palettes.dark
-        };
         palette.apply(&loaded.config.terminal.colors);
     }
     (palettes, diagnostics)
@@ -262,6 +354,196 @@ pub(super) fn load(config_path: &Path) -> (TerminalPalettes, Vec<ConfigDiagnosti
 mod tests {
     use super::*;
     use crate::config::{Config, ConfigProblem};
+
+    #[test]
+    fn selectors_resolve_independent_palettes_and_theme_files_import_colors_only() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        let themes = directory.path().join("themes");
+        fs::create_dir(&themes).unwrap();
+        fs::write(
+            themes.join("my light.toml"),
+            "[terminal.colors]\nbackground = '#112233'\nblue = '#445566'\n",
+        )
+        .unwrap();
+        fs::write(
+            themes.join("base.toml"),
+            "[terminal]\nfont_size = 22\n[terminal.colors]\nbackground = '#778899'\n",
+        )
+        .unwrap();
+        fs::write(
+            themes.join("my_dark.toml"),
+            "import = 'base.toml'\n[terminal.colors]\nblue = '#abcdef'\n",
+        )
+        .unwrap();
+        fs::write(&config, "[theme]\nlight = 'my light'\ndark = 'my_dark'\n").unwrap();
+        let loaded = Config::load(&config);
+        assert_eq!(loaded.diagnostics, []);
+        assert_eq!(
+            loaded.config.terminal.font_size,
+            super::super::FontSize::default()
+        );
+        assert_eq!(
+            loaded.config.terminal.palettes.light.background.as_str(),
+            "#112233"
+        );
+        assert_eq!(
+            loaded.config.terminal.palettes.light.ansi[4].as_str(),
+            "#445566"
+        );
+        assert_eq!(
+            loaded.config.terminal.palettes.light.foreground,
+            TerminalPalettes::default().light.foreground
+        );
+        assert_eq!(
+            loaded.config.terminal.palettes.dark.background.as_str(),
+            "#778899"
+        );
+        assert_eq!(
+            loaded.config.terminal.palettes.dark.ansi[4].as_str(),
+            "#abcdef"
+        );
+    }
+
+    #[test]
+    fn omitted_selectors_keep_the_corresponding_default() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        for mode in ["light", "dark"] {
+            fs::write(&config, format!("[theme]\n{mode} = 'nord'\n")).unwrap();
+            let loaded = Config::load(&config);
+            assert_eq!(loaded.diagnostics, []);
+            let (selected, omitted, default) = if mode == "light" {
+                (
+                    &loaded.config.terminal.palettes.light,
+                    &loaded.config.terminal.palettes.dark,
+                    TerminalPalettes::default().dark,
+                )
+            } else {
+                (
+                    &loaded.config.terminal.palettes.dark,
+                    &loaded.config.terminal.palettes.light,
+                    TerminalPalettes::default().light,
+                )
+            };
+            assert_eq!(selected.background.as_str(), "#2e3440");
+            assert_eq!(*omitted, default);
+        }
+    }
+
+    #[test]
+    fn global_imports_and_inline_colors_override_selected_palettes() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        let themes = directory.path().join("themes");
+        fs::create_dir(&themes).unwrap();
+        fs::write(
+            themes.join("light.toml"),
+            "[terminal.colors]\nbackground = '#112233'\nblue = '#123456'\n",
+        )
+        .unwrap();
+        fs::write(
+            themes.join("dark.toml"),
+            "[terminal.colors]\nbackground = '#445566'\nblue = '#654321'\n",
+        )
+        .unwrap();
+        let nested = directory.path().join("nested");
+        fs::create_dir(&nested).unwrap();
+        fs::write(nested.join("shared.toml"), "[theme]\nlight = 'light'\n[terminal.colors]\nbackground = '#abcdef'\nred = '#111111'\n").unwrap();
+        fs::write(&config, "import = 'nested/shared.toml'\n[theme]\ndark = 'dark'\n[terminal.colors]\nred = '#222222'\n").unwrap();
+        let loaded = Config::load(&config);
+        assert_eq!(loaded.diagnostics, []);
+        for palette in [
+            &loaded.config.terminal.palettes.light,
+            &loaded.config.terminal.palettes.dark,
+        ] {
+            assert_eq!(palette.background.as_str(), "#abcdef");
+            assert_eq!(palette.ansi[1].as_str(), "#222222");
+        }
+        assert_eq!(
+            loaded.config.terminal.palettes.light.ansi[4].as_str(),
+            "#123456"
+        );
+        assert_eq!(
+            loaded.config.terminal.palettes.dark.ansi[4].as_str(),
+            "#654321"
+        );
+    }
+
+    #[test]
+    fn selected_theme_errors_report_the_file_and_preserve_its_contents() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        fs::write(
+            &config,
+            "terminal.font_size = 20\n[theme]\ndark = 'missing'\n",
+        )
+        .unwrap();
+        let theme = directory.path().join("themes/missing.toml");
+        let missing = Config::load(&config);
+        assert_eq!(missing.config, Config::default());
+        assert_eq!(missing.diagnostics[0].file, theme);
+        assert!(matches!(
+            missing.diagnostics[0].problem,
+            ConfigProblem::File(_)
+        ));
+        assert!(!theme.exists());
+        let invalid = "[terminal.colors]\nforeground = 'secret'\n";
+        fs::write(&theme, invalid).unwrap();
+        let loaded = Config::load(&config);
+        assert_eq!(loaded.config, Config::default());
+        assert_eq!(loaded.diagnostics[0].file, theme);
+        assert_eq!(loaded.diagnostics[0].line, 2);
+        assert_eq!(loaded.diagnostics[0].key, "terminal.colors.foreground");
+        assert_eq!(loaded.diagnostics[0].problem, ConfigProblem::InvalidValue);
+        assert!(!loaded.diagnostics[0].to_string().contains("secret"));
+        assert_eq!(fs::read_to_string(&theme).unwrap(), invalid);
+    }
+
+    #[test]
+    fn invalid_selector_names_and_types_report_the_appearance_key() {
+        for mode in ["light", "dark"] {
+            for value in [
+                "''",
+                "' '",
+                "'../escape'",
+                "'/absolute'",
+                "'a\\b'",
+                "'.'",
+                "'..'",
+                "1",
+                "[]",
+            ] {
+                let source = format!("[theme]\n{mode} = {value}\n");
+                let loaded = Config::parse(Path::new("/test/config.toml"), &source);
+                assert_eq!(loaded.config, Config::default());
+                assert_eq!(loaded.diagnostics.len(), 1, "{value}");
+                assert_eq!(loaded.diagnostics[0].key, format!("theme.{mode}"));
+                assert_eq!(loaded.diagnostics[0].line, 2);
+                assert_eq!(loaded.diagnostics[0].problem, ConfigProblem::InvalidValue);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_unused_default_files_do_not_override_a_selected_theme() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        let themes = directory.path().join("themes");
+        fs::create_dir(&themes).unwrap();
+        fs::write(themes.join("twine_dark.toml"), "invalid = @").unwrap();
+        fs::write(&config, "[theme]\ndark = 'nord'\n").unwrap();
+        let loaded = Config::load(&config);
+        assert_eq!(loaded.diagnostics, []);
+        assert_eq!(
+            loaded.config.terminal.palettes.dark.background.as_str(),
+            "#2e3440"
+        );
+        assert_eq!(
+            fs::read_to_string(themes.join("twine_dark.toml")).unwrap(),
+            "invalid = @"
+        );
+    }
 
     #[test]
     fn named_colors_override_only_their_ansi_slots_in_both_appearances() {
@@ -394,11 +676,11 @@ mod tests {
         let first = Config::load(&config);
         assert_eq!(first.config, Config::default());
         assert_eq!(first.diagnostics, []);
-        let dark = directory.path().join("themes/silica_dark.toml");
-        assert_eq!(fs::read_to_string(&dark).unwrap(), SILICA_DARK);
+        let dark = directory.path().join("themes/twine_dark.toml");
+        assert_eq!(fs::read_to_string(&dark).unwrap(), TWINE_DARK);
         assert_eq!(
-            fs::read_to_string(directory.path().join("themes/silica_light.toml")).unwrap(),
-            SILICA_LIGHT
+            fs::read_to_string(directory.path().join("themes/twine_light.toml")).unwrap(),
+            TWINE_LIGHT
         );
         fs::write(&dark, "[terminal.colors]\nbackground = '#112233'").unwrap();
         let edited = Config::load(&config);
@@ -413,6 +695,141 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&dark).unwrap(),
             "[terminal.colors]\nbackground = '#112233'"
+        );
+    }
+
+    #[test]
+    fn untouched_legacy_defaults_adopt_twine_without_overwriting_silica() {
+        let directory = tempfile::tempdir().unwrap();
+        let themes = directory.path().join("themes");
+        fs::create_dir(&themes).unwrap();
+        fs::write(themes.join("silica_light.toml"), SILICA_LIGHT).unwrap();
+        fs::write(themes.join("silica_dark.toml"), SILICA_DARK).unwrap();
+        let loaded = Config::load(&directory.path().join("config.toml"));
+        assert_eq!(loaded.diagnostics, []);
+        assert_eq!(loaded.config.terminal.palettes, TerminalPalettes::default());
+        assert_eq!(
+            fs::read_to_string(themes.join("silica_light.toml")).unwrap(),
+            SILICA_LIGHT
+        );
+        assert_eq!(
+            fs::read_to_string(themes.join("silica_dark.toml")).unwrap(),
+            SILICA_DARK
+        );
+    }
+
+    #[test]
+    fn customized_legacy_defaults_are_carried_forward_only_on_first_load() {
+        let directory = tempfile::tempdir().unwrap();
+        let themes = directory.path().join("themes");
+        fs::create_dir(&themes).unwrap();
+        let customized = "[terminal.colors]\nbackground = '#112233'\n";
+        fs::write(themes.join("silica_dark.toml"), customized).unwrap();
+        let config = directory.path().join("config.toml");
+        let first = Config::load(&config);
+        assert_eq!(first.diagnostics, []);
+        assert_eq!(
+            first.config.terminal.palettes.dark.background.as_str(),
+            "#112233"
+        );
+        assert_eq!(
+            first.config.terminal.palettes.light,
+            TerminalPalettes::default().light
+        );
+        assert_eq!(
+            fs::read_to_string(themes.join("silica_dark.toml")).unwrap(),
+            customized
+        );
+        assert_eq!(
+            fs::read_to_string(themes.join("twine_dark.toml")).unwrap(),
+            customized
+        );
+
+        fs::write(
+            themes.join("silica_dark.toml"),
+            "[terminal.colors]\nbackground = '#445566'\n",
+        )
+        .unwrap();
+        let again = Config::load(&config);
+        assert_eq!(again.diagnostics, []);
+        assert_eq!(
+            again.config.terminal.palettes,
+            first.config.terminal.palettes
+        );
+        assert_eq!(
+            fs::read_to_string(themes.join("twine_dark.toml")).unwrap(),
+            customized
+        );
+    }
+
+    #[test]
+    fn unreadable_legacy_defaults_report_the_file_and_retry_after_repair() {
+        let directory = tempfile::tempdir().unwrap();
+        let themes = directory.path().join("themes");
+        fs::create_dir(&themes).unwrap();
+        let legacy = themes.join("silica_dark.toml");
+        let current = themes.join("twine_dark.toml");
+        fs::write(&legacy, [0xff, 0xfe]).unwrap();
+        let config = directory.path().join("config.toml");
+        let first = Config::load(&config);
+        assert_eq!(first.config, Config::default());
+        assert_eq!(first.diagnostics.len(), 1);
+        assert_eq!(first.diagnostics[0].file, legacy);
+        assert!(matches!(
+            first.diagnostics[0].problem,
+            ConfigProblem::File(_)
+        ));
+        assert!(!current.exists());
+        assert_eq!(fs::read(&legacy).unwrap(), [0xff, 0xfe]);
+        let repaired = "[terminal.colors]\nbackground = '#112233'\n";
+        fs::write(&legacy, repaired).unwrap();
+        let again = Config::load(&config);
+        assert_eq!(again.diagnostics, []);
+        assert_eq!(
+            again.config.terminal.palettes.dark.background.as_str(),
+            "#112233"
+        );
+        assert_eq!(fs::read_to_string(&current).unwrap(), repaired);
+    }
+
+    #[test]
+    fn failed_unused_migration_does_not_block_a_selected_theme() {
+        let directory = tempfile::tempdir().unwrap();
+        let themes = directory.path().join("themes");
+        fs::create_dir(&themes).unwrap();
+        fs::write(themes.join("silica_dark.toml"), [0xff, 0xfe]).unwrap();
+        let config = directory.path().join("config.toml");
+        fs::write(&config, "[theme]\ndark = 'nord'\n").unwrap();
+        let loaded = Config::load(&config);
+        assert_eq!(loaded.diagnostics, []);
+        assert_eq!(
+            loaded.config.terminal.palettes.dark.background.as_str(),
+            "#2e3440"
+        );
+        assert!(!themes.join("twine_dark.toml").exists());
+    }
+
+    #[test]
+    fn existing_twine_defaults_take_precedence_over_legacy_customizations() {
+        let directory = tempfile::tempdir().unwrap();
+        let themes = directory.path().join("themes");
+        fs::create_dir(&themes).unwrap();
+        let current = "[terminal.colors]\nbackground = '#778899'\n";
+        fs::write(themes.join("twine_dark.toml"), current).unwrap();
+        fs::write(
+            themes.join("silica_dark.toml"),
+            "[terminal.colors]\nbackground = '#112233'\n",
+        )
+        .unwrap();
+        let loaded = Config::load(&directory.path().join("config.toml"));
+        assert_eq!(loaded.diagnostics, []);
+        assert_eq!(
+            loaded.config.terminal.palettes.dark.background.as_str(),
+            "#778899"
+        );
+        assert_eq!(
+            fs::read_to_string(themes.join("twine_dark.toml")).unwrap(),
+            current
         );
     }
 
@@ -446,7 +863,7 @@ mod tests {
     fn full_palette_import_pins_the_same_colors_for_light_and_dark() {
         let directory = tempfile::tempdir().unwrap();
         let config = directory.path().join("config.toml");
-        fs::write(&config, "import = 'themes/silica_dark.toml'\n").unwrap();
+        fs::write(&config, "import = 'themes/twine_dark.toml'\n").unwrap();
         let loaded = Config::load(&config);
         assert_eq!(loaded.diagnostics, []);
         assert_eq!(

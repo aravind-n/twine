@@ -242,8 +242,10 @@ review its saved output. Twine leaves your harness configuration files unchanged
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
 <p>Twine reads <code>$XDG_CONFIG_HOME/twine/config.toml</code> at startup, falling back to
 <code>~/.config/twine/config.toml</code> when <code>XDG_CONFIG_HOME</code> is unset, empty, or relative. It creates a
-commented default config and <code>themes/silica_dark.toml</code> and <code>themes/silica_light.toml</code> beside it
-on first launch. Existing files are never overwritten.</p>
+small starter config and <code>themes/twine_dark.toml</code> and <code>themes/twine_light.toml</code> beside it
+on first launch. Existing files are never overwritten. When upgrading from Silica, customized default
+palettes are copied into the new default files once; untouched palettes adopt the Twine colors.
+Silica remains available through <code>themes/silica_dark.toml</code> and <code>themes/silica_light.toml</code> imports.</p>
 <p>Choose <strong>Twine → Settings…</strong> or press <strong>⌘,</strong> to edit the config file in a
 popup attached to the current window. Save with <strong>⌘S</strong> or <strong>File → Save</strong>. Valid settings
 apply immediately to every open folder; invalid settings keep the previous file and active settings.
@@ -253,7 +255,7 @@ closing the window or quitting, and external file changes prompt you to reload o
 color_scheme = "system" # "system", "light", or "dark"
 
 [terminal]
-font_family = "JetBrains Mono"
+font_family = ""
 font_size = 13.0
 
 [editor]
@@ -266,15 +268,33 @@ to save manually, or change <code>editor.autosave_delay_ms</code> to a positive 
 and session forms use explicit saving through <strong>File → Save</strong> or <strong>⌘S</strong>; session names
 also accept Return.</p>
 <p>Terminal settings apply to live shell and agent terminals, including Bento panes, and terminal
-history. Install the font in macOS and use its family name. An omitted or empty <code>font_family</code>
-uses system monospace. Twine checks that <code>i</code> and <code>w</code> have equal character widths, allowing Nerd
+history. When <code>font_family</code> is omitted or empty, Twine uses its private bundled Hack Nerd Font
+at 13 points by default, including bold and italic faces. The bundled font is available only inside Twine;
+it is not installed into Font Book or exposed as a selectable family. To choose a custom font, install it
+in macOS and set its family name (for example, <code>font_family = "JetBrains Mono"</code>). Custom names
+resolve only to installed fonts, including a separately installed copy of Hack Nerd Font.
+Twine checks that <code>i</code> and <code>w</code> have equal character widths, allowing Nerd
 Fonts whose icons are wider. An unavailable font or one that fails this check falls back to
 system monospace with a warning. <code>font_size</code> defaults to 13 points and accepts sizes from 6
 through 72, including fractional sizes such as 13.5. <code>appearance.color_scheme</code> selects
 system, light, or dark appearance for all app windows.</p>
+<p>Select a different palette for each appearance with an optional <code>[theme]</code> table:</p>
+<pre class="highlight"><code class="language-toml">[theme]
+light = "twine_light"
+dark = "twine_dark"</code></pre>
+<p>Names omit the <code>.toml</code> extension and resolve to <code>themes/&lt;name&gt;.toml</code>
+beside the main config file. Either key can be omitted to keep its default. Spaces in filenames are
+supported; use a filename basename rather than a path. For example, choose
+<code>light = "catppuccin_latte"</code> and <code>dark = "catppuccin_mocha"</code>, or select
+<code>silica_light</code> and <code>silica_dark</code> to restore Silica.</p>
+<p>Selected theme files supply terminal colors for that appearance only; other settings in those files
+apply only when loaded through a global import. A theme can import another color file. Missing or invalid
+selected files produce configuration diagnostics and use the complete defaults. Unselected theme files
+are left alone. The starter config includes only appearance, font, and theme choices; use this guide
+for additional options.</p>
 <p>A top-level <code>import</code> loads one or more complete TOML configuration files. Put it before any
 table headers in <code>config.toml</code>:</p>
-<pre class="highlight"><code class="language-toml">import = ["themes/silica_dark.toml", "fonts.toml"]
+<pre class="highlight"><code class="language-toml">import = ["themes/twine_dark.toml", "fonts.toml"]
 
 [terminal]
 font_size = 14.0
@@ -285,41 +305,42 @@ background = "#101820"
 foreground = "#e5e1cf"
 cursor = "#8fbe5c"
 selection = "#34495e"</code></pre>
-<p>A single file can also use <code>import = "themes/silica_dark.toml"</code>. Files merge in the order listed:
+<p>A single file can also use <code>import = "themes/twine_dark.toml"</code>. Files merge in the order listed:
 later imports override earlier imports, then the importing file overrides them all. Tables merge
 recursively, so overriding <code>terminal.font_size</code> preserves an imported <code>terminal.font_family</code>.
-Individual terminal colors merge by name. Defaults fill omitted settings after merging. Imported files can contain any supported settings, including appearance and terminal fonts.</p>
+Individual terminal colors merge by name. Global imported colors override the selected palettes in both
+appearances, and inline <code>[terminal.colors]</code> values override those imports. Defaults fill omitted settings after merging. Imported files can contain any supported settings, including appearance and terminal fonts.</p>
 <p>Imports accept absolute paths, <code>~/</code> paths, and paths relative to the file containing the import.
 Imported files can have their own top-level imports. Cycles are rejected, including cycles through
 symlinks; each import tree is limited to 64 levels and 256 documents. Invalid imported settings cause
 the complete config to fall back to defaults even if a later file overrides that setting. Diagnostics
 identify the original file, line, and key. Missing imported files are reported and never created.</p>
-<p>Terminal colors normally come from <code>themes/silica_dark.toml</code> in dark mode and <code>themes/silica_light.toml</code>
-in light mode. Those files use the same config tables, so they can also be imported directly. A full
+<p>Terminal colors normally come from <code>themes/twine_dark.toml</code> in dark mode and <code>themes/twine_light.toml</code>
+in light mode, unless a <code>[theme]</code> selector chooses another file. Those files use the same config tables, so they can also be imported directly. A full
 palette import applies the same colors in both appearances. Partial imports and local overrides
 replace only supplied colors; omitted colors retain the corresponding default theme values.</p>
-<p>For example, a theme file contains:</p>
+<p>For example, the default dark theme contains:</p>
 <pre class="highlight"><code class="language-toml">[terminal.colors]
-background = "#101820"
-foreground = "#e5e1cf"
-cursor = "#8fbe5c"
-selection = "#34495e"
-black = "#1a2026"
-red = "#ef4d4d"
-green = "#8fbe5c"
-yellow = "#d9bd54"
-blue = "#4aa3e0"
-magenta = "#dc63a0"
-cyan = "#2dd6ab"
-white = "#cac5b3"
-brblack = "#7d8794"
-brred = "#ff8383"
-brgreen = "#a9e488"
-bryellow = "#ecd77e"
-brblue = "#7cd2f5"
-brmagenta = "#f0a0d5"
-brcyan = "#85f0d8"
-brwhite = "#f7f4e8"</code></pre>
+background = "#262626"
+foreground = "#faf1f3"
+cursor = "#007aff"
+selection = "#3f638b"
+black = "#1c1c1c"
+red = "#ff8d7a"
+green = "#00d9b2"
+yellow = "#eba800"
+blue = "#5b98e6"
+magenta = "#ff82b3"
+cyan = "#00cafa"
+white = "#faf1f3"
+brblack = "#abb3cd"
+brred = "#ffaea0"
+brgreen = "#00df75"
+bryellow = "#ffd166"
+brblue = "#82b7ff"
+brmagenta = "#d896fe"
+brcyan = "#62e3ff"
+brwhite = "#ffffff"</code></pre>
 <p>Colors must be <code>#RRGGBB</code> strings. Set ANSI colors individually with <code>black</code>, <code>red</code>, <code>green</code>,
 <code>yellow</code>, <code>blue</code>, <code>magenta</code>, <code>cyan</code>, and <code>white</code>.
 Bright variants use the <code>br</code> prefix: <code>brblack</code> through <code>brwhite</code>.

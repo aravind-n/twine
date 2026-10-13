@@ -420,6 +420,7 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Commands you run in Twine may need to control other apps with AppleScript.";
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "Commands you run in Twine may need to capture system audio.";
@@ -482,6 +483,7 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Commands you run in Twine may need to control other apps with AppleScript.";
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "Commands you run in Twine may need to capture system audio.";

@@ -4,9 +4,11 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use super::{file_diagnostic, write_default};
+use super::{SILICA_DARK, SILICA_LIGHT, file_diagnostic, write_default};
 
 const THEMES: &[(&str, &str)] = &[
+    ("silica_light.toml", SILICA_LIGHT),
+    ("silica_dark.toml", SILICA_DARK),
     (
         "catppuccin_mocha.toml",
         include_str!("catppuccin_mocha.toml"),

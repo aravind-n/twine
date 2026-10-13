@@ -38,8 +38,8 @@ struct TerminalPalette {
         return Self(
             background: fixed(.terminalBackground),
             text: fixed(.terminalText),
-            cursor: fixed(.terminalText),
-            selection: NSColor(srgbRed: 0, green: 166.0 / 255, blue: 178.0 / 255, alpha: 1),
+            cursor: fixed(.terminalCursor),
+            selection: fixed(.terminalSelection),
             ansi: ansi.map { SwiftTerm.Color(nsColor: fixed($0)) }
         )
     }

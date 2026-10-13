@@ -1,0 +1,26 @@
+# Twine light terminal colors. Edit this file, then restart Twine.
+# Base and accent colors adapted from Xcode 27 Standard theme settings.
+# Values sampled from supplied sRGB settings screenshots; the solid background
+# matches the rendered editor with its background gradient enabled.
+# ANSI bright variants are adapted for terminal use.
+[terminal.colors]
+background = "#ffffff"
+foreground = "#322529"
+cursor = "#007aff"
+selection = "#b3d7ff"
+black = "#322529"
+red = "#ca2c1d"
+green = "#00856f"
+yellow = "#906918"
+blue = "#0049c1"
+magenta = "#c4246e"
+cyan = "#007e9e"
+white = "#322529"
+brblack = "#6a7084"
+brred = "#cc2623"
+brgreen = "#00695c"
+bryellow = "#765300"
+brblue = "#0078b8"
+brmagenta = "#9d31cf"
+brcyan = "#006279"
+brwhite = "#000000"

@@ -11,19 +11,23 @@ struct DesignTests {
         let light = TerminalPalette.resolved(for: NSAppearance(named: .aqua))
         let dark = TerminalPalette.resolved(for: NSAppearance(named: .darkAqua))
 
-        expectRGB(light.background, 0xF7, 0xF4, 0xE8)
-        expectRGB(light.text, 0x1A, 0x20, 0x26)
-        expectRGB(dark.background, 0x0C, 0x10, 0x13)
-        expectRGB(dark.text, 0xE5, 0xE1, 0xCF)
+        expectRGB(light.background, 0xFF, 0xFF, 0xFF)
+        expectRGB(light.text, 0x32, 0x25, 0x29)
+        expectRGB(light.cursor, 0x00, 0x7A, 0xFF)
+        expectRGB(light.selection, 0xB3, 0xD7, 0xFF)
+        expectRGB(dark.background, 0x26, 0x26, 0x26)
+        expectRGB(dark.text, 0xFA, 0xF1, 0xF3)
+        expectRGB(dark.cursor, 0x00, 0x7A, 0xFF)
+        expectRGB(dark.selection, 0x3F, 0x63, 0x8B)
         #expect(light.ansi.count == 16)
         #expect(dark.ansi.count == 16)
         let lightANSI = [
-            0x1A2026, 0xB72C32, 0x4C712F, 0x7C6917, 0x176B9B, 0x9F356D, 0x087A60, 0x666354,
-            0x626D78, 0xC53B43, 0x517A2D, 0x896A12, 0x00729C, 0xAC467F, 0x007D6A, 0x37382F,
+            0x322529, 0xCA2C1D, 0x00856F, 0x906918, 0x0049C1, 0xC4246E, 0x007E9E, 0x322529,
+            0x6A7084, 0xCC2623, 0x00695C, 0x765300, 0x0078B8, 0x9D31CF, 0x006279, 0x000000,
         ]
         let darkANSI = [
-            0x1A2026, 0xEF4D4D, 0x8FBE5C, 0xD9BD54, 0x4AA3E0, 0xDC63A0, 0x2DD6AB, 0xCAC5B3,
-            0x7D8794, 0xFF8383, 0xA9E488, 0xECD77E, 0x7CD2F5, 0xF0A0D5, 0x85F0D8, 0xF7F4E8,
+            0x1C1C1C, 0xFF8D7A, 0x00D9B2, 0xEBA800, 0x5B98E6, 0xFF82B3, 0x00CAFA, 0xFAF1F3,
+            0xABB3CD, 0xFFAEA0, 0x00DF75, 0xFFD166, 0x82B7FF, 0xD896FE, 0x62E3FF, 0xFFFFFF,
         ]
         for (color, hex) in zip(light.ansi, lightANSI) {
             expectRGB(color.nsColor, hex >> 16, (hex >> 8) & 0xFF, hex & 0xFF)
@@ -41,6 +45,11 @@ struct DesignTests {
         for tone in tones {
             #expect(contrastRatio(tone, .terminalBackground, in: colorScheme) >= 4.5, "\(tone)")
         }
+    }
+
+    @Test(arguments: [ColorScheme.light, .dark])
+    func terminalSelectionKeepsTextLegible(colorScheme: ColorScheme) {
+        #expect(contrastRatio(.terminalText, .terminalSelection, in: colorScheme) >= 4.5)
     }
 
     /// Log entries show their kind in the role color on the trace detail panel.

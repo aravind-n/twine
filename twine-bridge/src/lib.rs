@@ -792,7 +792,14 @@ mod tests {
         );
         let file: serde_json::Value = serde_json::from_slice(&take_buffer(output)).unwrap();
         assert_eq!(file["status"], "text");
-        assert!(file["text"].as_str().unwrap().contains("# brblue ="));
+        let source = file["text"].as_str().unwrap();
+        assert!(source.contains("[theme]"));
+        assert!(
+            source.contains(
+                "https://standing-desks.github.io/twine/documentation/guide/#configuration"
+            )
+        );
+        assert!(!source.contains("[terminal.colors]"));
         let mut request = serde_json::json!({
             "path": file["path"], "folder": Path::new(file["path"].as_str().unwrap()).parent().unwrap(),
             "text": "terminal.font_size = 18\n", "expectedVersion": file["version"], "overwrite": false,

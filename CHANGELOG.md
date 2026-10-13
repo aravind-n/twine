@@ -7,11 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Choose separate light and dark terminal palettes with optional `[theme]` settings.
+
+### Changed
+
+- Use a private bundled Hack Nerd Font when no custom font is configured, so terminal icons work
+  without installing a font. Custom font names continue to select fonts installed in macOS.
+- Use Twine light and dark terminal palettes with neutral surfaces, vivid accents, and
+  clearer selections. Preserve customized themes.
+
+### Fixed
+
+- Show the “No Open Tabs” message directly on the workspace background.
+
 ## [0.3.1] - 2026-10-12
 
 ### Added
 
-- Show Git status beside files and dots beside folders with changes.
+- Show Git status beside files and folders with changes.
 
 ### Changed
 

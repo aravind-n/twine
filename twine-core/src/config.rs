@@ -1,4 +1,4 @@
-//! User configuration. Serde defaults are the schema for both loading and the starter file.
+//! User configuration. Serde defaults supply omitted settings; the starter file shows basic choices.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -16,13 +16,16 @@ mod themes;
 
 pub use diagnostics::{ConfigDiagnostic, ConfigProblem};
 pub use editing::{ConfigEditError, read_user_file, save_user_file};
-pub use themes::{HexColor, TerminalColors, TerminalPalette, TerminalPalettes};
+pub use themes::{
+    HexColor, TerminalColors, TerminalPalette, TerminalPalettes, ThemeConfig, ThemeName,
+};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct Config {
     pub appearance: Appearance,
     pub terminal: TerminalConfig,
+    pub theme: ThemeConfig,
     pub editor: EditorConfig,
     pub traces: TraceConfig,
 }
@@ -94,7 +97,7 @@ impl<'de> Deserialize<'de> for AutosaveDelay {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct TerminalConfig {
-    /// An installed font family. Empty selects the platform's system monospace font.
+    /// An installed font family. Empty selects the platform's internal terminal font.
     pub font_family: String,
     pub font_size: FontSize,
     pub colors: TerminalColors,
@@ -187,7 +190,7 @@ impl Config {
         loaded.config
     }
 
-    /// Loads a file, creating a commented default file if missing. Existing files are never
+    /// Loads a file, creating a small starter file if missing. Existing files are never
     /// overwritten. Any read, syntax, or validation failure returns the complete defaults.
     #[must_use]
     pub fn load(path: &Path) -> LoadedConfig {
@@ -205,8 +208,18 @@ impl Config {
 
     /// Resolves a draft using the same imports, themes, and validation as a saved config.
     pub(crate) fn load_source(path: &Path, source: &str) -> LoadedConfig {
-        let (mut palettes, diagnostics) = themes::load(path);
+        let publication_failures = themes::publish(path);
         let mut loaded = imports::load(path, source);
+        if loaded
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.problem != ConfigProblem::UnknownKey)
+        {
+            loaded.config = Self::default();
+            return loaded;
+        }
+        let (mut palettes, diagnostics) =
+            themes::load(path, &loaded.config.theme, &publication_failures);
         loaded.diagnostics.extend(diagnostics);
         if loaded
             .diagnostics
@@ -328,45 +341,19 @@ fn read_or_create(path: &Path) -> Result<String, ConfigFileError> {
 
 fn default_source() -> Result<String, ConfigFileError> {
     let mut defaults = toml::Value::try_from(Config::default())?;
+    defaults
+        .as_table_mut()
+        .expect("config is a table")
+        .retain(|key, _| matches!(key, "appearance" | "terminal" | "theme"));
     defaults["terminal"]
         .as_table_mut()
         .expect("terminal is a table")
-        .remove("palettes");
-    let defaults = toml::to_string_pretty(&defaults)?;
-    let mut source = String::from(
-        "# Twine configuration. Uncomment settings to override their defaults.\n\
-         # Settings saved in Twine apply immediately.\n\
-         # appearance.color_scheme accepts \"system\", \"light\", or \"dark\".\n\
-         # terminal.font_family selects an installed monospace family (for example, \"JetBrains Mono\").\n\
-         # An empty, unavailable, or proportional family uses system monospace.\n\
-         # terminal.font_size accepts 6 through 72 points, including fractional sizes.\n\
-         # editor.autosave enables automatic file saving; Cmd+S always saves explicitly.\n\
-         # editor.autosave_delay_ms sets the typing pause in positive whole milliseconds.\n\
-         # Top-level import accepts a TOML file path or a list of paths.\n\
-         # Later imports override earlier imports; settings in this file override all imports.\n\
-         # Imported files use the same tables as this config; colors use #RRGGBB strings.\n\
-         # Default themes/silica_light.toml and silica_dark.toml follow macOS appearance.\n\n\
-         # import = [\"themes/silica_dark.toml\"]\n\n",
-    );
-    for line in defaults.lines() {
-        if line.starts_with('[') || line.is_empty() {
-            source.push_str(line);
-        } else {
-            source.push_str("# ");
-            source.push_str(line);
-        }
-        source.push('\n');
-        if line == "[terminal.colors]" {
-            source.push_str("# background = \"#0c1013\"\n# foreground = \"#e5e1cf\"\n");
-            for line in themes::default_color_settings().lines() {
-                source.push_str("# ");
-                source.push_str(line);
-                source.push('\n');
-            }
-        }
-    }
-
-    Ok(source)
+        .retain(|key, _| matches!(key, "font_family" | "font_size"));
+    Ok(format!(
+        "# Twine configuration. Settings saved in Twine apply immediately.\n\
+         # More options: https://standing-desks.github.io/twine/documentation/guide/#configuration\n\n{}",
+        toml::to_string_pretty(&defaults)?
+    ))
 }
 
 fn write_default(path: &Path, source: &str) -> Result<String, ConfigFileError> {
@@ -539,6 +526,10 @@ mod tests {
         assert_eq!(size.config.terminal.font_size, FontSize(18.0));
         assert_eq!(family.diagnostics, []);
         assert_eq!(size.diagnostics, []);
+        let system = Config::parse(Path::new(PATH), "terminal.font_family = ''\n");
+        assert_eq!(system.config.terminal.font_family, "");
+        assert_eq!(system.config.terminal.font_size, FontSize::default());
+        assert_eq!(system.diagnostics, []);
     }
 
     #[test]
@@ -695,36 +686,35 @@ mod tests {
     }
 
     #[test]
-    fn first_load_creates_commented_defaults_and_preserves_edits() {
+    fn first_load_creates_basic_settings_and_preserves_edits() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("twine/config.toml");
         let loaded = Config::load(&path);
         assert_eq!(loaded.config, Config::default());
         assert_eq!(loaded.diagnostics, []);
         let source = fs::read_to_string(&path).unwrap();
-        assert!(source.contains("[appearance]"));
-        assert!(source.contains("# color_scheme = \"system\""));
-        assert!(source.contains("[terminal]"));
-        assert!(source.contains("# font_family = \"\""));
-        assert!(source.contains("# font_size = 13.0"));
-        assert!(source.contains("[editor]"));
-        assert!(source.contains("# autosave = true"));
-        assert!(source.contains("# autosave_delay_ms = 500"));
-        assert_eq!(Config::parse(&path, &source).config, Config::default());
-        let uncommented = source
-            .lines()
-            .filter_map(|line| {
-                line.strip_prefix("# ")
-                    .filter(|line| line.contains(" = "))
-                    .or_else(|| line.starts_with('[').then_some(line))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert_eq!(
-            Config::parse(&path, &uncommented).config.terminal.font_size,
-            FontSize::default()
+        assert!(source.contains("color_scheme = \"system\""));
+        assert!(source.contains("font_family = \"\""));
+        assert!(source.contains("font_size = 13.0"));
+        assert!(source.contains("[theme]"));
+        assert!(source.contains("light = \"twine_light\""));
+        assert!(source.contains("dark = \"twine_dark\""));
+        assert!(
+            source.contains(
+                "https://standing-desks.github.io/twine/documentation/guide/#configuration"
+            )
         );
-        assert_eq!(Config::parse(&path, &uncommented).diagnostics, []);
+        assert_eq!(
+            source.lines().filter(|line| line.starts_with('#')).count(),
+            2
+        );
+        assert!(source.lines().count() <= 16);
+        assert!(!source.contains("import"));
+        assert!(!source.contains("[terminal.colors]"));
+        assert!(!source.contains("[editor]"));
+        assert!(!source.contains("[traces]"));
+        assert_eq!(Config::parse(&path, &source).config, Config::default());
+        assert_eq!(Config::parse(&path, &source).diagnostics, []);
 
         let edited = "[appearance]\ncolor_scheme = 'light'\n";
         fs::write(&path, edited).unwrap();
@@ -782,6 +772,6 @@ mod tests {
                 });
             }
         });
-        assert!(fs::read_to_string(path).unwrap().contains("# color_scheme"));
+        assert!(fs::read_to_string(path).unwrap().contains("color_scheme"));
     }
 }
