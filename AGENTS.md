@@ -32,6 +32,9 @@ Use the terms defined in [CONTEXT.md](CONTEXT.md) when naming folder, session, w
   edit applied to it, using a repository-edit verb such as `add`, `move`, `split`, `extract`,
   `replace`, `remove`, or `rename`. Keep the message as a short subject line. You can add at most one or
   two body lines if absolutely necessary.
+  - **DCO sign-off:** Contributions require a human contributor's sign-off under [DCO](DCO).
+    Follow the [Linux kernel's guidance](https://docs.kernel.org/process/coding-assistants.html):
+    AI agents must not add `Signed-off-by` tags.
   - **Examples of good commit messages:**
     - `api: add pagination middleware to collection endpoints`
     - `database: split customer addresses into normalized tables`

@@ -164,6 +164,8 @@ Known limitations:
 
 ## Contributing
 
+[Contributing Guide](CONTRIBUTING.md) · [Developer Certificate of Origin](DCO)
+
 Bug reports and feedback on real workflows are welcome in
 [GitHub Issues](https://github.com/standing-desks/twine/issues). Include your macOS,
 Twine, and harness versions, what you expected, and what happened. For larger
