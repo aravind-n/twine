@@ -7,18 +7,11 @@
 <p align="center">A native macOS workspace for coordinating coding agents.</p>
 
 <p align="center">
-  <a href="https://github.com/standing-desks/twine/releases/latest">
-    <img src="https://img.shields.io/github/v/release/standing-desks/twine" alt="Latest release">
-  </a>
-  <a href="https://github.com/standing-desks/twine/actions/workflows/ci.yml">
-    <img src="https://github.com/standing-desks/twine/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI status on main">
-  </a>
-  <a href="#install">
-    <img src="https://img.shields.io/badge/macOS-26%2B-blue" alt="macOS 26 or later">
-  </a>
-  <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/standing-desks/twine" alt="MIT license">
-  </a>
+  <a href="https://github.com/standing-desks/twine/releases/latest"><img src="https://img.shields.io/github/v/release/standing-desks/twine?color=8250df" alt="Latest release"></a>
+  <a href="https://github.com/standing-desks/twine/releases"><img src="https://img.shields.io/github/downloads/standing-desks/twine/total?color=orange" alt="Total downloads across all release assets"></a>
+  <a href="https://github.com/standing-desks/twine/actions/workflows/ci.yml"><img src="https://github.com/standing-desks/twine/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI status on main"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/macOS-26%2B-0969da" alt="macOS 26 or later"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/standing-desks/twine" alt="MIT license"></a>
 </p>
 
 <p align="center">
