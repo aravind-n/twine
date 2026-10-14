@@ -25,9 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up macOS build tools and caches
+        id: build-tools
         uses: ./.github/actions/setup-build
       - name: Build website and API docs
         run: make build-site
+      # Pull requests restore this cache; only main saves it.
+      - name: Save resolved Swift dependencies on main
+        if: github.ref == 'refs/heads/main' && steps.build-tools.outputs.swift-cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: out/dependencies/SourcePackages
+          key: ${{ steps.build-tools.outputs.swift-cache-key }}
       - name: Upload website artifact
         uses: actions/upload-pages-artifact@v5
         with:

@@ -92,6 +92,8 @@ UI_VISUAL_TESTS := testFolderWindowInDarkAppearance \
 # SHARD=n/N runs every Nth default test, starting at the nth, so CI can split the list across machines.
 UI_SHARD_TESTS = $(shell printf '%s\n' $(UI_DEFAULT_TESTS) | \
 	awk -v shard='$(SHARD)' 'BEGIN { split(shard, part, "/") } part[2] > 0 && NR % part[2] == part[1] % part[2]')
+# RETRIES=n reruns each failed UI test up to n more times. CI uses RETRIES=1.
+UI_RETRY_ARGS = $(if $(filter-out 0,$(RETRIES)),-retry-tests-on-failure -test-iterations $(shell expr $(RETRIES) + 1))
 UI_TEST_ARGS := $(if $(strip $(ONLY)),\
 	$(addprefix -only-testing:TwineUITests/TwineUITests/,$(ONLY)),\
 	$(if $(filter 1,$(ALL)),-only-testing:TwineUITests,\
@@ -172,9 +174,9 @@ test-app: $(call needs,build-tests) ## Run the app's unit tests
 check-app: lint-app test-app ## Lint and unit-test the app
 
 .PHONY: ui-test
-ui-test: $(call needs,build-tests) ## Run UI tests (ONLY="testA testB", ALL=1 or SHARD=n/N)
+ui-test: $(call needs,build-tests) ## Run UI tests (ONLY="testA testB", ALL=1 or SHARD=n/N; RETRIES=n)
 	@test -n "$(strip $(UI_TEST_ARGS))" || { echo 'usage: make ui-test [ONLY="testA testB" | ALL=1 | SHARD=n/N]' >&2; exit 2; }
-	TEST_RUNNER_TWINE_TEST_GIT="$$(xcrun --find git)" $(TEST_ENV) $(TEST_RUN) $(UI_TEST_ARGS)
+	TEST_RUNNER_TWINE_TEST_GIT="$$(xcrun --find git)" $(TEST_ENV) $(TEST_RUN) $(UI_TEST_ARGS) $(UI_RETRY_ARGS)
 
 .PHONY: ui-test-visual
 ui-test-visual: ## Run the visual UI tests

@@ -1,9 +1,8 @@
 name: CI
 
-# After a merge: UI-test the app and build the release candidate. Pull requests run pr.yml.
+# After a merge: build the release candidate. Pull requests run every test in pr.yml.
 # release.yml signs the Build release artifact from this workflow's successful run on the tagged
 # commit, and the app's build number is this workflow's run number.
-# Run it manually on a branch to UI-test that branch before merging.
 on:
   push:
     branches: [main]
@@ -16,64 +15,6 @@ env:
   DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
 
 jobs:
-  # The UI test jobs run from this job's test products, so one failed job reruns without a rebuild.
-  build-app:
-    name: Build app
-    runs-on: xcode-27
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - name: Set up macOS build tools and caches
-        id: build-tools
-        uses: ./.github/actions/setup-build
-      - name: Build Debug app for testing
-        env:
-          XCODE_BUILD_ARGS: COMPILER_INDEX_STORE_ENABLE=NO CURRENT_PROJECT_VERSION=${{ github.run_number }}
-        run: make pack-tests
-      - name: Upload test products
-        uses: actions/upload-artifact@v7
-        with:
-          name: test-products
-          path: out/tests/products.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-      # Pull requests restore this cache; only main saves it.
-      - name: Save resolved Swift dependencies on main
-        if: github.ref == 'refs/heads/main' && steps.build-tools.outputs.swift-cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: out/dependencies/SourcePackages
-          key: ${{ steps.build-tools.outputs.swift-cache-key }}
-
-  ui-test-app:
-    name: UI test app (${{ matrix.shard }}/4)
-    needs: build-app
-    runs-on: xcode-27
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    steps:
-      - uses: actions/checkout@v7
-      - name: Download test products
-        uses: actions/download-artifact@v8
-        with:
-          name: test-products
-          path: out/tests
-      - name: Run UI tests
-        run: |
-          make unpack-tests
-          make ui-test PREBUILT=1 SHARD=${{ matrix.shard }}/4
-      - name: Upload failed test results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ui-test-results-${{ matrix.shard }}-${{ github.run_attempt }}
-          path: out/tests/build/Logs/Test/*.xcresult
-          if-no-files-found: ignore
-          retention-days: 7
-
   build-release:
     name: Build release
     runs-on: xcode-27

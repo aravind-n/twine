@@ -187,6 +187,7 @@ jobs:
           make unpack-tests
           make test-app PREBUILT=1
       - name: Upload failed test results
+        id: upload-results
         if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -194,6 +195,46 @@ jobs:
           path: out/tests/build/Logs/Test/*.xcresult
           if-no-files-found: ignore
           retention-days: 7
+      - name: Report test results
+        if: ${{ !cancelled() }}
+        env:
+          RESULTS_URL: ${{ steps.upload-results.outputs.artifact-url }}
+        run: bash scripts/report-tests.sh out/tests/build/Logs/Test/*.xcresult
+
+  ui-test-app:
+    name: UI test app (${{ matrix.shard }}/4)
+    needs: build-app
+    runs-on: xcode-27
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download test products
+        uses: actions/download-artifact@v8
+        with:
+          name: test-products
+          path: out/tests
+      - name: Run UI tests
+        run: |
+          make unpack-tests
+          make ui-test PREBUILT=1 SHARD=${{ matrix.shard }}/4 RETRIES=1
+      - name: Upload failed test results
+        id: upload-results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-test-results-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: out/tests/build/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Report test results
+        if: ${{ !cancelled() }}
+        env:
+          RESULTS_URL: ${{ steps.upload-results.outputs.artifact-url }}
+        run: bash scripts/report-tests.sh out/tests/build/Logs/Test/*.xcresult
 
   build-site:
     name: Build site
@@ -235,6 +276,7 @@ jobs:
       - lint-app
       - build-app
       - test-app
+      - ui-test-app
       - build-site
       - build-release
     if: always()
