@@ -168,8 +168,16 @@ impl Collector {
     }
 
     fn scan(&mut self, locations: &Locations) {
+        self.scan_codex(locations);
+        self.scan_claude(locations);
+        self.scan_antigravity(locations);
+        if let Some(folder) = &locations.folder {
+            self.instructions(folder, &locations.codex_config);
+        }
+    }
+
+    fn scan_codex(&mut self, locations: &Locations) {
         let codex = MemoryHarness::Codex;
-        let claude = MemoryHarness::ClaudeCode;
         let global = MemoryScope::Global;
         for name in ["AGENTS.md", "AGENTS.override.md"] {
             self.file(
@@ -201,6 +209,20 @@ impl Collector {
         }
         self.codex_settings(locations);
         database::discover(&locations.sqlite, locations.folder.as_deref(), self);
+        if let Some(folder) = &locations.folder {
+            self.tree(
+                &folder.join(".codex/rules"),
+                codex,
+                MemoryScope::Folder,
+                MemoryKind::Rule,
+                "Codex folder execution rules",
+            );
+        }
+    }
+
+    fn scan_claude(&mut self, locations: &Locations) {
+        let claude = MemoryHarness::ClaudeCode;
+        let global = MemoryScope::Global;
         self.file(
             &locations.claude,
             &locations.claude.join("CLAUDE.md"),
@@ -224,14 +246,6 @@ impl Collector {
             "Claude user agent memory",
         );
         if let Some(folder) = &locations.folder {
-            self.instructions(folder, &locations.codex_config);
-            self.tree(
-                &folder.join(".codex/rules"),
-                codex,
-                MemoryScope::Folder,
-                MemoryKind::Rule,
-                "Codex folder execution rules",
-            );
             self.tree(
                 &folder.join(".claude/rules"),
                 claude,
@@ -267,6 +281,70 @@ impl Collector {
         );
     }
 
+    fn scan_antigravity(&mut self, locations: &Locations) {
+        let antigravity = MemoryHarness::Antigravity;
+        let global = MemoryScope::Global;
+        for name in ["GEMINI.md", "GEMINI.override.md"] {
+            self.file(
+                &locations.antigravity_config,
+                &locations.antigravity_config.join(name),
+                antigravity,
+                global,
+                MemoryKind::Instructions,
+                "Antigravity user instructions",
+            );
+        }
+        for root in [
+            locations.antigravity_config.join("rules"),
+            locations.antigravity_cli.join("rules"),
+        ] {
+            self.tree(
+                &root,
+                antigravity,
+                global,
+                MemoryKind::Rule,
+                "Antigravity user rules",
+            );
+        }
+        for root in [
+            locations.antigravity_config.join("skills"),
+            locations.antigravity_cli.join("skills"),
+        ] {
+            self.tree(
+                &root,
+                antigravity,
+                global,
+                MemoryKind::Skill,
+                "Antigravity skills",
+            );
+        }
+        if let Some(folder) = &locations.folder {
+            for dot_dir in [".agents", ".agent", "_agents"] {
+                let agent_dir = folder.join(dot_dir);
+                self.tree(
+                    &agent_dir.join("rules"),
+                    antigravity,
+                    MemoryScope::Folder,
+                    MemoryKind::Rule,
+                    "Antigravity folder rules",
+                );
+                self.tree(
+                    &agent_dir.join("skills"),
+                    antigravity,
+                    MemoryScope::Folder,
+                    MemoryKind::Skill,
+                    "Antigravity folder skills",
+                );
+            }
+        }
+        self.antigravity_settings(locations);
+        database::discover_antigravity(
+            &locations.antigravity_cli,
+            locations.folder.as_deref(),
+            self,
+        );
+    }
+
     fn codex_settings(&mut self, locations: &Locations) {
         let codex = MemoryHarness::Codex;
         let global = MemoryScope::Global;
@@ -290,12 +368,32 @@ impl Collector {
         );
     }
 
+    fn antigravity_settings(&mut self, locations: &Locations) {
+        let antigravity = MemoryHarness::Antigravity;
+        let global = MemoryScope::Global;
+        let config = locations.antigravity_config_summary();
+        let config_path = locations.antigravity_cli.join("settings.json");
+        self.push(
+            source(
+                &config_path,
+                "Antigravity settings",
+                antigravity,
+                global,
+                MemoryKind::Configuration,
+                "Memory settings",
+            ),
+            Backing::Text(serde_json::to_string_pretty(&config).unwrap_or_default()),
+        );
+    }
+
     fn instructions(&mut self, folder: &Path, config: &toml::Value) {
         let mut names = vec![
             "AGENTS.md".to_owned(),
             "AGENTS.override.md".into(),
             "CLAUDE.md".into(),
             "CLAUDE.local.md".into(),
+            "GEMINI.md".into(),
+            "GEMINI.override.md".into(),
         ];
         if let Some(fallbacks) = config
             .get("project_doc_fallback_filenames")
@@ -319,6 +417,8 @@ impl Collector {
             for name in &names {
                 let harness = if name.starts_with("CLAUDE") {
                     MemoryHarness::ClaudeCode
+                } else if name.starts_with("GEMINI") {
+                    MemoryHarness::Antigravity
                 } else {
                     MemoryHarness::Codex
                 };
@@ -361,7 +461,7 @@ impl Collector {
     }
 
     fn inherited_instructions(&mut self, folder: &Path, names: &[String]) {
-        // Claude also reads instructions above the open folder, which are inherited context.
+        // Claude and Antigravity also read instructions above the open folder, which are inherited context.
         let instruction_root = folder
             .ancestors()
             .find(|parent| parent.join(".git").symlink_metadata().is_ok());
@@ -387,8 +487,21 @@ impl Collector {
                 MemoryKind::Instructions,
                 "Inherited Claude instructions",
             );
+            for name in ["GEMINI.md", "GEMINI.override.md"] {
+                self.file(
+                    parent,
+                    &parent.join(name),
+                    MemoryHarness::Antigravity,
+                    MemoryScope::Folder,
+                    MemoryKind::Instructions,
+                    "Inherited Antigravity instructions",
+                );
+            }
             if instruction_root.is_some_and(|root| parent.starts_with(root)) {
-                for name in names.iter().filter(|name| !name.starts_with("CLAUDE")) {
+                for name in names
+                    .iter()
+                    .filter(|name| !name.starts_with("CLAUDE") && !name.starts_with("GEMINI"))
+                {
                     self.file(
                         parent,
                         &parent.join(name),
@@ -561,7 +674,18 @@ fn artifact_kind(path: &Path, fallback: MemoryKind, harness: MemoryHarness) -> M
         Some("MEMORY.md") if harness == MemoryHarness::Codex => MemoryKind::Durable,
         Some("memory_summary.md" | "MEMORY.md") => MemoryKind::Summary,
         Some("raw_memories.md") => MemoryKind::RawMemory,
-        Some(name) if name.starts_with("phase") => MemoryKind::Artifact,
+        Some(name)
+            if name.starts_with("phase")
+                || name.ends_with("_plan.md")
+                || name == "plan.md"
+                || name == "task.md"
+                || name == "tasks.md" =>
+        {
+            MemoryKind::Artifact
+        }
+        Some(name) if name == "walkthrough.md" || name.ends_with("_summary.md") => {
+            MemoryKind::Summary
+        }
         _ => fallback,
     }
 }
@@ -787,5 +911,105 @@ mod tests {
                 .iter()
                 .any(|e| e.source.location.ends_with("folder/AGENTS.md"))
         );
+    }
+
+    #[test]
+    fn discovers_antigravity_instructions_rules_skills_and_brain_artifacts() {
+        let root = tempfile::tempdir().unwrap();
+        let folder_path = root.path().join("folder");
+        let other_path = root.path().join("other_folder");
+        std::fs::create_dir_all(&folder_path).unwrap();
+        std::fs::create_dir_all(&other_path).unwrap();
+
+        let db_path = root
+            .path()
+            .join("home/.gemini/antigravity-cli/conversation_summaries.db");
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let sql = "CREATE TABLE conversation_summaries (
+            conversation_id TEXT PRIMARY KEY,
+            title TEXT,
+            workspace_uris TEXT
+        );
+        INSERT INTO conversation_summaries VALUES ('conv-1', 'Current Project', '[\"file://FOLDER_PATH\"]');
+        INSERT INTO conversation_summaries VALUES ('conv-2', 'Other Project', '[\"file://OTHER_PATH\"]');"
+            .replace("FOLDER_PATH", &folder_path.to_string_lossy())
+            .replace("OTHER_PATH", &other_path.to_string_lossy());
+        conn.execute_batch(&sql).unwrap();
+
+        for (name, content) in [
+            (
+                "home/.gemini/config/GEMINI.md",
+                "# Antigravity global instructions",
+            ),
+            (
+                "home/.gemini/config/rules/style.md",
+                "# Antigravity global rule",
+            ),
+            (
+                "home/.gemini/config/skills/deploy/SKILL.md",
+                "# Deploy skill",
+            ),
+            ("folder/GEMINI.md", "# Antigravity folder instructions"),
+            (
+                "folder/.agents/rules/lint.md",
+                "# Antigravity workspace rule",
+            ),
+            ("folder/.agents/skills/test/SKILL.md", "# Test skill"),
+            (
+                "home/.gemini/antigravity-cli/brain/conv-1/plan.md",
+                "# Current Plan",
+            ),
+            (
+                "home/.gemini/antigravity-cli/brain/conv-1/walkthrough.md",
+                "# Current Walkthrough",
+            ),
+            (
+                "home/.gemini/antigravity-cli/brain/conv-2/other_plan.md",
+                "# Other Plan",
+            ),
+        ] {
+            write(root.path(), name, content);
+        }
+
+        let locations = Locations::examples(root.path());
+        let mut collector = Collector::new(true);
+        collector.scan(&locations);
+
+        let antigravity_entries: Vec<_> = collector
+            .entries
+            .iter()
+            .filter(|e| e.source.harness == MemoryHarness::Antigravity)
+            .collect();
+
+        assert!(antigravity_entries.iter().any(|e| {
+            e.source.kind == MemoryKind::Instructions && e.source.scope == MemoryScope::Folder
+        }));
+        assert!(antigravity_entries.iter().any(|e| {
+            e.source.kind == MemoryKind::Rule && e.source.scope == MemoryScope::Folder
+        }));
+        assert!(antigravity_entries.iter().any(|e| {
+            e.source.kind == MemoryKind::Skill && e.source.scope == MemoryScope::Folder
+        }));
+        assert!(
+            antigravity_entries
+                .iter()
+                .any(|e| e.source.kind == MemoryKind::StoreStatus)
+        );
+        assert!(antigravity_entries.iter().any(|e| {
+            e.source.kind == MemoryKind::Artifact
+                && e.source.scope == MemoryScope::Folder
+                && e.source.title == "plan.md"
+        }));
+        assert!(antigravity_entries.iter().any(|e| {
+            e.source.kind == MemoryKind::Summary
+                && e.source.scope == MemoryScope::Folder
+                && e.source.title == "walkthrough.md"
+        }));
+        assert!(antigravity_entries.iter().any(|e| {
+            e.source.kind == MemoryKind::Artifact
+                && e.source.scope == MemoryScope::OtherFolder
+                && e.source.title == "other_plan.md"
+        }));
     }
 }

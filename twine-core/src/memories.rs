@@ -27,6 +27,7 @@ pub struct MemoryRequest {
 pub enum MemoryHarness {
     Codex,
     ClaudeCode,
+    Antigravity,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

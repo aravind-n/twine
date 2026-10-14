@@ -1,7 +1,21 @@
-import Foundation
+import SwiftUI
 
 extension MemoryHarness {
-    nonisolated var title: String { self == .codex ? "Codex" : "Claude Code" }
+    nonisolated var title: String {
+        switch self {
+        case .codex: "Codex"
+        case .claudeCode: "Claude Code"
+        case .antigravity: "Antigravity"
+        }
+    }
+
+    nonisolated var tint: Color {
+        switch self {
+        case .codex: .blue
+        case .claudeCode: .orange
+        case .antigravity: .green
+        }
+    }
 }
 
 extension MemoryScope {
@@ -42,8 +56,12 @@ extension CoreMemorySource {
             let homeKey = NSHomeDirectory().replacingOccurrences(of: "/", with: "-") + "-workspaces-"
             return key.hasPrefix(homeKey) ? String(key.dropFirst(homeKey.count)) : key
         }
+        if group.hasPrefix("Antigravity folder: ") {
+            return String(group.dropFirst("Antigravity folder: ".count))
+        }
         return group.replacingOccurrences(of: "Codex SQLite: ", with: "SQLite · ")
             .replacingOccurrences(of: "Codex ", with: "").replacingOccurrences(of: "Claude ", with: "")
+            .replacingOccurrences(of: "Antigravity ", with: "")
     }
 }
 

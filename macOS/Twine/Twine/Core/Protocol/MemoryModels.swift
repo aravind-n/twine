@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated enum MemoryHarness: String, Codable, CaseIterable, Identifiable {
-    case codex, claudeCode
+    case codex, claudeCode, antigravity
     var id: Self { self }
 }
 

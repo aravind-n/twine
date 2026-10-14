@@ -13,7 +13,7 @@ struct MemoryFilters: View {
                 .focused($focusedControl, equals: .search)
             HStack(spacing: 6) {
                 Picker("Harness", selection: $model.harness) {
-                    Text("Both harnesses").tag(Optional<MemoryHarness>.none)
+                    Text("All harnesses").tag(Optional<MemoryHarness>.none)
                     ForEach(MemoryHarness.allCases) { Text($0.title).tag(Optional($0)) }
                 }.labelsHidden().accessibilityIdentifier("memoryHarness")
                     .focused($focusedControl, equals: .harness)

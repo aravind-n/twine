@@ -18,7 +18,7 @@ struct MemorySourceRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(filename).font(.system(size: 11, weight: .medium)).lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 4) {
-                    Circle().fill(source.harness == .codex ? Color.blue : .orange).frame(width: 4, height: 4)
+                    Circle().fill(source.harness.tint).frame(width: 4, height: 4)
                     Text(source.harness.title)
                     if source.scope == .otherFolder { Text("· \(source.groupTitle)") }
                     if source.example { Text("· Example") }

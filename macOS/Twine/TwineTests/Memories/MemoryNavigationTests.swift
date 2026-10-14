@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import Twine
@@ -63,6 +64,17 @@ struct MemoryNavigationTests {
         #expect(model.selectedID == "other-a")
         model.query = "nothing matches"
         #expect(model.selectedID == nil)
+    }
+
+    @Test func antigravityHarnessFiltersAndPresentation() async throws {
+        let model = MemoryModel()
+        let agSource = source(
+            "antigravity-plan", scope: .folder, harness: .antigravity, group: "Antigravity artifacts")
+        try await load(model, sources: sources + [agSource])
+        model.harness = .antigravity
+        #expect(model.filteredSources.map(\.id) == ["antigravity-plan"])
+        #expect(agSource.harness.title == "Antigravity")
+        #expect(agSource.harness.tint == .green)
     }
 
     private var sources: [CoreMemorySource] {

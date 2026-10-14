@@ -8,9 +8,12 @@ pub(super) struct Locations {
     pub codex: PathBuf,
     pub sqlite: PathBuf,
     pub claude: PathBuf,
+    pub antigravity_cli: PathBuf,
+    pub antigravity_config: PathBuf,
     pub folder: Option<PathBuf>,
     pub codex_config: toml::Value,
     pub claude_settings: Value,
+    pub antigravity_settings: Value,
     pub example: bool,
 }
 
@@ -30,6 +33,18 @@ impl Locations {
                 .map_or_else(|| home.join(".claude"), PathBuf::from),
             &process_working,
         );
+        let antigravity_cli = absolute_home(
+            std::env::var_os("ANTIGRAVITY_APP_DATA_DIR")
+                .or_else(|| std::env::var_os("ANTIGRAVITY_HOME"))
+                .map_or_else(|| home.join(".gemini/antigravity-cli"), PathBuf::from),
+            &process_working,
+        );
+        let antigravity_config = absolute_home(
+            std::env::var_os("ANTIGRAVITY_CONFIG_DIR")
+                .map_or_else(|| home.join(".gemini/config"), PathBuf::from),
+            &process_working,
+        );
+        let antigravity_settings = read_json(&antigravity_cli.join("settings.json"));
         let config = read_toml(&codex.join("config.toml"));
         let working = request
             .folder
@@ -59,9 +74,12 @@ impl Locations {
             codex,
             sqlite,
             claude,
+            antigravity_cli,
+            antigravity_config,
             folder,
             codex_config: config,
             claude_settings: settings,
+            antigravity_settings,
             example: false,
         }
     }
@@ -69,11 +87,16 @@ impl Locations {
     pub fn examples(root: &Path) -> Self {
         let home = root.join("home");
         let codex = home.join(".codex");
+        let antigravity_cli = home.join(".gemini/antigravity-cli");
+        let antigravity_config = home.join(".gemini/config");
         Self {
             sqlite: codex.clone(),
             codex_config: read_toml(&codex.join("config.toml")),
             claude_settings: read_json(&home.join(".claude/settings.json")),
             claude: home.join(".claude"),
+            antigravity_cli: antigravity_cli.clone(),
+            antigravity_config,
+            antigravity_settings: read_json(&antigravity_cli.join("settings.json")),
             folder: Some(root.join("folder")),
             home,
             codex,
@@ -99,6 +122,30 @@ impl Locations {
             "memories.disable_on_external_context": boolean("disable_on_external_context", boolean("no_memories_if_mcp_or_web_search", false)),
             "codex_home": self.codex, "sqlite_home": self.sqlite,
             "note": "User-file values plus source-code defaults. Profiles, trusted folder layers, managed policy and per-session overrides may change actual enablement. Viewing never changes settings."
+        })
+    }
+
+    pub fn antigravity_config_summary(&self) -> Value {
+        let mode = self
+            .antigravity_settings
+            .get("agentMode")
+            .and_then(Value::as_str);
+        let model = self
+            .antigravity_settings
+            .get("model")
+            .and_then(Value::as_str);
+        let permission = self
+            .antigravity_settings
+            .get("toolPermission")
+            .and_then(Value::as_str);
+        json!({
+            "source": self.antigravity_cli.join("settings.json"),
+            "agentMode": mode.unwrap_or("default"),
+            "model": model.unwrap_or("default"),
+            "toolPermission": permission.unwrap_or("default"),
+            "appDataDir": self.antigravity_cli,
+            "configDir": self.antigravity_config,
+            "note": "Antigravity CLI settings snapshot. Live sessions and environment variables may override model or permission settings."
         })
     }
 }

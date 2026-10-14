@@ -348,6 +348,209 @@ fn read_text(
     Ok(FileContent::Text(text))
 }
 
+pub(super) struct AntigravityConversation {
+    pub id: String,
+    pub title: String,
+    pub workspace_uris: Vec<String>,
+}
+
+pub(super) fn discover_antigravity(
+    cli_root: &Path,
+    folder: Option<&Path>,
+    collector: &mut Collector,
+) {
+    let db_path = cli_root.join("conversation_summaries.db");
+    let mut conversations = HashMap::new();
+    if db_path.exists() {
+        match inspect_antigravity_database(cli_root, &db_path, collector) {
+            Ok(map) => conversations = map,
+            Err(error) => collector
+                .diagnostics
+                .push(format!("Cannot inspect {}: {error}", db_path.display())),
+        }
+    }
+
+    let brain_dir = cli_root.join("brain");
+    let Ok(entries) = std::fs::read_dir(&brain_dir) else {
+        return;
+    };
+    let mut entries: Vec<_> = entries
+        .take(super::SOURCE_LIMIT)
+        .filter_map(Result::ok)
+        .collect();
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        if !entry.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let conv_id = entry.file_name().to_string_lossy().into_owned();
+        let conv = conversations.get(&conv_id);
+        let conv_title = conv.map_or("", |c| c.title.as_str());
+        let workspace_uris = conv.map_or(&[][..], |c| c.workspace_uris.as_slice());
+
+        let (scope, group) =
+            resolve_antigravity_scope_and_group(folder, workspace_uris, conv_title);
+
+        let Ok(files) = std::fs::read_dir(entry.path()) else {
+            continue;
+        };
+        let mut files: Vec<_> = files
+            .take(super::SOURCE_LIMIT)
+            .filter_map(Result::ok)
+            .collect();
+        files.sort_by_key(std::fs::DirEntry::file_name);
+        for file_entry in files {
+            let file_name = file_entry.file_name().to_string_lossy().into_owned();
+            if file_name.starts_with('.') || file_name.ends_with(".metadata.json") {
+                continue;
+            }
+            let path = file_entry.path();
+            let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if metadata.is_dir() {
+                continue;
+            }
+            let kind = if file_name == "walkthrough.md"
+                || file_name.ends_with("_summary.md")
+                || file_name == "summary.md"
+            {
+                MemoryKind::Summary
+            } else if file_name == "MEMORY.md" {
+                MemoryKind::Durable
+            } else {
+                MemoryKind::Artifact
+            };
+            collector.file(
+                &entry.path(),
+                &path,
+                MemoryHarness::Antigravity,
+                scope,
+                kind,
+                &group,
+            );
+        }
+    }
+}
+
+fn resolve_antigravity_scope_and_group(
+    folder: Option<&Path>,
+    workspace_uris: &[String],
+    conv_title: &str,
+) -> (MemoryScope, String) {
+    let canonical_folder =
+        folder.and_then(|f| f.canonicalize().ok().or_else(|| Some(f.to_owned())));
+    let repo_folder = folder.map(repository_root);
+
+    let mut is_current_folder = false;
+    let mut other_workspace_name = None;
+
+    for uri in workspace_uris {
+        if let Some(path_str) = uri.strip_prefix("file://") {
+            let path = PathBuf::from(path_str);
+            let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+            if let Some(current) = &canonical_folder
+                && (&canonical_path == current
+                    || canonical_path.starts_with(current)
+                    || current.starts_with(&canonical_path))
+            {
+                is_current_folder = true;
+                break;
+            }
+            if let Some(repo) = &repo_folder
+                && (&canonical_path == repo
+                    || canonical_path.starts_with(repo)
+                    || repo.starts_with(&canonical_path))
+            {
+                is_current_folder = true;
+                break;
+            }
+            if other_workspace_name.is_none() {
+                other_workspace_name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+            }
+        }
+    }
+
+    if is_current_folder {
+        let label = if conv_title.is_empty() {
+            "Antigravity artifacts".to_string()
+        } else {
+            format!("Antigravity: {conv_title}")
+        };
+        (MemoryScope::Folder, label)
+    } else if let Some(ws_name) = other_workspace_name {
+        (
+            MemoryScope::OtherFolder,
+            format!("Antigravity folder: {ws_name}"),
+        )
+    } else if !workspace_uris.is_empty() {
+        (
+            MemoryScope::OtherFolder,
+            "Antigravity other workspaces".to_string(),
+        )
+    } else {
+        (MemoryScope::Global, "Antigravity artifacts".to_string())
+    }
+}
+
+fn inspect_antigravity_database(
+    root: &Path,
+    path: &Path,
+    collector: &mut Collector,
+) -> Result<HashMap<String, AntigravityConversation>, DatabaseError> {
+    let snapshot = Snapshot::open(root, path)?;
+    let connection = &snapshot.connection;
+    let fields = columns(connection, "conversation_summaries")?;
+    if !fields.contains("conversation_id") {
+        return Ok(HashMap::new());
+    }
+    let count: i64 = connection
+        .query_row("SELECT count(*) FROM conversation_summaries", [], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0);
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let metadata = json!({
+        "database": path,
+        "table": "conversation_summaries",
+        "conversationCount": count,
+        "columns": fields,
+        "note": "Antigravity conversation index. Uses a private read snapshot."
+    });
+    let mut status = source(
+        path,
+        &format!("{name} · {count} conversations"),
+        MemoryHarness::Antigravity,
+        MemoryScope::Global,
+        MemoryKind::StoreStatus,
+        "Antigravity storage",
+    );
+    status.format = "json".into();
+    collector.push(
+        status,
+        Backing::Text(serde_json::to_string_pretty(&metadata).unwrap_or_default()),
+    );
+
+    let mut query = connection
+        .prepare("SELECT conversation_id, title, workspace_uris FROM conversation_summaries")?;
+    let rows = query.query_map([], |r| {
+        let id: String = r.get(0)?;
+        let title: String = r.get(1).unwrap_or_default();
+        let uris_raw: String = r.get(2).unwrap_or_default();
+        let uris: Vec<String> = serde_json::from_str(&uris_raw).unwrap_or_default();
+        Ok(AntigravityConversation {
+            id,
+            title,
+            workspace_uris: uris,
+        })
+    })?;
+    let mut map = HashMap::new();
+    for row in rows.flatten() {
+        map.insert(row.id.clone(), row);
+    }
+    Ok(map)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
