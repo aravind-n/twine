@@ -96,8 +96,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tree-sitter/tree-sitter-css",
       "state" : {
-        "revision" : "c0d581e32d183a536731ed6c3a72758b27e20411",
-        "version" : "0.23.2"
+        "revision" : "dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f",
+        "version" : "0.25.0"
       }
     },
     {
