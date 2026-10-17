@@ -44,7 +44,7 @@ extension TwineUITests {
 
     private func writeTraceAgent(in folder: URL) throws {
         try #"""
-        case "$1" in --help) exit 0 ;; esac
+        case "$1" in --list-models|--help) exit 0 ;; esac
         while [ "$#" -gt 0 ]; do
             if [ "$1" = --settings ]; then settings="$2"; break; fi
             shift
@@ -145,9 +145,11 @@ extension TwineUITests {
     }
 
     @MainActor
+    // swiftlint:disable:next function_body_length
     func testForceQuitPreservesAgentOutputAndCanResumeItsSession() throws {
         let folder = try makeFolder()
         try """
+        case "$1" in --list-models|--help) exit 0 ;; esac
         echo $$ > agent.pid
         echo CRASH-HISTORY
         printf '%s\\n' "$@" > agent-arguments
@@ -221,6 +223,7 @@ extension TwineUITests {
         // The UI test runner is sandboxed, and macOS won't let Twine execute a script that it wrote.
         // So the runner only writes the script's text, and Twine's own shell installs the executable.
         try """
+        case "$1" in --list-models|--help) exit 0 ;; esac
         echo $$ > agent.pid
         for argument in "$@"; do [ "$argument" = -- ] && echo prompt > agent-args.txt; done
         echo STUB-AGENT-READY
@@ -272,7 +275,7 @@ extension TwineUITests {
         app.terminate()
     }
 
-    /// A harness that isn't installed is explained on the card, and the draft is left alone.
+    /// No harnesses on PATH: the Single agent menu indicates none are available and the draft stays.
     @MainActor
     func testSingleAgentWithAMissingHarnessShowsAMessageAndKeepsTheDraft() throws {
         let folder = try makeFolder()
@@ -283,17 +286,22 @@ extension TwineUITests {
         XCTAssertTrue(app.buttons["workflowTab-1"].waitForExistence(timeout: 10), app.debugDescription)
         resizeWindow(app.windows.firstMatch, to: CGSize(width: 900, height: 620))
 
-        chooseHarness("pi", in: app)
-
-        let failure = app.staticTexts["agentStartFailure"]
-        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
-        // SwiftUI puts the message in the element's value, not its label.
-        let message = failure.value as? String ?? ""
-        XCTAssertTrue(message.contains("wasn't found on your PATH"), message)
+        let tile = element("workflowChoice-Single agent", in: app)
+        XCTAssertTrue(tile.waitForExistence(timeout: 10), app.debugDescription)
+        // Retry until the catalog finishes loading: during loading all harnesses appear, after loading
+        // none appear because all fail the PATH check.
+        var noAgents = false
+        for _ in 0..<10 {
+            tile.click()
+            noAgents = app.menuItems["No agents available"].waitForExistence(timeout: 2)
+            app.typeKey(.escape, modifierFlags: [])
+            if noAgents { break }
+        }
+        XCTAssertTrue(noAgents, app.debugDescription)
         XCTAssertTrue(app.staticTexts["Draft"].exists, "The tab is still a draft")
         XCTAssertTrue(
             element("workflowChoice-Single agent", in: app).exists, "The choices stay so another harness can be tried")
-        attachAgentWindow(in: app, name: "Missing harness message")
+        attachAgentWindow(in: app, name: "No agents available")
         app.terminate()
     }
 
@@ -302,14 +310,25 @@ extension TwineUITests {
     private func chooseHarness(_ harness: String, displayName: String? = nil, in app: XCUIApplication) {
         let tile = element("workflowChoice-Single agent", in: app)
         XCTAssertTrue(tile.waitForExistence(timeout: 10), app.debugDescription)
-        tile.click()
-        let item = app.menuItems[displayName ?? harness]
-        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
-        item.click()
+        // The harness list loads asynchronously; retry opening the menu until the harness appears.
+        var found = false
+        for _ in 0..<10 {
+            tile.click()
+            let item = app.menuItems[displayName ?? harness]
+            guard item.waitForExistence(timeout: 2) else {
+                app.typeKey(.escape, modifierFlags: [])
+                continue
+            }
+            item.click()
+            found = true
+            break
+        }
+        XCTAssertTrue(found, "Harness \(harness) did not appear in the Single agent menu:\n\(app.debugDescription)")
+        guard found else { return }
         // Stub harnesses list no models or effort levels, so the default model starts it directly.
         // SwiftUI doesn't carry identifiers into nested submenus, so find it by title in the harness's.
         let defaultModel = app.menuItems["harness-\(harness)"].menuItems["Default model"]
-        XCTAssertTrue(defaultModel.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(defaultModel.waitForExistence(timeout: 10), app.debugDescription)
         defaultModel.click()
     }
 

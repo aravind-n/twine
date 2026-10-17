@@ -136,6 +136,156 @@ struct HarnessModelTests {
         #expect(await transport.modelRequests.count == CoreHarness.allCases.count, "Each harness is listed once")
     }
 
+}
+
+@MainActor
+extension HarnessModelTests {
+    @Test func availableHarnessesIncludesAllWhileLoading() async throws {
+        let transport = DelayedStartTransport()
+        let client = CoreClient(transport: transport)
+        let catalog = HarnessModelCatalog()
+        // Before the core runs, all entries are .loading — none should be excluded
+        await catalog.load(using: client)
+        #expect(catalog.availableHarnesses() == CoreHarness.allCases)
+    }
+
+    @Test func availableHarnessesExcludesFailedHarnesses() async throws {
+        let transport = DelayedStartTransport()
+        await transport.failModels(.piAgent, with: .failed("pi wasn't found on your PATH."))
+        await transport.failModels(.codex, with: .failed("codex wasn't found on your PATH."))
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await waitUntil { client.runState == .running }
+        let catalog = HarnessModelCatalog()
+        await catalog.load(using: client)
+        let available = catalog.availableHarnesses()
+        #expect(!available.contains(.piAgent), "pi is not in PATH")
+        #expect(!available.contains(.codex), "codex is not in PATH")
+        #expect(available.contains(.claudeCode))
+        #expect(available.contains(.antigravity))
+        #expect(available.contains(.omp))
+        #expect(available.contains(.opencode))
+    }
+
+    @Test func availableHarnessesIsEmptyWhenNoneAreInstalled() async throws {
+        let transport = DelayedStartTransport()
+        for harness in CoreHarness.allCases {
+            await transport.failModels(harness, with: .failed("\(harness.rawValue) wasn't found on your PATH."))
+        }
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await waitUntil { client.runState == .running }
+        let catalog = HarnessModelCatalog()
+        await catalog.load(using: client)
+        #expect(catalog.availableHarnesses().isEmpty, "No agents in PATH means empty list")
+    }
+
+    @Test func availableHarnessesUpdatesAfterFailedHarnessRetries() async throws {
+        let transport = DelayedStartTransport()
+        await transport.failModels(.piAgent, with: .failed("pi wasn't found on your PATH."))
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await waitUntil { client.runState == .running }
+        let catalog = HarnessModelCatalog()
+        await catalog.load(using: client)
+        #expect(!catalog.availableHarnesses().contains(.piAgent))
+        // pi becomes available — retry succeeds
+        await transport.failModels(.piAgent, with: nil)
+        await catalog.load(using: client)
+        #expect(catalog.availableHarnesses().contains(.piAgent), "pi is now available after retry")
+    }
+
+    @Test func availableHarnessesUsesTheFolderForOpencode() async throws {
+        var snapshot = CoreSnapshot.testReady()
+        snapshot.folders.openFolder = "/myproject"
+        let transport = DelayedStartTransport(snapshot: snapshot)
+        await transport.failModels(.opencode, with: .failed("opencode wasn't found on your PATH."))
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await waitUntil { client.runState == .running }
+        let catalog = HarnessModelCatalog()
+        await catalog.load(using: client)
+        #expect(!catalog.availableHarnesses(folder: "/myproject").contains(.opencode))
+        #expect(
+            catalog.availableHarnesses(folder: nil).contains(.opencode),
+            "Different folder key — opencode not yet checked for nil folder")
+    }
+
+    @Test func savedChoiceSwitchesToFirstAvailableWhenItsHarnessIsUnavailable() async throws {
+        let transport = DelayedStartTransport()
+        // pi and codex are not installed
+        await transport.failModels(.piAgent, with: .failed("pi wasn't found on your PATH."))
+        await transport.failModels(.codex, with: .failed("codex wasn't found on your PATH."))
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await waitUntil { client.runState == .running }
+        let catalog = HarnessModelCatalog()
+        await catalog.load(using: client)
+
+        // Saved choice is pi — not available
+        var choice = HarnessChoice(harness: .piAgent, model: "pi-model", effort: "high")
+        let available = catalog.availableHarnesses()
+        if !available.contains(choice.harness), let first = available.first {
+            choice.switchHarness(to: first)
+        }
+        // Should switch to first available, clearing model and effort
+        #expect(choice.harness != .piAgent, "Unavailable harness must be replaced")
+        #expect(available.contains(choice.harness), "New harness must be in available list")
+        #expect(choice.model == nil, "Model from old harness is cleared on switch")
+        #expect(choice.effort == nil, "Effort from old harness is cleared on switch")
+    }
+
+    @Test func savedChoiceIsKeptWhenItsHarnessIsStillAvailable() async throws {
+        let transport = DelayedStartTransport()
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await waitUntil { client.runState == .running }
+        let catalog = HarnessModelCatalog()
+        await catalog.load(using: client)
+
+        // Saved choice is claudeCode — available
+        var choice = HarnessChoice(harness: .claudeCode, model: "claude-3", effort: "high")
+        let available = catalog.availableHarnesses()
+        if !available.contains(choice.harness), let first = available.first {
+            choice.switchHarness(to: first)
+        }
+        // Should keep the existing choice untouched
+        #expect(choice.harness == .claudeCode)
+        #expect(choice.model == "claude-3")
+        #expect(choice.effort == "high")
+    }
+
+    @Test func savedChoiceIsKeptWhenNoHarnessesAreAvailable() async throws {
+        let transport = DelayedStartTransport()
+        for harness in CoreHarness.allCases {
+            await transport.failModels(harness, with: .failed("\(harness.rawValue) not found."))
+        }
+        let client = CoreClient(transport: transport)
+        client.start()
+        defer { Task { await client.stop() } }
+        try await waitUntil { client.runState == .running }
+        let catalog = HarnessModelCatalog()
+        await catalog.load(using: client)
+
+        // Saved choice is piAgent — nothing is available
+        var choice = HarnessChoice(harness: .piAgent)
+        let available = catalog.availableHarnesses()
+        if !available.contains(choice.harness), let first = available.first {
+            choice.switchHarness(to: first)
+        }
+        // No harnesses available — choice stays unchanged, UI shows "No agents available"
+        #expect(choice.harness == .piAgent, "Choice unchanged when no alternatives exist")
+    }
+}
+
+@MainActor
+extension HarnessModelTests {
     @Test func opencodeCatalogsFollowFoldersAndLateResponsesStayWithTheirFolder() async throws {
         var snapshot = CoreSnapshot.testReady()
         snapshot.folders.openFolder = "/first"

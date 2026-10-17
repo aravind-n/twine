@@ -23,6 +23,8 @@ struct NewTabChoices: View {
     @Binding var startingHarness: CoreHarness?
     /// The harness whose unlisted model is being typed, for Single agent's "Other model…".
     @State private var customModelHarness: CoreHarness?
+    /// Incremented on each appearance so the catalog retries failed harnesses whenever the card reappears.
+    @State private var appearanceID = 0
     /// Single agent's last YOLO setting, kept for the next start.
     @AppStorage("singleAgentYolo") private var singleAgentYolo = false
     private var catalog: [CoreWorkflowType] { client.snapshot?.workflowTypes ?? [] }
@@ -95,7 +97,11 @@ struct NewTabChoices: View {
         )
         .accessibilityIdentifier("newTabChoices")
         .offset(y: verticalOffset)
-        .task(id: client.snapshot?.folders.openFolder) { await harnessCatalog.load(using: client) }
+        .task(id: CatalogLoadKey(folder: client.snapshot?.folders.openFolder, appearanceID: appearanceID)) {
+            guard appearanceID > 0 else { return }
+            await harnessCatalog.load(using: client)
+        }
+        .onAppear { appearanceID += 1 }
         .alert(
             "Delete Workflow?",
             isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } })
@@ -208,16 +214,24 @@ struct NewTabChoices: View {
                         .help("Skip the agent's permission prompts. pi doesn't ask for permission.")
                         .accessibilityIdentifier("singleAgentYolo")
                     Divider()
-                    ForEach(CoreHarness.allCases) { harness in
-                        Menu(harness.displayName) {
-                            SingleAgentHarnessMenu(
-                                harness: harness,
-                                entry: harnessCatalog.entry(for: harness, folder: client.snapshot?.folders.openFolder),
-                                yolo: singleAgentYolo,
-                                start: start,
-                                chooseCustomModel: { customModelHarness = harness })
+                    let available = harnessCatalog.availableHarnesses(
+                        folder: client.snapshot?.folders.openFolder)
+                    if available.isEmpty {
+                        Text("No agents available")
+                    } else {
+                        ForEach(available) { harness in
+                            Menu(harness.displayName) {
+                                SingleAgentHarnessMenu(
+                                    harness: harness,
+                                    entry: harnessCatalog.entry(
+                                        for: harness,
+                                        folder: client.snapshot?.folders.openFolder),
+                                    yolo: singleAgentYolo,
+                                    start: start,
+                                    chooseCustomModel: { customModelHarness = harness })
+                            }
+                            .accessibilityIdentifier("harness-\(harness.rawValue)")
                         }
-                        .accessibilityIdentifier("harness-\(harness.rawValue)")
                     }
                 } label: {
                     ChoiceTile(choice: choice)
@@ -250,4 +264,9 @@ struct NewTabChoices: View {
             do { try await startAgent(choice) } catch { startFailure = error.localizedDescription }
         }
     }
+}
+
+private struct CatalogLoadKey: Equatable {
+    let folder: String?
+    let appearanceID: Int
 }

@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configure the terminal cursor shape with `terminal.cursor_style` — accepts `"block"`, `"underline"`, or `"bar"`.
 - Control whether the terminal cursor blinks with `terminal.cursor_blink` — defaults to `true`.
 
+### Fixed
+
+- Agent picker dropdowns now only show agents available on the user's PATH. If no agents are installed, the picker indicates that none are available.
+
 ## [0.3.2] - 2026-10-12
 
 ### Added

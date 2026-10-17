@@ -68,6 +68,14 @@ final class HarnessModelCatalog {
         entries[Key(harness, folder: folder)] ?? .loading
     }
 
+    /// Harnesses not confirmed unavailable — excludes those whose PATH check failed.
+    func availableHarnesses(folder: String? = nil) -> [CoreHarness] {
+        CoreHarness.allCases.filter {
+            if case .failed = entry(for: $0, folder: folder) { return false }
+            return true
+        }
+    }
+
     /// Lists the models of every harness that doesn't have them yet, all at once, and waits for them.
     /// The catalog owns each listing, so a picker that goes away doesn't stop one others wait on.
     func load(using client: CoreClient) async {
