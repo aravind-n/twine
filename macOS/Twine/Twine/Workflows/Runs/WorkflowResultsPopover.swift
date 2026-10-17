@@ -20,8 +20,10 @@ struct WorkflowResultsPopover: View {
                         HStack {
                             Text(output.label).font(.headline)
                             Spacer()
-                            Text(Double(output.elapsedMs) / 1000, format: .number.precision(.fractionLength(2)))
-                                + Text(" s")
+                            HStack(spacing: 2) {
+                                Text(Double(output.elapsedMs) / 1000, format: .number.precision(.fractionLength(2)))
+                                Text("s")
+                            }
                         }
                         Text(output.summary).textSelection(.enabled).font(.body)
                         if canChoose {
