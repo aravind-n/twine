@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-17
+
 ### Added
 
+- Browse Antigravity memories alongside Codex and Claude Code in the Memories sidebar.
 - Configure the terminal cursor shape with `terminal.cursor_style` — accepts `"block"`, `"underline"`, or `"bar"`.
 - Control whether the terminal cursor blinks with `terminal.cursor_blink` — defaults to `true`.
 
@@ -260,7 +263,8 @@ Initial release of Twine, a native macOS workspace for coordinating coding agent
 - The app is ad hoc signed and not notarized. Follow the included install instructions
   to approve the first launch in macOS Privacy & Security settings.
 
-[unreleased]: https://github.com/standing-desks/twine/compare/v0.3.2...HEAD
+[unreleased]: https://github.com/standing-desks/twine/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/standing-desks/twine/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/standing-desks/twine/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/standing-desks/twine/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/standing-desks/twine/compare/v0.2.5...v0.3.0
